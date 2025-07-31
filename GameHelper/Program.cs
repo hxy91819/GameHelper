@@ -1,7 +1,7 @@
 using System;
 using System.Windows.Forms;
 
-namespace HDRGameManager
+namespace GameHelper
 {
     internal static class Program
     {
@@ -13,11 +13,11 @@ namespace HDRGameManager
             
             // 检查是否已有实例运行
             bool createdNew;
-            using (var mutex = new System.Threading.Mutex(true, "HDRGameManager", out createdNew))
+            using (var mutex = new System.Threading.Mutex(true, "GameHelper", out createdNew))
             {
                 if (!createdNew)
                 {
-                    MessageBox.Show("HDR游戏管理器已在运行中！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show("GameHelper 已在运行中！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
                 
