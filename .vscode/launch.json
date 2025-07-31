@@ -1,0 +1,17 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch HDRGameManager",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/HDRGameManager/HDRGameManager/bin/Debug/net8.0-windows/HDRGameManager.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/HDRGameManager/HDRGameManager",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "requireExactSource": false
+        }
+    ]
+}
