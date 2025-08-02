@@ -1,0 +1,166 @@
+<Window x:Class="GameHelper.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="GameHelper - 游戏助手"
+        Height="650"
+        Width="500"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanMinimize"
+        Background="{StaticResource BackgroundBrush}"
+        WindowState="Minimized"
+        ShowInTaskbar="False"
+        Visibility="Hidden">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 标题区域 -->
+        <Border Grid.Row="0" Style="{StaticResource Card}" Margin="0,0,0,20">
+            <StackPanel>
+                <Label Content="GameHelper 游戏助手" Style="{StaticResource HeaderLabel}" HorizontalAlignment="Center"/>
+                <Label Content="自动HDR管理 · 游戏体验优化" Style="{StaticResource BodyLabel}" HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 游戏列表区域 -->
+        <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,20">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Label Grid.Row="0" Content="监控的游戏列表" Style="{StaticResource SubHeaderLabel}" Margin="0,0,0,10"/>
+                
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl x:Name="GameListControl">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="White" 
+                                        BorderBrush="#E0E0E0" 
+                                        BorderThickness="1" 
+                                        CornerRadius="4" 
+                                        Margin="0,2" 
+                                        Padding="12,8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        
+                                        <CheckBox Grid.Column="0" 
+                                                IsChecked="{Binding IsEnabled}" 
+                                                Style="{StaticResource ModernCheckBox}"
+                                                Margin="0,0,10,0"/>
+                                        
+                                        <TextBlock Grid.Column="1" 
+                                                 Text="{Binding Name}" 
+                                                 VerticalAlignment="Center"
+                                                 FontFamily="Segoe UI"
+                                                 FontSize="14"/>
+                                        
+                                        <Button Grid.Column="2" 
+                                              Content="删除" 
+                                              Style="{StaticResource DangerButton}"
+                                              Padding="8,4"
+                                              FontSize="12"
+                                              Click="RemoveGame_Click"
+                                              Tag="{Binding Name}"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- 添加游戏区域 -->
+        <Border Grid.Row="2" Style="{StaticResource Card}" Margin="0,0,0,20">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <Label Grid.Row="0" Content="添加新游戏" Style="{StaticResource SubHeaderLabel}" Margin="0,0,0,10"/>
+                
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBox Grid.Column="0" 
+                           x:Name="NewGameTextBox" 
+                           Style="{StaticResource ModernTextBox}"
+                           Margin="0,0,10,0"
+                           Text="{Binding NewGameName, UpdateSourceTrigger=PropertyChanged}"/>
+                    
+                    <Button Grid.Column="1" 
+                          Content="浏览" 
+                          Style="{StaticResource ModernButton}"
+                          Margin="0,0,10,0"
+                          Click="BrowseGame_Click"/>
+                    
+                    <Button Grid.Column="2" 
+                          Content="添加" 
+                          Style="{StaticResource SuccessButton}"
+                          Click="AddGame_Click"/>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- HDR测试区域 -->
+        <Border Grid.Row="3" Style="{StaticResource Card}" Margin="0,0,0,20">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <Label Grid.Row="0" Content="HDR 测试控制" Style="{StaticResource SubHeaderLabel}" Margin="0,0,0,10"/>
+                
+                <Label Grid.Row="1" 
+                     x:Name="HDRStatusLabel" 
+                     Content="HDR状态: 未知" 
+                     Style="{StaticResource BodyLabel}"
+                     Foreground="{StaticResource PrimaryBrush}"
+                     Margin="0,0,0,10"/>
+                
+                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center">
+                    <Button Content="开启 HDR" 
+                          Style="{StaticResource SuccessButton}"
+                          Margin="0,0,10,0"
+                          Click="EnableHDR_Click"/>
+                    
+                    <Button Content="关闭 HDR" 
+                          Style="{StaticResource DangerButton}"
+                          Click="DisableHDR_Click"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 底部按钮区域 -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Center">
+            <Button Content="查看状态" 
+                  Style="{StaticResource ModernButton}"
+                  Margin="0,0,10,0"
+                  Click="ShowStatus_Click"/>
+            
+            <Button Content="最小化到托盘" 
+                  Style="{StaticResource ModernButton}"
+                  Click="MinimizeToTray_Click"/>
+        </StackPanel>
+
+    </Grid>
+</Window>
