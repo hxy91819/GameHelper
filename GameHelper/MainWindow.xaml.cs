@@ -32,6 +32,12 @@ namespace GameHelper
         private Dictionary<string, GameConfig> monitoredGames = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
         private bool isHDREnabled = false;
         private string configPath = "";
+        
+        // 游玩时间统计相关
+        private Dictionary<string, GamePlayTime> gamePlayTimes = new Dictionary<string, GamePlayTime>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, DateTime> gameStartTimes = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        private string playTimeConfigPath = "";
+        private System.Timers.Timer? playTimeSaveTimer;
 
         // 数据绑定属性
         public ObservableCollection<GameItem> Games { get; set; } = new ObservableCollection<GameItem>();
@@ -60,8 +66,10 @@ namespace GameHelper
             
             InitializeSystemTray();
             LoadConfiguration();
+            LoadPlayTimeConfiguration();
             StartProcessMonitoring();
             CheckInitialHDRState();
+            InitializePlayTimeTimer();
             
             // 绑定游戏列表
             GameListControl.ItemsSource = Games;
@@ -154,12 +162,99 @@ namespace GameHelper
             RefreshGameList();
         }
 
+        private void LoadPlayTimeConfiguration()
+        {
+            playTimeConfigPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), 
+                                    "GameHelper", "playtime.json");
+            
+            Directory.CreateDirectory(Path.GetDirectoryName(playTimeConfigPath) ?? "");
+            
+            if (File.Exists(playTimeConfigPath))
+            {
+                try
+                {
+                    var json = File.ReadAllText(playTimeConfigPath);
+                    var config = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+                    
+                    if (config?.ContainsKey("games") == true)
+                    {
+                        var playTimes = JsonSerializer.Deserialize<GamePlayTime[]>(config["games"].ToString() ?? "");
+                        if (playTimes != null)
+                        {
+                            gamePlayTimes = playTimes.ToDictionary(g => g.GameName, g => g, StringComparer.OrdinalIgnoreCase);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ShowNotification($"游玩时间配置加载失败: {ex.Message}", ToolTipIcon.Warning);
+                }
+            }
+        }
+
+        private void SavePlayTimeConfiguration()
+        {
+            try
+            {
+                var playTimes = gamePlayTimes.Values.ToArray();
+                var config = new Dictionary<string, object>
+                {
+                    ["games"] = playTimes
+                };
+                var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(playTimeConfigPath, json);
+            }
+            catch (Exception ex)
+            {
+                ShowNotification($"游玩时间配置保存失败: {ex.Message}", ToolTipIcon.Error);
+            }
+        }
+
         private void RefreshGameList()
         {
             Games.Clear();
             foreach (var game in monitoredGames.OrderBy(g => g.Key))
             {
-                Games.Add(new GameItem { Name = game.Key, IsEnabled = game.Value.IsEnabled, HDREnabled = game.Value.HDREnabled });
+                var gameItem = new GameItem 
+                { 
+                    Name = game.Key, 
+                    IsEnabled = game.Value.IsEnabled, 
+                    HDREnabled = game.Value.HDREnabled,
+                    PlayTimeInfo = GetGamePlayTimeInfo(game.Key)
+                };
+                Games.Add(gameItem);
+            }
+        }
+
+        private string GetGamePlayTimeInfo(string gameName)
+        {
+            if (gamePlayTimes.ContainsKey(gameName))
+            {
+                var playTime = gamePlayTimes[gameName];
+                var totalMinutes = playTime.TotalMinutes;
+                
+                if (totalMinutes > 0)
+                {
+                    var hours = totalMinutes / 60;
+                    var minutes = totalMinutes % 60;
+                    
+                    if (hours > 0)
+                    {
+                        return $"{hours}小时{minutes}分钟";
+                    }
+                    else
+                    {
+                        return $"{minutes}分钟";
+                    }
+                }
+                else
+                {
+                    return "未游玩";
+                }
+            }
+            else
+            {
+                return "未游玩";
             }
         }
 
@@ -225,6 +320,8 @@ namespace GameHelper
                     if (gameConfig.IsEnabled)
                     {
                         gameProcesses.Add(processName);
+                        // 开始记录游玩时间
+                        StartGamePlayTimeTracking(processName);
                         if (!isHDREnabled)
                         {
                             EnableHDR();
@@ -252,6 +349,8 @@ namespace GameHelper
                 if (gameProcesses.Contains(processName))
                 {
                     gameProcesses.Remove(processName);
+                    // 停止记录游玩时间
+                    StopGamePlayTimeTracking(processName);
                     if (gameProcesses.Count == 0 && isHDREnabled)
                     {
                         DisableHDR();
@@ -280,6 +379,8 @@ namespace GameHelper
                         if (gameConfig.IsEnabled)
                         {
                             gameProcesses.Add(processName);
+                            // 记录游戏开始时间
+                            StartGamePlayTimeTracking(processName);
                         }
                     }
                 }
@@ -359,6 +460,86 @@ namespace GameHelper
             {
                 ShowNotification($"发送HDR快捷键失败: {ex.Message}", ToolTipIcon.Error);
             }
+        }
+
+        // 游玩时间统计方法
+        private void StartGamePlayTimeTracking(string gameName)
+        {
+            if (!gameStartTimes.ContainsKey(gameName))
+            {
+                gameStartTimes[gameName] = DateTime.Now;
+                
+                // 初始化游戏游玩时间记录
+                if (!gamePlayTimes.ContainsKey(gameName))
+                {
+                    gamePlayTimes[gameName] = new GamePlayTime 
+                    { 
+                        GameName = gameName, 
+                        TotalMinutes = 0, 
+                        FirstPlayed = DateTime.Now,
+                        LastPlayed = DateTime.Now
+                    };
+                }
+                else
+                {
+                    // 更新最后游玩时间
+                    gamePlayTimes[gameName].LastPlayed = DateTime.Now;
+                }
+            }
+        }
+
+        private void StopGamePlayTimeTracking(string gameName)
+        {
+            if (gameStartTimes.ContainsKey(gameName))
+            {
+                var startTime = gameStartTimes[gameName];
+                var endTime = DateTime.Now;
+                var playDuration = endTime - startTime;
+                
+                // 计算游玩分钟数
+                var minutesPlayed = (long)playDuration.TotalMinutes;
+                
+                // 更新累计游玩时间
+                if (gamePlayTimes.ContainsKey(gameName))
+                {
+                    gamePlayTimes[gameName].TotalMinutes += minutesPlayed;
+                    gamePlayTimes[gameName].LastPlayed = endTime;
+                }
+                
+                // 移除开始时间记录
+                gameStartTimes.Remove(gameName);
+                
+                // 保存游玩时间配置
+                SavePlayTimeConfiguration();
+                
+                // 更新UI显示
+                UpdateGamePlayTimeInfo(gameName);
+            }
+        }
+
+        private void UpdateGamePlayTimeInfo(string gameName)
+        {
+            var gameItem = Games.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
+            if (gameItem != null)
+            {
+                gameItem.PlayTimeInfo = GetGamePlayTimeInfo(gameName);
+            }
+        }
+
+        private void InitializePlayTimeTimer()
+        {
+            // 每30分钟保存一次游玩时间
+            playTimeSaveTimer = new System.Timers.Timer(30 * 60 * 1000); // 30分钟
+            playTimeSaveTimer.Elapsed += (sender, e) => 
+            {
+                SavePlayTimeConfiguration();
+                // 更新所有游戏的游玩时间显示
+                foreach (var game in Games)
+                {
+                    UpdateGamePlayTimeInfo(game.Name);
+                }
+            };
+            playTimeSaveTimer.Start();
         }
 
         // UI事件处理
@@ -476,6 +657,12 @@ namespace GameHelper
 
         private void ExitApplication(object? sender, EventArgs e)
         {
+            // 停止所有正在运行的游戏的计时
+            foreach (var gameName in gameStartTimes.Keys.ToList())
+            {
+                StopGamePlayTimeTracking(gameName);
+            }
+            
             if (isHDREnabled)
             {
                 DisableHDR();
@@ -483,6 +670,7 @@ namespace GameHelper
             
             processStartWatcher?.Stop();
             processStopWatcher?.Stop();
+            playTimeSaveTimer?.Stop();
             notifyIcon?.Dispose();
             System.Windows.Application.Current.Shutdown();
         }
@@ -508,6 +696,7 @@ namespace GameHelper
         private string _name = "";
         private bool _isEnabled = true;
         private bool _hdrEnabled = true;
+        private string _playTimeInfo = "未游玩";
 
         public string Name
         {
@@ -539,6 +728,16 @@ namespace GameHelper
             }
         }
 
+        public string PlayTimeInfo
+        {
+            get => _playTimeInfo;
+            set
+            {
+                _playTimeInfo = value;
+                OnPropertyChanged(nameof(PlayTimeInfo));
+            }
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
         protected virtual void OnPropertyChanged(string propertyName)
         {
@@ -552,5 +751,14 @@ namespace GameHelper
         public string Name { get; set; } = "";
         public bool IsEnabled { get; set; } = true;
         public bool HDREnabled { get; set; } = true;
+    }
+
+    // 游玩时间统计模型
+    public class GamePlayTime
+    {
+        public string GameName { get; set; } = "";
+        public long TotalMinutes { get; set; } = 0;
+        public DateTime LastPlayed { get; set; } = DateTime.MinValue;
+        public DateTime FirstPlayed { get; set; } = DateTime.Now;
     }
 }
