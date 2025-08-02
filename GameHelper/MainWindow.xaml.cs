@@ -29,7 +29,7 @@ namespace GameHelper
         private ManagementEventWatcher? processStartWatcher;
         private ManagementEventWatcher? processStopWatcher;
         private HashSet<string> gameProcesses = new HashSet<string>();
-        private HashSet<string> monitoredGames = new HashSet<string>();
+        private Dictionary<string, GameConfig> monitoredGames = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
         private bool isHDREnabled = false;
         private string configPath = "";
 
@@ -99,12 +99,29 @@ namespace GameHelper
                 {
                     var json = File.ReadAllText(configPath);
                     var config = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+                    
                     if (config?.ContainsKey("games") == true)
                     {
-                        var games = JsonSerializer.Deserialize<string[]>(config["games"].ToString() ?? "");
-                        if (games != null)
+                        // 尝试加载新格式的配置
+                        try
                         {
-                            monitoredGames = new HashSet<string>(games, StringComparer.OrdinalIgnoreCase);
+                            var gameConfigs = JsonSerializer.Deserialize<GameConfig[]>(config["games"].ToString() ?? "");
+                            if (gameConfigs != null)
+                            {
+                                monitoredGames = gameConfigs.ToDictionary(g => g.Name, g => g, StringComparer.OrdinalIgnoreCase);
+                            }
+                        }
+                        catch
+                        {
+                            // 兼容旧格式配置
+                            var games = JsonSerializer.Deserialize<string[]>(config["games"].ToString() ?? "");
+                            if (games != null)
+                            {
+                                monitoredGames = games.ToDictionary(
+                                    g => g, 
+                                    g => new GameConfig { Name = g, IsEnabled = true, HDREnabled = true }, 
+                                    StringComparer.OrdinalIgnoreCase);
+                            }
                         }
                     }
                 }
@@ -116,14 +133,20 @@ namespace GameHelper
             else
             {
                 // 默认游戏列表
-                monitoredGames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                var defaultGames = new[]
                 {
                     "cyberpunk2077.exe",
-                    "witcher3.exe",
+                    "witcher3.exe", 
                     "rdr2.exe",
                     "msfs.exe",
                     "forza_horizon_5.exe"
                 };
+                
+                monitoredGames = defaultGames.ToDictionary(
+                    g => g,
+                    g => new GameConfig { Name = g, IsEnabled = true, HDREnabled = true },
+                    StringComparer.OrdinalIgnoreCase);
+                    
                 SaveConfiguration();
             }
 
@@ -134,9 +157,9 @@ namespace GameHelper
         private void RefreshGameList()
         {
             Games.Clear();
-            foreach (var game in monitoredGames.OrderBy(g => g))
+            foreach (var game in monitoredGames.OrderBy(g => g.Key))
             {
-                Games.Add(new GameItem { Name = game, IsEnabled = true });
+                Games.Add(new GameItem { Name = game.Key, IsEnabled = game.Value.IsEnabled, HDREnabled = game.Value.HDREnabled });
             }
         }
 
@@ -144,9 +167,11 @@ namespace GameHelper
         {
             try
             {
+                // 保存游戏配置数组，包含启用状态
+                var gameConfigs = monitoredGames.Values.ToArray();
                 var config = new Dictionary<string, object>
                 {
-                    ["games"] = monitoredGames.ToArray()
+                    ["games"] = gameConfigs
                 };
                 var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(configPath, json);
@@ -193,13 +218,18 @@ namespace GameHelper
                 var eventTime = DateTime.Now.ToString("HH:mm:ss.fff");
                 System.Diagnostics.Debug.WriteLine($"[{eventTime}] 进程启动事件: {processName}");
 
-                if (monitoredGames.Contains(processName))
+                // 检查游戏是否在监控列表中且已启用
+                if (monitoredGames.ContainsKey(processName))
                 {
-                    gameProcesses.Add(processName);
-                    if (!isHDREnabled)
+                    var gameConfig = monitoredGames[processName];
+                    if (gameConfig.IsEnabled)
                     {
-                        EnableHDR();
-                        ShowNotification($"[{eventTime}] 检测到游戏 {processName}，已开启HDR", ToolTipIcon.Info);
+                        gameProcesses.Add(processName);
+                        if (!isHDREnabled)
+                        {
+                            EnableHDR();
+                            ShowNotification($"[{eventTime}] 检测到游戏 {processName}，已开启HDR", ToolTipIcon.Info);
+                        }
                     }
                 }
             }
@@ -243,9 +273,14 @@ namespace GameHelper
                 try
                 {
                     string processName = process.ProcessName + ".exe";
-                    if (monitoredGames.Contains(processName))
+                    // 检查游戏是否在监控列表中且已启用
+                    if (monitoredGames.ContainsKey(processName))
                     {
-                        gameProcesses.Add(processName);
+                        var gameConfig = monitoredGames[processName];
+                        if (gameConfig.IsEnabled)
+                        {
+                            gameProcesses.Add(processName);
+                        }
                     }
                 }
                 catch { }
@@ -352,11 +387,10 @@ namespace GameHelper
                     gameName += ".exe";
                 }
 
-                if (!monitoredGames.Contains(gameName))
+                if (!monitoredGames.ContainsKey(gameName))
                 {
-                    monitoredGames.Add(gameName);
+                    monitoredGames.Add(gameName, new GameConfig { Name = gameName, IsEnabled = true, HDREnabled = true });
                     Games.Add(new GameItem { Name = gameName, IsEnabled = true });
-                    SaveConfiguration();
                     NewGameName = "";
                 }
                 else
@@ -376,7 +410,6 @@ namespace GameHelper
                 {
                     Games.Remove(gameItem);
                 }
-                SaveConfiguration();
             }
         }
 
@@ -401,6 +434,12 @@ namespace GameHelper
         private void ShowStatus_Click(object sender, RoutedEventArgs e)
         {
             ShowStatus(sender, EventArgs.Empty);
+        }
+
+        private void SaveConfig_Click(object sender, RoutedEventArgs e)
+        {
+            SaveConfiguration();
+            MessageBox.Show("配置已保存", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void MinimizeToTray_Click(object sender, RoutedEventArgs e)
@@ -468,6 +507,7 @@ namespace GameHelper
     {
         private string _name = "";
         private bool _isEnabled = true;
+        private bool _hdrEnabled = true;
 
         public string Name
         {
@@ -489,10 +529,28 @@ namespace GameHelper
             }
         }
 
+        public bool HDREnabled
+        {
+            get => _hdrEnabled;
+            set
+            {
+                _hdrEnabled = value;
+                OnPropertyChanged(nameof(HDREnabled));
+            }
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
         protected virtual void OnPropertyChanged(string propertyName)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
+    }
+
+    // 配置数据模型
+    public class GameConfig
+    {
+        public string Name { get; set; } = "";
+        public bool IsEnabled { get; set; } = true;
+        public bool HDREnabled { get; set; } = true;
     }
 }

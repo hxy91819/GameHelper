@@ -2,14 +2,12 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="GameHelper - 游戏助手"
-        Height="650"
+        Height="915"
         Width="500"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanMinimize"
         Background="{StaticResource BackgroundBrush}"
-        WindowState="Minimized"
-        ShowInTaskbar="False"
-        Visibility="Hidden">
+        >
 
     <Grid Margin="20">
         <Grid.RowDefinitions>
@@ -156,6 +154,11 @@
                   Style="{StaticResource ModernButton}"
                   Margin="0,0,10,0"
                   Click="ShowStatus_Click"/>
+            
+            <Button Content="保存配置" 
+                  Style="{StaticResource SuccessButton}"
+                  Margin="0,0,10,0"
+                  Click="SaveConfig_Click"/>
             
             <Button Content="最小化到托盘" 
                   Style="{StaticResource ModernButton}"
