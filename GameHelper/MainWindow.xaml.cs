@@ -33,9 +33,8 @@ namespace GameHelper
         private bool isHDREnabled = false;
         private string configPath = "";
         
-        // 游玩时间统计相关
-        private Dictionary<string, GamePlayTime> gamePlayTimes = new Dictionary<string, GamePlayTime>(StringComparer.OrdinalIgnoreCase);
-        private Dictionary<string, DateTime> gameStartTimes = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        // 游戏游玩时间管理器
+        private GamePlayTimeManager playTimeManager;
         private string playTimeConfigPath = "";
         private System.Timers.Timer? playTimeSaveTimer;
 
@@ -64,15 +63,27 @@ namespace GameHelper
             InitializeComponent();
             DataContext = this;
             
-            InitializeSystemTray();
+            string appDataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GameHelper");
+            configPath = Path.Combine(appDataPath, "config.json");
+            playTimeConfigPath = Path.Combine(appDataPath, "playtime.json");
+            
+            // 初始化游戏游玩时间管理器
+            playTimeManager = new GamePlayTimeManager(appDataPath);
+            
+            // 加载配置
             LoadConfiguration();
-            LoadPlayTimeConfiguration();
+            
+            // 初始化游戏列表
+            GameListControl.ItemsSource = Games;
+            
+            // 初始化WMI事件监听
             StartProcessMonitoring();
-            CheckInitialHDRState();
+            
+            // 初始化游玩时间保存定时器
             InitializePlayTimeTimer();
             
-            // 绑定游戏列表
-            GameListControl.ItemsSource = Games;
+            // 初始化系统托盘
+            InitializeSystemTray();
         }
 
         private void InitializeSystemTray()
@@ -164,50 +175,12 @@ namespace GameHelper
 
         private void LoadPlayTimeConfiguration()
         {
-            playTimeConfigPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), 
-                                    "GameHelper", "playtime.json");
-            
-            Directory.CreateDirectory(Path.GetDirectoryName(playTimeConfigPath) ?? "");
-            
-            if (File.Exists(playTimeConfigPath))
-            {
-                try
-                {
-                    var json = File.ReadAllText(playTimeConfigPath);
-                    var config = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-                    
-                    if (config?.ContainsKey("games") == true)
-                    {
-                        var playTimes = JsonSerializer.Deserialize<GamePlayTime[]>(config["games"].ToString() ?? "");
-                        if (playTimes != null)
-                        {
-                            gamePlayTimes = playTimes.ToDictionary(g => g.GameName, g => g, StringComparer.OrdinalIgnoreCase);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    ShowNotification($"游玩时间配置加载失败: {ex.Message}", ToolTipIcon.Warning);
-                }
-            }
+            // 游玩时间配置现在由GamePlayTimeManager管理
         }
 
         private void SavePlayTimeConfiguration()
         {
-            try
-            {
-                var playTimes = gamePlayTimes.Values.ToArray();
-                var config = new Dictionary<string, object>
-                {
-                    ["games"] = playTimes
-                };
-                var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(playTimeConfigPath, json);
-            }
-            catch (Exception ex)
-            {
-                ShowNotification($"游玩时间配置保存失败: {ex.Message}", ToolTipIcon.Error);
-            }
+            // 游玩时间配置现在由GamePlayTimeManager管理
         }
 
         private void RefreshGameList()
@@ -228,34 +201,22 @@ namespace GameHelper
 
         private string GetGamePlayTimeInfo(string gameName)
         {
-            if (gamePlayTimes.ContainsKey(gameName))
-            {
-                var playTime = gamePlayTimes[gameName];
-                var totalMinutes = playTime.TotalMinutes;
-                
-                if (totalMinutes > 0)
-                {
-                    var hours = totalMinutes / 60;
-                    var minutes = totalMinutes % 60;
-                    
-                    if (hours > 0)
-                    {
-                        return $"{hours}小时{minutes}分钟";
-                    }
-                    else
-                    {
-                        return $"{minutes}分钟";
-                    }
-                }
-                else
-                {
-                    return "未游玩";
-                }
-            }
-            else
-            {
+            var playTime = playTimeManager.GetGamePlayTime(gameName);
+            var totalMinutes = playTime.TotalMinutes;
+            
+            if (totalMinutes <= 0)
                 return "未游玩";
-            }
+                
+            var hours = totalMinutes / 60;
+            var mins = totalMinutes % 60;
+            
+            var lastPlayed = playTime.LastPlayed;
+            var lastPlayedText = lastPlayed != DateTime.MinValue ? $" (上次: {lastPlayed:yyyy-MM-dd})" : "";
+            
+            if (hours > 0)
+                return $"{hours}小时{mins}分钟{lastPlayedText}";
+            else
+                return $"{mins}分钟{lastPlayedText}";
         }
 
         private void SaveConfiguration()
@@ -321,7 +282,7 @@ namespace GameHelper
                     {
                         gameProcesses.Add(processName);
                         // 开始记录游玩时间
-                        StartGamePlayTimeTracking(processName);
+                        playTimeManager.StartGamePlayTimeTracking(processName);
                         if (!isHDREnabled)
                         {
                             EnableHDR();
@@ -332,7 +293,7 @@ namespace GameHelper
             }
             catch (Exception ex)
             {
-                ShowNotification($"处理进程启动事件失败: {ex.Message}", ToolTipIcon.Warning);
+                ShowNotification($"处理进程开始事件失败: {ex.Message}", ToolTipIcon.Warning);
             }
         }
 
@@ -350,11 +311,15 @@ namespace GameHelper
                 {
                     gameProcesses.Remove(processName);
                     // 停止记录游玩时间
-                    StopGamePlayTimeTracking(processName);
+                    playTimeManager.StopGamePlayTimeTracking(processName);
                     if (gameProcesses.Count == 0 && isHDREnabled)
                     {
                         DisableHDR();
                         ShowNotification($"[{eventTime}] 游戏 {processName} 已关闭，已关闭HDR", ToolTipIcon.Info);
+                    }
+                    else
+                    {
+                        ShowNotification($"[{eventTime}] 游戏 {processName} 已关闭", ToolTipIcon.Info);
                     }
                 }
             }
@@ -380,7 +345,7 @@ namespace GameHelper
                         {
                             gameProcesses.Add(processName);
                             // 记录游戏开始时间
-                            StartGamePlayTimeTracking(processName);
+                            playTimeManager.StartGamePlayTimeTracking(processName);
                         }
                     }
                 }
@@ -462,61 +427,6 @@ namespace GameHelper
             }
         }
 
-        // 游玩时间统计方法
-        private void StartGamePlayTimeTracking(string gameName)
-        {
-            if (!gameStartTimes.ContainsKey(gameName))
-            {
-                gameStartTimes[gameName] = DateTime.Now;
-                
-                // 初始化游戏游玩时间记录
-                if (!gamePlayTimes.ContainsKey(gameName))
-                {
-                    gamePlayTimes[gameName] = new GamePlayTime 
-                    { 
-                        GameName = gameName, 
-                        TotalMinutes = 0, 
-                        FirstPlayed = DateTime.Now,
-                        LastPlayed = DateTime.Now
-                    };
-                }
-                else
-                {
-                    // 更新最后游玩时间
-                    gamePlayTimes[gameName].LastPlayed = DateTime.Now;
-                }
-            }
-        }
-
-        private void StopGamePlayTimeTracking(string gameName)
-        {
-            if (gameStartTimes.ContainsKey(gameName))
-            {
-                var startTime = gameStartTimes[gameName];
-                var endTime = DateTime.Now;
-                var playDuration = endTime - startTime;
-                
-                // 计算游玩分钟数
-                var minutesPlayed = (long)playDuration.TotalMinutes;
-                
-                // 更新累计游玩时间
-                if (gamePlayTimes.ContainsKey(gameName))
-                {
-                    gamePlayTimes[gameName].TotalMinutes += minutesPlayed;
-                    gamePlayTimes[gameName].LastPlayed = endTime;
-                }
-                
-                // 移除开始时间记录
-                gameStartTimes.Remove(gameName);
-                
-                // 保存游玩时间配置
-                SavePlayTimeConfiguration();
-                
-                // 更新UI显示
-                UpdateGamePlayTimeInfo(gameName);
-            }
-        }
-
         private void UpdateGamePlayTimeInfo(string gameName)
         {
             var gameItem = Games.FirstOrDefault(g => g.Name.Equals(gameName, StringComparison.OrdinalIgnoreCase));
@@ -524,6 +434,42 @@ namespace GameHelper
             {
                 gameItem.PlayTimeInfo = GetGamePlayTimeInfo(gameName);
             }
+        }
+
+        // 获取指定时间段内的游戏时长
+        private long GetPlayTimeInPeriod(string gameName, DateTime startDate, DateTime endDate)
+        {
+            return playTimeManager.GetPlayTimeInPeriod(gameName, startDate, endDate);
+        }
+
+        // 获取过去一周的游戏时长
+        public long GetWeeklyPlayTime(string gameName)
+        {
+            var now = DateTime.Now;
+            var oneWeekAgo = now.AddDays(-7);
+            return GetPlayTimeInPeriod(gameName, oneWeekAgo, now);
+        }
+
+        // 获取过去一个月的游戏时长
+        public long GetMonthlyPlayTime(string gameName)
+        {
+            var now = DateTime.Now;
+            var oneMonthAgo = now.AddMonths(-1);
+            return GetPlayTimeInPeriod(gameName, oneMonthAgo, now);
+        }
+
+        // 获取过去一年的游戏时长
+        public long GetYearlyPlayTime(string gameName)
+        {
+            var now = DateTime.Now;
+            var oneYearAgo = now.AddYears(-1);
+            return GetPlayTimeInPeriod(gameName, oneYearAgo, now);
+        }
+
+        // 获取指定日期范围的游戏会话次数
+        private int GetSessionCountInPeriod(string gameName, DateTime startDate, DateTime endDate)
+        {
+            return playTimeManager.GetSessionCountInPeriod(gameName, startDate, endDate);
         }
 
         private void InitializePlayTimeTimer()
@@ -628,6 +574,13 @@ namespace GameHelper
             Hide();
         }
 
+        private void ShowStatistics_Click(object sender, RoutedEventArgs e)
+        {
+            // 显示游戏统计窗口
+            var statisticsWindow = new StatisticsWindow(playTimeManager);
+            statisticsWindow.Show();
+        }
+
         // 系统托盘事件
         private void ShowMainWindow(object? sender, EventArgs e)
         {
@@ -658,9 +611,12 @@ namespace GameHelper
         private void ExitApplication(object? sender, EventArgs e)
         {
             // 停止所有正在运行的游戏的计时
-            foreach (var gameName in gameStartTimes.Keys.ToList())
+            // 注意：由于我们使用了GamePlayTimeManager，这里的游戏开始时间记录在Manager内部
+            // 我们需要获取所有当前正在运行的游戏并停止它们的计时
+            // 这里简化处理，假设gameProcesses包含了所有正在运行的游戏
+            foreach (var gameName in gameProcesses)
             {
-                StopGamePlayTimeTracking(gameName);
+                playTimeManager.StopGamePlayTimeTracking(gameName);
             }
             
             if (isHDREnabled)
@@ -753,12 +709,5 @@ namespace GameHelper
         public bool HDREnabled { get; set; } = true;
     }
 
-    // 游玩时间统计模型
-    public class GamePlayTime
-    {
-        public string GameName { get; set; } = "";
-        public long TotalMinutes { get; set; } = 0;
-        public DateTime LastPlayed { get; set; } = DateTime.MinValue;
-        public DateTime FirstPlayed { get; set; } = DateTime.Now;
-    }
+
 }

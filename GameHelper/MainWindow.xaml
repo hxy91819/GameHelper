@@ -164,6 +164,11 @@
                   Margin="0,0,10,0"
                   Click="ShowStatus_Click"/>
             
+            <Button Content="游戏统计" 
+                  Style="{StaticResource ModernButton}"
+                  Margin="0,0,10,0"
+                  Click="ShowStatistics_Click"/>
+            
             <Button Content="保存配置" 
                   Style="{StaticResource SuccessButton}"
                   Margin="0,0,10,0"
