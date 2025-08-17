@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using CoreGameConfig = GameHelper.Core.Models.GameConfig;
 
 namespace GameHelper.Tests
 {
@@ -41,23 +41,23 @@ namespace GameHelper.Tests
 
     file sealed class FakeConfig : IConfigProvider
     {
-        private readonly IReadOnlyDictionary<string, GameConfig> _configs;
-        public FakeConfig(IReadOnlyDictionary<string, GameConfig> configs)
+        private readonly IReadOnlyDictionary<string, CoreGameConfig> _configs;
+        public FakeConfig(IReadOnlyDictionary<string, CoreGameConfig> configs)
         {
             _configs = configs;
         }
-        public IReadOnlyDictionary<string, GameConfig> Load() => _configs;
-        public void Save(IReadOnlyDictionary<string, GameConfig> configs) { /* not used in tests */ }
+        public IReadOnlyDictionary<string, CoreGameConfig> Load() => _configs;
+        public void Save(IReadOnlyDictionary<string, CoreGameConfig> configs) { /* not used in tests */ }
     }
 
     public class GameAutomationServiceTests
     {
-        private static IReadOnlyDictionary<string, GameConfig> Dict(params (string name, bool enabled)[] items)
+        private static IReadOnlyDictionary<string, CoreGameConfig> Dict(params (string name, bool enabled)[] items)
         {
-            var dict = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+            var dict = new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase);
             foreach (var (name, enabled) in items)
             {
-                dict[name] = new GameConfig { Name = name, IsEnabled = enabled, HDREnabled = true };
+                dict[name] = new CoreGameConfig { Name = name, IsEnabled = enabled, HDREnabled = true };
             }
             return dict;
         }

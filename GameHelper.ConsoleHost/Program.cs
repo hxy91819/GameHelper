@@ -10,10 +10,70 @@ using GameHelper.ConsoleHost;
 using GameHelper.Infrastructure.Controllers;
 using GameHelper.Infrastructure.Processes;
 using GameHelper.Infrastructure.Providers;
+using GameHelper.Infrastructure.Validators;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+static void ConvertConfigCommand()
+{
+    try
+    {
+        string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        string dir = Path.Combine(appData, "GameHelper");
+        string jsonPath = Path.Combine(dir, "config.json");
+        string ymlPath = Path.Combine(dir, "config.yml");
+
+        if (!File.Exists(jsonPath))
+        {
+            Console.WriteLine($"No JSON config found at {jsonPath}");
+            return;
+        }
+
+        // Load from JSON
+        var jsonProvider = new JsonConfigProvider(jsonPath);
+        var data = jsonProvider.Load();
+        Console.WriteLine($"Loaded {data.Count} entries from JSON.");
+
+        // Save to YAML (overwrites if exists)
+        var yamlProvider = new YamlConfigProvider(ymlPath);
+        yamlProvider.Save(data);
+        Console.WriteLine($"Written YAML to {ymlPath}");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Failed to convert: {ex.Message}");
+    }
+}
+
+static void RunValidateConfigCommand()
+{
+    try
+    {
+        var provider = new YamlConfigProvider();
+        string path = provider.ConfigPath;
+        var result = YamlConfigValidator.Validate(path);
+
+        Console.WriteLine($"Validating: {path}");
+        Console.WriteLine($"Games: {result.GameCount}, Duplicates: {result.DuplicateCount}");
+        if (result.Warnings.Count > 0)
+        {
+            Console.WriteLine("Warnings:");
+            foreach (var w in result.Warnings) Console.WriteLine("  - " + w);
+        }
+        if (result.Errors.Count > 0)
+        {
+            Console.WriteLine("Errors:");
+            foreach (var e in result.Errors) Console.WriteLine("  - " + e);
+        }
+
+        Console.WriteLine(result.IsValid ? "Config is valid." : "Config has errors.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Failed to validate: {ex.Message}");
+    }
+}
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureLogging(logging =>
     {
@@ -25,12 +85,26 @@ var host = Host.CreateDefaultBuilder(args)
         // Register core abstractions with infrastructure implementations
         services.AddSingleton<IProcessMonitor, WmiProcessMonitor>();
         services.AddSingleton<IHdrController, NoOpHdrController>();
-        services.AddSingleton<IConfigProvider, JsonConfigProvider>();
+        services.AddSingleton<IConfigProvider, YamlConfigProvider>();
         services.AddSingleton<IPlayTimeService, FileBackedPlayTimeService>();
         services.AddSingleton<IGameAutomationService, GameAutomationService>();
         services.AddHostedService<Worker>();
     })
     .Build();
+
+// Print effective config file path if available
+try
+{
+    var cfgProvider = host.Services.GetService<IConfigProvider>();
+    if (cfgProvider is IConfigPathProvider pathProvider)
+    {
+        Console.WriteLine($"Using config: {pathProvider.ConfigPath}");
+    }
+}
+catch
+{
+    // ignore printing errors
+}
 
 var command = args.Length > 0 ? args[0].ToLowerInvariant() : "monitor";
 switch (command)
@@ -47,6 +121,14 @@ switch (command)
         RunStatsCommand(args.Skip(1).ToArray());
         break;
 
+    case "convert-config":
+        ConvertConfigCommand();
+        break;
+
+    case "validate-config":
+        RunValidateConfigCommand();
+        break;
+
     default:
         PrintUsage();
         break;
@@ -61,6 +143,8 @@ static void PrintUsage()
     Console.WriteLine("  config add <exe>");
     Console.WriteLine("  config remove <exe>");
     Console.WriteLine("  stats [--game <name>]");
+    Console.WriteLine("  convert-config");
+    Console.WriteLine("  validate-config");
 }
 
 static void RunConfigCommand(IServiceProvider services, string[] args)
@@ -146,12 +230,19 @@ static void RunStatsCommand(string[] args)
             return;
         }
 
+        // load config to resolve Alias for display (YAML only)
+        var cfgProvider2 = new YamlConfigProvider();
+        var cfg = new Dictionary<string, GameConfig>(cfgProvider2.Load(), StringComparer.OrdinalIgnoreCase);
+
         long total = 0;
         foreach (var g in list.OrderBy(g => g.GameName, StringComparer.OrdinalIgnoreCase))
         {
             var minutes = g.Sessions?.Sum(s => s.DurationMinutes) ?? 0;
             total += minutes;
-            Console.WriteLine($"{g.GameName}: {minutes} min, sessions={g.Sessions?.Count ?? 0}");
+            var display = cfg.TryGetValue(g.GameName, out var gc) && !string.IsNullOrWhiteSpace(gc.Alias)
+                ? gc.Alias!
+                : g.GameName;
+            Console.WriteLine($"{display}: {minutes} min, sessions={g.Sessions?.Count ?? 0}");
         }
         if (string.IsNullOrWhiteSpace(filterGame))
         {

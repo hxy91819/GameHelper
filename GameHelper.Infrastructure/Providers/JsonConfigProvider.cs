@@ -12,7 +12,7 @@ namespace GameHelper.Infrastructure.Providers
     /// JSON-based config provider stored at %AppData%/GameHelper/config.json
     /// Compatible with legacy format where games is an array of strings.
     /// </summary>
-    public sealed class JsonConfigProvider : IConfigProvider
+    public sealed class JsonConfigProvider : IConfigProvider, IConfigPathProvider
     {
         private readonly string _configFilePath;
 
@@ -27,6 +27,8 @@ namespace GameHelper.Infrastructure.Providers
         {
             _configFilePath = configFilePath;
         }
+
+        public string ConfigPath => _configFilePath;
 
         public IReadOnlyDictionary<string, GameConfig> Load()
         {
@@ -60,6 +62,7 @@ namespace GameHelper.Infrastructure.Providers
                                     result[g.Name] = new GameConfig
                                     {
                                         Name = g.Name,
+                                        Alias = g.Alias,
                                         IsEnabled = g.IsEnabled,
                                         HDREnabled = g.HDREnabled
                                     };
@@ -83,7 +86,7 @@ namespace GameHelper.Infrastructure.Providers
                             {
                                 if (!string.IsNullOrWhiteSpace(n))
                                 {
-                                    result[n] = new GameConfig { Name = n, IsEnabled = true, HDREnabled = true };
+                                    result[n] = new GameConfig { Name = n, Alias = null, IsEnabled = true, HDREnabled = true };
                                 }
                             }
                         }
@@ -113,6 +116,13 @@ namespace GameHelper.Infrastructure.Providers
                 ["games"] = configs.Values
                     .Where(v => !string.IsNullOrWhiteSpace(v.Name))
                     .OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(v => new GameConfig
+                    {
+                        Name = v.Name,
+                        Alias = string.IsNullOrWhiteSpace(v.Alias) ? null : v.Alias,
+                        IsEnabled = v.IsEnabled,
+                        HDREnabled = v.HDREnabled
+                    })
                     .ToArray()
             };
 

@@ -44,12 +44,33 @@ namespace GameHelper.Core.Services
         {
             _monitor.ProcessStarted -= OnProcessStarted;
             _monitor.ProcessStopped -= OnProcessStopped;
+            // Flush any active sessions to ensure playtime is persisted when the host shuts down
+            if (_active.Count > 0)
+            {
+                foreach (var name in _active.ToArray())
+                {
+                    try
+                    {
+                        _logger.LogInformation("Flushing active session on stop: {Process}", name);
+                        _playTime.StopTracking(name);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to flush session for {Process}", name);
+                    }
+                }
+                _active.Clear();
+            }
             _logger.LogInformation("GameAutomationService stopped");
         }
 
         private void OnProcessStarted(string processName)
         {
-            if (!IsEnabled(processName)) return;
+            if (!IsEnabled(processName))
+            {
+                _logger.LogDebug("Ignoring start for not-enabled process: {Process}", processName);
+                return;
+            }
 
             var wasEmpty = _active.Count == 0;
             _active.Add(processName);
@@ -66,7 +87,11 @@ namespace GameHelper.Core.Services
 
         private void OnProcessStopped(string processName)
         {
-            if (!IsEnabled(processName)) return;
+            if (!IsEnabled(processName))
+            {
+                _logger.LogDebug("Ignoring stop for not-enabled process: {Process}", processName);
+                return;
+            }
 
             var removed = _active.Remove(processName);
             if (!removed) return;

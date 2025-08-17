@@ -1,66 +1,76 @@
 # GameHelper - 游戏助手
 
-一个专为游戏玩家设计的Windows桌面工具，提供自动化的游戏体验优化功能。
+一个专为游戏玩家设计的 Console-first 工具，提供基于进程监控的自动化与游玩时长统计。
 
-## 🎮 功能特性
+## 功能特性
 
-### HDR自动管理
-- **智能检测**：自动检测支持HDR的游戏启动和关闭
-- **一键切换**：使用Windows 11官方快捷键 `WIN+ALT+B` 自动开启/关闭HDR
-- **事件驱动**：基于WMI事件系统，实时响应，零延迟
-- **资源友好**：空闲时CPU使用率接近0%
+### 进程监控与统计
+- 事件驱动：基于 WMI 的进程启动/停止事件，实时低开销
+- 游玩时长：自动记录会话并写入 `%AppData%/GameHelper/playtime.json`
+- 稳健落盘：即使未收到进程停止事件，在服务停止时也会补偿落盘
 
-### 用户界面
-- **系统托盘**：最小化到系统托盘，不占用任务栏空间
-- **配置界面**：直观的游戏管理和HDR测试界面
-- **实时状态**：显示当前HDR状态和运行中的游戏
+### 配置与工具
+- YAML 配置：`%AppData%/GameHelper/config.yml`，支持 `alias`、大小写不敏感匹配
+- CLI 工具：`monitor / stats / validate-config / convert-config`
 
-## 🚀 快速开始
+> 重要：HDR 切换功能当前为占位实现（NoOp），未对系统 HDR 状态做实际开关。后续将重新实现 HDR 控制器（可能采用 Windows API/显卡驱动接口/辅助进程方案）。
+
+## 快速开始
 
 ### 系统要求
 - Windows 11 (推荐) 或 Windows 10
 - .NET 8.0 Runtime
-- 支持HDR的显示器（用于HDR功能）
 - 管理员权限（用于进程监控）
 
-### 安装使用
-1. 下载最新版本的 `GameHelper.exe`
-2. 以管理员身份运行程序
-3. 右键点击系统托盘图标，选择"配置游戏"
-4. 添加你想要自动开启HDR的游戏
-5. 享受自动化的游戏体验！
+### 运行方式（开发/验证）
+```powershell
+dotnet run --project .\GameHelper.ConsoleHost -- monitor
+dotnet run --project .\GameHelper.ConsoleHost -- stats [--game <name>]
+dotnet run --project .\GameHelper.ConsoleHost -- validate-config
+dotnet run --project .\GameHelper.ConsoleHost -- convert-config
+```
 
-## 🔧 使用说明
+### 发布自包含可执行
+```powershell
+dotnet publish .\GameHelper.ConsoleHost `
+  -c Release `
+  -r win-x64 `
+  -p:PublishSingleFile=true `
+  -p:PublishTrimmed=false `
+  --self-contained true
+```
+产物：`GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish/`
 
-### 添加游戏
-1. 右键点击系统托盘中的GameHelper图标
-2. 选择"配置游戏"
-3. 点击"浏览"按钮选择游戏的exe文件
-4. 点击"添加"将游戏加入监控列表
+## 使用说明
 
-### HDR测试
-在配置窗口中提供了HDR测试功能：
-- **开启HDR**：测试HDR开启功能
-- **关闭HDR**：测试HDR关闭功能
+### 配置文件（YAML）
+路径：`%AppData%/GameHelper/config.yml`
+```yaml
+games:
+  - name: "witcher3.exe"
+    alias: "巫师3"
+    isEnabled: true
+    hDREnabled: true
+```
+说明：`name` 匹配进程名（大小写不敏感）；`alias` 用于显示；`hDREnabled` 为将来 HDR 控制之用，当前不会实际切换 HDR。
 
 ### 自动化工作流程
 ```
-游戏启动 → 自动检测 → 开启HDR → 游戏体验优化
-游戏关闭 → 自动检测 → 关闭HDR → 节省电量
+游戏启动 → 事件检测 → 记录会话（必要时启用HDR：待实现）
+游戏关闭 → 事件检测 → 结束会话并落盘
 ```
 
-## 🛠️ 技术特性
+## 技术特性
 
-- **事件驱动架构**：使用WMI事件系统监控进程，而非轮询扫描
-- **Windows API集成**：使用官方快捷键，安全可靠
-- **资源优化**：空闲时几乎不消耗系统资源
-- **错误处理**：完善的异常处理和用户提示
+- 事件驱动架构：使用 WMI 事件系统监控进程
+- 资源优化：空闲时几乎不消耗系统资源
+- 文件容错：`playtime.json` 解析失败时自动重建
 
-## 📋 开发计划
+## 开发计划
 
 见 [TODOs.md](TODOs.md)
 
-## 🤝 贡献
+## 贡献
 
 欢迎提交Issue和Pull Request！
 
@@ -69,15 +79,14 @@
 - .NET 8.0 SDK
 - Windows 11 开发环境
 
-## 📄 许可证
+## 许可证
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
 
-## 🙏 致谢
+## 致谢
 
-- 感谢Microsoft提供的WMI事件系统
-- 感谢Windows 11的HDR快捷键支持
+- 感谢 Microsoft 提供的 WMI 事件系统
 
 ---
 
-**注意**：本程序需要管理员权限来监控系统进程，这是实现自动化功能的必要条件。程序不会收集或上传任何个人数据。
+**注意**：本程序需要管理员权限来监控系统进程。HDR 切换当前未实现（NoOp），仅记录会话与统计数据；程序不会收集或上传任何个人数据。

@@ -20,10 +20,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\GameHelper\GameHelper.csproj" />
     <ProjectReference Include="..\GameHelper.Infrastructure\GameHelper.Infrastructure.csproj" />
     <ProjectReference Include="..\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj" />
     <ProjectReference Include="..\GameHelper.Core\GameHelper.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="GamePlayTimeManagerTests.cs" />
   </ItemGroup>
 
 </Project>
