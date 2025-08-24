@@ -1,12 +1,18 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using Microsoft.Extensions.Logging;
 
 namespace GameHelper.Core.Services
 {
+    /// <summary>
+    /// Coordinates process monitoring, playtime tracking, and HDR toggling based on enabled games.
+    /// Lifecycle: call <see cref="Start"/> to subscribe to monitor events and load config,
+    /// and <see cref="Stop"/> to unsubscribe and flush any active sessions.
+    /// </summary>
     public sealed class GameAutomationService : IGameAutomationService
     {
         private readonly IProcessMonitor _monitor;
@@ -32,6 +38,9 @@ namespace GameHelper.Core.Services
             _logger = logger;
         }
 
+        /// <summary>
+        /// Loads configuration and subscribes to process monitor events. Idempotent.
+        /// </summary>
         public void Start()
         {
             _configs = _configProvider.Load();
@@ -40,6 +49,10 @@ namespace GameHelper.Core.Services
             _logger.LogInformation("GameAutomationService started with {Count} configs", _configs.Count);
         }
 
+        /// <summary>
+        /// Unsubscribes from monitor events and flushes any active play sessions to storage
+        /// to prevent data loss when the host shuts down.
+        /// </summary>
         public void Stop()
         {
             _monitor.ProcessStarted -= OnProcessStarted;
@@ -64,19 +77,50 @@ namespace GameHelper.Core.Services
             _logger.LogInformation("GameAutomationService stopped");
         }
 
+        /// <summary>
+        /// Handler for process start events. Starts a playtime session and enables HDR if this is the first active game.
+        /// </summary>
         private void OnProcessStarted(string processName)
         {
-            if (!IsEnabled(processName))
+            var key = Normalize(processName);
+            if (!IsEnabled(key))
             {
-                _logger.LogDebug("Ignoring start for not-enabled process: {Process}", processName);
-                return;
+                // Try a config-driven fuzzy fallback: map incoming name by stem to a single enabled config key
+                var stemKey = Stem(key);
+                var candidates = _configs
+                    .Where(kvp => kvp.Value.IsEnabled)
+                    .Select(kvp => kvp.Key)
+                    .Where(cfgKey => {
+                        var s = Stem(cfgKey);
+                        return s == stemKey || s.StartsWith(stemKey, StringComparison.Ordinal) || stemKey.StartsWith(s, StringComparison.Ordinal);
+                    })
+                    .ToList();
+
+                if (candidates.Count == 1)
+                {
+                    var mapped = candidates[0];
+                    _logger.LogInformation("Start fallback matched by fuzzy stem: {Stem} -> {Process}", stemKey, mapped);
+                    key = mapped; // continue using canonical config key
+                }
+                else
+                {
+                    if (candidates.Count > 1)
+                    {
+                        _logger.LogInformation("Start fallback ambiguous, multiple matches for stem {Stem}: {Candidates}", stemKey, string.Join(", ", candidates));
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Ignoring start for not-enabled process: {Process}", key);
+                    }
+                    return;
+                }
             }
 
             var wasEmpty = _active.Count == 0;
-            _active.Add(processName);
+            _active.Add(key);
 
-            _logger.LogInformation("Process started: {Process}", processName);
-            _playTime.StartTracking(processName);
+            _logger.LogInformation("Process started: {Process}", key);
+            _playTime.StartTracking(key);
 
             if (wasEmpty && _active.Count == 1)
             {
@@ -85,19 +129,47 @@ namespace GameHelper.Core.Services
             }
         }
 
+        /// <summary>
+        /// Handler for process stop events. Stops a playtime session and disables HDR if it was the last active game.
+        /// Includes fallbacks to handle minor name variations from OS events.
+        /// </summary>
         private void OnProcessStopped(string processName)
         {
-            if (!IsEnabled(processName))
+            var key = Normalize(processName);
+            // Log raw stop events only at Debug to reduce noise for unrelated processes
+            _logger.LogDebug("Stop event received: {Process}", key);
+
+            var removed = _active.Remove(key);
+            if (!removed)
             {
-                _logger.LogDebug("Ignoring stop for not-enabled process: {Process}", processName);
-                return;
+                // Fallback: fuzzy stem match to handle minor truncations/variations
+                var stemKey = Stem(key);
+                var candidates = _active
+                    .Where(a => {
+                        var sa = Stem(a);
+                        return sa == stemKey || sa.StartsWith(stemKey, StringComparison.Ordinal) || stemKey.StartsWith(sa, StringComparison.Ordinal);
+                    })
+                    .ToList();
+
+                if (candidates.Count == 1)
+                {
+                    var candidate = candidates[0];
+                    _logger.LogInformation("Stop fallback matched by fuzzy stem: {Stem} -> {Process}", stemKey, candidate);
+                    _active.Remove(candidate);
+                    key = candidate; // continue using the active canonical key
+                }
+                else
+                {
+                    if (candidates.Count > 1)
+                    {
+                        _logger.LogInformation("Stop fallback ambiguous, multiple matches for stem {Stem}: {Candidates}", stemKey, string.Join(", ", candidates));
+                    }
+                    return;
+                }
             }
 
-            var removed = _active.Remove(processName);
-            if (!removed) return;
-
-            _logger.LogInformation("Process stopped: {Process}", processName);
-            _playTime.StopTracking(processName);
+            _logger.LogInformation("Process stopped: {Process}", key);
+            _playTime.StopTracking(key);
 
             if (_active.Count == 0)
             {
@@ -106,14 +178,49 @@ namespace GameHelper.Core.Services
             }
         }
 
+        /// <summary>
+        /// Returns whether a process (by executable name) is enabled in the loaded config.
+        /// Normalization ensures consistent matching against keys.
+        /// </summary>
         private bool IsEnabled(string processName)
         {
-            if (string.IsNullOrWhiteSpace(processName)) return false;
-            if (_configs.TryGetValue(processName, out var cfg))
+            var key = Normalize(processName);
+            if (string.IsNullOrWhiteSpace(key)) return false;
+            if (_configs.TryGetValue(key, out var cfg))
             {
                 return cfg.IsEnabled;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Normalizes process names to a canonical key: keep only file name and ensure ".exe" suffix.
+        /// This reduces mismatch between start/stop events and configuration keys.
+        /// </summary>
+        private static string Normalize(string processName)
+        {
+            if (string.IsNullOrWhiteSpace(processName)) return processName;
+            // keep filename only
+            var name = Path.GetFileName(processName.Trim());
+            // ensure .exe suffix for consistency across WMI Start/Stop differences
+            if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                name += ".exe";
+            }
+            return name;
+        }
+
+        /// <summary>
+        /// Produces a fuzzy stem used for tolerant comparisons: alphanumeric-only, lower-cased,
+        /// without extension and punctuation. Helps handle minor truncations/variations.
+        /// </summary>
+        private static string Stem(string processName)
+        {
+            var n = Normalize(processName);
+            var stem = Path.GetFileNameWithoutExtension(n);
+            // alphanumeric-only, lower invariant to make fuzzy comparisons more robust (ignore spaces, dots, hyphens)
+            var filtered = new string(stem.Where(char.IsLetterOrDigit).ToArray());
+            return filtered.ToLowerInvariant();
         }
     }
 }

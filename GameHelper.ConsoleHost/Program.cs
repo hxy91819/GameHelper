@@ -74,18 +74,76 @@ static void RunValidateConfigCommand()
         Console.WriteLine($"Failed to validate: {ex.Message}");
     }
 }
+
+// Extract optional global flags from args and build an effective argument list for commands
+// Supported: --config <path> | -c <path>, and --debug | -v | --verbose
+string? configOverride = null;
+bool enableDebug = false;
+string[] effectiveArgs = args;
+try
+{
+    if (args != null && args.Length > 0)
+    {
+        var list = new List<string>(args);
+        int idx = list.FindIndex(s => string.Equals(s, "--config", StringComparison.OrdinalIgnoreCase) || string.Equals(s, "-c", StringComparison.OrdinalIgnoreCase));
+        if (idx >= 0)
+        {
+            if (idx + 1 < list.Count)
+            {
+                configOverride = list[idx + 1];
+                list.RemoveAt(idx + 1);
+                list.RemoveAt(idx);
+            }
+            else
+            {
+                Console.WriteLine("Missing path after --config/-c. Ignoring.");
+                list.RemoveAt(idx);
+            }
+        }
+        // handle --debug/-v/--verbose (boolean flag)
+        int didx = list.FindIndex(s =>
+            string.Equals(s, "--debug", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(s, "-v", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(s, "--verbose", StringComparison.OrdinalIgnoreCase));
+        if (didx >= 0)
+        {
+            enableDebug = true;
+            list.RemoveAt(didx);
+        }
+        effectiveArgs = list.ToArray();
+    }
+}
+catch { }
+
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureLogging(logging =>
     {
         logging.ClearProviders();
         logging.AddConsole();
+        logging.SetMinimumLevel(enableDebug ? LogLevel.Debug : LogLevel.Information);
     })
     .ConfigureServices(services =>
     {
         // Register core abstractions with infrastructure implementations
-        services.AddSingleton<IProcessMonitor, WmiProcessMonitor>();
+        // Config provider first, as the process monitor will read enabled game names to build a whitelist
+        services.AddSingleton<IConfigProvider>(sp =>
+        {
+            if (!string.IsNullOrWhiteSpace(configOverride)) return new YamlConfigProvider(configOverride!);
+            return new YamlConfigProvider();
+        });
+        services.AddSingleton<IProcessMonitor>(sp =>
+        {
+            var cfg = sp.GetRequiredService<IConfigProvider>();
+            var map = cfg.Load();
+            // Use enabled entries as whitelist (keys are normalized executable names like "game.exe")
+            var allowed = map is null
+                ? Array.Empty<string>()
+                : System.Linq.Enumerable.Select(
+                    System.Linq.Enumerable.Where(map, kv => kv.Value?.IsEnabled == true),
+                    kv => kv.Key);
+            return new WmiProcessMonitor(allowed);
+        });
         services.AddSingleton<IHdrController, NoOpHdrController>();
-        services.AddSingleton<IConfigProvider, YamlConfigProvider>();
         services.AddSingleton<IPlayTimeService, FileBackedPlayTimeService>();
         services.AddSingleton<IGameAutomationService, GameAutomationService>();
         services.AddHostedService<Worker>();
@@ -100,13 +158,15 @@ try
     {
         Console.WriteLine($"Using config: {pathProvider.ConfigPath}");
     }
+    // Print build info (last write time of entry assembly or process exe) and current log level
+    try { PrintBuildInfo(enableDebug); } catch { }
 }
 catch
 {
     // ignore printing errors
 }
 
-var command = args.Length > 0 ? args[0].ToLowerInvariant() : "monitor";
+var command = effectiveArgs.Length > 0 ? effectiveArgs[0].ToLowerInvariant() : "monitor";
 switch (command)
 {
     case "monitor":
@@ -114,11 +174,11 @@ switch (command)
         break;
 
     case "config":
-        RunConfigCommand(host.Services, args.Skip(1).ToArray());
+        RunConfigCommand(host.Services, effectiveArgs.Skip(1).ToArray());
         break;
 
     case "stats":
-        RunStatsCommand(args.Skip(1).ToArray());
+        RunStatsCommand(effectiveArgs.Skip(1).ToArray());
         break;
 
     case "convert-config":
@@ -138,13 +198,40 @@ static void PrintUsage()
 {
     Console.WriteLine("GameHelper Console");
     Console.WriteLine("Usage:");
-    Console.WriteLine("  monitor");
-    Console.WriteLine("  config list");
-    Console.WriteLine("  config add <exe>");
-    Console.WriteLine("  config remove <exe>");
-    Console.WriteLine("  stats [--game <name>]");
+    Console.WriteLine("  monitor [--config <path>] [--debug]");
+    Console.WriteLine("  config list [--config <path>] [--debug]");
+    Console.WriteLine("  config add <exe> [--config <path>] [--debug]");
+    Console.WriteLine("  config remove <exe> [--config <path>] [--debug]");
+    Console.WriteLine("  stats [--game <name>] [--config <path>] [--debug]");
     Console.WriteLine("  convert-config");
     Console.WriteLine("  validate-config");
+    Console.WriteLine();
+    Console.WriteLine("Global options:");
+    Console.WriteLine("  --config, -c    Override path to config.yml");
+    Console.WriteLine("  --debug, -v     Enable verbose debug logging");
+}
+
+static void PrintBuildInfo(bool debug)
+{
+    try
+    {
+        string? path = System.Reflection.Assembly.GetEntryAssembly()?.Location;
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            try { path = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName; } catch { }
+        }
+        DateTime? ts = null;
+        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+        {
+            ts = File.GetLastWriteTime(path);
+        }
+        if (ts.HasValue)
+        {
+            Console.WriteLine($"Build time: {ts.Value:yyyy-MM-dd HH:mm:ss}");
+        }
+        Console.WriteLine($"Log level: {(debug ? "Debug" : "Information")}");
+    }
+    catch { }
 }
 
 static void RunConfigCommand(IServiceProvider services, string[] args)
@@ -242,17 +329,26 @@ static void RunStatsCommand(string[] args)
             var display = cfg.TryGetValue(g.GameName, out var gc) && !string.IsNullOrWhiteSpace(gc.Alias)
                 ? gc.Alias!
                 : g.GameName;
-            Console.WriteLine($"{display}: {minutes} min, sessions={g.Sessions?.Count ?? 0}");
+            var formatted = FormatDuration(minutes);
+            Console.WriteLine($"{display}: {formatted}, sessions={g.Sessions?.Count ?? 0}");
         }
         if (string.IsNullOrWhiteSpace(filterGame))
         {
-            Console.WriteLine($"TOTAL: {total} min");
+            Console.WriteLine($"TOTAL: {FormatDuration(total)}");
         }
     }
     catch (Exception ex)
     {
         Console.WriteLine($"Failed to read stats: {ex.Message}");
     }
+}
+
+// Format minutes as "N min" when < 60, otherwise as hours (e.g., "2 h" or "2.5 h")
+static string FormatDuration(long minutes)
+{
+    if (minutes < 60) return $"{minutes} min";
+    if (minutes % 60 == 0) return $"{minutes / 60} h";
+    return $"{(minutes / 60.0):0.0} h";
 }
 
 // DTOs for JSON mapping used by stats command

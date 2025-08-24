@@ -48,6 +48,10 @@
 - `validate-config` 使用嵌入模板（`Validators/config.template.yml`）推导字段与类型；后续仅需维护模板即可。
 - Core/Infra/Console 已解耦，后续 UI 可独立替换。
 - 所有字典键采用大小写不敏感比较，避免 exe 名大小写差异。
+ - 匹配与监听策略：
+   - `Infrastructure/Processes/WmiProcessMonitor` 监听“全量进程”，不再在 WMI/WQL 层按配置白名单过滤（避免 Start/Stop 名称不一致导致漏报）。
+   - `WmiEventWatcher` 基于事件 `ProcessID` 反查 `Win32_Process`，并维护短期 `PID -> Name` 缓存，Stop 失败时可复用。
+   - `Core/Services/GameAutomationService` 在 Start/Stop 中执行 Normalize（仅文件名 + .exe）与 Stem（去扩展名/去标点/小写）以做精确+唯一模糊匹配，提升鲁棒性。
 
 ## Plan（短期）
 1. __完善自动化服务测试__：补充异常流程、重复事件去重、重复 Stop/Start 容错等边界用例。

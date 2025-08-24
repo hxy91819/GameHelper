@@ -85,6 +85,37 @@
 - 控制台输出包含基础日志（启动、停止、错误信息等）。
 - 日志系统：`Microsoft.Extensions.Logging` 控制台提供程序。
 
+## 进程匹配与监听策略
+
+* __事件来源__
+  - `Infrastructure/Processes/WmiProcessMonitor` 订阅 `Win32_ProcessStartTrace/StopTrace`。
+  - 内部 `WmiEventWatcher` 使用事件中的 `ProcessID` 反查 `Win32_Process(Name, ExecutablePath)`，避免名称截断。
+  - 维护短期缓存：在 Start 事件记录 `PID -> Name`，Stop 时若进程已消失无法反查则回退使用缓存；仍失败则回退 `ProcessName`。
+
+* __名称规范化（Normalize）__
+  - 在 `GameAutomationService.Normalize()` 将任意输入规整为“仅文件名 + 确保 .exe 后缀”，统一与配置键对齐。
+
+* __模糊干（Stem）__
+  - 在 `GameAutomationService.Stem()` 将文件名去扩展名、去标点，仅保留字母数字并转小写，用于宽松匹配（容忍轻微变体/截断）。
+
+* __Start 流程（`OnProcessStarted()`）__
+  - 先 Normalize 得到键 `key`。
+  - 若 `key` 在配置中启用（`IsEnabled(key)`）→ 直接开始追踪。
+  - 若未启用：对“已启用的配置键”按 Stem 做唯一候选的模糊匹配（仅当候选恰好为 1 个时命中），将 `key` 映射为该规范键。
+  - 追踪开始后，若这是第一个活跃游戏，则调用 `IHdrController.Enable()`（当前实现为 NoOp）。
+
+* __Stop 流程（`OnProcessStopped()`）__
+  - Normalize 后尝试从 `_active` 精确移除；失败则在“当前活跃集合”中按 Stem 做唯一候选的模糊移除。
+  - 会话结束写入 `playtime.json`；若活跃集合清空，则调用 `IHdrController.Disable()`（当前为 NoOp）。
+
+* __为何不在 WMI 层按配置过滤？__
+  - Start/Stop 事件的名称可能不一致（启动器/外壳进程、x86/x64 变体等），WQL 级别白名单容易漏报，导致错过 Start 或 Stop。
+  - 现行策略：WMI 监听“全量进程”，在 Core 层基于配置做精确+模糊的判定与去噪，鲁棒性更高；性能开销可接受。
+
+* __配置建议__
+  - 常规仅需配置 `games[].name`（规范 exe 名），必要时可为个别游戏添加 `alias` 便于展示。
+  - 若遇到多个可执行变体导致歧义，可在配置中新增更明确的条目（或后续引入 `aliases`/`paths`/`pattern` 等增强字段）。
+
 ## 常见问题
 - monitor 无法感知游戏启动/退出？
   - 请确认：

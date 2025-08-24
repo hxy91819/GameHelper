@@ -1,0 +1,17 @@
+# Debug configuration for GameHelper
+# Placeholders for quick local testing. Keys should be executable names (with .exe).
+# You can edit this file and run:
+#   dotnet run --project GameHelper.ConsoleHost -- monitor --config ./debug.config.yml
+# Or via your IDE launch configuration.
+
+games:
+  - name: "Cheat Engine.exe"
+    alias: "Cheat Engine"
+    isEnabled: true
+    hdrEnabled: false
+  - name: "Project_Plague.exe"
+    alias: "明末：渊虚之羽"
+    isEnabled: true
+    hdrEnabled: false
+  - name: "Tales of Arise.exe"
+    alias: "破晓传说"

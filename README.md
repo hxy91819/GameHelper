@@ -24,22 +24,37 @@
 
 ### 运行方式（开发/验证）
 ```powershell
-dotnet run --project .\GameHelper.ConsoleHost -- monitor
-dotnet run --project .\GameHelper.ConsoleHost -- stats [--game <name>]
-dotnet run --project .\GameHelper.ConsoleHost -- validate-config
+# 监控（可选全局参数：--config <path> / -c <path>，--debug / -v / --verbose）
+dotnet run --project .\GameHelper.ConsoleHost -- monitor [--config <path>] [--debug]
+
+# 统计（支持按游戏名过滤）
+dotnet run --project .\GameHelper.ConsoleHost -- stats [--game <name>] [--config <path>] [--debug]
+
+# 配置校验 / 格式转换
+dotnet run --project .\GameHelper.ConsoleHost -- validate-config [--config <path>]
 dotnet run --project .\GameHelper.ConsoleHost -- convert-config
 ```
 
 ### 发布自包含可执行
 ```powershell
-dotnet publish .\GameHelper.ConsoleHost `
-  -c Release `
-  -r win-x64 `
-  -p:PublishSingleFile=true `
-  -p:PublishTrimmed=false `
-  --self-contained true
+dotnet clean .\GameHelper.ConsoleHost -c Release
+dotnet publish .\GameHelper.ConsoleHost -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false
 ```
 产物：`GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish/`
+
+### 发布后启动示例
+```powershell
+$pub = ".\GameHelper.ConsoleHost\bin\Release\net8.0-windows\win-x64\publish"
+& "$pub\GameHelper.ConsoleHost.exe" monitor --config "$env:APPDATA\GameHelper\config.yml" --debug
+
+# 或查看统计：
+& "$pub\GameHelper.ConsoleHost.exe" stats --config "$env:APPDATA\GameHelper\config.yml"
+```
+
+启动时会输出：
+- Using config: <配置文件路径>
+- Build time: yyyy-MM-dd HH:mm:ss
+- Log level: Information/Debug
 
 ## 使用说明
 
