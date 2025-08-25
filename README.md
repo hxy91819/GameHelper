@@ -4,16 +4,9 @@
 
 ## 功能特性
 
-### 进程监控与统计
-- 事件驱动：基于 WMI 的进程启动/停止事件，实时低开销
-- 游玩时长：自动记录会话并写入 `%AppData%/GameHelper/playtime.json`
-- 稳健落盘：即使未收到进程停止事件，在服务停止时也会补偿落盘
-
-### 配置与工具
-- YAML 配置：`%AppData%/GameHelper/config.yml`，支持 `alias`、大小写不敏感匹配
-- CLI 工具：`monitor / stats / validate-config / convert-config`
-
-> 重要：HDR 切换功能当前为占位实现（NoOp），未对系统 HDR 状态做实际开关。后续将重新实现 HDR 控制器（可能采用 Windows API/显卡驱动接口/辅助进程方案）。
+1. 监听游戏启动/关闭事件，自动统计游玩时长（极小的资源占用）
+2. 拖动游戏快捷方式或exe到程序的快捷方式上，自动添加到配置
+3. [WIP]自动开关HDR
 
 ## 快速开始
 
