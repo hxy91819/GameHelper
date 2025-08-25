@@ -11,6 +11,7 @@ using GameHelper.Infrastructure.Controllers;
 using GameHelper.Infrastructure.Processes;
 using GameHelper.Infrastructure.Providers;
 using GameHelper.Infrastructure.Validators;
+using GameHelper.Infrastructure.Resolvers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -147,6 +148,8 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IHdrController, NoOpHdrController>();
         services.AddSingleton<IPlayTimeService, FileBackedPlayTimeService>();
         services.AddSingleton<IGameAutomationService, GameAutomationService>();
+        // Steam URL resolver for optional .url drag&drop support
+        services.AddSingleton<ISteamGameResolver, SteamGameResolver>();
         services.AddHostedService<Worker>();
     })
     .Build();
@@ -167,7 +170,7 @@ try
     {
         if (LooksLikeFilePaths(effectiveArgs))
         {
-            var summary = RunAddFilesFromArgs(effectiveArgs, configOverride);
+            var summary = RunAddFilesFromArgs(effectiveArgs, configOverride, host.Services);
             var text = $"已完成添加/更新\nAdded={summary.Added}, Updated={summary.Updated}, Skipped={summary.Skipped}\n重复清理: {summary.DuplicatesRemoved}\n配置: {summary.ConfigPath}";
             TryShowMessageBox(text, "GameHelper");
             Environment.Exit(0);
@@ -252,7 +255,7 @@ static void PrintBuildInfo(bool debug)
     catch { }
 }
 
-// Detect if args look like a list of existing .lnk/.exe file paths
+// Detect if args look like a list of existing .lnk/.exe/.url file paths
 static bool LooksLikeFilePaths(string[] args)
 {
     if (args is null || args.Length == 0) return false;
@@ -261,24 +264,37 @@ static bool LooksLikeFilePaths(string[] args)
         if (string.IsNullOrWhiteSpace(a)) return false;
         if (!File.Exists(a)) return false;
         var ext = Path.GetExtension(a);
-        if (!ext.Equals(".lnk", StringComparison.OrdinalIgnoreCase) && !ext.Equals(".exe", StringComparison.OrdinalIgnoreCase))
+        if (!ext.Equals(".lnk", StringComparison.OrdinalIgnoreCase) && !ext.Equals(".exe", StringComparison.OrdinalIgnoreCase) && !ext.Equals(".url", StringComparison.OrdinalIgnoreCase))
             return false;
     }
     return true;
 }
 
-// Add/update config entries for provided file paths (supports .lnk resolution)
-static AddSummary RunAddFilesFromArgs(string[] paths, string? configOverride)
+// Add/update config entries for provided file paths (supports .lnk resolution and .url via ISteamGameResolver)
+static AddSummary RunAddFilesFromArgs(string[] paths, string? configOverride, IServiceProvider services)
 {
     var provider = !string.IsNullOrWhiteSpace(configOverride) ? new YamlConfigProvider(configOverride!) : new YamlConfigProvider();
     var map = new Dictionary<string, GameConfig>(provider.Load(), StringComparer.OrdinalIgnoreCase);
+    var steamResolver = services.GetService<ISteamGameResolver>();
 
     int added = 0, updated = 0, skipped = 0;
     foreach (var p in paths)
     {
         try
         {
-            var exe = TryResolveExecutableFromInput(p);
+            string? exe = null;
+            var ext = Path.GetExtension(p);
+            if (ext.Equals(".url", StringComparison.OrdinalIgnoreCase) && steamResolver != null)
+            {
+                try
+                {
+                    var url = steamResolver.TryParseInternetShortcutUrl(p);
+                    var appId = url != null ? steamResolver.TryParseRunGameId(url) : null;
+                    exe = appId != null ? steamResolver.TryResolveExeFromAppId(appId) : null;
+                }
+                catch { /* fall back below */ }
+            }
+            exe ??= TryResolveExecutableFromInput(p);
             if (string.IsNullOrWhiteSpace(exe) || !exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
             {
                 Console.WriteLine($"Skip: not an exe or cannot resolve target -> {p}");
@@ -286,12 +302,23 @@ static AddSummary RunAddFilesFromArgs(string[] paths, string? configOverride)
                 continue;
             }
             var key = Path.GetFileName(exe);
-            var alias = Path.GetFileNameWithoutExtension(exe);
+            // Prefer the dragged item's display name for alias when available (.lnk/.url), otherwise fallback to exe filename
+            string alias = Path.GetFileNameWithoutExtension(exe);
+            try
+            {
+                var dragExt = Path.GetExtension(p);
+                if (dragExt.Equals(".lnk", StringComparison.OrdinalIgnoreCase) || dragExt.Equals(".url", StringComparison.OrdinalIgnoreCase))
+                {
+                    var candidate = Path.GetFileNameWithoutExtension(p);
+                    if (!string.IsNullOrWhiteSpace(candidate)) alias = candidate;
+                }
+            }
+            catch { }
 
             if (map.TryGetValue(key, out var existing))
             {
-                // Update minimally: keep custom alias if already set; ensure enabled flags are true by default
-                if (string.IsNullOrWhiteSpace(existing.Alias)) existing.Alias = alias;
+                // Overwrite alias with latest dragged name per user requirement; ensure enabled flags are true by default
+                existing.Alias = alias;
                 existing.IsEnabled = true;
                 if (!existing.HDREnabled) existing.HDREnabled = true;
                 updated++;
