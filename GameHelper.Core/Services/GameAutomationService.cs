@@ -16,6 +16,7 @@ namespace GameHelper.Core.Services
     public sealed class GameAutomationService : IGameAutomationService
     {
         private readonly IProcessMonitor _monitor;
+        private readonly IStopEventsControl? _stopControl; // optional capability
         private readonly IConfigProvider _configProvider;
         private readonly IHdrController _hdr;
         private readonly IPlayTimeService _playTime;
@@ -32,6 +33,7 @@ namespace GameHelper.Core.Services
             ILogger<GameAutomationService> logger)
         {
             _monitor = monitor;
+            _stopControl = monitor as IStopEventsControl;
             _configProvider = configProvider;
             _hdr = hdr;
             _playTime = playTime;
@@ -46,6 +48,9 @@ namespace GameHelper.Core.Services
             _configs = _configProvider.Load();
             _monitor.ProcessStarted += OnProcessStarted;
             _monitor.ProcessStopped += OnProcessStopped;
+            // Optimization: if supported, do not listen to Stop events until we have the first active game
+            try { _stopControl?.SetStopEventsEnabled(false); _logger.LogDebug("Stop events listening disabled at startup"); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Failed to disable stop events at startup"); }
             _logger.LogInformation("GameAutomationService started with {Count} configs", _configs.Count);
         }
 
@@ -118,6 +123,7 @@ namespace GameHelper.Core.Services
 
             var wasEmpty = _active.Count == 0;
             _active.Add(key);
+            _logger.LogDebug("Active count after start: {Count}", _active.Count);
 
             _logger.LogInformation("Process started: {Process}", key);
             _playTime.StartTracking(key);
@@ -126,6 +132,9 @@ namespace GameHelper.Core.Services
             {
                 _logger.LogInformation("First active game detected, enabling HDR");
                 _hdr.Enable();
+                // Enable Stop events now that we have at least one active game
+                try { _stopControl?.SetStopEventsEnabled(true); _logger.LogDebug("Stop events enabled (first active)"); }
+                catch (Exception ex) { _logger.LogDebug(ex, "Failed to enable stop events"); }
             }
         }
 
@@ -170,11 +179,15 @@ namespace GameHelper.Core.Services
 
             _logger.LogInformation("Process stopped: {Process}", key);
             _playTime.StopTracking(key);
+            _logger.LogDebug("Active count after stop: {Count}", _active.Count);
 
             if (_active.Count == 0)
             {
                 _logger.LogInformation("Last active game exited, disabling HDR");
                 _hdr.Disable();
+                // No active games -> disable Stop events to minimize idle overhead
+                try { _stopControl?.SetStopEventsEnabled(false); _logger.LogDebug("Stop events disabled (no active games)"); }
+                catch (Exception ex) { _logger.LogDebug(ex, "Failed to disable stop events"); }
             }
         }
 

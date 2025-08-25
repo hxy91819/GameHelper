@@ -14,6 +14,7 @@ using GameHelper.Infrastructure.Validators;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Runtime.InteropServices;
 
 static void ConvertConfigCommand()
 {
@@ -160,6 +161,23 @@ try
     }
     // Print build info (last write time of entry assembly or process exe) and current log level
     try { PrintBuildInfo(enableDebug); } catch { }
+
+    // Plan B: If launched with file arguments (drag & drop .lnk/.exe onto EXE/shortcut), auto-add to config and exit
+    try
+    {
+        if (LooksLikeFilePaths(effectiveArgs))
+        {
+            var summary = RunAddFilesFromArgs(effectiveArgs, configOverride);
+            var text = $"已完成添加/更新\nAdded={summary.Added}, Updated={summary.Updated}, Skipped={summary.Skipped}\n重复清理: {summary.DuplicatesRemoved}\n配置: {summary.ConfigPath}";
+            TryShowMessageBox(text, "GameHelper");
+            Environment.Exit(0);
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Auto-add failed: {ex.Message}");
+        Environment.Exit(1);
+    }
 }
 catch
 {
@@ -233,6 +251,122 @@ static void PrintBuildInfo(bool debug)
     }
     catch { }
 }
+
+// Detect if args look like a list of existing .lnk/.exe file paths
+static bool LooksLikeFilePaths(string[] args)
+{
+    if (args is null || args.Length == 0) return false;
+    foreach (var a in args)
+    {
+        if (string.IsNullOrWhiteSpace(a)) return false;
+        if (!File.Exists(a)) return false;
+        var ext = Path.GetExtension(a);
+        if (!ext.Equals(".lnk", StringComparison.OrdinalIgnoreCase) && !ext.Equals(".exe", StringComparison.OrdinalIgnoreCase))
+            return false;
+    }
+    return true;
+}
+
+// Add/update config entries for provided file paths (supports .lnk resolution)
+static AddSummary RunAddFilesFromArgs(string[] paths, string? configOverride)
+{
+    var provider = !string.IsNullOrWhiteSpace(configOverride) ? new YamlConfigProvider(configOverride!) : new YamlConfigProvider();
+    var map = new Dictionary<string, GameConfig>(provider.Load(), StringComparer.OrdinalIgnoreCase);
+
+    int added = 0, updated = 0, skipped = 0;
+    foreach (var p in paths)
+    {
+        try
+        {
+            var exe = TryResolveExecutableFromInput(p);
+            if (string.IsNullOrWhiteSpace(exe) || !exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine($"Skip: not an exe or cannot resolve target -> {p}");
+                skipped++;
+                continue;
+            }
+            var key = Path.GetFileName(exe);
+            var alias = Path.GetFileNameWithoutExtension(exe);
+
+            if (map.TryGetValue(key, out var existing))
+            {
+                // Update minimally: keep custom alias if already set; ensure enabled flags are true by default
+                if (string.IsNullOrWhiteSpace(existing.Alias)) existing.Alias = alias;
+                existing.IsEnabled = true;
+                if (!existing.HDREnabled) existing.HDREnabled = true;
+                updated++;
+                Console.WriteLine($"Updated: {key}  Alias={existing.Alias}  Enabled={existing.IsEnabled}  HDR={existing.HDREnabled}");
+            }
+            else
+            {
+                map[key] = new GameConfig { Name = key, Alias = alias, IsEnabled = true, HDREnabled = true };
+                added++;
+                Console.WriteLine($"Added:   {key}  Alias={alias}  Enabled=true  HDR=true");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Skip: {p} -> {ex.Message}");
+            skipped++;
+        }
+    }
+
+    // Detect duplicates before save (based on current file) so we can report how many were auto-removed by rewriting
+    int dupBefore = 0;
+    try
+    {
+        var vr = YamlConfigValidator.Validate(provider.ConfigPath);
+        dupBefore = Math.Max(0, vr.DuplicateCount);
+    }
+    catch { }
+
+    provider.Save(map);
+    Console.WriteLine($"Done. Added={added}, Updated={updated}, Skipped={skipped}");
+    return new AddSummary { Added = added, Updated = updated, Skipped = skipped, DuplicatesRemoved = dupBefore, ConfigPath = provider.ConfigPath };
+}
+
+// Resolve input file to an executable path, supporting .lnk shortcuts
+static string? TryResolveExecutableFromInput(string input)
+{
+    if (string.IsNullOrWhiteSpace(input)) return null;
+    var ext = Path.GetExtension(input);
+    if (ext.Equals(".exe", StringComparison.OrdinalIgnoreCase)) return input;
+    if (ext.Equals(".lnk", StringComparison.OrdinalIgnoreCase))
+    {
+        var target = ResolveShortcutTargetViaWsh(input);
+        return target;
+    }
+    return null;
+}
+
+// Use WScript.Shell COM to resolve .lnk target without compile-time COM references
+static string? ResolveShortcutTargetViaWsh(string lnkPath)
+{
+    try
+    {
+        var shellType = Type.GetTypeFromProgID("WScript.Shell");
+        if (shellType == null) return null;
+        var shell = Activator.CreateInstance(shellType);
+        var shortcut = shellType.InvokeMember("CreateShortcut", System.Reflection.BindingFlags.InvokeMethod, null, shell, new object[] { lnkPath });
+        var target = shortcut?.GetType().InvokeMember("TargetPath", System.Reflection.BindingFlags.GetProperty, null, shortcut, null) as string;
+        return target;
+    }
+    catch { return null; }
+}
+
+// Show an informational dialog so users launching via Explorer/shortcut can see the result
+static void TryShowMessageBox(string text, string caption)
+{
+    try
+    {
+        // MB_OK | MB_ICONINFORMATION
+        MessageBoxW(IntPtr.Zero, text, caption, 0x00000000u | 0x00000040u);
+    }
+    catch { }
+}
+
+[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+static extern int MessageBoxW(IntPtr hWnd, string lpText, string lpCaption, uint uType);
 
 static void RunConfigCommand(IServiceProvider services, string[] args)
 {
@@ -363,4 +497,13 @@ internal sealed class GameSession
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
     public long DurationMinutes { get; set; }
+}
+
+internal sealed class AddSummary
+{
+    public int Added { get; set; }
+    public int Updated { get; set; }
+    public int Skipped { get; set; }
+    public int DuplicatesRemoved { get; set; }
+    public string ConfigPath { get; set; } = string.Empty;
 }

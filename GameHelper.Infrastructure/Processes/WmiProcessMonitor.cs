@@ -9,7 +9,7 @@ namespace GameHelper.Infrastructure.Processes
     /// Raises simple string events with the process executable name (e.g., "game.exe").
     /// Internally resolves names via ProcessID against Win32_Process to avoid truncated names.
     /// </summary>
-    public sealed class WmiProcessMonitor : IProcessMonitor, IDisposable
+    public sealed class WmiProcessMonitor : IProcessMonitor, IDisposable, IStopEventsControl
     {
         private IProcessEventWatcher? _startWatcher;
         private IProcessEventWatcher? _stopWatcher;
@@ -18,6 +18,7 @@ namespace GameHelper.Infrastructure.Processes
         private bool _disposed;
         private readonly string? _startWql; // keep null to use full StartTrace query (see ctor)
         private readonly string? _stopWql;  // keep null to use full StopTrace query (see ctor)
+        private bool _stopEventsEnabled = true; // default to true for backward compatibility
 
         /// <inheritdoc />
         public event Action<string>? ProcessStarted;
@@ -33,6 +34,31 @@ namespace GameHelper.Infrastructure.Processes
             _startWatcher = startWatcher;
             _stopWatcher = stopWatcher;
             _ownsWatchers = false;
+        }
+
+        /// <summary>
+        /// Enables or disables emitting ProcessStopped events by starting/stopping the Stop watcher.
+        /// Start events are always enabled.
+        /// </summary>
+        public void SetStopEventsEnabled(bool enabled)
+        {
+            _stopEventsEnabled = enabled;
+            if (_disposed) return;
+            if (_stopWatcher is null) return; // will be honored when Start() creates watchers
+            if (!_running) return; // will be honored upon Start()
+
+            try
+            {
+                if (enabled)
+                {
+                    _stopWatcher.Start();
+                }
+                else
+                {
+                    _stopWatcher.Stop();
+                }
+            }
+            catch { }
         }
 
         /// <summary>
@@ -85,7 +111,10 @@ namespace GameHelper.Infrastructure.Processes
                 _stopWatcher.ProcessEvent += OnStopEvent;
 
                 _startWatcher.Start();
-                _stopWatcher.Start();
+                if (_stopEventsEnabled)
+                {
+                    _stopWatcher.Start();
+                }
 
                 _running = true;
             }
