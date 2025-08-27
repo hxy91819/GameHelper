@@ -64,7 +64,7 @@
 
 ## 游玩时长文件说明
 
-- 路径：`%AppData%/GameHelper/playtime.json`
+- 路径（现状）：`%AppData%/GameHelper/playtime.json`
 - 结构与旧 WPF UI 对齐，根键为 `games`：
   ```json
   {
@@ -78,8 +78,16 @@
     ]
   }
   ```
-- 写入时机：在 `StopTracking(game)` 时追加一条会话并落盘。
+- 写入时机：在 `StopTracking(game)` 时记录该会话并落盘（当前实现为重写 JSON）。
 - 容错：当文件损坏或无法解析时，系统会忽略旧内容并从内存的当前数据重新写入。
+
+- 即将变更（设计）：切换为 CSV 逐行追加存储，便于“一个 session 一行”的增量写入
+  - 路径：`%AppData%/GameHelper/playtime.csv`
+  - 表头：`game,start_time,end_time,duration_minutes`
+  - 行格式示例：`witcher3.exe,2025-08-16T10:00:00,2025-08-16T11:40:00,100`
+  - 编码：UTF-8（无 BOM）；日期时间使用 ISO-8601（本地时间）；按需使用双引号转义包含分隔符的字段
+  - 写入策略：`StopTracking(game)` 时仅追加一行，不再重写全文件
+  - 兼容策略：`stats` 将优先读取 CSV；若不存在 CSV 则回退读取 JSON（过渡期保障）
 
 ## 运行日志
 - 控制台输出包含基础日志（启动、停止、错误信息等）。

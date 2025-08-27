@@ -126,7 +126,14 @@ namespace GameHelper.Core.Services
             _logger.LogDebug("Active count after start: {Count}", _active.Count);
 
             _logger.LogInformation("Process started: {Process}", key);
-            _playTime.StartTracking(key);
+            try
+            {
+                _playTime.StartTracking(key);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to start tracking for {Process}", key);
+            }
 
             if (wasEmpty && _active.Count == 1)
             {
@@ -178,7 +185,14 @@ namespace GameHelper.Core.Services
             }
 
             _logger.LogInformation("Process stopped: {Process}", key);
-            _playTime.StopTracking(key);
+            try
+            {
+                _playTime.StopTracking(key);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to stop tracking for {Process}", key);
+            }
             _logger.LogDebug("Active count after stop: {Count}", _active.Count);
 
             if (_active.Count == 0)

@@ -29,11 +29,17 @@
 - 新增：`GameAutomationServiceTests` 覆盖单/多游戏、禁用游戏、Stop 取消订阅等场景（待运行确认）
 - 新增：基于模板的 YAML 校验器与 `validate-config` 命令（支持未知字段警告、必填/类型校验、重复 name 检测）
 
-- ## 文件与格式
-- 配置（仅 YAML）：`%AppData%/GameHelper/config.yml`（支持 `Alias`）
-- 旧配置迁移：提供一次性命令 `convert-config` 将 `%AppData%/GameHelper/config.json` 转换为 `config.yml`；运行时不再读取 JSON（`JsonConfigProvider` 仅供迁移使用）。
-- 时长：`%AppData%/GameHelper/playtime.json`
-  - 根键 `games`，每项含 `GameName` 与 `Sessions[{ StartTime, EndTime, DurationMinutes }]`
+ - ## 文件与格式
+ - 配置（仅 YAML）：`%AppData%/GameHelper/config.yml`（支持 `Alias`）
+ - 旧配置迁移：提供一次性命令 `convert-config` 将 `%AppData%/GameHelper/config.json` 转换为 `config.yml`；运行时不再读取 JSON（`JsonConfigProvider` 仅供迁移使用）。
+ - 时长：当前版本为 JSON `playtime.json`；计划切换到 CSV `playtime.csv`（方便追加写入）
+   - JSON（现有，WPF 兼容）：根键 `games`，每项含 `GameName` 与 `Sessions[{ StartTime, EndTime, DurationMinutes }]`
+   - CSV（设计，拟）：文件路径 `%AppData%/GameHelper/playtime.csv`
+     - 头部：`game,start_time,end_time,duration_minutes`
+     - 行示例：`witcher3.exe,2025-08-16T10:00:00,2025-08-16T11:40:00,100`
+     - 编码与格式：UTF-8，无 BOM；ISO-8601 本地时间；按 RFC 4180 规则在必要时使用双引号转义
+     - 追加策略：每次 `StopTracking(game)` 仅写入一行，避免全量重写
+   - 统计读取策略：将改为优先读取 CSV；若无 CSV 文件则回退读取 JSON（向后兼容）
 
 ## 运行与验证
 - 运行监控：`dotnet run --project GameHelper.ConsoleHost -- monitor`
@@ -55,18 +61,24 @@
 
 ## Plan（短期）
 1. __完善自动化服务测试__：补充异常流程、重复事件去重、重复 Stop/Start 容错等边界用例。
-2. __增强 CLI__：
+2. __游玩时长 CSV 存储改造__（设计完成，待实现）
+   - 新增 `CsvBackedPlayTimeService`（实现 `IPlayTimeService`），在 `StopTracking` 时按行追加写入 `playtime.csv`；首次创建文件写入表头
+   - 兼容读取：CLI `stats` 优先读取 CSV；若缺失则回退 JSON
+   - 自动迁移：CSV 服务初始化时若发现仅有 JSON，执行一次性导入（逐会话展开写入）
+   - 并发与原子性：独占写锁、`FileMode.Append` + `FileShare.Read`，每行写入 `\n` 结尾，失败重试与日志
+   - 测试：新增 `CsvBackedPlayTimeServiceTests` 与 `stats` 针对 CSV 的用例；保留 JSON 测试作为回退路径验证
+3. __增强 CLI__：
    - stats 支持按周/月/年聚合（先实现周/月）。
-3. __YAML-only + 模板校验 已完成__：补充更多 YAML 示例。
-4. __打包发布__：提供单文件可执行的发布说明并产物签名（按需）。
-5. __移除 WPF 项目（待确认）__：从解决方案中移除 `GameHelper/` 项目，保留源码归档。
+4. __YAML-only + 模板校验 已完成__：补充更多 YAML 示例。
+5. __打包发布__：提供单文件可执行的发布说明并产物签名（按需）。
+6. __移除 WPF 项目（待确认）__：从解决方案中移除 `GameHelper/` 项目，保留源码归档。
 
 ## TODOs
 - __[高]__ 寻找HDR切换功能更优的实现方案，能够在程序启动之前执行。
 
 ## 风险与缓解
 - 进程监控对权限/WMI 服务依赖：提供 `NoOp` 回退与错误日志；在文档中提示需开启 WMI 服务
-- 文件并发写入：目前在 `FileBackedPlayTimeService` 内部使用锁并在 Stop 时写入；后续监控进程并发下需注意
+ - 文件并发写入：JSON 方案内置锁并全量写入；CSV 方案将采用“独占写 + 逐行追加”的方式（`FileStream(FileMode.Append, FileAccess.Write, FileShare.Read)`），每条会话独立落盘，降低损坏面；仍保留进程内锁避免重复 Stop；遇到写入失败记录错误并在下次 Stop 重试
 - 配置/时长文件损坏：实现已具备容错；保留最小可运行策略
 
 ## 里程碑
