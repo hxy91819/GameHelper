@@ -1,16 +1,30 @@
-MIT License
+GameHelper License
 
 Copyright (c) 2025 GameHelper
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This software is available under a dual license:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. OPEN SOURCE LICENSE (AGPL-3.0)
+   For open source projects and non-commercial use, this software is licensed 
+   under the GNU Affero General Public License v3.0 (AGPL-3.0).
+   
+   This means you can use, modify, and distribute this software for free, 
+   but any derivative works must also be open source and licensed under AGPL-3.0.
+
+2. COMMERCIAL LICENSE
+   For commercial use, proprietary applications, or if you wish to distribute 
+   this software without the AGPL-3.0 requirements, you must obtain a 
+   commercial license.
+   
+   Commercial licenses are available for purchase. Please contact us at:
+   [bwjava819@gmail.com] for pricing and terms.
+
+DEFINITIONS:
+- "Commercial use" includes any use in a commercial product, service, or 
+  environment, including but not limited to SaaS applications, commercial 
+  software products, or internal business applications.
+- "Non-commercial use" includes personal projects, academic research, and 
+  open source projects that are not monetized.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
