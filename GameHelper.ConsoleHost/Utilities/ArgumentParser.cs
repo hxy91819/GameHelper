@@ -8,13 +8,14 @@ namespace GameHelper.ConsoleHost.Utilities
     {
         public string? ConfigOverride { get; set; }
         public bool EnableDebug { get; set; }
+        public string? MonitorType { get; set; }
         public string[] EffectiveArgs { get; set; } = Array.Empty<string>();
     }
 
     public static class ArgumentParser
     {
         // Extract optional global flags from args and build an effective argument list for commands
-        // Supported: --config <path> | -c <path>, and --debug | -v | --verbose
+        // Supported: --config <path> | -c <path>, --debug | -v | --verbose, and --monitor-type <type>
         public static ParsedArguments Parse(string[] args)
         {
             var result = new ParsedArguments();
@@ -52,6 +53,23 @@ namespace GameHelper.ConsoleHost.Utilities
                     {
                         result.EnableDebug = true;
                         list.RemoveAt(didx);
+                    }
+
+                    // Handle --monitor-type
+                    int midx = list.FindIndex(s => string.Equals(s, "--monitor-type", StringComparison.OrdinalIgnoreCase));
+                    if (midx >= 0)
+                    {
+                        if (midx + 1 < list.Count)
+                        {
+                            result.MonitorType = list[midx + 1];
+                            list.RemoveAt(midx + 1);
+                            list.RemoveAt(midx);
+                        }
+                        else
+                        {
+                            Console.WriteLine("Missing type after --monitor-type. Ignoring.");
+                            list.RemoveAt(midx);
+                        }
                     }
                     
                     result.EffectiveArgs = list.ToArray();

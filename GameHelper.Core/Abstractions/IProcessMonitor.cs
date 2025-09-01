@@ -7,7 +7,7 @@ namespace GameHelper.Core.Abstractions
     /// <see cref="ProcessStopped"/> events with the process executable name (e.g., "game.exe").
     /// Must be started and stopped explicitly.
     /// </summary>
-    public interface IProcessMonitor
+    public interface IProcessMonitor : IDisposable
     {
         /// <summary>
         /// Raised when a process starts. Payload is the process executable name (case-insensitive).

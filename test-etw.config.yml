@@ -1,0 +1,12 @@
+# Test configuration with ETW monitor type
+processMonitorType: ETW
+
+games:
+  - name: "notepad.exe"
+    alias: "Notepad"
+    isEnabled: true
+    hdrEnabled: false
+  - name: "cmd.exe"
+    alias: "Command Prompt"
+    isEnabled: true
+    hdrEnabled: false

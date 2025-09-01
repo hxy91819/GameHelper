@@ -8,7 +8,7 @@ namespace GameHelper.ConsoleHost.Commands
         {
             Console.WriteLine("GameHelper Console");
             Console.WriteLine("Usage:");
-            Console.WriteLine("  monitor [--config <path>] [--debug]");
+            Console.WriteLine("  monitor [--config <path>] [--monitor-type <type>] [--debug]");
             Console.WriteLine("  config list [--config <path>] [--debug]");
             Console.WriteLine("  config add <exe> [--config <path>] [--debug]");
             Console.WriteLine("  config remove <exe> [--config <path>] [--debug]");
@@ -17,8 +17,10 @@ namespace GameHelper.ConsoleHost.Commands
             Console.WriteLine("  validate-config");
             Console.WriteLine();
             Console.WriteLine("Global options:");
-            Console.WriteLine("  --config, -c    Override path to config.yml");
-            Console.WriteLine("  --debug, -v     Enable verbose debug logging");
+            Console.WriteLine("  --config, -c       Override path to config.yml");
+            Console.WriteLine("  --monitor-type     Process monitor type: WMI (default) or ETW");
+            Console.WriteLine("                     ETW provides lower latency but requires admin privileges");
+            Console.WriteLine("  --debug, -v        Enable verbose debug logging");
         }
 
         public static void PrintBuildInfo(bool debug)

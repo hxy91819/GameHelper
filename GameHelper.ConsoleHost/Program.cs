@@ -5,6 +5,7 @@ using GameHelper.ConsoleHost.Commands;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
+using GameHelper.Core.Models;
 using GameHelper.Core.Services;
 using GameHelper.Infrastructure.Controllers;
 using GameHelper.Infrastructure.Processes;
@@ -35,17 +36,56 @@ var host = Host.CreateDefaultBuilder(args)
                 return new YamlConfigProvider(parsedArgs.ConfigOverride!);
             return new YamlConfigProvider();
         });
+        services.AddSingleton<IAppConfigProvider>(sp => (YamlConfigProvider)sp.GetRequiredService<IConfigProvider>());
         services.AddSingleton<IProcessMonitor>(sp =>
         {
-            var cfg = sp.GetRequiredService<IConfigProvider>();
-            var map = cfg.Load();
-            // Use enabled entries as whitelist (keys are normalized executable names like "game.exe")
-            var allowed = map is null
-                ? Array.Empty<string>()
-                : System.Linq.Enumerable.Select(
-                    System.Linq.Enumerable.Where(map, kv => kv.Value?.IsEnabled == true),
-                    kv => kv.Key);
-            return new WmiProcessMonitor(allowed);
+            var logger = sp.GetRequiredService<ILogger<Program>>();
+            var appConfigProvider = sp.GetRequiredService<IAppConfigProvider>();
+            var appConfig = appConfigProvider.LoadAppConfig();
+            
+            // Determine monitor type: command line > config file > default (WMI)
+            ProcessMonitorType monitorType = ProcessMonitorType.WMI; // default
+            
+            if (!string.IsNullOrWhiteSpace(parsedArgs.MonitorType))
+            {
+                if (Enum.TryParse<ProcessMonitorType>(parsedArgs.MonitorType, true, out var cmdLineType))
+                {
+                    monitorType = cmdLineType;
+                    logger.LogInformation("Using monitor type from command line: {MonitorType}", monitorType);
+                }
+                else
+                {
+                    logger.LogWarning("Invalid monitor type '{MonitorType}' specified in command line, using default WMI", parsedArgs.MonitorType);
+                }
+            }
+            else if (appConfig.ProcessMonitorType.HasValue)
+            {
+                monitorType = appConfig.ProcessMonitorType.Value;
+                logger.LogInformation("Using monitor type from config: {MonitorType}", monitorType);
+            }
+            else
+            {
+                logger.LogInformation("Using default monitor type: {MonitorType}", monitorType);
+            }
+
+            // Get enabled games for whitelist (no filtering at monitor level - let GameAutomationService handle it)
+            var configProvider = sp.GetRequiredService<IConfigProvider>();
+            var gameConfigs = configProvider.Load();
+            var enabledGames = gameConfigs
+                .Where(kv => kv.Value?.IsEnabled == true)
+                .Select(kv => kv.Key)
+                .ToArray();
+
+            // Create monitor with fallback support
+            try
+            {
+                return ProcessMonitorFactory.CreateWithFallback(monitorType, null, logger);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to create process monitor, falling back to no-op");
+                return ProcessMonitorFactory.CreateNoOp();
+            }
         });
         services.AddSingleton<IHdrController, NoOpHdrController>();
         services.AddSingleton<IPlayTimeService, CsvBackedPlayTimeService>();

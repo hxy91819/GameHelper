@@ -18,6 +18,11 @@ namespace GameHelper.Infrastructure.Processes
             // no-op
         }
 
+        public void Dispose()
+        {
+            // no-op
+        }
+
         // Helpers to simulate events in future tests if needed
         public void SimulateStart(string processName) => ProcessStarted?.Invoke(processName);
         public void SimulateStop(string processName) => ProcessStopped?.Invoke(processName);

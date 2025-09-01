@@ -16,6 +16,7 @@ namespace GameHelper.Tests
         public event Action<string>? ProcessStopped;
         public void Start() { }
         public void Stop() { }
+        public void Dispose() { }
         public void RaiseStart(string name) => ProcessStarted?.Invoke(name);
         public void RaiseStop(string name) => ProcessStopped?.Invoke(name);
     }

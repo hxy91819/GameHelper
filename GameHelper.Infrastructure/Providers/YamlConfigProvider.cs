@@ -10,8 +10,9 @@ namespace GameHelper.Infrastructure.Providers
 {
     /// <summary>
     /// YAML-based config provider stored at %AppData%/GameHelper/config.yml
+    /// Supports both legacy game-only configuration and new AppConfig format with global settings.
     /// </summary>
-    public sealed class YamlConfigProvider : IConfigProvider, IConfigPathProvider
+    public sealed class YamlConfigProvider : IConfigProvider, IConfigPathProvider, IAppConfigProvider
     {
         private readonly string _configFilePath;
 
@@ -41,6 +42,32 @@ namespace GameHelper.Infrastructure.Providers
 
         public IReadOnlyDictionary<string, GameConfig> Load()
         {
+            var appConfig = LoadAppConfig();
+            var comparer = StringComparer.OrdinalIgnoreCase;
+            var result = new Dictionary<string, GameConfig>(comparer);
+
+            if (appConfig.Games != null)
+            {
+                foreach (var g in appConfig.Games)
+                {
+                    if (!string.IsNullOrWhiteSpace(g.Name))
+                    {
+                        result[g.Name] = new GameConfig
+                        {
+                            Name = g.Name,
+                            Alias = g.Alias,
+                            IsEnabled = g.IsEnabled,
+                            HDREnabled = g.HDREnabled
+                        };
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        public AppConfig LoadAppConfig()
+        {
             try
             {
                 var dir = Path.GetDirectoryName(_configFilePath);
@@ -48,50 +75,53 @@ namespace GameHelper.Infrastructure.Providers
 
                 if (!File.Exists(_configFilePath))
                 {
-                    return new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+                    return new AppConfig { Games = new List<GameConfig>() };
                 }
 
                 var yaml = File.ReadAllText(_configFilePath);
-                var root = Deserializer.Deserialize<Root?>(yaml);
-                var comparer = StringComparer.OrdinalIgnoreCase;
-                var result = new Dictionary<string, GameConfig>(comparer);
-
-                if (root?.Games != null)
+                
+                // Try to deserialize as new AppConfig format first
+                try
                 {
-                    foreach (var g in root.Games)
+                    var appConfig = Deserializer.Deserialize<AppConfig?>(yaml);
+                    if (appConfig != null)
                     {
-                        if (!string.IsNullOrWhiteSpace(g.Name))
-                        {
-                            result[g.Name] = new GameConfig
-                            {
-                                Name = g.Name,
-                                Alias = g.Alias,
-                                IsEnabled = g.IsEnabled,
-                                HDREnabled = g.HDREnabled
-                            };
-                        }
+                        return appConfig;
                     }
                 }
+                catch
+                {
+                    // Fall back to legacy format
+                }
 
-                return result;
+                // Fall back to legacy Root format for backward compatibility
+                var root = Deserializer.Deserialize<Root?>(yaml);
+                return new AppConfig
+                {
+                    Games = root?.Games ?? new List<GameConfig>(),
+                    ProcessMonitorType = null // Default to WMI for legacy configs
+                };
             }
             catch
             {
-                return new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+                return new AppConfig { Games = new List<GameConfig>() };
             }
         }
 
         public void Save(IReadOnlyDictionary<string, GameConfig> configs)
         {
+            // Load existing app config to preserve global settings
+            var appConfig = LoadAppConfig();
+            appConfig.Games = new List<GameConfig>(configs.Values);
+            SaveAppConfig(appConfig);
+        }
+
+        public void SaveAppConfig(AppConfig appConfig)
+        {
             var dir = Path.GetDirectoryName(_configFilePath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-            var payload = new Root
-            {
-                Games = new List<GameConfig>(configs.Values)
-            };
-
-            var yaml = Serializer.Serialize(payload);
+            var yaml = Serializer.Serialize(appConfig);
             File.WriteAllText(_configFilePath, yaml);
         }
 
