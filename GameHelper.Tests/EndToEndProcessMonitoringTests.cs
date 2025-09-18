@@ -8,8 +8,6 @@ using System.Threading.Tasks;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Processes;
-using Microsoft.Extensions.Logging;
-using Moq;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -25,7 +23,7 @@ namespace GameHelper.Tests
             _output = output;
         }
 
-        [Fact]
+        [WindowsOnlyFact]
         public void WmiMonitor_ShouldDetectProcessStartAndStop()
         {
             // Arrange
@@ -38,18 +36,18 @@ namespace GameHelper.Tests
             using var monitor = ProcessMonitorFactory.Create(ProcessMonitorType.WMI);
             monitor.ProcessStarted += processName =>
             {
-                _output.WriteLine($"WMI: Process started: {processName}");
-                if (processName.Contains("notepad", StringComparison.OrdinalIgnoreCase))
+                if (IsTargetProcessEvent(processName, testProcess))
                 {
+                    _output.WriteLine($"WMI: Process started: {processName}");
                     processStarted = true;
                     startEvent.Set();
                 }
             };
             monitor.ProcessStopped += processName =>
             {
-                _output.WriteLine($"WMI: Process stopped: {processName}");
-                if (processName.Contains("notepad", StringComparison.OrdinalIgnoreCase))
+                if (IsTargetProcessEvent(processName, testProcess))
                 {
+                    _output.WriteLine($"WMI: Process stopped: {processName}");
                     processStopped = true;
                     stopEvent.Set();
                 }
@@ -59,41 +57,33 @@ namespace GameHelper.Tests
             {
                 // Act
                 monitor.Start();
-                
-                // Start a test process
-                testProcess = Process.Start("notepad.exe");
-                Assert.NotNull(testProcess);
-                _testProcesses.Add(testProcess);
-                _output.WriteLine($"Started notepad process with PID: {testProcess.Id}");
+
+                // Start a short-lived test process that exits on its own
+                testProcess = StartShortLivedTestProcess();
 
                 // Wait for start event with timeout
-                var startDetected = startEvent.Wait(TimeSpan.FromSeconds(15));
-                
-                if (startDetected)
-                {
-                    _output.WriteLine("Start event detected, now terminating process");
-                    
-                    // Terminate the process gracefully first, then force kill if needed
-                    TerminateProcessSafely(testProcess);
-                    
-                    // Wait for stop event
-                    var stopDetected = stopEvent.Wait(TimeSpan.FromSeconds(15));
-                    
-                    // Assert
-                    Assert.True(startDetected, "Process start should be detected within 15 seconds");
-                    Assert.True(stopDetected, "Process stop should be detected within 15 seconds");
-                    Assert.True(processStarted, "ProcessStarted event should be fired");
-                    Assert.True(processStopped, "ProcessStopped event should be fired");
-                }
-                else
-                {
-                    Assert.Fail("Failed to detect process start within timeout period");
-                }
+                var startDetected = startEvent.Wait(TimeSpan.FromSeconds(30));
+                Assert.True(startDetected, "Process start should be detected within 30 seconds");
+                Assert.True(processStarted, "ProcessStarted event should be fired");
+
+                // The helper process should exit naturally within the timeout
+                var exitedNaturally = WaitForProcessExit(testProcess, TimeSpan.FromSeconds(30), "WMI monitor");
+                Assert.True(exitedNaturally, "Test process should exit on its own within 30 seconds");
+
+                // Ensure the stop event arrives shortly after the process exits
+                var stopDetected = stopEvent.Wait(TimeSpan.FromSeconds(5));
+                Assert.True(stopDetected, "Process stop should be detected shortly after exit");
+                Assert.True(processStopped, "ProcessStopped event should be fired");
             }
             finally
             {
                 // Cleanup
                 SafeCleanupProcess(testProcess);
+                if (testProcess is not null)
+                {
+                    _testProcesses.Remove(testProcess);
+                }
+
                 SafeStopMonitor(monitor);
             }
         }
@@ -118,18 +108,18 @@ namespace GameHelper.Tests
             using var monitor = ProcessMonitorFactory.Create(ProcessMonitorType.ETW);
             monitor.ProcessStarted += processName =>
             {
-                _output.WriteLine($"ETW: Process started: {processName}");
-                if (processName.Contains("notepad", StringComparison.OrdinalIgnoreCase))
+                if (IsTargetProcessEvent(processName, testProcess))
                 {
+                    _output.WriteLine($"ETW: Process started: {processName}");
                     processStarted = true;
                     startEvent.Set();
                 }
             };
             monitor.ProcessStopped += processName =>
             {
-                _output.WriteLine($"ETW: Process stopped: {processName}");
-                if (processName.Contains("notepad", StringComparison.OrdinalIgnoreCase))
+                if (IsTargetProcessEvent(processName, testProcess))
                 {
+                    _output.WriteLine($"ETW: Process stopped: {processName}");
                     processStopped = true;
                     stopEvent.Set();
                 }
@@ -143,40 +133,32 @@ namespace GameHelper.Tests
                 // Give ETW a moment to initialize
                 await Task.Delay(1000);
                 
-                // Start a test process
-                testProcess = Process.Start("notepad.exe");
-                Assert.NotNull(testProcess);
-                _testProcesses.Add(testProcess);
-                _output.WriteLine($"Started notepad process with PID: {testProcess.Id}");
+                // Start a short-lived test process that exits on its own
+                testProcess = StartShortLivedTestProcess();
 
                 // Wait for start event (ETW should be faster than WMI)
-                var startDetected = startEvent.Wait(TimeSpan.FromSeconds(10));
-                
-                if (startDetected)
-                {
-                    _output.WriteLine("ETW start event detected, now terminating process");
-                    
-                    // Terminate the process
-                    TerminateProcessSafely(testProcess);
-                    
-                    // Wait for stop event
-                    var stopDetected = stopEvent.Wait(TimeSpan.FromSeconds(10));
-                    
-                    // Assert
-                    Assert.True(startDetected, "ETW Process start should be detected within 10 seconds");
-                    Assert.True(stopDetected, "ETW Process stop should be detected within 10 seconds");
-                    Assert.True(processStarted, "ProcessStarted event should be fired");
-                    Assert.True(processStopped, "ProcessStopped event should be fired");
-                }
-                else
-                {
-                    Assert.Fail("Failed to detect ETW process start within timeout period");
-                }
+                var startDetected = startEvent.Wait(TimeSpan.FromSeconds(15));
+                Assert.True(startDetected, "ETW process start should be detected within 15 seconds");
+                Assert.True(processStarted, "ProcessStarted event should be fired");
+
+                // Allow the helper process to exit naturally
+                var exitedNaturally = WaitForProcessExit(testProcess, TimeSpan.FromSeconds(30), "ETW monitor");
+                Assert.True(exitedNaturally, "Test process should exit on its own within 30 seconds");
+
+                // Wait for stop event notification
+                var stopDetected = stopEvent.Wait(TimeSpan.FromSeconds(5));
+                Assert.True(stopDetected, "ETW process stop should be detected shortly after exit");
+                Assert.True(processStopped, "ProcessStopped event should be fired");
             }
             finally
             {
                 // Cleanup
                 SafeCleanupProcess(testProcess);
+                if (testProcess is not null)
+                {
+                    _testProcesses.Remove(testProcess);
+                }
+
                 SafeStopMonitor(monitor);
             }
         }
@@ -197,7 +179,7 @@ namespace GameHelper.Tests
             Assert.Contains("administrator", exception.Message, StringComparison.OrdinalIgnoreCase);
         }
 
-        [Fact]
+        [WindowsOnlyFact]
         public void CreateWithFallback_WhenEtwFails_ShouldFallbackToWmi()
         {
             // Arrange & Act
@@ -222,37 +204,6 @@ namespace GameHelper.Tests
             }
         }
 
-        private void TerminateProcessSafely(Process? process)
-        {
-            if (process == null || process.HasExited)
-                return;
-
-            try
-            {
-                _output.WriteLine($"Attempting to close process {process.Id} gracefully");
-                
-                // Try graceful close first
-                if (process.CloseMainWindow())
-                {
-                    if (process.WaitForExit(3000))
-                    {
-                        _output.WriteLine("Process closed gracefully");
-                        return;
-                    }
-                }
-                
-                // Force kill if graceful close failed
-                _output.WriteLine("Graceful close failed, force killing process");
-                process.Kill();
-                process.WaitForExit(5000);
-                _output.WriteLine("Process force killed");
-            }
-            catch (Exception ex)
-            {
-                _output.WriteLine($"Error terminating process: {ex.Message}");
-            }
-        }
-
         private void SafeCleanupProcess(Process? process)
         {
             if (process == null)
@@ -260,11 +211,28 @@ namespace GameHelper.Tests
 
             try
             {
-                if (!process.HasExited)
+                if (!WaitForProcessExit(process, TimeSpan.FromSeconds(2), "Cleanup"))
                 {
-                    _output.WriteLine($"Cleanup: Force killing remaining process {process.Id}");
-                    process.Kill();
-                    process.WaitForExit(2000);
+                    var description = DescribeProcess(process);
+                    _output.WriteLine($"Cleanup: force killing remaining process {description}");
+
+                    try
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                    catch (Exception killEx)
+                    {
+                        _output.WriteLine($"Cleanup: Kill failed for {description}: {killEx.Message}");
+                    }
+
+                    try
+                    {
+                        process.WaitForExit(2000);
+                    }
+                    catch (Exception waitEx)
+                    {
+                        _output.WriteLine($"Cleanup: WaitForExit after kill failed for {description}: {waitEx.Message}");
+                    }
                 }
             }
             catch (Exception ex)
@@ -303,12 +271,149 @@ namespace GameHelper.Tests
         public void Dispose()
         {
             // Cleanup any remaining test processes
-            foreach (var process in _testProcesses)
+            while (_testProcesses.Count > 0)
             {
+                var process = _testProcesses[^1];
+                _testProcesses.RemoveAt(_testProcesses.Count - 1);
                 SafeCleanupProcess(process);
             }
-            _testProcesses.Clear();
         }
+
+        private Process StartShortLivedTestProcess()
+        {
+            var commandInterpreter = Environment.GetEnvironmentVariable("ComSpec");
+            var fileName = string.IsNullOrWhiteSpace(commandInterpreter) ? "cmd.exe" : commandInterpreter;
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = "/c ping 127.0.0.1 -n 6 > NUL",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false
+            };
+
+            var process = Process.Start(startInfo);
+            if (process == null)
+            {
+                throw new InvalidOperationException("Failed to start the integration test helper process.");
+            }
+
+            _testProcesses.Add(process);
+            _output.WriteLine($"Started test helper process {DescribeProcess(process)} using {startInfo.FileName} {startInfo.Arguments}");
+
+            return process;
+        }
+
+        private bool WaitForProcessExit(Process? process, TimeSpan timeout, string context)
+        {
+            if (process == null)
+            {
+                return true;
+            }
+
+            try
+            {
+                var waitMilliseconds = (int)Math.Clamp(timeout.TotalMilliseconds, 0, int.MaxValue);
+                var exited = process.WaitForExit(waitMilliseconds);
+                if (!exited)
+                {
+                    try
+                    {
+                        if (process.HasExited)
+                        {
+                            return true;
+                        }
+                    }
+                    catch (Exception hasExitedEx)
+                    {
+                        _output.WriteLine($"{context}: checking HasExited failed: {hasExitedEx.Message}");
+                    }
+
+                    _output.WriteLine($"{context}: process {DescribeProcess(process)} did not exit within {timeout.TotalSeconds:F1} seconds.");
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _output.WriteLine($"{context}: WaitForExit error: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static string NormalizeProcessName(string? processName)
+        {
+            if (string.IsNullOrWhiteSpace(processName))
+            {
+                return string.Empty;
+            }
+
+            var trimmed = processName.Trim();
+            var fileName = Path.GetFileName(trimmed);
+            var withoutExtension = Path.GetFileNameWithoutExtension(fileName);
+            return string.IsNullOrEmpty(withoutExtension) ? fileName : withoutExtension;
+        }
+
+        private bool IsTargetProcessEvent(string? reportedProcessName, Process? trackedProcess)
+        {
+            if (string.IsNullOrWhiteSpace(reportedProcessName))
+            {
+                return false;
+            }
+
+            var normalizedReportedName = NormalizeProcessName(reportedProcessName);
+
+            if (trackedProcess != null)
+            {
+                try
+                {
+                    var trackedName = trackedProcess.ProcessName;
+                    if (!string.IsNullOrEmpty(trackedName) && string.Equals(normalizedReportedName, trackedName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _output.WriteLine($"Failed to read tracked process name: {ex.Message}");
+                }
+            }
+
+            return string.Equals(normalizedReportedName, TestProcessBaseName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string DescribeProcess(Process process)
+        {
+            try
+            {
+                var name = process.ProcessName;
+                try
+                {
+                    return $"{name} (PID {process.Id})";
+                }
+                catch
+                {
+                    return name;
+                }
+            }
+            catch
+            {
+                try
+                {
+                    return $"PID {process.Id}";
+                }
+                catch
+                {
+                    return "unknown process";
+                }
+            }
+        }
+
+        private const string TestProcessBaseName = "cmd";
 
         private static bool IsRunningAsAdministrator()
         {

@@ -112,13 +112,14 @@ namespace GameHelper.ConsoleHost.Commands
             int[] widths = new int[header.Length];
             for (int i = 0; i < header.Length; i++)
             {
-                widths[i] = header[i].Length;
+                widths[i] = DisplayWidth.Measure(header[i]);
             }
             foreach (var row in rows)
             {
                 for (int i = 0; i < row.Length; i++)
                 {
-                    if (row[i].Length > widths[i]) widths[i] = row[i].Length;
+                    int cellWidth = DisplayWidth.Measure(row[i]);
+                    if (cellWidth > widths[i]) widths[i] = cellWidth;
                 }
             }
 
@@ -134,14 +135,14 @@ namespace GameHelper.ConsoleHost.Commands
                 }
                 return sb.ToString();
             }
-            string Line(params string[] cols)
+            string Line(IReadOnlyList<string> cols)
             {
                 var sb = new StringBuilder();
                 sb.Append('|');
-                for (int i = 0; i < cols.Length; i++)
+                for (int i = 0; i < cols.Count; i++)
                 {
                     sb.Append(' ');
-                    sb.Append(cols[i].PadRight(widths[i]));
+                    sb.Append(DisplayWidth.PadRight(cols[i], widths[i]));
                     sb.Append(' ');
                     sb.Append('|');
                 }

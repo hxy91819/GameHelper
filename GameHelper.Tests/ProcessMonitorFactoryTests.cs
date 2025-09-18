@@ -10,7 +10,7 @@ namespace GameHelper.Tests
 {
     public class ProcessMonitorFactoryTests
     {
-        [Fact]
+        [WindowsOnlyFact]
         public void Create_WithWmiType_ShouldReturnWmiProcessMonitor()
         {
             // Arrange & Act
@@ -47,14 +47,18 @@ namespace GameHelper.Tests
             var allowedProcesses = new[] { "game.exe", "launcher.exe" };
 
             // Act & Assert
-            var wmiMonitor = ProcessMonitorFactory.Create(ProcessMonitorType.WMI, allowedProcesses);
+            if (TestEnvironment.IsWindows)
+            {
+                var wmiMonitor = ProcessMonitorFactory.Create(ProcessMonitorType.WMI, allowedProcesses);
+                Assert.NotNull(wmiMonitor);
+            }
+
             var etwMonitor = ProcessMonitorFactory.Create(ProcessMonitorType.ETW, allowedProcesses);
-            
-            Assert.NotNull(wmiMonitor);
+
             Assert.NotNull(etwMonitor);
         }
 
-        [Fact]
+        [WindowsOnlyFact]
         public void Create_WithLogger_ShouldNotThrow()
         {
             // Arrange
@@ -68,7 +72,7 @@ namespace GameHelper.Tests
             Assert.NotNull(etwMonitor);
         }
 
-        [Fact]
+        [WindowsOnlyFact]
         public void CreateWithFallback_WithWmiPreferred_ShouldReturnWmiMonitor()
         {
             // Arrange & Act
