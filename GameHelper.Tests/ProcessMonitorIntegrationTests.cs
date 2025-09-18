@@ -25,7 +25,7 @@ namespace GameHelper.Tests
             _output = output;
         }
 
-        [Fact]
+        [WindowsOnlyFact]
         public void WmiMonitor_ShouldDetectShortLivedProcess()
         {
             // Arrange
@@ -139,7 +139,7 @@ namespace GameHelper.Tests
             }
         }
 
-        [Fact]
+        [WindowsOnlyFact]
         public void ProcessMonitorFactory_CreateWithFallback_ShouldCreateWorkingMonitor()
         {
             // Arrange & Act
