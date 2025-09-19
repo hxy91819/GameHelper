@@ -52,6 +52,17 @@ dotnet publish .\GameHelper.ConsoleHost -c Release -r win-x64 --self-contained t
 ```
 产物：`GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish/`
 
+### GitHub Release 自动化
+
+仓库内置的 GitHub Actions 工作流会在推送形如 `v*` 的标签时自动构建自包含的 Win-x64 可执行文件，并将压缩包上传到 Release 资产中。如果你想发布 `0.0.1` 版本，可以执行：
+
+```powershell
+git tag v0.0.1
+git push origin v0.0.1
+```
+
+也可以通过 GitHub 页面手动触发 `Release` 工作流，并在输入参数中指定要发布的标签（例如 `v0.0.1`）。
+
 ### 发布后启动示例
 ```powershell
 $pub = ".\GameHelper.ConsoleHost\bin\Release\net8.0-windows\win-x64\publish"

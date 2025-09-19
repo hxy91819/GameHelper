@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name to use when manually triggering the release workflow'
+        required: true
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    env:
+      TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name || github.ref_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore GameHelper.sln
+
+      - name: Publish self-contained executable
+        run: >-
+          dotnet publish GameHelper.ConsoleHost/GameHelper.ConsoleHost.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:PublishTrimmed=false
+          -p:IncludeNativeLibrariesForSelfExtract=true
+
+      - name: Prepare artifacts
+        shell: pwsh
+        run: |
+          $publishDir = "GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish"
+          if (!(Test-Path $publishDir)) {
+            throw "Publish directory not found: $publishDir"
+          }
+          $tag = if ($env:TAG_NAME) { $env:TAG_NAME } else { $env:GITHUB_REF_NAME }
+          if (-not $tag) { $tag = "v0.0.1" }
+          $archiveName = "GameHelper-${tag}-win-x64.zip"
+          Compress-Archive -Path "$publishDir/*" -DestinationPath $archiveName
+          echo "ARCHIVE_NAME=$archiveName" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          files: ${{ env.ARCHIVE_NAME }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
