@@ -10,7 +10,7 @@
 - **游戏时间统计**: 记录每个游戏的运行时间
 - **HDR 控制**: 为将来的 HDR 自动切换预留接口（当前为空实现）
 - **配置管理**: 支持 YAML 配置文件，可添加/移除游戏
-- **命令行界面**: 提供监控、配置管理、统计查看等功能
+- **交互式命令行**: 默认提供图形化的终端界面，可视化管理监控、配置、统计与工具
 - **自动降级**: ETW 监控失败时自动回退到 WMI 监控
 - **拖拽添加**: 拖动游戏快捷方式或exe到程序的快捷方式上，自动添加到配置
 
@@ -23,6 +23,9 @@
 
 ### 运行方式（开发/验证）
 ```powershell
+# 体验全新互动命令行（无命令时默认进入）
+dotnet run --project .\GameHelper.ConsoleHost --
+
 # 启动监控（默认使用 WMI）
 dotnet run --project .\GameHelper.ConsoleHost -- monitor [--config <path>] [--debug]
 
@@ -44,6 +47,13 @@ dotnet run --project .\GameHelper.ConsoleHost -- config remove <exe> [--config <
 dotnet run --project .\GameHelper.ConsoleHost -- validate-config [--config <path>]
 dotnet run --project .\GameHelper.ConsoleHost -- convert-config
 ```
+
+互动模式会在终端中提供面板、选择列表与可视化表格，帮助你：
+
+- 一目了然地查看当前生效的配置文件、监控模式与日志级别。
+- 通过选择和表单快速添加、编辑或删除游戏条目，并控制别名/启用状态/HDR 设置。
+- 查看两周内的游戏时长统计，自动汇总总时长与会话次数。
+- 一键触发配置转换与校验工具，结果将以高亮表格方式呈现。
 
 ### 发布自包含可执行
 ```powershell
@@ -132,6 +142,7 @@ games:
 ```
 GameHelper Console
 Usage:
+  interactive         启动全新的互动命令行体验（无命令时默认）
   monitor [--config <path>] [--monitor-type <type>] [--debug]
   config list [--config <path>] [--debug]
   config add <exe> [--config <path>] [--debug]
@@ -145,6 +156,7 @@ Global options:
   --monitor-type     Process monitor type: WMI (default) or ETW
                      ETW provides lower latency but requires admin privileges
   --debug, -v        Enable verbose debug logging
+  --interactive      强制进入互动模式（等价于 interactive 命令）
 ```
 
 ### 监控类型选择优先级
