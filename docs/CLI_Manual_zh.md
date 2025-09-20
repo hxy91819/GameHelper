@@ -8,9 +8,20 @@
 
 ## 基本命令
 
-- monitor（默认）
+- interactive（无命令时默认进入）
+  - 说明：启动全新的互动式终端界面，可视化管理监控、配置、统计与工具。
+  - 功能亮点：面板化展示当前配置、选择列表操作、Spectre.Console 表格统计等。
+  - 新增体验：实时监控入口会预览最近三条记录，并在监控停止后自动汇总本次新增会话的起止时间与时长。
+  - 示例：
+    ```powershell
+    dotnet run --project GameHelper.ConsoleHost --
+    ```
+  - 小贴士：任何命令前添加 `--interactive` 参数亦可强制先进入互动界面。
+
+- monitor
   - 说明：启动宿主服务，订阅进程监控事件，并通过编排服务自动记录游玩会话与切换 HDR。
   - 当前状态：HDR 切换为占位实现（NoOp），暂不对系统 HDR 状态进行实际开关，仅记录会话。
+  - 互动提示：若从互动界面进入，会在启动前提示监控模式与配置路径，结束后显示本次新增的游玩摘要及写入位置。
   - 示例：
     ```powershell
     dotnet run --project GameHelper.ConsoleHost -- monitor
