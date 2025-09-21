@@ -168,10 +168,10 @@ namespace GameHelper.ConsoleHost.Interactive
             prompt.UseConverter(action => action switch
             {
                 MainMenuAction.Monitor => "🚀  启动实时监控",
-                MainMenuAction.Configuration => "🛠  管理游戏配置",
+                MainMenuAction.Configuration => "🛠   管理游戏配置",
                 MainMenuAction.Statistics => "📊  查看游戏时长统计",
                 MainMenuAction.Tools => "🧰  工具与诊断",
-                MainMenuAction.Exit => "⬅️  退出",
+                MainMenuAction.Exit => "⬅️   退出",
                 _ => action.ToString()
             });
 
