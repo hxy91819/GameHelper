@@ -61,7 +61,12 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             _host = host ?? throw new ArgumentNullException(nameof(host));
             _arguments = arguments ?? throw new ArgumentNullException(nameof(arguments));
+            ConsoleEncoding.EnsureUtf8();
             _console = console ?? AnsiConsole.Console;
+            if (console is null)
+            {
+                _console.Profile.Capabilities.Unicode = true;
+            }
             _configProvider = host.Services.GetRequiredService<IConfigProvider>();
             _appConfigProvider = host.Services.GetRequiredService<IAppConfigProvider>();
             _script = script;
@@ -70,7 +75,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
         public async Task RunAsync()
         {
-            Console.OutputEncoding = Encoding.UTF8;
+            ConsoleEncoding.EnsureUtf8();
             try
             {
                 Console.Title = "GameHelper 互动命令行";
@@ -163,10 +168,10 @@ namespace GameHelper.ConsoleHost.Interactive
             prompt.UseConverter(action => action switch
             {
                 MainMenuAction.Monitor => "🚀  启动实时监控",
-                MainMenuAction.Configuration => "🛠  管理游戏配置",
+                MainMenuAction.Configuration => "🛠   管理游戏配置",
                 MainMenuAction.Statistics => "📊  查看游戏时长统计",
                 MainMenuAction.Tools => "🧰  工具与诊断",
-                MainMenuAction.Exit => "⬅️  退出",
+                MainMenuAction.Exit => "⬅️   退出",
                 _ => action.ToString()
             });
 
@@ -469,6 +474,7 @@ namespace GameHelper.ConsoleHost.Interactive
             if (!TryLoadPlaytimeData(out var items, out var source))
             {
                 _console.MarkupLine("[italic grey]尚未生成任何游戏时长数据。[/]");
+                WaitForMenuReturn();
                 return;
             }
 
@@ -479,6 +485,7 @@ namespace GameHelper.ConsoleHost.Interactive
             if (list.Count == 0)
             {
                 _console.MarkupLine($"[yellow]未找到与 [bold]{Markup.Escape(filter!)}[/] 匹配的记录。[/]");
+                WaitForMenuReturn();
                 return;
             }
 
@@ -502,6 +509,7 @@ namespace GameHelper.ConsoleHost.Interactive
             if (projected.Count == 0)
             {
                 _console.MarkupLine("[italic grey]没有可展示的数据。[/]");
+                WaitForMenuReturn();
                 return;
             }
 
@@ -537,6 +545,8 @@ namespace GameHelper.ConsoleHost.Interactive
             {
                 _console.MarkupLine($"[grey]数据来源：{Markup.Escape(source)}[/]");
             }
+
+            WaitForMenuReturn();
         }
 
         private void HandleTools()
@@ -734,6 +744,15 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             return _console.Confirm(message, defaultValue);
+        }
+
+        private void WaitForMenuReturn()
+        {
+            _console.WriteLine();
+            var prompt = new TextPrompt<string>("[grey]按下 Enter 返回主菜单[/]")
+                .AllowEmpty()
+                .DefaultValue(string.Empty);
+            Prompt(prompt);
         }
 
         private void RenderMonitorHistory(SessionSnapshot snapshot)

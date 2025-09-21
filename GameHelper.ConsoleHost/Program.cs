@@ -16,6 +16,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+ConsoleEncoding.EnsureUtf8();
+
 // Parse command line arguments
 var parsedArgs = ArgumentParser.Parse(args);
 
@@ -33,7 +35,7 @@ var host = Host.CreateDefaultBuilder(args)
         // Config provider first, as the process monitor will read enabled game names to build a whitelist
         services.AddSingleton<IConfigProvider>(sp =>
         {
-            if (!string.IsNullOrWhiteSpace(parsedArgs.ConfigOverride)) 
+            if (!string.IsNullOrWhiteSpace(parsedArgs.ConfigOverride))
                 return new YamlConfigProvider(parsedArgs.ConfigOverride!);
             return new YamlConfigProvider();
         });
@@ -43,10 +45,10 @@ var host = Host.CreateDefaultBuilder(args)
             var logger = sp.GetRequiredService<ILogger<Program>>();
             var appConfigProvider = sp.GetRequiredService<IAppConfigProvider>();
             var appConfig = appConfigProvider.LoadAppConfig();
-            
+
             // Determine monitor type: command line > config file > default (WMI)
             ProcessMonitorType monitorType = ProcessMonitorType.WMI; // default
-            
+
             if (!string.IsNullOrWhiteSpace(parsedArgs.MonitorType))
             {
                 if (Enum.TryParse<ProcessMonitorType>(parsedArgs.MonitorType, true, out var cmdLineType))
@@ -163,5 +165,3 @@ switch (command)
         CommandHelpers.PrintUsage();
         break;
 }
-
-
