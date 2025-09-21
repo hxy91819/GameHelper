@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using GameHelper.ConsoleHost.Models;
 using GameHelper.ConsoleHost.Services;
@@ -55,9 +56,9 @@ namespace GameHelper.ConsoleHost.Interactive
         private readonly IConfigProvider _configProvider;
         private readonly IAppConfigProvider _appConfigProvider;
         private readonly InteractiveScript? _script;
-        private readonly Func<IHost, Task> _hostRunner;
+        private readonly Func<IHost, CancellationToken, Task> _monitorLoop;
 
-        public InteractiveShell(IHost host, ParsedArguments arguments, IAnsiConsole? console = null, InteractiveScript? script = null, Func<IHost, Task>? hostRunner = null)
+        public InteractiveShell(IHost host, ParsedArguments arguments, IAnsiConsole? console = null, InteractiveScript? script = null, Func<IHost, CancellationToken, Task>? monitorLoop = null)
         {
             _host = host ?? throw new ArgumentNullException(nameof(host));
             _arguments = arguments ?? throw new ArgumentNullException(nameof(arguments));
@@ -70,7 +71,7 @@ namespace GameHelper.ConsoleHost.Interactive
             _configProvider = host.Services.GetRequiredService<IConfigProvider>();
             _appConfigProvider = host.Services.GetRequiredService<IAppConfigProvider>();
             _script = script;
-            _hostRunner = hostRunner ?? (h => h.RunAsync());
+            _monitorLoop = monitorLoop ?? ((_, _) => Task.CompletedTask);
         }
 
         public async Task RunAsync()
@@ -93,10 +94,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 switch (action)
                 {
                     case MainMenuAction.Monitor:
-                        if (await LaunchMonitorAsync().ConfigureAwait(false))
-                        {
-                            return;
-                        }
+                        await LaunchMonitorAsync().ConfigureAwait(false);
                         break;
 
                     case MainMenuAction.Configuration:
@@ -182,7 +180,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 title);
         }
 
-        private async Task<bool> LaunchMonitorAsync()
+        private async Task LaunchMonitorAsync()
         {
             var snapshotBefore = CaptureSessionSnapshot();
 
@@ -196,7 +194,7 @@ namespace GameHelper.ConsoleHost.Interactive
             var monitorInfo = new Grid();
             monitorInfo.AddColumn(new GridColumn().NoWrap());
             monitorInfo.AddRow(new Markup($"将以 [bold]{Markup.Escape(GetMonitorModeDescription())}[/] 运行监控"));
-            monitorInfo.AddRow(new Markup("开始后可按 [bold]Ctrl + C[/] 停止并返回桌面"));
+            monitorInfo.AddRow(new Markup("开始后可按 [bold]Q[/] 键停止并返回主菜单"));
             monitorInfo.AddRow(new Markup($"配置文件位置：{Markup.Escape(GetConfigPathDescription())}"));
             monitorInfo.AddRow(new Markup("后台服务会自动加载启用的游戏列表进行白名单监控"));
 
@@ -219,30 +217,203 @@ namespace GameHelper.ConsoleHost.Interactive
 
             if (!string.Equals(confirm, "开始监控", StringComparison.Ordinal))
             {
-                return false;
+                return;
             }
 
-            _console.MarkupLine("[bold green]正在启动监控... 按 Ctrl+C 可随时停止。[/]");
+            _console.MarkupLine("[bold green]正在启动监控... 按 Q 键可随时返回主菜单。[/]");
             _console.WriteLine();
 
-            SessionSnapshot snapshotAfter;
+            var monitor = _host.Services.GetRequiredService<IProcessMonitor>();
+            var automation = _host.Services.GetRequiredService<IGameAutomationService>();
+
+            using var monitorCts = new CancellationTokenSource();
+            Task monitorLoopTask = Task.CompletedTask;
+            var automationStarted = false;
+            var monitorStarted = false;
+            var started = false;
+            var exitSignalled = false;
+            Exception? startException = null;
+            Exception? runException = null;
+
             try
             {
-                await _hostRunner(_host).ConfigureAwait(false);
+                automation.Start();
+                automationStarted = true;
+                monitor.Start();
+                monitorStarted = true;
+                started = true;
+
+                monitorLoopTask = _monitorLoop(_host, monitorCts.Token);
+
+                await WaitForMonitorExitAsync(monitorCts.Token).ConfigureAwait(false);
+                exitSignalled = true;
             }
             catch (OperationCanceledException)
             {
-                // Expected when the user stops the host via Ctrl+C.
+                exitSignalled = true;
+            }
+            catch (Exception ex)
+            {
+                if (!started)
+                {
+                    startException = ex;
+                }
+                else
+                {
+                    runException = ex;
+                }
+            }
+            finally
+            {
+                monitorCts.Cancel();
+
+                try
+                {
+                    await monitorLoopTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception ex)
+                {
+                    runException ??= ex;
+                }
+
+                if (monitorStarted)
+                {
+                    try
+                    {
+                        monitor.Stop();
+                    }
+                    catch (Exception ex)
+                    {
+                        runException ??= ex;
+                    }
+                }
+
+                if (automationStarted)
+                {
+                    try
+                    {
+                        automation.Stop();
+                    }
+                    catch (Exception ex)
+                    {
+                        runException ??= ex;
+                    }
+                }
+            }
+
+            if (startException != null)
+            {
+                _console.MarkupLine($"[red]启动监控失败：{Markup.Escape(startException.Message)}[/]");
+                _console.WriteLine();
+                return;
+            }
+
+            if (runException != null)
+            {
+                var message = exitSignalled
+                    ? $"监控已停止，但处理过程中出现异常：{runException.Message}"
+                    : $"监控过程中出现异常：{runException.Message}";
+                _console.MarkupLine($"[red]{Markup.Escape(message)}[/]");
+                _console.WriteLine();
+                return;
             }
 
             _console.MarkupLine("[grey]监控已停止，正在汇总本次游玩...[/]");
             _console.WriteLine();
 
-            snapshotAfter = CaptureSessionSnapshot();
+            var snapshotAfter = CaptureSessionSnapshot();
             RenderSessionSummary(snapshotBefore, snapshotAfter);
             _console.WriteLine();
+        }
 
-            return true;
+        private async Task WaitForMonitorExitAsync(CancellationToken cancellationToken)
+        {
+            if (_script != null && _script.TryDequeue(out string _))
+            {
+                return;
+            }
+
+            if (Console.IsInputRedirected)
+            {
+                await WaitForExitByPromptAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            var cancelSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            ConsoleCancelEventHandler handler = (_, args) =>
+            {
+                args.Cancel = true;
+                cancelSignal.TrySetResult(true);
+            };
+
+            Console.CancelKeyPress += handler;
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    if (cancelSignal.Task.IsCompleted)
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        if (Console.KeyAvailable)
+                        {
+                            var key = Console.ReadKey(intercept: true);
+                            if (key.Key == ConsoleKey.Q)
+                            {
+                                return;
+                            }
+                        }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        await WaitForExitByPromptAsync(cancellationToken).ConfigureAwait(false);
+                        return;
+                    }
+                    catch (IOException)
+                    {
+                        await WaitForExitByPromptAsync(cancellationToken).ConfigureAwait(false);
+                        return;
+                    }
+                    catch (PlatformNotSupportedException)
+                    {
+                        await WaitForExitByPromptAsync(cancellationToken).ConfigureAwait(false);
+                        return;
+                    }
+
+                    await Task.Delay(100).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                Console.CancelKeyPress -= handler;
+            }
+        }
+
+        private Task WaitForExitByPromptAsync(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var prompt = new TextPrompt<string>("输入 [bold]Q[/] 并按 Enter 返回主菜单")
+                    .AllowEmpty()
+                    .DefaultValue(string.Empty);
+
+                var input = Prompt(prompt);
+                if (!string.IsNullOrWhiteSpace(input)
+                    && string.Equals(input.Trim(), "q", StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
+                _console.MarkupLine("[yellow]请输入 Q 键以结束监控。[/]");
+            }
+
+            return Task.CompletedTask;
         }
 
         private async Task HandleConfigurationAsync()
