@@ -140,13 +140,15 @@ namespace GameHelper.Tests.Interactive
             var console = CreateConsole();
             var script = new InteractiveScript()
                 .Enqueue("Monitor")
-                .Enqueue("开始监控");
+                .Enqueue("开始监控")
+                .Enqueue("q")
+                .Enqueue("Exit");
 
             var sessionStart = new DateTime(2024, 2, 2, 21, 15, 0, DateTimeKind.Unspecified);
-            async Task HostRunner(IHost _)
+            Task HostRunner(IHost _, CancellationToken token)
             {
                 scope.AppendPlaytimeSession("eldenring.exe", sessionStart, sessionStart.AddMinutes(45), 45);
-                await Task.CompletedTask;
+                return Task.CompletedTask;
             }
 
             var shell = new InteractiveShell(host, new ParsedArguments(), console, script, HostRunner);
@@ -175,6 +177,8 @@ namespace GameHelper.Tests.Interactive
             var services = new ServiceCollection()
                 .AddSingleton<IConfigProvider>(configProvider)
                 .AddSingleton<IAppConfigProvider>(configProvider)
+                .AddSingleton<IProcessMonitor, FakeProcessMonitor>()
+                .AddSingleton<IGameAutomationService, FakeAutomationService>()
                 .BuildServiceProvider();
 
             return new AsyncDisposableHost(services);
@@ -261,6 +265,49 @@ namespace GameHelper.Tests.Interactive
                 {
                     _appConfig = appConfig;
                 }
+            }
+        }
+
+        private sealed class FakeProcessMonitor : IProcessMonitor
+        {
+            public event Action<string>? ProcessStarted
+            {
+                add { }
+                remove { }
+            }
+
+            public event Action<string>? ProcessStopped
+            {
+                add { }
+                remove { }
+            }
+
+            public void Start()
+            {
+                // No-op for tests.
+            }
+
+            public void Stop()
+            {
+                // No-op for tests.
+            }
+
+            public void Dispose()
+            {
+                // Nothing to dispose.
+            }
+        }
+
+        private sealed class FakeAutomationService : IGameAutomationService
+        {
+            public void Start()
+            {
+                // No-op for tests.
+            }
+
+            public void Stop()
+            {
+                // No-op for tests.
             }
         }
 
