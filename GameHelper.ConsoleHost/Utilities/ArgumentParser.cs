@@ -73,6 +73,7 @@ namespace GameHelper.ConsoleHost.Utilities
                         }
                     }
 
+
                     // Handle --interactive/--menu (boolean flag)
                     int iidx = list.FindIndex(s =>
                         string.Equals(s, "--interactive", StringComparison.OrdinalIgnoreCase) ||

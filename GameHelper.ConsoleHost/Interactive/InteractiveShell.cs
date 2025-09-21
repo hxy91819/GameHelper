@@ -61,15 +61,11 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             _host = host ?? throw new ArgumentNullException(nameof(host));
             _arguments = arguments ?? throw new ArgumentNullException(nameof(arguments));
+            ConsoleEncoding.EnsureUtf8();
+            _console = console ?? AnsiConsole.Console;
             if (console is null)
             {
-                ConsoleEncoding.EnsureUtf8();
-                _console = AnsiConsole.Console;
                 _console.Profile.Capabilities.Unicode = true;
-            }
-            else
-            {
-                _console = console;
             }
             _configProvider = host.Services.GetRequiredService<IConfigProvider>();
             _appConfigProvider = host.Services.GetRequiredService<IAppConfigProvider>();
