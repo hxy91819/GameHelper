@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using GameHelper.ConsoleHost;
 using GameHelper.ConsoleHost.Commands;
+using GameHelper.ConsoleHost.Interactive;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
@@ -14,6 +15,8 @@ using GameHelper.Infrastructure.Resolvers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+
+ConsoleEncoding.EnsureUtf8();
 
 // Parse command line arguments
 var parsedArgs = ArgumentParser.Parse(args);
@@ -32,7 +35,7 @@ var host = Host.CreateDefaultBuilder(args)
         // Config provider first, as the process monitor will read enabled game names to build a whitelist
         services.AddSingleton<IConfigProvider>(sp =>
         {
-            if (!string.IsNullOrWhiteSpace(parsedArgs.ConfigOverride)) 
+            if (!string.IsNullOrWhiteSpace(parsedArgs.ConfigOverride))
                 return new YamlConfigProvider(parsedArgs.ConfigOverride!);
             return new YamlConfigProvider();
         });
@@ -42,10 +45,10 @@ var host = Host.CreateDefaultBuilder(args)
             var logger = sp.GetRequiredService<ILogger<Program>>();
             var appConfigProvider = sp.GetRequiredService<IAppConfigProvider>();
             var appConfig = appConfigProvider.LoadAppConfig();
-            
+
             // Determine monitor type: command line > config file > default (WMI)
             ProcessMonitorType monitorType = ProcessMonitorType.WMI; // default
-            
+
             if (!string.IsNullOrWhiteSpace(parsedArgs.MonitorType))
             {
                 if (Enum.TryParse<ProcessMonitorType>(parsedArgs.MonitorType, true, out var cmdLineType))
@@ -122,7 +125,15 @@ catch (Exception ex)
 }
 
 // Execute the appropriate command
-var command = parsedArgs.EffectiveArgs.Length > 0 ? parsedArgs.EffectiveArgs[0].ToLowerInvariant() : "monitor";
+var interactiveMode = parsedArgs.UseInteractiveShell || parsedArgs.EffectiveArgs.Length == 0;
+if (interactiveMode)
+{
+    var shell = new InteractiveShell(host, parsedArgs);
+    await shell.RunAsync();
+    return;
+}
+
+var command = parsedArgs.EffectiveArgs[0].ToLowerInvariant();
 switch (command)
 {
     case "monitor":
@@ -145,9 +156,12 @@ switch (command)
         ValidateConfigCommand.Run();
         break;
 
+    case "interactive":
+        var shell = new InteractiveShell(host, parsedArgs);
+        await shell.RunAsync();
+        break;
+
     default:
         CommandHelpers.PrintUsage();
         break;
 }
-
-

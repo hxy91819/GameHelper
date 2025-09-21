@@ -8,6 +8,7 @@ namespace GameHelper.ConsoleHost.Commands
         {
             Console.WriteLine("GameHelper Console");
             Console.WriteLine("Usage:");
+            Console.WriteLine("  interactive         启动全新的互动命令行体验（无命令时默认）");
             Console.WriteLine("  monitor [--config <path>] [--monitor-type <type>] [--debug]");
             Console.WriteLine("  config list [--config <path>] [--debug]");
             Console.WriteLine("  config add <exe> [--config <path>] [--debug]");
@@ -21,6 +22,7 @@ namespace GameHelper.ConsoleHost.Commands
             Console.WriteLine("  --monitor-type     Process monitor type: WMI (default) or ETW");
             Console.WriteLine("                     ETW provides lower latency but requires admin privileges");
             Console.WriteLine("  --debug, -v        Enable verbose debug logging");
+            Console.WriteLine("  --interactive      强制进入互动模式（等价于 interactive 命令）");
         }
 
         public static void PrintBuildInfo(bool debug)
