@@ -61,7 +61,16 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             _host = host ?? throw new ArgumentNullException(nameof(host));
             _arguments = arguments ?? throw new ArgumentNullException(nameof(arguments));
-            _console = console ?? AnsiConsole.Console;
+            if (console is null)
+            {
+                ConsoleEncoding.EnsureUtf8();
+                _console = AnsiConsole.Console;
+                _console.Profile.Capabilities.Unicode = true;
+            }
+            else
+            {
+                _console = console;
+            }
             _configProvider = host.Services.GetRequiredService<IConfigProvider>();
             _appConfigProvider = host.Services.GetRequiredService<IAppConfigProvider>();
             _script = script;
@@ -70,7 +79,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
         public async Task RunAsync()
         {
-            Console.OutputEncoding = Encoding.UTF8;
+            ConsoleEncoding.EnsureUtf8();
             try
             {
                 Console.Title = "GameHelper 互动命令行";

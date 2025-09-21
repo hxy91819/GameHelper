@@ -9,25 +9,26 @@ namespace GameHelper.ConsoleHost.Utilities
         public string? ConfigOverride { get; set; }
         public bool EnableDebug { get; set; }
         public string? MonitorType { get; set; }
+        public bool UseInteractiveShell { get; set; }
         public string[] EffectiveArgs { get; set; } = Array.Empty<string>();
     }
 
     public static class ArgumentParser
     {
         // Extract optional global flags from args and build an effective argument list for commands
-        // Supported: --config <path> | -c <path>, --debug | -v | --verbose, and --monitor-type <type>
+        // Supported: --config <path> | -c <path>, --debug | -v | --verbose, --monitor-type <type>, and --interactive/--menu
         public static ParsedArguments Parse(string[] args)
         {
             var result = new ParsedArguments();
-            
+
             try
             {
                 if (args != null && args.Length > 0)
                 {
                     var list = new List<string>(args);
-                    
+
                     // Handle --config/-c
-                    int idx = list.FindIndex(s => string.Equals(s, "--config", StringComparison.OrdinalIgnoreCase) || 
+                    int idx = list.FindIndex(s => string.Equals(s, "--config", StringComparison.OrdinalIgnoreCase) ||
                                                   string.Equals(s, "-c", StringComparison.OrdinalIgnoreCase));
                     if (idx >= 0)
                     {
@@ -43,7 +44,7 @@ namespace GameHelper.ConsoleHost.Utilities
                             list.RemoveAt(idx);
                         }
                     }
-                    
+
                     // Handle --debug/-v/--verbose (boolean flag)
                     int didx = list.FindIndex(s =>
                         string.Equals(s, "--debug", StringComparison.OrdinalIgnoreCase) ||
@@ -71,11 +72,23 @@ namespace GameHelper.ConsoleHost.Utilities
                             list.RemoveAt(midx);
                         }
                     }
-                    
+
+                    // Handle --interactive/--menu (boolean flag)
+                    int iidx = list.FindIndex(s =>
+                        string.Equals(s, "--interactive", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(s, "--menu", StringComparison.OrdinalIgnoreCase));
+                    if (iidx >= 0)
+                    {
+                        result.UseInteractiveShell = true;
+                        list.RemoveAt(iidx);
+                    }
+
                     result.EffectiveArgs = list.ToArray();
                 }
             }
-            catch { }
+            catch
+            {
+            }
 
             return result;
         }
