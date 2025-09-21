@@ -9,6 +9,7 @@ namespace GameHelper.ConsoleHost.Utilities
         public string? ConfigOverride { get; set; }
         public bool EnableDebug { get; set; }
         public string? MonitorType { get; set; }
+        public bool UseInteractiveShell { get; set; }
         public string[] EffectiveArgs { get; set; } = Array.Empty<string>();
     }
 
@@ -72,6 +73,16 @@ namespace GameHelper.ConsoleHost.Utilities
                         }
                     }
                     
+                    // Handle --interactive/--menu (boolean flag)
+                    int iidx = list.FindIndex(s =>
+                        string.Equals(s, "--interactive", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(s, "--menu", StringComparison.OrdinalIgnoreCase));
+                    if (iidx >= 0)
+                    {
+                        result.UseInteractiveShell = true;
+                        list.RemoveAt(iidx);
+                    }
+
                     result.EffectiveArgs = list.ToArray();
                 }
             }
