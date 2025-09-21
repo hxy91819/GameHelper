@@ -16,7 +16,7 @@
 - Root files such as `Directory.Build.props`, `debug.config.yml`, and `test-etw.config.yml` configure solution-wide settings and sample configs.
 
 ## Tooling & Environment
-- Requires the .NET 8 SDK for development, testing, and publishing.
+- Requires the .NET 8 SDK for development, testing, and publishing. Install the SDK in the container when it is missing before running solution commands.
 - Local testing assumes Windows for ETW coverage, but most unit tests should run cross-platform.
 - Publishing instructions use `dotnet publish` targeting `win-x64`.
 
@@ -28,6 +28,7 @@
 - Keep dependencies injectable to support testing (use the patterns already established in Core/Infrastructure).
 
 ## Testing Expectations
+- Run `dotnet build GameHelper.sln` from the repository root and ensure it completes without compilation errors before submitting any changes.
 - Run `dotnet test GameHelper.sln` from the repository root after making code changes.
 - If `dotnet test` cannot run in the execution environment (e.g., SDK not installed), report the failure reason in your final message.
 - When adding functionality that depends on ETW/WMI, include unit tests that can run without elevated Windows permissions when possible.

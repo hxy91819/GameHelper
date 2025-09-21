@@ -150,7 +150,7 @@ namespace GameHelper.ConsoleHost.Interactive
             infoTable.AddRow("配置文件", GetConfigPathDescription());
             infoTable.AddRow("日志级别", _arguments.EnableDebug ? "Debug（命令行启用）" : "Information");
             infoTable.AddRow("监控模式", GetMonitorModeDescription());
-            infoTable.Caption("使用方向键选择功能，回车确认");
+            infoTable.Caption("输入序号或使用方向键选择功能，回车确认");
             _console.Write(infoTable);
 
             _console.WriteLine();
@@ -158,24 +158,28 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private MainMenuAction PromptMainMenu()
         {
-            var prompt = new SelectionPrompt<MainMenuAction>()
+            var title = "[bold green]请选择要执行的操作：[/]";
+            var choices = Enum.GetValues<MainMenuAction>();
+            var prompt = new SelectionPrompt<MainMenuAction>
             {
-                Title = "[bold green]请选择要执行的操作：[/]",
                 PageSize = 6
             };
+            prompt.Title(title);
+            prompt.AddChoices(choices);
 
-            prompt.AddChoices(Enum.GetValues<MainMenuAction>());
-            prompt.UseConverter(action => action switch
-            {
-                MainMenuAction.Monitor => "🚀  启动实时监控",
-                MainMenuAction.Configuration => "🛠   管理游戏配置",
-                MainMenuAction.Statistics => "📊  查看游戏时长统计",
-                MainMenuAction.Tools => "🧰  工具与诊断",
-                MainMenuAction.Exit => "⬅️   退出",
-                _ => action.ToString()
-            });
-
-            return Prompt(prompt);
+            return PromptSelection(
+                prompt,
+                choices,
+                action => action switch
+                {
+                    MainMenuAction.Monitor => "🚀  启动实时监控",
+                    MainMenuAction.Configuration => "🛠   管理游戏配置",
+                    MainMenuAction.Statistics => "📊  查看游戏时长统计",
+                    MainMenuAction.Tools => "🧰  工具与诊断",
+                    MainMenuAction.Exit => "⬅️   退出",
+                    _ => action.ToString()
+                },
+                title);
         }
 
         private async Task<bool> LaunchMonitorAsync()
@@ -205,9 +209,13 @@ namespace GameHelper.ConsoleHost.Interactive
             RenderMonitorHistory(snapshotBefore);
             _console.WriteLine();
 
-            var confirm = Prompt(new SelectionPrompt<string>()
-                .Title("是否立即启动实时监控？")
-                .AddChoices("开始监控", "返回菜单"));
+            var confirmTitle = "是否立即启动实时监控？";
+            var confirmChoices = new[] { "开始监控", "返回菜单" };
+            var confirmPrompt = new SelectionPrompt<string>();
+            confirmPrompt.Title(confirmTitle);
+            confirmPrompt.AddChoices(confirmChoices);
+
+            var confirm = PromptSelection(confirmPrompt, confirmChoices, value => Markup.Escape(value), confirmTitle);
 
             if (!string.Equals(confirm, "开始监控", StringComparison.Ordinal))
             {
@@ -241,24 +249,28 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             while (true)
             {
-                var prompt = new SelectionPrompt<ConfigAction>()
+                var title = "[bold green]配置管理[/]";
+                var choices = Enum.GetValues<ConfigAction>();
+                var prompt = new SelectionPrompt<ConfigAction>
                 {
-                    Title = "[bold green]配置管理[/]",
                     PageSize = 5
                 };
+                prompt.Title(title);
+                prompt.AddChoices(choices);
 
-                prompt.AddChoices(Enum.GetValues<ConfigAction>());
-                prompt.UseConverter(action => action switch
-                {
-                    ConfigAction.View => "📋  查看当前配置",
-                    ConfigAction.Add => "➕  添加新游戏",
-                    ConfigAction.Edit => "✏️  修改现有游戏",
-                    ConfigAction.Remove => "🗑  删除游戏",
-                    ConfigAction.Back => "⬅️  返回上一级",
-                    _ => action.ToString()
-                });
-
-                var selection = Prompt(prompt);
+                var selection = PromptSelection(
+                    prompt,
+                    choices,
+                    action => action switch
+                    {
+                        ConfigAction.View => "📋  查看当前配置",
+                        ConfigAction.Add => "➕  添加新游戏",
+                        ConfigAction.Edit => "✏️  修改现有游戏",
+                        ConfigAction.Remove => "🗑  删除游戏",
+                        ConfigAction.Back => "⬅️  返回上一级",
+                        _ => action.ToString()
+                    },
+                    title);
                 switch (selection)
                 {
                     case ConfigAction.View:
@@ -333,30 +345,24 @@ namespace GameHelper.ConsoleHost.Interactive
                 .DefaultValue(defaultAlias);
             var alias = Prompt(aliasPrompt);
 
-            var enablePrompt = new SelectionPrompt<string>()
-                .Title("是否启用自动化？");
-            if (existingConfig?.IsEnabled == false)
-            {
-                enablePrompt.AddChoices("禁用", "启用");
-            }
-            else
-            {
-                enablePrompt.AddChoices("启用", "禁用");
-            }
-            var enable = Prompt(enablePrompt);
+            var enableTitle = "是否启用自动化？";
+            var enableChoices = existingConfig?.IsEnabled == false
+                ? new[] { "禁用", "启用" }
+                : new[] { "启用", "禁用" };
+            var enablePrompt = new SelectionPrompt<string>();
+            enablePrompt.Title(enableTitle);
+            enablePrompt.AddChoices(enableChoices);
+            var enable = PromptSelection(enablePrompt, enableChoices, value => Markup.Escape(value), enableTitle);
 
-            var hdrPrompt = new SelectionPrompt<string>()
-                .Title("在游戏运行时如何控制 HDR？");
+            var hdrTitle = "在游戏运行时如何控制 HDR？";
             var defaultHdrEnabled = existingConfig?.HDREnabled ?? true;
-            if (defaultHdrEnabled)
-            {
-                hdrPrompt.AddChoices("自动开启 HDR", "保持关闭");
-            }
-            else
-            {
-                hdrPrompt.AddChoices("保持关闭", "自动开启 HDR");
-            }
-            var hdr = Prompt(hdrPrompt);
+            var hdrChoices = defaultHdrEnabled
+                ? new[] { "自动开启 HDR", "保持关闭" }
+                : new[] { "保持关闭", "自动开启 HDR" };
+            var hdrPrompt = new SelectionPrompt<string>();
+            hdrPrompt.Title(hdrTitle);
+            hdrPrompt.AddChoices(hdrChoices);
+            var hdr = PromptSelection(hdrPrompt, hdrChoices, value => Markup.Escape(value), hdrTitle);
 
             configs[exe] = new GameConfig
             {
@@ -379,13 +385,18 @@ namespace GameHelper.ConsoleHost.Interactive
                 return;
             }
 
-            var prompt = new SelectionPrompt<string>()
-                .Title("选择需要修改的游戏")
-                .PageSize(10)
-                .UseConverter(value => Markup.Escape(value))
-                .AddChoices(configs.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase));
+            var title = "选择需要修改的游戏";
+            var choices = configs.Keys
+                .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var prompt = new SelectionPrompt<string>
+            {
+                PageSize = 10
+            };
+            prompt.Title(title);
+            prompt.AddChoices(choices);
 
-            var exe = Prompt(prompt);
+            var exe = PromptSelection(prompt, choices, value => Markup.Escape(value), title);
             if (!configs.TryGetValue(exe, out var cfg))
             {
                 _console.MarkupLine("[red]未找到对应的配置。[/]");
@@ -397,29 +408,23 @@ namespace GameHelper.ConsoleHost.Interactive
                 .DefaultValue(cfg.Alias ?? string.Empty);
             var alias = Prompt(aliasPrompt);
 
-            var enablePrompt = new SelectionPrompt<string>()
-                .Title("是否启用自动化？");
-            if (cfg.IsEnabled)
-            {
-                enablePrompt.AddChoices("启用", "禁用");
-            }
-            else
-            {
-                enablePrompt.AddChoices("禁用", "启用");
-            }
-            var enable = Prompt(enablePrompt);
+            var enableTitle = "是否启用自动化？";
+            var enableChoices = cfg.IsEnabled
+                ? new[] { "启用", "禁用" }
+                : new[] { "禁用", "启用" };
+            var enablePrompt = new SelectionPrompt<string>();
+            enablePrompt.Title(enableTitle);
+            enablePrompt.AddChoices(enableChoices);
+            var enable = PromptSelection(enablePrompt, enableChoices, value => Markup.Escape(value), enableTitle);
 
-            var hdrPrompt = new SelectionPrompt<string>()
-                .Title("在游戏运行时如何控制 HDR？");
-            if (cfg.HDREnabled)
-            {
-                hdrPrompt.AddChoices("自动开启 HDR", "保持关闭");
-            }
-            else
-            {
-                hdrPrompt.AddChoices("保持关闭", "自动开启 HDR");
-            }
-            var hdr = Prompt(hdrPrompt);
+            var hdrTitle = "在游戏运行时如何控制 HDR？";
+            var hdrChoices = cfg.HDREnabled
+                ? new[] { "自动开启 HDR", "保持关闭" }
+                : new[] { "保持关闭", "自动开启 HDR" };
+            var hdrPrompt = new SelectionPrompt<string>();
+            hdrPrompt.Title(hdrTitle);
+            hdrPrompt.AddChoices(hdrChoices);
+            var hdr = PromptSelection(hdrPrompt, hdrChoices, value => Markup.Escape(value), hdrTitle);
 
             cfg.Alias = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
             cfg.IsEnabled = string.Equals(enable, "启用", StringComparison.Ordinal);
@@ -439,13 +444,18 @@ namespace GameHelper.ConsoleHost.Interactive
                 return;
             }
 
-            var prompt = new SelectionPrompt<string>()
-                .Title("选择要删除的游戏")
-                .PageSize(10)
-                .UseConverter(value => Markup.Escape(value))
-                .AddChoices(configs.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase));
+            var title = "选择要删除的游戏";
+            var choices = configs.Keys
+                .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var prompt = new SelectionPrompt<string>
+            {
+                PageSize = 10
+            };
+            prompt.Title(title);
+            prompt.AddChoices(choices);
 
-            var exe = Prompt(prompt);
+            var exe = PromptSelection(prompt, choices, value => Markup.Escape(value), title);
 
             var confirm = PromptConfirm($"确定要删除 [bold]{Markup.Escape(exe)}[/] 吗？");
             if (!confirm)
@@ -553,22 +563,26 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             while (true)
             {
-                var prompt = new SelectionPrompt<ToolAction>()
+                var title = "[bold green]工具与诊断[/]";
+                var choices = Enum.GetValues<ToolAction>();
+                var prompt = new SelectionPrompt<ToolAction>
                 {
-                    Title = "[bold green]工具与诊断[/]",
                     PageSize = 4
                 };
+                prompt.Title(title);
+                prompt.AddChoices(choices);
 
-                prompt.AddChoices(Enum.GetValues<ToolAction>());
-                prompt.UseConverter(action => action switch
-                {
-                    ToolAction.ConvertConfig => "🔄  将旧版 JSON 配置转换为 YAML",
-                    ToolAction.ValidateConfig => "✅  校验当前 YAML 配置",
-                    ToolAction.Back => "⬅️  返回上一级",
-                    _ => action.ToString()
-                });
-
-                var choice = Prompt(prompt);
+                var choice = PromptSelection(
+                    prompt,
+                    choices,
+                    action => action switch
+                    {
+                        ToolAction.ConvertConfig => "🔄  将旧版 JSON 配置转换为 YAML",
+                        ToolAction.ValidateConfig => "✅  校验当前 YAML 配置",
+                        ToolAction.Back => "⬅️  返回上一级",
+                        _ => action.ToString()
+                    },
+                    title);
                 switch (choice)
                 {
                     case ToolAction.ConvertConfig:
@@ -725,6 +739,90 @@ namespace GameHelper.ConsoleHost.Interactive
 
             return "WMI（默认）";
         }
+
+        private T PromptSelection<T>(SelectionPrompt<T> prompt, IReadOnlyList<T> choices, Func<T, string> labelFactory, string? displayTitle)
+            where T : notnull
+        {
+            if (_script != null && _script.TryDequeue(out T scriptedValue))
+            {
+                return scriptedValue;
+            }
+
+            var entries = choices
+                .Select((choice, index) => new NumberedChoice<T>(index + 1, choice, labelFactory(choice)))
+                .ToList();
+
+            var lookup = entries.ToDictionary(entry => entry.Value, entry => entry, EqualityComparer<T>.Default);
+
+            prompt.UseConverter(value =>
+            {
+                return lookup.TryGetValue(value, out var entry)
+                    ? FormatNumberedLabel(entry)
+                    : labelFactory(value);
+            });
+
+            RenderNumberedChoices(displayTitle, entries);
+
+            while (true)
+            {
+                var inputPrompt = new TextPrompt<string>("请输入选项序号（直接回车使用方向键）")
+                    .AllowEmpty()
+                    .DefaultValue(string.Empty);
+
+                var input = Prompt(inputPrompt);
+
+                if (string.IsNullOrWhiteSpace(input))
+                {
+                    _console.WriteLine();
+                    return _console.Prompt(prompt);
+                }
+
+                if (int.TryParse(input, NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
+                    && index >= 1 && index <= entries.Count)
+                {
+                    _console.WriteLine();
+                    return entries[index - 1].Value;
+                }
+
+                _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
+            }
+        }
+
+        private void RenderNumberedChoices<T>(string? title, List<NumberedChoice<T>> entries)
+            where T : notnull
+        {
+            if (!string.IsNullOrWhiteSpace(title))
+            {
+                _console.MarkupLine(title!);
+            }
+
+            if (entries.Count > 0)
+            {
+                var grid = new Grid();
+                grid.AddColumn(new GridColumn().NoWrap().PadLeft(0).PadRight(1));
+                grid.AddColumn(new GridColumn().PadLeft(0));
+
+                foreach (var entry in entries)
+                {
+                    grid.AddRow(new Markup($"[grey]{entry.Index}.[/]"), new Markup(entry.Label));
+                }
+
+                _console.Write(grid);
+                _console.WriteLine();
+                _console.MarkupLine("[grey]输入序号后按 Enter 可快速选择；直接按 Enter 使用方向键。[/]");
+            }
+
+            _console.WriteLine();
+        }
+
+        private static string FormatNumberedLabel<T>(NumberedChoice<T> entry)
+            where T : notnull
+        {
+            return $"[grey]{entry.Index}.[/] {entry.Label}";
+        }
+
+        private sealed record NumberedChoice<T>(int Index, T Value, string Label)
+            where T : notnull;
 
         private T Prompt<T>(IPrompt<T> prompt)
         {
