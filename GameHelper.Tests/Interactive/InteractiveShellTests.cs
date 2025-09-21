@@ -109,6 +109,7 @@ namespace GameHelper.Tests.Interactive
             var script = new InteractiveScript()
                 .Enqueue("Statistics")
                 .Enqueue(string.Empty)
+                .Enqueue(string.Empty)
                 .Enqueue("Exit");
 
             var shell = new InteractiveShell(host, new ParsedArguments(), console, script);
