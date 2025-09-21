@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using GameHelper.ConsoleHost;
 using GameHelper.ConsoleHost.Commands;
+using GameHelper.ConsoleHost.Interactive;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
@@ -122,7 +123,15 @@ catch (Exception ex)
 }
 
 // Execute the appropriate command
-var command = parsedArgs.EffectiveArgs.Length > 0 ? parsedArgs.EffectiveArgs[0].ToLowerInvariant() : "monitor";
+var interactiveMode = parsedArgs.UseInteractiveShell || parsedArgs.EffectiveArgs.Length == 0;
+if (interactiveMode)
+{
+    var shell = new InteractiveShell(host, parsedArgs);
+    await shell.RunAsync();
+    return;
+}
+
+var command = parsedArgs.EffectiveArgs[0].ToLowerInvariant();
 switch (command)
 {
     case "monitor":
@@ -143,6 +152,11 @@ switch (command)
 
     case "validate-config":
         ValidateConfigCommand.Run();
+        break;
+
+    case "interactive":
+        var shell = new InteractiveShell(host, parsedArgs);
+        await shell.RunAsync();
         break;
 
     default:
