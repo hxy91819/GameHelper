@@ -140,8 +140,6 @@ namespace GameHelper.Tests.Interactive
             var console = CreateConsole();
             var script = new InteractiveScript()
                 .Enqueue("Monitor")
-                .Enqueue("开始监控")
-                .Enqueue("q")
                 .Enqueue("Exit");
 
             var sessionStart = new DateTime(2024, 2, 2, 21, 15, 0, DateTimeKind.Unspecified);
