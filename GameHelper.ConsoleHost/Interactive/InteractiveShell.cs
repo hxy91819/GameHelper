@@ -207,19 +207,6 @@ namespace GameHelper.ConsoleHost.Interactive
             RenderMonitorHistory(snapshotBefore);
             _console.WriteLine();
 
-            var confirmTitle = "是否立即启动实时监控？";
-            var confirmChoices = new[] { "开始监控", "返回菜单" };
-            var confirmPrompt = new SelectionPrompt<string>();
-            confirmPrompt.Title(confirmTitle);
-            confirmPrompt.AddChoices(confirmChoices);
-
-            var confirm = PromptSelection(confirmPrompt, confirmChoices, value => Markup.Escape(value), confirmTitle);
-
-            if (!string.Equals(confirm, "开始监控", StringComparison.Ordinal))
-            {
-                return;
-            }
-
             _console.MarkupLine("[bold green]正在启动监控... 按 Q 键可随时返回主菜单。[/]");
             _console.WriteLine();
 
@@ -245,7 +232,11 @@ namespace GameHelper.ConsoleHost.Interactive
 
                 monitorLoopTask = _monitorLoop(_host, monitorCts.Token);
 
-                await WaitForMonitorExitAsync(monitorCts.Token).ConfigureAwait(false);
+                if (_script is null)
+                {
+                    await WaitForMonitorExitAsync(monitorCts.Token).ConfigureAwait(false);
+                }
+
                 exitSignalled = true;
             }
             catch (OperationCanceledException)
@@ -331,11 +322,6 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private async Task WaitForMonitorExitAsync(CancellationToken cancellationToken)
         {
-            if (_script != null && _script.TryDequeue(out string _))
-            {
-                return;
-            }
-
             if (Console.IsInputRedirected)
             {
                 await WaitForExitByPromptAsync(cancellationToken).ConfigureAwait(false);
