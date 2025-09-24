@@ -162,6 +162,50 @@ namespace GameHelper.Tests.Interactive
             Assert.Contains("本次共计 1 次游戏结束", snapshot);
         }
 
+        [Fact]
+        public async Task RunAsync_LaunchMonitorDryRun_SkipsMonitorPipeline()
+        {
+            using var scope = new AppDataScope();
+            var startHistory = new DateTime(2024, 3, 5, 18, 30, 0, DateTimeKind.Unspecified);
+            scope.WritePlaytimeCsv(("horizon.exe", startHistory, startHistory.AddMinutes(120), 120));
+
+            var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
+            {
+                ["horizon.exe"] = new GameConfig { Name = "horizon.exe", Alias = "地平线", IsEnabled = true, HDREnabled = true }
+            },
+            new AppConfig { ProcessMonitorType = ProcessMonitorType.ETW },
+            configPath: scope.ConfigPath);
+
+            await using var host = CreateHost(configProvider);
+            var console = CreateConsole();
+            var script = new InteractiveScript()
+                .Enqueue("Monitor")
+                .Enqueue("Exit");
+
+            var monitor = (FakeProcessMonitor)host.Services.GetRequiredService<IProcessMonitor>();
+            var automation = (FakeAutomationService)host.Services.GetRequiredService<IGameAutomationService>();
+
+            var sessionStart = new DateTime(2024, 3, 6, 21, 0, 0, DateTimeKind.Unspecified);
+            Task HostRunner(IHost _, CancellationToken token)
+            {
+                scope.AppendPlaytimeSession("horizon.exe", sessionStart, sessionStart.AddMinutes(30), 30);
+                return Task.CompletedTask;
+            }
+
+            var shell = new InteractiveShell(host, new ParsedArguments { MonitorDryRun = true }, console, script, HostRunner);
+            await shell.RunAsync();
+
+            var snapshot = console.Output.ToString();
+            _output.WriteLine("[Monitor DryRun Snapshot]\n" + snapshot);
+
+            Assert.Contains("Dry-run", snapshot, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("本次共计 1 次游戏结束", snapshot);
+            Assert.Equal(0, monitor.StartCalls);
+            Assert.Equal(0, monitor.StopCalls);
+            Assert.Equal(0, automation.StartCalls);
+            Assert.Equal(0, automation.StopCalls);
+        }
+
         private static TestConsole CreateConsole()
         {
             var console = new TestConsole();
@@ -268,6 +312,9 @@ namespace GameHelper.Tests.Interactive
 
         private sealed class FakeProcessMonitor : IProcessMonitor
         {
+            public int StartCalls { get; private set; }
+            public int StopCalls { get; private set; }
+
             public event Action<string>? ProcessStarted
             {
                 add { }
@@ -282,12 +329,12 @@ namespace GameHelper.Tests.Interactive
 
             public void Start()
             {
-                // No-op for tests.
+                StartCalls++;
             }
 
             public void Stop()
             {
-                // No-op for tests.
+                StopCalls++;
             }
 
             public void Dispose()
@@ -298,14 +345,17 @@ namespace GameHelper.Tests.Interactive
 
         private sealed class FakeAutomationService : IGameAutomationService
         {
+            public int StartCalls { get; private set; }
+            public int StopCalls { get; private set; }
+
             public void Start()
             {
-                // No-op for tests.
+                StartCalls++;
             }
 
             public void Stop()
             {
-                // No-op for tests.
+                StopCalls++;
             }
         }
 

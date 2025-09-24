@@ -21,6 +21,7 @@ namespace GameHelper.ConsoleHost.Commands
             Console.WriteLine("  --config, -c       Override path to config.yml");
             Console.WriteLine("  --monitor-type     Process monitor type: WMI (default) or ETW");
             Console.WriteLine("                     ETW provides lower latency but requires admin privileges");
+            Console.WriteLine("  --monitor-dry-run  Dry-run monitor flow without starting background services");
             Console.WriteLine("  --debug, -v        Enable verbose debug logging");
             Console.WriteLine("  --interactive      强制进入互动模式（等价于 interactive 命令）");
         }

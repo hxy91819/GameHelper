@@ -44,7 +44,7 @@ namespace GameHelper.Tests.Interactive
 
             try
             {
-                var command = $"dotnet run --no-build --project \"{consoleProject}\" -- --config \"{configPath}\" --interactive";
+                var command = $"dotnet run --no-build --project \"{consoleProject}\" -- --config \"{configPath}\" --monitor-dry-run --interactive";
                 var psi = new ProcessStartInfo
                 {
                     FileName = scriptCommand!,
@@ -88,6 +88,8 @@ namespace GameHelper.Tests.Interactive
                 await process.StandardInput.WriteLineAsync("2");
                 await process.StandardInput.WriteLineAsync("1");
                 await process.StandardInput.WriteLineAsync("5");
+                await process.StandardInput.WriteLineAsync("1");
+                await process.StandardInput.WriteLineAsync("Q");
                 await process.StandardInput.WriteLineAsync("5");
                 process.StandardInput.Close();
 
@@ -113,6 +115,7 @@ namespace GameHelper.Tests.Interactive
                 Assert.Contains("当前配置", combined);
                 Assert.Contains("sample.exe", combined);
                 Assert.Contains("Sample Game", combined);
+                Assert.Contains("Dry-run", combined, StringComparison.OrdinalIgnoreCase);
                 Assert.Contains("返回上一级", combined);
             }
             finally
