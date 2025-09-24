@@ -43,6 +43,11 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IProcessMonitor>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<Program>>();
+            if (parsedArgs.MonitorDryRun)
+            {
+                logger.LogInformation("Monitor dry-run enabled; using no-op process monitor.");
+                return ProcessMonitorFactory.CreateNoOp();
+            }
             var appConfigProvider = sp.GetRequiredService<IAppConfigProvider>();
             var appConfig = appConfigProvider.LoadAppConfig();
 
