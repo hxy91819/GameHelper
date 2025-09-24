@@ -50,6 +50,9 @@ namespace GameHelper.ConsoleHost.Interactive
             Back
         }
 
+        private const int DirectNumberPollingMilliseconds = 25;
+        private static readonly TimeSpan NumericSelectionIdleTimeout = TimeSpan.FromMilliseconds(500);
+
         private readonly IHost _host;
         private readonly ParsedArguments _arguments;
         private readonly IAnsiConsole _console;
@@ -938,9 +941,14 @@ namespace GameHelper.ConsoleHost.Interactive
 
             RenderNumberedChoices(displayTitle, entries);
 
+            if (_script is null && TrySelectByNumber(entries, out var directSelection))
+            {
+                return directSelection;
+            }
+
             while (true)
             {
-                var inputPrompt = new TextPrompt<string>("请输入选项序号（直接回车使用方向键）")
+                var inputPrompt = new TextPrompt<string>("请输入选项序号（直接输入数字或按 Enter 使用方向键）")
                     .AllowEmpty()
                     .DefaultValue(string.Empty);
 
@@ -984,7 +992,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
                 _console.Write(grid);
                 _console.WriteLine();
-                _console.MarkupLine("[grey]输入序号后按 Enter 可快速选择；直接按 Enter 使用方向键。[/]");
+                _console.MarkupLine("[grey]直接输入序号即可选择；按 Enter 使用方向键。[/]");
             }
 
             _console.WriteLine();
@@ -998,6 +1006,219 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private sealed record NumberedChoice<T>(int Index, T Value, string Label)
             where T : notnull;
+
+        private bool TrySelectByNumber<T>(List<NumberedChoice<T>> entries, out T value)
+            where T : notnull
+        {
+            value = default!;
+
+            if (entries.Count == 0 || Console.IsInputRedirected || _script is not null)
+            {
+                return false;
+            }
+
+            var buffer = new StringBuilder();
+            DateTime? deadline = null;
+
+            while (true)
+            {
+                if (buffer.Length > 0 && deadline.HasValue && DateTime.UtcNow >= deadline.Value)
+                {
+                    if (TryResolveSelection(entries, buffer.ToString(), out value))
+                    {
+                        return true;
+                    }
+
+                    buffer.Clear();
+                    deadline = null;
+                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
+                    continue;
+                }
+
+                ConsoleKeyInfo keyInfo;
+                if (buffer.Length == 0)
+                {
+                    if (!TryReadKey(out keyInfo))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    if (!TryReadKeyIfAvailable(out keyInfo, out var pollingError))
+                    {
+                        if (pollingError)
+                        {
+                            return false;
+                        }
+
+                        Thread.Sleep(DirectNumberPollingMilliseconds);
+                        continue;
+                    }
+                }
+
+                if (keyInfo.Key == ConsoleKey.Enter)
+                {
+                    if (buffer.Length == 0)
+                    {
+                        _console.WriteLine();
+                        return false;
+                    }
+
+                    if (TryResolveSelection(entries, buffer.ToString(), out value))
+                    {
+                        return true;
+                    }
+
+                    buffer.Clear();
+                    deadline = null;
+                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
+                    continue;
+                }
+
+                if (keyInfo.Key == ConsoleKey.Backspace)
+                {
+                    if (buffer.Length > 0)
+                    {
+                        buffer.Remove(buffer.Length - 1, 1);
+                        deadline = buffer.Length == 0
+                            ? null
+                            : CalculateDeadline(buffer.ToString(), entries.Count);
+                    }
+
+                    continue;
+                }
+
+                if (!char.IsDigit(keyInfo.KeyChar))
+                {
+                    if (buffer.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    buffer.Clear();
+                    deadline = null;
+                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
+                    continue;
+                }
+
+                if (buffer.Length == 0 && keyInfo.KeyChar == '0')
+                {
+                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
+                    continue;
+                }
+
+                buffer.Append(keyInfo.KeyChar);
+
+                if (!int.TryParse(buffer.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
+                    || index < 1 || index > entries.Count)
+                {
+                    buffer.Clear();
+                    deadline = null;
+                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
+                    continue;
+                }
+
+                if (HasContinuationPotential(index, entries.Count))
+                {
+                    deadline = DateTime.UtcNow.Add(NumericSelectionIdleTimeout);
+                    continue;
+                }
+
+                if (TryResolveSelection(entries, buffer.ToString(), out value))
+                {
+                    return true;
+                }
+
+                buffer.Clear();
+                deadline = null;
+                _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
+            }
+        }
+
+        private static bool TryReadKey(out ConsoleKeyInfo keyInfo)
+        {
+            keyInfo = default;
+
+            try
+            {
+                keyInfo = Console.ReadKey(intercept: true);
+                return true;
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            catch (IOException)
+            {
+            }
+            catch (PlatformNotSupportedException)
+            {
+            }
+
+            return false;
+        }
+
+        private static bool TryReadKeyIfAvailable(out ConsoleKeyInfo keyInfo, out bool encounteredError)
+        {
+            keyInfo = default;
+            encounteredError = false;
+
+            try
+            {
+                if (!Console.KeyAvailable)
+                {
+                    return false;
+                }
+
+                keyInfo = Console.ReadKey(intercept: true);
+                return true;
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            catch (IOException)
+            {
+            }
+            catch (PlatformNotSupportedException)
+            {
+            }
+
+            encounteredError = true;
+            return false;
+        }
+
+        private bool TryResolveSelection<T>(List<NumberedChoice<T>> entries, string digits, out T value)
+            where T : notnull
+        {
+            if (int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
+                && index >= 1 && index <= entries.Count)
+            {
+                _console.WriteLine();
+                value = entries[index - 1].Value;
+                return true;
+            }
+
+            value = default!;
+            return false;
+        }
+
+        private static DateTime? CalculateDeadline(string digits, int count)
+        {
+            if (!int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var index))
+            {
+                return null;
+            }
+
+            return HasContinuationPotential(index, count)
+                ? DateTime.UtcNow.Add(NumericSelectionIdleTimeout)
+                : null;
+        }
+
+        private static bool HasContinuationPotential(int current, int count)
+        {
+            var candidate = (long)current * 10;
+            return candidate <= count;
+        }
 
         private T Prompt<T>(IPrompt<T> prompt)
         {
