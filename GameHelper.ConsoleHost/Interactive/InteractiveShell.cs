@@ -183,6 +183,7 @@ namespace GameHelper.ConsoleHost.Interactive
         private async Task LaunchMonitorAsync()
         {
             var snapshotBefore = CaptureSessionSnapshot();
+            var dryRun = _arguments.MonitorDryRun;
 
             var monitorRule = new Rule("[yellow]实时监控[/]")
             {
@@ -197,6 +198,10 @@ namespace GameHelper.ConsoleHost.Interactive
             monitorInfo.AddRow(new Markup("开始后可按 [bold]Q[/] 键停止并返回主菜单"));
             monitorInfo.AddRow(new Markup($"配置文件位置：{Markup.Escape(GetConfigPathDescription())}"));
             monitorInfo.AddRow(new Markup("后台服务会自动加载启用的游戏列表进行白名单监控"));
+            if (dryRun)
+            {
+                monitorInfo.AddRow(new Markup("[yellow]Dry-run 模式：不会启动后台监控服务。[/]"));
+            }
 
             _console.Write(new Panel(monitorInfo)
             {
@@ -207,24 +212,16 @@ namespace GameHelper.ConsoleHost.Interactive
             RenderMonitorHistory(snapshotBefore);
             _console.WriteLine();
 
-            var confirmTitle = "是否立即启动实时监控？";
-            var confirmChoices = new[] { "开始监控", "返回菜单" };
-            var confirmPrompt = new SelectionPrompt<string>();
-            confirmPrompt.Title(confirmTitle);
-            confirmPrompt.AddChoices(confirmChoices);
-
-            var confirm = PromptSelection(confirmPrompt, confirmChoices, value => Markup.Escape(value), confirmTitle);
-
-            if (!string.Equals(confirm, "开始监控", StringComparison.Ordinal))
-            {
-                return;
-            }
-
             _console.MarkupLine("[bold green]正在启动监控... 按 Q 键可随时返回主菜单。[/]");
             _console.WriteLine();
 
-            var monitor = _host.Services.GetRequiredService<IProcessMonitor>();
-            var automation = _host.Services.GetRequiredService<IGameAutomationService>();
+            IProcessMonitor? monitor = null;
+            IGameAutomationService? automation = null;
+            if (!dryRun)
+            {
+                monitor = _host.Services.GetRequiredService<IProcessMonitor>();
+                automation = _host.Services.GetRequiredService<IGameAutomationService>();
+            }
 
             using var monitorCts = new CancellationTokenSource();
             Task monitorLoopTask = Task.CompletedTask;
@@ -237,15 +234,22 @@ namespace GameHelper.ConsoleHost.Interactive
 
             try
             {
-                automation.Start();
-                automationStarted = true;
-                monitor.Start();
-                monitorStarted = true;
+                if (!dryRun)
+                {
+                    automation!.Start();
+                    automationStarted = true;
+                    monitor!.Start();
+                    monitorStarted = true;
+                }
                 started = true;
 
                 monitorLoopTask = _monitorLoop(_host, monitorCts.Token);
 
-                await WaitForMonitorExitAsync(monitorCts.Token).ConfigureAwait(false);
+                if (!dryRun && _script is null)
+                {
+                    await WaitForMonitorExitAsync(monitorCts.Token).ConfigureAwait(false);
+                }
+
                 exitSignalled = true;
             }
             catch (OperationCanceledException)
@@ -279,7 +283,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     runException ??= ex;
                 }
 
-                if (monitorStarted)
+                if (monitorStarted && monitor is not null)
                 {
                     try
                     {
@@ -291,7 +295,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     }
                 }
 
-                if (automationStarted)
+                if (automationStarted && automation is not null)
                 {
                     try
                     {
@@ -331,11 +335,6 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private async Task WaitForMonitorExitAsync(CancellationToken cancellationToken)
         {
-            if (_script != null && _script.TryDequeue(out string _))
-            {
-                return;
-            }
-
             if (Console.IsInputRedirected)
             {
                 await WaitForExitByPromptAsync(cancellationToken).ConfigureAwait(false);
@@ -890,6 +889,11 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private string GetMonitorModeDescription()
         {
+            if (_arguments.MonitorDryRun)
+            {
+                return "Dry-run（仅演练）";
+            }
+
             if (!string.IsNullOrWhiteSpace(_arguments.MonitorType))
             {
                 return $"{_arguments.MonitorType!.ToUpperInvariant()}（命令行指定）";

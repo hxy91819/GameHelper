@@ -35,6 +35,9 @@ dotnet run --project .\GameHelper.ConsoleHost -- monitor --monitor-type ETW [--c
 # 使用 WMI 监控（兼容性最好）
 dotnet run --project .\GameHelper.ConsoleHost -- monitor --monitor-type WMI [--config <path>] [--debug]
 
+# Dry-run 演练（跳过实时监控模块，便于跨平台验证）
+dotnet run --project .\GameHelper.ConsoleHost -- monitor --monitor-dry-run [--config <path>] [--debug]
+
 # 统计（支持按游戏名过滤）
 dotnet run --project .\GameHelper.ConsoleHost -- stats [--game <name>] [--config <path>] [--debug]
 
@@ -155,6 +158,7 @@ Global options:
   --config, -c       Override path to config.yml
   --monitor-type     Process monitor type: WMI (default) or ETW
                      ETW provides lower latency but requires admin privileges
+  --monitor-dry-run  Dry-run monitor flow without starting background services
   --debug, -v        Enable verbose debug logging
   --interactive      强制进入互动模式（等价于 interactive 命令）
 ```
