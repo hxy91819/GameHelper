@@ -9,6 +9,7 @@ namespace GameHelper.ConsoleHost.Utilities
         public string? ConfigOverride { get; set; }
         public bool EnableDebug { get; set; }
         public string? MonitorType { get; set; }
+        public bool MonitorDryRun { get; set; }
         public bool UseInteractiveShell { get; set; }
         public string[] EffectiveArgs { get; set; } = Array.Empty<string>();
     }
@@ -73,6 +74,16 @@ namespace GameHelper.ConsoleHost.Utilities
                         }
                     }
 
+
+                    // Handle --monitor-dry-run (boolean flag)
+                    int dryRunIdx = list.FindIndex(s =>
+                        string.Equals(s, "--monitor-dry-run", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(s, "--monitor-dryrun", StringComparison.OrdinalIgnoreCase));
+                    if (dryRunIdx >= 0)
+                    {
+                        result.MonitorDryRun = true;
+                        list.RemoveAt(dryRunIdx);
+                    }
 
                     // Handle --interactive/--menu (boolean flag)
                     int iidx = list.FindIndex(s =>
