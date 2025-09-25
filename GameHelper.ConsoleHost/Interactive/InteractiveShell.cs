@@ -40,6 +40,7 @@ namespace GameHelper.ConsoleHost.Interactive
             Add,
             Edit,
             Remove,
+            ToggleAutoStart,
             Back
         }
 
@@ -60,6 +61,7 @@ namespace GameHelper.ConsoleHost.Interactive
         private readonly IAppConfigProvider _appConfigProvider;
         private readonly InteractiveScript? _script;
         private readonly Func<IHost, CancellationToken, Task> _monitorLoop;
+        private readonly bool _autoStartMonitor;
 
         public InteractiveShell(IHost host, ParsedArguments arguments, IAnsiConsole? console = null, InteractiveScript? script = null, Func<IHost, CancellationToken, Task>? monitorLoop = null)
         {
@@ -75,6 +77,7 @@ namespace GameHelper.ConsoleHost.Interactive
             _appConfigProvider = host.Services.GetRequiredService<IAppConfigProvider>();
             _script = script;
             _monitorLoop = monitorLoop ?? ((_, _) => Task.CompletedTask);
+            _autoStartMonitor = DetermineAutoStartPreference();
         }
 
         public async Task RunAsync()
@@ -91,9 +94,24 @@ namespace GameHelper.ConsoleHost.Interactive
 
             RenderWelcome();
 
+            var autoStartPending = _autoStartMonitor;
+
             while (true)
             {
-                var action = PromptMainMenu();
+                MainMenuAction action;
+
+                if (autoStartPending)
+                {
+                    autoStartPending = false;
+                    _console.MarkupLine("[grey]检测到配置开启自动启动，将直接进入实时监控。[/]");
+                    _console.WriteLine();
+                    action = MainMenuAction.Monitor;
+                }
+                else
+                {
+                    action = PromptMainMenu();
+                }
+
                 switch (action)
                 {
                     case MainMenuAction.Monitor:
@@ -116,6 +134,19 @@ namespace GameHelper.ConsoleHost.Interactive
                         _console.MarkupLine("[grey]再见，祝你游戏愉快！[/]");
                         return;
                 }
+            }
+        }
+
+        private bool DetermineAutoStartPreference()
+        {
+            try
+            {
+                var appConfig = _appConfigProvider.LoadAppConfig();
+                return appConfig.AutoStartInteractiveMonitor;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -248,7 +279,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
                 monitorLoopTask = _monitorLoop(_host, monitorCts.Token);
 
-                if (!dryRun && _script is null)
+                if (!dryRun)
                 {
                     await WaitForMonitorExitAsync(monitorCts.Token).ConfigureAwait(false);
                 }
@@ -338,6 +369,12 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private async Task WaitForMonitorExitAsync(CancellationToken cancellationToken)
         {
+            if (_script != null && _script.TryPeek<string>(out var scriptedCommand) && IsQuitCommand(scriptedCommand))
+            {
+                _script.TryDequeue(out string _);
+                return;
+            }
+
             if (Console.IsInputRedirected)
             {
                 await WaitForExitByPromptAsync(cancellationToken).ConfigureAwait(false);
@@ -406,8 +443,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     .DefaultValue(string.Empty);
 
                 var input = Prompt(prompt);
-                if (!string.IsNullOrWhiteSpace(input)
-                    && string.Equals(input.Trim(), "q", StringComparison.OrdinalIgnoreCase))
+                if (IsQuitCommand(input))
                 {
                     break;
                 }
@@ -416,6 +452,12 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             return Task.CompletedTask;
+        }
+
+        private static bool IsQuitCommand(string? value)
+        {
+            return !string.IsNullOrWhiteSpace(value)
+                && string.Equals(value.Trim(), "q", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task HandleConfigurationAsync()
@@ -440,6 +482,7 @@ namespace GameHelper.ConsoleHost.Interactive
                         ConfigAction.Add => "➕  添加新游戏",
                         ConfigAction.Edit => "✏️  修改现有游戏",
                         ConfigAction.Remove => "🗑  删除游戏",
+                        ConfigAction.ToggleAutoStart => "⚡️  调整自动进入监控",
                         ConfigAction.Back => "⬅️  返回上一级",
                         _ => action.ToString()
                     },
@@ -458,6 +501,9 @@ namespace GameHelper.ConsoleHost.Interactive
                     case ConfigAction.Remove:
                         await RemoveGameAsync().ConfigureAwait(false);
                         break;
+                    case ConfigAction.ToggleAutoStart:
+                        await ConfigureAutoStartAsync().ConfigureAwait(false);
+                        break;
                     case ConfigAction.Back:
                         return;
                 }
@@ -467,6 +513,15 @@ namespace GameHelper.ConsoleHost.Interactive
         private void RenderConfigTable()
         {
             var configs = LoadConfigs();
+            AppConfig? appConfig = null;
+            try
+            {
+                appConfig = _appConfigProvider.LoadAppConfig();
+            }
+            catch (Exception ex)
+            {
+                _console.MarkupLine($"[red]无法加载全局配置：{Markup.Escape(ex.Message)}[/]");
+            }
             var configRule = new Rule("[yellow]当前配置[/]")
             {
                 Style = new Style(Color.Grey),
@@ -497,6 +552,63 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             _console.Write(table);
+
+            if (appConfig != null)
+            {
+                var autoStartState = appConfig.AutoStartInteractiveMonitor
+                    ? "[green]启动后自动进入实时监控[/]"
+                    : "[yellow]启动后需要手动选择监控[/]";
+                _console.WriteLine();
+                _console.MarkupLine($"自动监控：{autoStartState}");
+            }
+        }
+
+        private async Task ConfigureAutoStartAsync()
+        {
+            AppConfig appConfig;
+            try
+            {
+                appConfig = _appConfigProvider.LoadAppConfig();
+            }
+            catch (Exception ex)
+            {
+                _console.MarkupLine($"[red]加载全局配置失败：{Markup.Escape(ex.Message)}[/]");
+                return;
+            }
+
+            var current = appConfig.AutoStartInteractiveMonitor;
+            var enableOption = current ? "保持自动启动" : "开启自动启动";
+            var disableOption = current ? "改为手动启动" : "保持手动启动";
+            var options = new[] { enableOption, disableOption };
+
+            var title = "启动后是否自动进入实时监控？";
+            var prompt = new SelectionPrompt<string>();
+            prompt.Title(title);
+            prompt.AddChoices(options);
+
+            var selection = PromptSelection(prompt, options, value => Markup.Escape(value), title);
+            var newValue = string.Equals(selection, enableOption, StringComparison.Ordinal);
+
+            if (newValue == current)
+            {
+                _console.MarkupLine("[grey]设置保持不变。[/]");
+                return;
+            }
+
+            appConfig.AutoStartInteractiveMonitor = newValue;
+
+            try
+            {
+                await Task.Run(() => _appConfigProvider.SaveAppConfig(appConfig)).ConfigureAwait(false);
+                var resultMessage = newValue
+                    ? "[green]已更新：启动后将自动进入实时监控。[/]"
+                    : "[green]已更新：启动后需手动选择监控。[/]";
+                _console.MarkupLine(resultMessage);
+            }
+            catch (Exception ex)
+            {
+                _console.MarkupLine($"[red]保存配置失败：{Markup.Escape(ex.Message)}[/]");
+            }
         }
 
         private async Task AddGameAsync()
