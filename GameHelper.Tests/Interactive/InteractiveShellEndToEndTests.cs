@@ -87,7 +87,7 @@ namespace GameHelper.Tests.Interactive
 
                 await process.StandardInput.WriteLineAsync("2");
                 await process.StandardInput.WriteLineAsync("1");
-                await process.StandardInput.WriteLineAsync("5");
+                await process.StandardInput.WriteLineAsync("6");
                 await process.StandardInput.WriteLineAsync("1");
                 await process.StandardInput.WriteLineAsync("Q");
                 await process.StandardInput.WriteLineAsync("5");
