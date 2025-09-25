@@ -16,5 +16,10 @@ namespace GameHelper.Core.Models
         /// Type of process monitor to use. If not specified, defaults to WMI for backward compatibility.
         /// </summary>
         public ProcessMonitorType? ProcessMonitorType { get; set; }
+
+        /// <summary>
+        /// When enabled, the interactive shell will automatically start the monitor after launch.
+        /// </summary>
+        public bool AutoStartInteractiveMonitor { get; set; }
     }
 }

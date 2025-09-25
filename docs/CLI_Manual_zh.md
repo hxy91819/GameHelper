@@ -55,6 +55,8 @@
 - 字符串比较：对进程名大小写不敏感（如 `WITCHER3.EXE` 与 `witcher3.exe` 等价）
 - YAML 格式（支持别名 Alias）：
   ```yaml
+  processMonitorType: ETW # 可选：覆盖进程监听实现
+  autoStartInteractiveMonitor: true # 可选：进入互动命令行后自动启动监控
   games:
     - name: "witcher3.exe"
       alias: "巫师3"
@@ -65,6 +67,7 @@
 - `Name` 为唯一标识（规范 exe 名）。
 - `Alias` 为可选的显示名称，不影响匹配与统计，只影响显示。
 - `hDREnabled` 为未来 HDR 控制器使用的标记，当前不会实际切换 HDR。
+- `autoStartInteractiveMonitor` 设为 `true` 时，启动互动命令行会直接进入“实时监控”，按 `Q` 可以返回主菜单。
 
 ### 旧配置迁移
 - 如你仍有旧的 `config.json`，可运行一次：
