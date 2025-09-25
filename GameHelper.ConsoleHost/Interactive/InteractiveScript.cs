@@ -44,6 +44,30 @@ namespace GameHelper.ConsoleHost.Interactive
             throw new InvalidOperationException($"Scripted response '{next}' cannot be converted to {typeof(T)}.");
         }
 
+        /// <summary>
+        /// Attempts to peek at the next value without removing it from the queue.
+        /// </summary>
+        /// <typeparam name="T">Expected type.</typeparam>
+        /// <param name="value">Output value when available.</param>
+        /// <returns>True when the script can expose the next value as the requested type.</returns>
+        public bool TryPeek<T>(out T value)
+        {
+            if (_responses.Count == 0)
+            {
+                value = default!;
+                return false;
+            }
+
+            var next = _responses.Peek();
+            if (TryConvert(next, out value))
+            {
+                return true;
+            }
+
+            value = default!;
+            return false;
+        }
+
         private static bool TryConvert<T>(object? input, out T value)
         {
             if (input is T direct)

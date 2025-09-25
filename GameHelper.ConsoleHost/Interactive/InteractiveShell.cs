@@ -60,6 +60,7 @@ namespace GameHelper.ConsoleHost.Interactive
         private readonly IAppConfigProvider _appConfigProvider;
         private readonly InteractiveScript? _script;
         private readonly Func<IHost, CancellationToken, Task> _monitorLoop;
+        private readonly bool _autoStartMonitor;
 
         public InteractiveShell(IHost host, ParsedArguments arguments, IAnsiConsole? console = null, InteractiveScript? script = null, Func<IHost, CancellationToken, Task>? monitorLoop = null)
         {
@@ -75,6 +76,7 @@ namespace GameHelper.ConsoleHost.Interactive
             _appConfigProvider = host.Services.GetRequiredService<IAppConfigProvider>();
             _script = script;
             _monitorLoop = monitorLoop ?? ((_, _) => Task.CompletedTask);
+            _autoStartMonitor = DetermineAutoStartPreference();
         }
 
         public async Task RunAsync()
@@ -91,9 +93,24 @@ namespace GameHelper.ConsoleHost.Interactive
 
             RenderWelcome();
 
+            var autoStartPending = _autoStartMonitor;
+
             while (true)
             {
-                var action = PromptMainMenu();
+                MainMenuAction action;
+
+                if (autoStartPending)
+                {
+                    autoStartPending = false;
+                    _console.MarkupLine("[grey]检测到配置开启自动启动，将直接进入实时监控。[/]");
+                    _console.WriteLine();
+                    action = MainMenuAction.Monitor;
+                }
+                else
+                {
+                    action = PromptMainMenu();
+                }
+
                 switch (action)
                 {
                     case MainMenuAction.Monitor:
@@ -116,6 +133,19 @@ namespace GameHelper.ConsoleHost.Interactive
                         _console.MarkupLine("[grey]再见，祝你游戏愉快！[/]");
                         return;
                 }
+            }
+        }
+
+        private bool DetermineAutoStartPreference()
+        {
+            try
+            {
+                var appConfig = _appConfigProvider.LoadAppConfig();
+                return appConfig.AutoStartInteractiveMonitor;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -248,7 +278,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
                 monitorLoopTask = _monitorLoop(_host, monitorCts.Token);
 
-                if (!dryRun && _script is null)
+                if (!dryRun)
                 {
                     await WaitForMonitorExitAsync(monitorCts.Token).ConfigureAwait(false);
                 }
@@ -338,6 +368,12 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private async Task WaitForMonitorExitAsync(CancellationToken cancellationToken)
         {
+            if (_script != null && _script.TryPeek<string>(out var scriptedCommand) && IsQuitCommand(scriptedCommand))
+            {
+                _script.TryDequeue(out string _);
+                return;
+            }
+
             if (Console.IsInputRedirected)
             {
                 await WaitForExitByPromptAsync(cancellationToken).ConfigureAwait(false);
@@ -406,8 +442,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     .DefaultValue(string.Empty);
 
                 var input = Prompt(prompt);
-                if (!string.IsNullOrWhiteSpace(input)
-                    && string.Equals(input.Trim(), "q", StringComparison.OrdinalIgnoreCase))
+                if (IsQuitCommand(input))
                 {
                     break;
                 }
@@ -416,6 +451,12 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             return Task.CompletedTask;
+        }
+
+        private static bool IsQuitCommand(string? value)
+        {
+            return !string.IsNullOrWhiteSpace(value)
+                && string.Equals(value.Trim(), "q", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task HandleConfigurationAsync()
