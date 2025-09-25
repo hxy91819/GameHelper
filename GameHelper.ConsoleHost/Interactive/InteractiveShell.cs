@@ -40,6 +40,7 @@ namespace GameHelper.ConsoleHost.Interactive
             Add,
             Edit,
             Remove,
+            ToggleAutoStart,
             Back
         }
 
@@ -481,6 +482,7 @@ namespace GameHelper.ConsoleHost.Interactive
                         ConfigAction.Add => "➕  添加新游戏",
                         ConfigAction.Edit => "✏️  修改现有游戏",
                         ConfigAction.Remove => "🗑  删除游戏",
+                        ConfigAction.ToggleAutoStart => "⚡️  调整自动进入监控",
                         ConfigAction.Back => "⬅️  返回上一级",
                         _ => action.ToString()
                     },
@@ -499,6 +501,9 @@ namespace GameHelper.ConsoleHost.Interactive
                     case ConfigAction.Remove:
                         await RemoveGameAsync().ConfigureAwait(false);
                         break;
+                    case ConfigAction.ToggleAutoStart:
+                        await ConfigureAutoStartAsync().ConfigureAwait(false);
+                        break;
                     case ConfigAction.Back:
                         return;
                 }
@@ -508,6 +513,15 @@ namespace GameHelper.ConsoleHost.Interactive
         private void RenderConfigTable()
         {
             var configs = LoadConfigs();
+            AppConfig? appConfig = null;
+            try
+            {
+                appConfig = _appConfigProvider.LoadAppConfig();
+            }
+            catch (Exception ex)
+            {
+                _console.MarkupLine($"[red]无法加载全局配置：{Markup.Escape(ex.Message)}[/]");
+            }
             var configRule = new Rule("[yellow]当前配置[/]")
             {
                 Style = new Style(Color.Grey),
@@ -538,6 +552,63 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             _console.Write(table);
+
+            if (appConfig != null)
+            {
+                var autoStartState = appConfig.AutoStartInteractiveMonitor
+                    ? "[green]启动后自动进入实时监控[/]"
+                    : "[yellow]启动后需要手动选择监控[/]";
+                _console.WriteLine();
+                _console.MarkupLine($"自动监控：{autoStartState}");
+            }
+        }
+
+        private async Task ConfigureAutoStartAsync()
+        {
+            AppConfig appConfig;
+            try
+            {
+                appConfig = _appConfigProvider.LoadAppConfig();
+            }
+            catch (Exception ex)
+            {
+                _console.MarkupLine($"[red]加载全局配置失败：{Markup.Escape(ex.Message)}[/]");
+                return;
+            }
+
+            var current = appConfig.AutoStartInteractiveMonitor;
+            var enableOption = current ? "保持自动启动" : "开启自动启动";
+            var disableOption = current ? "改为手动启动" : "保持手动启动";
+            var options = new[] { enableOption, disableOption };
+
+            var title = "启动后是否自动进入实时监控？";
+            var prompt = new SelectionPrompt<string>();
+            prompt.Title(title);
+            prompt.AddChoices(options);
+
+            var selection = PromptSelection(prompt, options, value => Markup.Escape(value), title);
+            var newValue = string.Equals(selection, enableOption, StringComparison.Ordinal);
+
+            if (newValue == current)
+            {
+                _console.MarkupLine("[grey]设置保持不变。[/]");
+                return;
+            }
+
+            appConfig.AutoStartInteractiveMonitor = newValue;
+
+            try
+            {
+                await Task.Run(() => _appConfigProvider.SaveAppConfig(appConfig)).ConfigureAwait(false);
+                var resultMessage = newValue
+                    ? "[green]已更新：启动后将自动进入实时监控。[/]"
+                    : "[green]已更新：启动后需手动选择监控。[/]";
+                _console.MarkupLine(resultMessage);
+            }
+            catch (Exception ex)
+            {
+                _console.MarkupLine($"[red]保存配置失败：{Markup.Escape(ex.Message)}[/]");
+            }
         }
 
         private async Task AddGameAsync()

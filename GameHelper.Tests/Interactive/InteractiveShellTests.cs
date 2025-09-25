@@ -92,6 +92,29 @@ namespace GameHelper.Tests.Interactive
         }
 
         [Fact]
+        public async Task RunAsync_UpdateAutoStartSetting_PersistsChange()
+        {
+            var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>(),
+                new AppConfig { ProcessMonitorType = ProcessMonitorType.WMI, AutoStartInteractiveMonitor = false },
+                configPath: "C:/configs/gamehelper.yml");
+
+            await using var host = CreateHost(configProvider);
+            var console = CreateConsole();
+            var script = new InteractiveScript()
+                .Enqueue("Configuration")
+                .Enqueue("ToggleAutoStart")
+                .Enqueue("开启自动启动")
+                .Enqueue("Back")
+                .Enqueue("Exit");
+
+            var shell = new InteractiveShell(host, new ParsedArguments(), console, script);
+            await shell.RunAsync();
+
+            var updated = configProvider.LoadAppConfig();
+            Assert.True(updated.AutoStartInteractiveMonitor);
+        }
+
+        [Fact]
         public async Task RunAsync_ShowStatistics_PrintsAggregatedTotals()
         {
             using var scope = new AppDataScope();
