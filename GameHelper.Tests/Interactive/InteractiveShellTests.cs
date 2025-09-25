@@ -16,6 +16,7 @@ using Xunit.Abstractions;
 
 namespace GameHelper.Tests.Interactive
 {
+    [Collection("InteractiveShellSequential")]
     public class InteractiveShellTests
     {
         private readonly ITestOutputHelper _output;
@@ -140,6 +141,7 @@ namespace GameHelper.Tests.Interactive
             var console = CreateConsole();
             var script = new InteractiveScript()
                 .Enqueue("Monitor")
+                .Enqueue("Q")
                 .Enqueue("Exit");
 
             var sessionStart = new DateTime(2024, 2, 2, 21, 15, 0, DateTimeKind.Unspecified);
@@ -204,6 +206,40 @@ namespace GameHelper.Tests.Interactive
             Assert.Equal(0, monitor.StopCalls);
             Assert.Equal(0, automation.StartCalls);
             Assert.Equal(0, automation.StopCalls);
+        }
+
+        [Fact]
+        public async Task RunAsync_AutoStartMonitorOnLaunch_ExitsAfterQuitCommand()
+        {
+            using var scope = new AppDataScope();
+
+            var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
+            {
+                ["auto.exe"] = new GameConfig { Name = "auto.exe", Alias = "Auto Game", IsEnabled = true, HDREnabled = true }
+            },
+            new AppConfig { ProcessMonitorType = ProcessMonitorType.ETW, AutoStartInteractiveMonitor = true },
+            configPath: scope.ConfigPath);
+
+            await using var host = CreateHost(configProvider);
+            var console = CreateConsole();
+            var script = new InteractiveScript()
+                .Enqueue("Q")
+                .Enqueue(4);
+
+            var monitor = (FakeProcessMonitor)host.Services.GetRequiredService<IProcessMonitor>();
+            var automation = (FakeAutomationService)host.Services.GetRequiredService<IGameAutomationService>();
+
+            var shell = new InteractiveShell(host, new ParsedArguments(), console, script);
+            await shell.RunAsync();
+
+            var snapshot = console.Output.ToString();
+            _output.WriteLine("[AutoStart Snapshot]\n" + snapshot);
+
+            Assert.Contains("自动启动", snapshot);
+            Assert.Equal(1, monitor.StartCalls);
+            Assert.Equal(1, monitor.StopCalls);
+            Assert.Equal(1, automation.StartCalls);
+            Assert.Equal(1, automation.StopCalls);
         }
 
         private static TestConsole CreateConsole()
@@ -296,7 +332,8 @@ namespace GameHelper.Tests.Interactive
                             IsEnabled = v.IsEnabled,
                             HDREnabled = v.HDREnabled
                         }).ToList(),
-                        ProcessMonitorType = _appConfig.ProcessMonitorType
+                        ProcessMonitorType = _appConfig.ProcessMonitorType,
+                        AutoStartInteractiveMonitor = _appConfig.AutoStartInteractiveMonitor
                     };
                 }
             }
@@ -424,5 +461,10 @@ namespace GameHelper.Tests.Interactive
                 }
             }
         }
+    }
+
+    [CollectionDefinition("InteractiveShellSequential", DisableParallelization = true)]
+    public sealed class InteractiveShellSequentialCollection : ICollectionFixture<object>
+    {
     }
 }
