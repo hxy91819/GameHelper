@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using YamlDotNet.Core;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -102,9 +103,10 @@ namespace GameHelper.Infrastructure.Providers
                     ProcessMonitorType = null // Default to WMI for legacy configs
                 };
             }
-            catch
+            catch (YamlException ex)
             {
-                return new AppConfig { Games = new List<GameConfig>() };
+                // Wrap in a more specific exception type
+                throw new InvalidDataException("Failed to deserialize config file. Please check its format.", ex);
             }
         }
 
