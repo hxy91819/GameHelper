@@ -58,13 +58,19 @@ namespace GameHelper.ConsoleHost.Commands
 
         private static void AddGame(string[] args, Dictionary<string, GameConfig> map, IConfigProvider provider)
         {
-            if (args.Length < 2) 
-            { 
-                Console.WriteLine("Missing <exe>."); 
-                return; 
+            if (args.Length < 2)
+            {
+                Console.WriteLine("Missing <exe>.");
+                return;
             }
-            
+
             var name = args[1];
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                Console.WriteLine("Game name cannot be empty.");
+                return;
+            }
+
             map[name] = new GameConfig { Name = name, IsEnabled = true, HDREnabled = true };
             provider.Save(map);
             Console.WriteLine($"Added {name}.");
