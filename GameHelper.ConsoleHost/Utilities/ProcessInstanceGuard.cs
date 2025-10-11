@@ -28,12 +28,7 @@ namespace GameHelper.ConsoleHost.Utilities
                     return false;
                 }
 
-                AppDomain.CurrentDomain.ProcessExit += (_, _) =>
-                {
-                    _mutex?.ReleaseMutex();
-                    _mutex?.Dispose();
-                    _mutex = null;
-                };
+                AppDomain.CurrentDomain.ProcessExit += (_, _) => Release();
 
                 return true;
             }
@@ -45,6 +40,28 @@ namespace GameHelper.ConsoleHost.Utilities
             {
                 // Fail open on unexpected errors to avoid blocking startup completely.
                 return true;
+            }
+        }
+
+        private static void Release()
+        {
+            var mutex = Interlocked.Exchange(ref _mutex, null);
+            if (mutex == null)
+            {
+                return;
+            }
+
+            try
+            {
+                mutex.ReleaseMutex();
+            }
+            catch (ApplicationException)
+            {
+                // This can occur if the releasing thread does not own the mutex. Swallow to avoid crashing on exit.
+            }
+            finally
+            {
+                mutex.Dispose();
             }
         }
     }
