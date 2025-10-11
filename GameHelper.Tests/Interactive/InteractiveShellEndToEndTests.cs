@@ -85,12 +85,17 @@ namespace GameHelper.Tests.Interactive
                 var stdoutTask = process.StandardOutput.ReadToEndAsync();
                 var stderrTask = process.StandardError.ReadToEndAsync();
 
+                // Some environments keep the interactive monitor auto-start flag enabled in the
+                // persisted config which causes the shell to enter monitoring mode immediately.
+                // Sending an initial quit signal ensures we exit that loop deterministically
+                // before issuing scripted menu selections below.
+                await process.StandardInput.WriteLineAsync("Q");
                 await process.StandardInput.WriteLineAsync("2");
                 await process.StandardInput.WriteLineAsync("1");
-                await process.StandardInput.WriteLineAsync("6");
+                await process.StandardInput.WriteLineAsync("5");
                 await process.StandardInput.WriteLineAsync("1");
                 await process.StandardInput.WriteLineAsync("Q");
-                await process.StandardInput.WriteLineAsync("5");
+                await process.StandardInput.WriteLineAsync("6");
                 process.StandardInput.Close();
 
                 using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));

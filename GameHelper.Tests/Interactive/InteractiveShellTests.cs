@@ -98,11 +98,12 @@ namespace GameHelper.Tests.Interactive
                 new AppConfig { ProcessMonitorType = ProcessMonitorType.WMI, AutoStartInteractiveMonitor = false },
                 configPath: "C:/configs/gamehelper.yml");
 
-            await using var host = CreateHost(configProvider);
+            var autoStartManager = new FakeAutoStartManager();
+            await using var host = CreateHost(configProvider, autoStartManager);
             var console = CreateConsole();
             var script = new InteractiveScript()
-                .Enqueue("Configuration")
-                .Enqueue("ToggleAutoStart")
+                .Enqueue("Settings")
+                .Enqueue("ToggleMonitorAutoStart")
                 .Enqueue("开启自动启动")
                 .Enqueue("Back")
                 .Enqueue("Exit");
@@ -112,6 +113,59 @@ namespace GameHelper.Tests.Interactive
 
             var updated = configProvider.LoadAppConfig();
             Assert.True(updated.AutoStartInteractiveMonitor);
+            Assert.Equal(0, autoStartManager.SetCalls);
+        }
+
+        [Fact]
+        public async Task RunAsync_ToggleSystemAutoStart_UpdatesConfigAndManager()
+        {
+            var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>(),
+                new AppConfig { ProcessMonitorType = ProcessMonitorType.WMI, AutoStartInteractiveMonitor = false, LaunchOnSystemStartup = false },
+                configPath: "C:/configs/gamehelper.yml");
+
+            var autoStartManager = new FakeAutoStartManager();
+            await using var host = CreateHost(configProvider, autoStartManager);
+            var console = CreateConsole();
+            var script = new InteractiveScript()
+                .Enqueue("Settings")
+                .Enqueue("ToggleLaunchOnStartup")
+                .Enqueue("开启开机自启动")
+                .Enqueue("Back")
+                .Enqueue("Exit");
+
+            var shell = new InteractiveShell(host, new ParsedArguments(), console, script);
+            await shell.RunAsync();
+
+            var updated = configProvider.LoadAppConfig();
+            Assert.True(updated.LaunchOnSystemStartup);
+            Assert.True(autoStartManager.Enabled);
+            Assert.Equal(1, autoStartManager.SetCalls);
+        }
+
+        [Fact]
+        public async Task RunAsync_ToggleSystemAutoStart_ReappliesWhenConfigAndSystemDiffer()
+        {
+            var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>(),
+                new AppConfig { ProcessMonitorType = ProcessMonitorType.WMI, AutoStartInteractiveMonitor = false, LaunchOnSystemStartup = true },
+                configPath: "C:/configs/gamehelper.yml");
+
+            var autoStartManager = new FakeAutoStartManager(enabled: false);
+            await using var host = CreateHost(configProvider, autoStartManager);
+            var console = CreateConsole();
+            var script = new InteractiveScript()
+                .Enqueue("Settings")
+                .Enqueue("ToggleLaunchOnStartup")
+                .Enqueue("保持开机自启动")
+                .Enqueue("Back")
+                .Enqueue("Exit");
+
+            var shell = new InteractiveShell(host, new ParsedArguments(), console, script);
+            await shell.RunAsync();
+
+            var updated = configProvider.LoadAppConfig();
+            Assert.True(updated.LaunchOnSystemStartup); // config unchanged but still true
+            Assert.True(autoStartManager.Enabled);
+            Assert.Equal(1, autoStartManager.SetCalls);
         }
 
         [Fact]
@@ -247,7 +301,7 @@ namespace GameHelper.Tests.Interactive
             var console = CreateConsole();
             var script = new InteractiveScript()
                 .Enqueue("Q")
-                .Enqueue(4);
+                .Enqueue("Exit");
 
             var monitor = (FakeProcessMonitor)host.Services.GetRequiredService<IProcessMonitor>();
             var automation = (FakeAutomationService)host.Services.GetRequiredService<IGameAutomationService>();
@@ -273,11 +327,13 @@ namespace GameHelper.Tests.Interactive
             return console;
         }
 
-        private static AsyncDisposableHost CreateHost(FakeConfigProvider configProvider)
+        private static AsyncDisposableHost CreateHost(FakeConfigProvider configProvider, FakeAutoStartManager? autoStartManager = null)
         {
+            autoStartManager ??= new FakeAutoStartManager();
             var services = new ServiceCollection()
                 .AddSingleton<IConfigProvider>(configProvider)
                 .AddSingleton<IAppConfigProvider>(configProvider)
+                .AddSingleton<IAutoStartManager>(autoStartManager)
                 .AddSingleton<IProcessMonitor, FakeProcessMonitor>()
                 .AddSingleton<IGameAutomationService, FakeAutomationService>()
                 .BuildServiceProvider();
@@ -356,7 +412,8 @@ namespace GameHelper.Tests.Interactive
                             HDREnabled = v.HDREnabled
                         }).ToList(),
                         ProcessMonitorType = _appConfig.ProcessMonitorType,
-                        AutoStartInteractiveMonitor = _appConfig.AutoStartInteractiveMonitor
+                        AutoStartInteractiveMonitor = _appConfig.AutoStartInteractiveMonitor,
+                        LaunchOnSystemStartup = _appConfig.LaunchOnSystemStartup
                     };
                 }
             }
@@ -416,6 +473,27 @@ namespace GameHelper.Tests.Interactive
             public void Stop()
             {
                 StopCalls++;
+            }
+        }
+
+        private sealed class FakeAutoStartManager : IAutoStartManager
+        {
+            public FakeAutoStartManager(bool isSupported = true, bool enabled = false)
+            {
+                IsSupported = isSupported;
+                Enabled = enabled;
+            }
+
+            public bool IsSupported { get; set; } = true;
+            public bool Enabled { get; private set; }
+            public int SetCalls { get; private set; }
+
+            public bool IsEnabled() => Enabled;
+
+            public void SetEnabled(bool enabled)
+            {
+                Enabled = enabled;
+                SetCalls++;
             }
         }
 
