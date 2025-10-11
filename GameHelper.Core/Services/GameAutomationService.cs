@@ -185,14 +185,27 @@ namespace GameHelper.Core.Services
             }
 
             _logger.LogInformation("Process stopped: {Process}", key);
+
+            PlaySession? session = null;
             try
             {
-                _playTime.StopTracking(key);
+                session = _playTime.StopTracking(key);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to stop tracking for {Process}", key);
             }
+
+            if (session is not null)
+            {
+                var formatted = FormatDuration(session.Duration);
+                _logger.LogInformation(
+                    "本次游玩时长：{Duration}（开始 {StartTime:t}，结束 {EndTime:t}）",
+                    formatted,
+                    session.StartTime,
+                    session.EndTime);
+            }
+
             _logger.LogDebug("Active count after stop: {Count}", _active.Count);
 
             if (_active.Count == 0)
@@ -248,6 +261,43 @@ namespace GameHelper.Core.Services
             // alphanumeric-only, lower invariant to make fuzzy comparisons more robust (ignore spaces, dots, hyphens)
             var filtered = new string(stem.Where(char.IsLetterOrDigit).ToArray());
             return filtered.ToLowerInvariant();
+        }
+
+        private static string FormatDuration(TimeSpan duration)
+        {
+            if (duration < TimeSpan.Zero)
+            {
+                duration = TimeSpan.Zero;
+            }
+
+            if (duration == TimeSpan.Zero)
+            {
+                return "0秒";
+            }
+
+            var parts = new List<string>();
+            if (duration.Days > 0)
+            {
+                parts.Add($"{duration.Days}天");
+            }
+
+            if (duration.Hours > 0)
+            {
+                parts.Add($"{duration.Hours}小时");
+            }
+
+            if (duration.Minutes > 0)
+            {
+                parts.Add($"{duration.Minutes}分钟");
+            }
+
+            var seconds = duration.Seconds;
+            if (seconds > 0 || parts.Count == 0)
+            {
+                parts.Add($"{seconds}秒");
+            }
+
+            return string.Concat(parts);
         }
     }
 }

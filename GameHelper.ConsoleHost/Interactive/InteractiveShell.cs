@@ -29,6 +29,7 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             Monitor,
             Configuration,
+            Settings,
             Statistics,
             Tools,
             Exit
@@ -40,7 +41,13 @@ namespace GameHelper.ConsoleHost.Interactive
             Add,
             Edit,
             Remove,
-            ToggleAutoStart,
+            Back
+        }
+
+        private enum SettingsAction
+        {
+            ToggleMonitorAutoStart,
+            ToggleLaunchOnStartup,
             Back
         }
 
@@ -59,6 +66,7 @@ namespace GameHelper.ConsoleHost.Interactive
         private readonly IAnsiConsole _console;
         private readonly IConfigProvider _configProvider;
         private readonly IAppConfigProvider _appConfigProvider;
+        private readonly IAutoStartManager _autoStartManager;
         private readonly InteractiveScript? _script;
         private readonly Func<IHost, CancellationToken, Task> _monitorLoop;
         private readonly bool _autoStartMonitor;
@@ -75,6 +83,7 @@ namespace GameHelper.ConsoleHost.Interactive
             }
             _configProvider = host.Services.GetRequiredService<IConfigProvider>();
             _appConfigProvider = host.Services.GetRequiredService<IAppConfigProvider>();
+            _autoStartManager = host.Services.GetRequiredService<IAutoStartManager>();
             _script = script;
             _monitorLoop = monitorLoop ?? ((_, _) => Task.CompletedTask);
             _autoStartMonitor = DetermineAutoStartPreference();
@@ -120,6 +129,10 @@ namespace GameHelper.ConsoleHost.Interactive
 
                     case MainMenuAction.Configuration:
                         await HandleConfigurationAsync().ConfigureAwait(false);
+                        break;
+
+                    case MainMenuAction.Settings:
+                        await HandleSettingsAsync().ConfigureAwait(false);
                         break;
 
                     case MainMenuAction.Statistics:
@@ -202,13 +215,14 @@ namespace GameHelper.ConsoleHost.Interactive
             return PromptSelection(
                 prompt,
                 choices,
-                action => action switch
-                {
-                    MainMenuAction.Monitor => "🚀  启动实时监控",
-                    MainMenuAction.Configuration => "🛠   管理游戏配置",
-                    MainMenuAction.Statistics => "📊  查看游戏时长统计",
-                    MainMenuAction.Tools => "🧰  工具与诊断",
-                    MainMenuAction.Exit => "⬅️   退出",
+                    action => action switch
+                    {
+                        MainMenuAction.Monitor => "🚀  启动实时监控",
+                        MainMenuAction.Configuration => "🛠   管理游戏配置",
+                        MainMenuAction.Settings => "⚙️   全局设置",
+                        MainMenuAction.Statistics => "📊  查看游戏时长统计",
+                        MainMenuAction.Tools => "🧰  工具与诊断",
+                        MainMenuAction.Exit => "⬅️   退出",
                     _ => action.ToString()
                 },
                 title);
@@ -482,7 +496,6 @@ namespace GameHelper.ConsoleHost.Interactive
                         ConfigAction.Add => "➕  添加新游戏",
                         ConfigAction.Edit => "✏️  修改现有游戏",
                         ConfigAction.Remove => "🗑  删除游戏",
-                        ConfigAction.ToggleAutoStart => "⚡️  调整自动进入监控",
                         ConfigAction.Back => "⬅️  返回上一级",
                         _ => action.ToString()
                     },
@@ -501,10 +514,62 @@ namespace GameHelper.ConsoleHost.Interactive
                     case ConfigAction.Remove:
                         await RemoveGameAsync().ConfigureAwait(false);
                         break;
-                    case ConfigAction.ToggleAutoStart:
-                        await ConfigureAutoStartAsync().ConfigureAwait(false);
-                        break;
                     case ConfigAction.Back:
+                        return;
+                }
+            }
+        }
+
+        private async Task HandleSettingsAsync()
+        {
+            while (true)
+            {
+                var actions = new List<SettingsAction> { SettingsAction.ToggleMonitorAutoStart };
+                if (_autoStartManager.IsSupported)
+                {
+                    actions.Add(SettingsAction.ToggleLaunchOnStartup);
+                }
+                actions.Add(SettingsAction.Back);
+
+                var title = "[bold green]全局设置[/]";
+                var prompt = new SelectionPrompt<SettingsAction>
+                {
+                    PageSize = actions.Count
+                };
+                prompt.Title(title);
+                prompt.AddChoices(actions);
+
+                var selection = PromptSelection(
+                    prompt,
+                    actions,
+                    action => action switch
+                    {
+                        SettingsAction.ToggleMonitorAutoStart => "⚡️  启动后自动进入实时监控",
+                        SettingsAction.ToggleLaunchOnStartup when _autoStartManager.IsSupported => "🖥️  设置开机自启动",
+                        SettingsAction.ToggleLaunchOnStartup => "🖥️  开机自启动（当前环境不支持）",
+                        SettingsAction.Back => "⬅️  返回上一级",
+                        _ => action.ToString()
+                    },
+                    title);
+
+                switch (selection)
+                {
+                    case SettingsAction.ToggleMonitorAutoStart:
+                        await ConfigureMonitorAutoStartAsync().ConfigureAwait(false);
+                        break;
+
+                    case SettingsAction.ToggleLaunchOnStartup:
+                        if (_autoStartManager.IsSupported)
+                        {
+                            await ConfigureSystemAutoStartAsync().ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            _console.MarkupLine("[yellow]当前平台不支持开机自启动设置。[/]");
+                        }
+                        break;
+
+                    case SettingsAction.Back:
                         return;
                 }
             }
@@ -560,10 +625,42 @@ namespace GameHelper.ConsoleHost.Interactive
                     : "[yellow]启动后需要手动选择监控[/]";
                 _console.WriteLine();
                 _console.MarkupLine($"自动监控：{autoStartState}");
+
+                var launchSegments = new List<string>
+                {
+                    appConfig.LaunchOnSystemStartup
+                        ? "[green]开机时自动启动 GameHelper[/]"
+                        : "[yellow]开机时不会自动启动[/]"
+                };
+
+                if (!_autoStartManager.IsSupported)
+                {
+                    launchSegments.Add("（当前环境不支持自动配置）");
+                }
+                else
+                {
+                    var systemState = TryReadSystemAutoStartState();
+                    if (systemState.HasValue)
+                    {
+                        var systemSegment = systemState.Value
+                            ? "[green]系统状态：已启用[/]"
+                            : "[yellow]系统状态：未启用[/]";
+
+                        if (systemState.Value != appConfig.LaunchOnSystemStartup)
+                        {
+                            systemSegment += "[red]（与配置不一致）[/]";
+                        }
+
+                        launchSegments.Add($"（{systemSegment}）");
+                    }
+                }
+
+                var launchState = string.Concat(launchSegments);
+                _console.MarkupLine($"开机自启动：{launchState}");
             }
         }
 
-        private async Task ConfigureAutoStartAsync()
+        private async Task ConfigureMonitorAutoStartAsync()
         {
             AppConfig appConfig;
             try
@@ -608,6 +705,119 @@ namespace GameHelper.ConsoleHost.Interactive
             catch (Exception ex)
             {
                 _console.MarkupLine($"[red]保存配置失败：{Markup.Escape(ex.Message)}[/]");
+            }
+        }
+
+        private async Task ConfigureSystemAutoStartAsync()
+        {
+            if (!_autoStartManager.IsSupported)
+            {
+                _console.MarkupLine("[yellow]当前平台不支持开机自启动设置。[/]");
+                return;
+            }
+
+            AppConfig appConfig;
+            try
+            {
+                appConfig = _appConfigProvider.LoadAppConfig();
+            }
+            catch (Exception ex)
+            {
+                _console.MarkupLine($"[red]加载全局配置失败：{Markup.Escape(ex.Message)}[/]");
+                return;
+            }
+
+            var currentConfigValue = appConfig.LaunchOnSystemStartup;
+
+            bool? systemState = null;
+            if (_autoStartManager.IsSupported)
+            {
+                systemState = TryReadSystemAutoStartState();
+                if (systemState.HasValue)
+                {
+                    var status = systemState.Value
+                        ? "[green]系统当前已启用。[/]"
+                        : "[yellow]系统当前未启用。[/]";
+
+                    if (systemState.Value != currentConfigValue)
+                    {
+                        status += "[yellow]（与配置记录不一致）[/]";
+                    }
+
+                    _console.MarkupLine(status);
+                }
+            }
+
+            var enableOption = currentConfigValue ? "保持开机自启动" : "开启开机自启动";
+            var disableOption = currentConfigValue ? "关闭开机自启动" : "保持不开启";
+            var options = new[] { enableOption, disableOption };
+
+            var title = "是否在开机时自动启动 GameHelper？";
+            var prompt = new SelectionPrompt<string>();
+            prompt.Title(title);
+            prompt.AddChoices(options);
+
+            var selection = PromptSelection(prompt, options, value => Markup.Escape(value), title);
+            var newValue = string.Equals(selection, enableOption, StringComparison.Ordinal);
+
+            var needsSystemUpdate = !systemState.HasValue || systemState.Value != newValue;
+            var needsConfigUpdate = newValue != currentConfigValue;
+
+            if (!needsSystemUpdate && !needsConfigUpdate)
+            {
+                _console.MarkupLine("[grey]设置保持不变。[/]");
+                return;
+            }
+
+            if (needsSystemUpdate)
+            {
+                try
+                {
+                    _autoStartManager.SetEnabled(newValue);
+                }
+                catch (Exception ex)
+                {
+                    _console.MarkupLine($"[red]更新系统自启动设置失败：{Markup.Escape(ex.Message)}[/]");
+                    return;
+                }
+            }
+
+            if (needsConfigUpdate)
+            {
+                appConfig.LaunchOnSystemStartup = newValue;
+
+                try
+                {
+                    await Task.Run(() => _appConfigProvider.SaveAppConfig(appConfig)).ConfigureAwait(false);
+                    var resultMessage = newValue
+                        ? "[green]已更新：开机时将自动启动 GameHelper。[/]"
+                        : "[green]已更新：开机时不会自动启动 GameHelper。[/]";
+                    _console.MarkupLine(resultMessage);
+                }
+                catch (Exception ex)
+                {
+                    _console.MarkupLine($"[red]保存配置失败：{Markup.Escape(ex.Message)}[/]");
+                }
+            }
+            else
+            {
+                var ensureMessage = newValue
+                    ? "[green]已确保系统开机自启动处于开启状态。[/]"
+                    : "[green]已确保系统开机自启动处于关闭状态。[/]";
+                _console.MarkupLine(ensureMessage);
+            }
+        }
+
+        private bool? TryReadSystemAutoStartState()
+        {
+            try
+            {
+                return _autoStartManager.IsEnabled();
+            }
+            catch (Exception ex)
+            {
+                _console.MarkupLine($"[yellow]无法读取系统自启动状态：{Markup.Escape(ex.Message)}[/]");
+                return null;
             }
         }
 

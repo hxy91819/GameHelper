@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using GameHelper.Core.Abstractions;
+using GameHelper.Core.Models;
 using Microsoft.Extensions.Logging;
 
 namespace GameHelper.Infrastructure.Providers
@@ -73,20 +74,26 @@ namespace GameHelper.Infrastructure.Providers
             }
         }
 
-        public void StopTracking(string gameName)
+        public PlaySession? StopTracking(string gameName)
         {
-            if (string.IsNullOrWhiteSpace(gameName)) return;
-            
+            if (string.IsNullOrWhiteSpace(gameName)) return null;
+
             lock (_gate)
             {
-                if (!_activeSessions.TryGetValue(gameName, out var startTime)) return; // not tracking
-                
+                if (!_activeSessions.TryGetValue(gameName, out var startTime)) return null; // not tracking
+
                 var endTime = DateTime.Now;
-                var durationMinutes = (long)(endTime - startTime).TotalMinutes;
+                var duration = endTime - startTime;
+                if (duration < TimeSpan.Zero)
+                {
+                    duration = TimeSpan.Zero;
+                }
+
+                var durationMinutes = (long)duration.TotalMinutes;
                 if (durationMinutes < 0) durationMinutes = 0;
 
                 _activeSessions.Remove(gameName);
-                
+
                 try
                 {
                     AppendSessionToCsv(gameName, startTime, endTime, durationMinutes);
@@ -96,6 +103,8 @@ namespace GameHelper.Infrastructure.Providers
                     _logger?.LogError(ex, "Failed to write session to CSV for game {GameName}", gameName);
                     // Continue execution - we'll retry on next StopTracking
                 }
+
+                return new PlaySession(gameName, startTime, endTime, duration, durationMinutes);
             }
         }
 

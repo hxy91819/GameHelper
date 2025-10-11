@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using GameHelper.Core.Abstractions;
+using GameHelper.Core.Models;
 
 namespace GameHelper.Infrastructure.Providers
 {
@@ -54,27 +55,39 @@ namespace GameHelper.Infrastructure.Providers
             }
         }
 
-        public void StopTracking(string gameName)
+        public PlaySession? StopTracking(string gameName)
         {
-            if (string.IsNullOrWhiteSpace(gameName)) return;
+            if (string.IsNullOrWhiteSpace(gameName)) return null;
+
             lock (_gate)
             {
-                if (!_starts.TryGetValue(gameName, out var start)) return; // not tracking
+                if (!_starts.TryGetValue(gameName, out var start)) return null; // not tracking
+
                 var end = DateTime.Now;
-                var minutes = (long)(end - start).TotalMinutes;
+                var duration = end - start;
+                if (duration < TimeSpan.Zero)
+                {
+                    duration = TimeSpan.Zero;
+                }
+
+                var minutes = (long)duration.TotalMinutes;
                 if (!_playTimes.TryGetValue(gameName, out var rec))
                 {
                     rec = new GamePlayTimeRecord { GameName = gameName };
                     _playTimes[gameName] = rec;
                 }
+
+                var minutesClamped = minutes < 0 ? 0 : minutes;
                 rec.Sessions.Add(new GameSessionRecord
                 {
                     StartTime = start,
                     EndTime = end,
-                    DurationMinutes = minutes < 0 ? 0 : minutes
+                    DurationMinutes = minutesClamped
                 });
                 _starts.Remove(gameName);
                 Save();
+
+                return new PlaySession(gameName, start, end, duration, minutesClamped);
             }
         }
 
