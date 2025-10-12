@@ -16,6 +16,7 @@ namespace GameHelper.Core.Abstractions
         /// Stops the active session for the given game name and persists it.
         /// Safe to call even if no session is active.
         /// </summary>
-        void StopTracking(string gameName);
+        /// <returns>The completed <see cref="Models.PlaySession"/> when a session was active; otherwise, null.</returns>
+        Models.PlaySession? StopTracking(string gameName);
     }
 }

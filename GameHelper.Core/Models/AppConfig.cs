@@ -21,5 +21,10 @@ namespace GameHelper.Core.Models
         /// When enabled, the interactive shell will automatically start the monitor after launch.
         /// </summary>
         public bool AutoStartInteractiveMonitor { get; set; }
+
+        /// <summary>
+        /// When enabled, GameHelper will register itself to launch automatically on system startup.
+        /// </summary>
+        public bool LaunchOnSystemStartup { get; set; }
     }
 }

@@ -26,7 +26,11 @@ namespace GameHelper.Tests
             var name = "witcher3.exe";
 
             svc.StartTracking(name);
-            svc.StopTracking(name);
+            var session = svc.StopTracking(name);
+
+            Assert.NotNull(session);
+            Assert.Equal(name, session!.GameName, StringComparer.OrdinalIgnoreCase);
+            Assert.True(session.Duration >= TimeSpan.Zero);
 
             Assert.True(File.Exists(_file));
             var json = File.ReadAllText(_file);
@@ -71,7 +75,9 @@ namespace GameHelper.Tests
             var svc = new FileBackedPlayTimeService(_dir);
 
             svc.StartTracking("msfs.exe");
-            svc.StopTracking("msfs.exe");
+            var session = svc.StopTracking("msfs.exe");
+
+            Assert.NotNull(session);
 
             var json = File.ReadAllText(_file);
             using var doc = JsonDocument.Parse(json);

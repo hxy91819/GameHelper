@@ -57,6 +57,7 @@
   ```yaml
   processMonitorType: ETW # 可选：覆盖进程监听实现
   autoStartInteractiveMonitor: true # 可选：进入互动命令行后自动启动监控
+  launchOnSystemStartup: true # 可选：登录后自动启动 GameHelper（Windows 支持自动配置）
   games:
     - name: "witcher3.exe"
       alias: "巫师3"
@@ -68,6 +69,8 @@
 - `Alias` 为可选的显示名称，不影响匹配与统计，只影响显示。
 - `hDREnabled` 为未来 HDR 控制器使用的标记，当前不会实际切换 HDR。
 - `autoStartInteractiveMonitor` 设为 `true` 时，启动互动命令行会直接进入“实时监控”，按 `Q` 可以返回主菜单。
+- `launchOnSystemStartup` 控制是否在系统登录后自动启动 GameHelper；该选项可在互动命令行的“全局设置”中切换。
+  互动界面会提示当前系统状态，若与配置不一致也可以直接在此处一键同步。
 
 ### 旧配置迁移
 - 如你仍有旧的 `config.json`，可运行一次：
@@ -106,6 +109,7 @@
 ## 运行日志
 - 控制台输出包含基础日志（启动、停止、错误信息等）。
 - 日志系统：`Microsoft.Extensions.Logging` 控制台提供程序。
+- 当监控到游戏进程退出时，会额外打印本次游玩时长，便于快速确认记录结果。
 
 ## 进程匹配与监听策略
 

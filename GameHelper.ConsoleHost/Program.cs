@@ -12,6 +12,7 @@ using GameHelper.Infrastructure.Controllers;
 using GameHelper.Infrastructure.Processes;
 using GameHelper.Infrastructure.Providers;
 using GameHelper.Infrastructure.Resolvers;
+using GameHelper.Infrastructure.Startup;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -20,6 +21,12 @@ ConsoleEncoding.EnsureUtf8();
 
 // Parse command line arguments
 var parsedArgs = ArgumentParser.Parse(args);
+
+if (!ProcessInstanceGuard.TryClaim())
+{
+    Console.WriteLine("检测到 GameHelper 已在运行，请勿重复启动。");
+    return;
+}
 
 // Build host with dependency injection
 var host = Host.CreateDefaultBuilder(args)
@@ -97,6 +104,15 @@ var host = Host.CreateDefaultBuilder(args)
         });
         services.AddSingleton<IHdrController, NoOpHdrController>();
         services.AddSingleton<IPlayTimeService, CsvBackedPlayTimeService>();
+        services.AddSingleton<IAutoStartManager>(sp =>
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                return new WindowsAutoStartManager(sp.GetRequiredService<ILogger<WindowsAutoStartManager>>());
+            }
+
+            return new NoOpAutoStartManager();
+        });
         services.AddSingleton<IGameAutomationService, GameAutomationService>();
         // Steam URL resolver for optional .url drag&drop support
         services.AddSingleton<ISteamGameResolver, SteamGameResolver>();
@@ -113,6 +129,21 @@ try
         Console.WriteLine($"Using config: {pathProvider.ConfigPath}");
     }
     CommandHelpers.PrintBuildInfo(parsedArgs.EnableDebug);
+
+    try
+    {
+        var autoStartManager = host.Services.GetRequiredService<IAutoStartManager>();
+        if (autoStartManager.IsSupported)
+        {
+            var appConfigProvider = host.Services.GetRequiredService<IAppConfigProvider>();
+            var appConfig = appConfigProvider.LoadAppConfig();
+            autoStartManager.SetEnabled(appConfig.LaunchOnSystemStartup);
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Failed to apply auto-start preference: {ex.Message}");
+    }
 
     // Handle file drag & drop (auto-add to config and exit)
     if (FileDropHandler.LooksLikeFilePaths(parsedArgs.EffectiveArgs))
