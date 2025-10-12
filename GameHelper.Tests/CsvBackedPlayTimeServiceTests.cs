@@ -28,7 +28,11 @@ namespace GameHelper.Tests
             var name = "witcher3.exe";
 
             svc.StartTracking(name);
-            svc.StopTracking(name);
+            var session = svc.StopTracking(name);
+
+            Assert.NotNull(session);
+            Assert.Equal(name, session!.GameName, StringComparer.OrdinalIgnoreCase);
+            Assert.True(session.Duration >= TimeSpan.Zero);
 
             Assert.True(File.Exists(_csvFile));
             var lines = File.ReadAllLines(_csvFile);
@@ -226,7 +230,9 @@ namespace GameHelper.Tests
         {
             var svc = new CsvBackedPlayTimeService(_dir);
             
-            svc.StopTracking("nonexistent.exe");
+            var session = svc.StopTracking("nonexistent.exe");
+
+            Assert.Null(session);
 
             Assert.False(File.Exists(_csvFile)); // No file should be created
         }

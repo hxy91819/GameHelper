@@ -42,10 +42,10 @@ namespace GameHelper.Tests
         {
             var svc = new CsvBackedPlayTimeService(_dir);
             
-            // This should not throw an exception
-            svc.StopTracking("nonexistent.exe");
-            
-            Assert.True(true); // If we get here, no exception was thrown
+            // This should not throw an exception and should return null
+            var session = svc.StopTracking("nonexistent.exe");
+
+            Assert.Null(session);
         }
 
         [Fact]
@@ -67,11 +67,9 @@ namespace GameHelper.Tests
             var svc = new CsvBackedPlayTimeService(_dir);
             
             // These should not throw exceptions
-            svc.StopTracking(null!);
-            svc.StopTracking("");
-            svc.StopTracking("   ");
-            
-            Assert.True(true); // If we get here, no exception was thrown
+            Assert.Null(svc.StopTracking(null!));
+            Assert.Null(svc.StopTracking(""));
+            Assert.Null(svc.StopTracking("   "));
         }
 
         public void Dispose()

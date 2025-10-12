@@ -23,7 +23,9 @@ namespace GameHelper.Core.Services
         private readonly ILogger<GameAutomationService> _logger;
 
         private readonly HashSet<string> _active = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, HashSet<string>> _activeByStem = new(StringComparer.Ordinal);
         private IReadOnlyDictionary<string, GameConfig> _configs = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+        private IReadOnlyList<StemEntry> _enabledStemIndex = Array.Empty<StemEntry>();
 
         public GameAutomationService(
             IProcessMonitor monitor,
@@ -46,6 +48,7 @@ namespace GameHelper.Core.Services
         public void Start()
         {
             _configs = _configProvider.Load();
+            _enabledStemIndex = BuildEnabledStemIndex(_configs);
             _monitor.ProcessStarted += OnProcessStarted;
             _monitor.ProcessStopped += OnProcessStopped;
             // Optimization: if supported, do not listen to Stop events until we have the first active game
@@ -78,6 +81,7 @@ namespace GameHelper.Core.Services
                     }
                 }
                 _active.Clear();
+                _activeByStem.Clear();
             }
             _logger.LogInformation("GameAutomationService stopped");
         }
@@ -92,14 +96,7 @@ namespace GameHelper.Core.Services
             {
                 // Try a config-driven fuzzy fallback: map incoming name by stem to a single enabled config key
                 var stemKey = Stem(key);
-                var candidates = _configs
-                    .Where(kvp => kvp.Value.IsEnabled)
-                    .Select(kvp => kvp.Key)
-                    .Where(cfgKey => {
-                        var s = Stem(cfgKey);
-                        return s == stemKey || s.StartsWith(stemKey, StringComparison.Ordinal) || stemKey.StartsWith(s, StringComparison.Ordinal);
-                    })
-                    .ToList();
+                var candidates = FindEnabledStemCandidates(stemKey);
 
                 if (candidates.Count == 1)
                 {
@@ -122,7 +119,10 @@ namespace GameHelper.Core.Services
             }
 
             var wasEmpty = _active.Count == 0;
-            _active.Add(key);
+            if (_active.Add(key))
+            {
+                TrackActiveStem(key);
+            }
             _logger.LogDebug("Active count after start: {Count}", _active.Count);
 
             _logger.LogInformation("Process started: {Process}", key);
@@ -155,23 +155,18 @@ namespace GameHelper.Core.Services
             // Log raw stop events only at Debug to reduce noise for unrelated processes
             _logger.LogDebug("Stop event received: {Process}", key);
 
-            var removed = _active.Remove(key);
+            var removed = TryRemoveActive(key);
             if (!removed)
             {
                 // Fallback: fuzzy stem match to handle minor truncations/variations
                 var stemKey = Stem(key);
-                var candidates = _active
-                    .Where(a => {
-                        var sa = Stem(a);
-                        return sa == stemKey || sa.StartsWith(stemKey, StringComparison.Ordinal) || stemKey.StartsWith(sa, StringComparison.Ordinal);
-                    })
-                    .ToList();
+                var candidates = FindActiveStemCandidates(stemKey);
 
                 if (candidates.Count == 1)
                 {
                     var candidate = candidates[0];
                     _logger.LogInformation("Stop fallback matched by fuzzy stem: {Stem} -> {Process}", stemKey, candidate);
-                    _active.Remove(candidate);
+                    TryRemoveActive(candidate);
                     key = candidate; // continue using the active canonical key
                 }
                 else
@@ -185,14 +180,27 @@ namespace GameHelper.Core.Services
             }
 
             _logger.LogInformation("Process stopped: {Process}", key);
+
+            PlaySession? session = null;
             try
             {
-                _playTime.StopTracking(key);
+                session = _playTime.StopTracking(key);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to stop tracking for {Process}", key);
             }
+
+            if (session is not null)
+            {
+                var formatted = FormatDuration(session.Duration);
+                _logger.LogInformation(
+                    "本次游玩时长：{Duration}（开始 {StartTime:t}，结束 {EndTime:t}）",
+                    formatted,
+                    session.StartTime,
+                    session.EndTime);
+            }
+
             _logger.LogDebug("Active count after stop: {Count}", _active.Count);
 
             if (_active.Count == 0)
@@ -249,5 +257,162 @@ namespace GameHelper.Core.Services
             var filtered = new string(stem.Where(char.IsLetterOrDigit).ToArray());
             return filtered.ToLowerInvariant();
         }
+
+        private static IReadOnlyList<StemEntry> BuildEnabledStemIndex(IReadOnlyDictionary<string, GameConfig> configs)
+        {
+            if (configs.Count == 0)
+            {
+                return Array.Empty<StemEntry>();
+            }
+
+            var list = new List<StemEntry>(configs.Count);
+            foreach (var (key, cfg) in configs)
+            {
+                if (!cfg.IsEnabled)
+                {
+                    continue;
+                }
+
+                var stem = Stem(key);
+                if (stem.Length == 0)
+                {
+                    continue;
+                }
+
+                list.Add(new StemEntry(stem, key));
+            }
+
+            return list;
+        }
+
+        private IReadOnlyList<string> FindEnabledStemCandidates(string stemKey)
+        {
+            if (string.IsNullOrEmpty(stemKey))
+            {
+                return Array.Empty<string>();
+            }
+
+            List<string>? matches = null;
+            var snapshot = _enabledStemIndex;
+            for (var i = 0; i < snapshot.Count; i++)
+            {
+                var entry = snapshot[i];
+                if (!StemMatches(entry.Stem, stemKey))
+                {
+                    continue;
+                }
+
+                matches ??= new List<string>();
+                matches.Add(entry.Key);
+            }
+
+            return matches ?? (IReadOnlyList<string>)Array.Empty<string>();
+        }
+
+        private IReadOnlyList<string> FindActiveStemCandidates(string stemKey)
+        {
+            if (string.IsNullOrEmpty(stemKey) || _activeByStem.Count == 0)
+            {
+                return Array.Empty<string>();
+            }
+
+            List<string>? matches = null;
+            foreach (var (stem, values) in _activeByStem)
+            {
+                if (!StemMatches(stem, stemKey))
+                {
+                    continue;
+                }
+
+                matches ??= new List<string>();
+                matches.AddRange(values);
+            }
+
+            return matches ?? (IReadOnlyList<string>)Array.Empty<string>();
+        }
+
+        private void TrackActiveStem(string key)
+        {
+            var stem = Stem(key);
+            if (!_activeByStem.TryGetValue(stem, out var bucket))
+            {
+                bucket = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                _activeByStem[stem] = bucket;
+            }
+
+            bucket.Add(key);
+        }
+
+        private bool TryRemoveActive(string key)
+        {
+            if (!_active.Remove(key))
+            {
+                return false;
+            }
+
+            RemoveActiveStem(key);
+            return true;
+        }
+
+        private void RemoveActiveStem(string key)
+        {
+            var stem = Stem(key);
+            if (!_activeByStem.TryGetValue(stem, out var bucket))
+            {
+                return;
+            }
+
+            bucket.Remove(key);
+            if (bucket.Count == 0)
+            {
+                _activeByStem.Remove(stem);
+            }
+        }
+
+        private static bool StemMatches(string candidateStem, string searchStem)
+        {
+            return candidateStem == searchStem
+                || candidateStem.StartsWith(searchStem, StringComparison.Ordinal)
+                || searchStem.StartsWith(candidateStem, StringComparison.Ordinal);
+        }
+
+        private static string FormatDuration(TimeSpan duration)
+        {
+            if (duration < TimeSpan.Zero)
+            {
+                duration = TimeSpan.Zero;
+            }
+
+            if (duration == TimeSpan.Zero)
+            {
+                return "0秒";
+            }
+
+            var parts = new List<string>();
+            if (duration.Days > 0)
+            {
+                parts.Add($"{duration.Days}天");
+            }
+
+            if (duration.Hours > 0)
+            {
+                parts.Add($"{duration.Hours}小时");
+            }
+
+            if (duration.Minutes > 0)
+            {
+                parts.Add($"{duration.Minutes}分钟");
+            }
+
+            var seconds = duration.Seconds;
+            if (seconds > 0 || parts.Count == 0)
+            {
+                parts.Add($"{seconds}秒");
+            }
+
+            return string.Concat(parts);
+        }
+
+        private readonly record struct StemEntry(string Stem, string Key);
     }
 }

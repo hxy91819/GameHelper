@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 using CoreGameConfig = GameHelper.Core.Models.GameConfig;
@@ -37,7 +39,58 @@ namespace GameHelper.Tests
         public List<string> Started { get; } = new();
         public List<string> Stopped { get; } = new();
         public void StartTracking(string gameName) { StartCalls++; Started.Add(gameName); }
-        public void StopTracking(string gameName) { StopCalls++; Stopped.Add(gameName); }
+        public PlaySession? StopTracking(string gameName)
+        {
+            StopCalls++;
+            Stopped.Add(gameName);
+            return new PlaySession(gameName, DateTime.MinValue, DateTime.MinValue, TimeSpan.Zero, 0);
+        }
+    }
+
+    file sealed class FakePlayTimeWithDuration : IPlayTimeService
+    {
+        private readonly DateTime _startTime;
+        private readonly TimeSpan _duration;
+
+        public FakePlayTimeWithDuration(DateTime startTime, TimeSpan duration)
+        {
+            _startTime = startTime;
+            _duration = duration;
+        }
+
+        public void StartTracking(string gameName) { }
+
+        public PlaySession? StopTracking(string gameName)
+        {
+            var endTime = _startTime + _duration;
+            var durationMinutes = (long)Math.Round(_duration.TotalMinutes);
+            return new PlaySession(gameName, _startTime, endTime, _duration, durationMinutes);
+        }
+    }
+
+    file sealed class ListLogger<T> : ILogger<T>
+    {
+        private sealed class NullScope : IDisposable
+        {
+            public static NullScope Instance { get; } = new();
+            public void Dispose() { }
+        }
+
+        public List<(LogLevel Level, string Message)> Entries { get; } = new();
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (formatter is null)
+            {
+                return;
+            }
+
+            Entries.Add((logLevel, formatter(state, exception)));
+        }
     }
 
     file sealed class FakeConfig : IConfigProvider
@@ -164,6 +217,26 @@ namespace GameHelper.Tests
 
             Assert.Equal(1, hdr.EnableCalls);
             Assert.Equal(0, hdr.DisableCalls); // not processed after Stop
+        }
+
+        [Fact]
+        public void StopEvent_LogsFormattedDurationIncludingSeconds()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new FakeConfig(Dict(("game.exe", true)));
+            var hdr = new FakeHdr();
+            var play = new FakePlayTimeWithDuration(
+                DateTime.SpecifyKind(new DateTime(2025, 1, 1, 8, 0, 0), DateTimeKind.Local),
+                TimeSpan.FromSeconds(75));
+            var logger = new ListLogger<GameAutomationService>();
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+
+            svc.Start();
+            monitor.RaiseStart("game.exe");
+            monitor.RaiseStop("game.exe");
+
+            var entry = Assert.Single(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("本次游玩时长"));
+            Assert.Contains("本次游玩时长：1分钟15秒", entry.Message);
         }
     }
 }
