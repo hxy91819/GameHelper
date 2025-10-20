@@ -361,3 +361,10 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 .idea
+# BMAD (local only)
+.claude/*
+.codebuddy/*
+.gemini/*
+.github/*
+.windsurf/*
+.vscode/*
