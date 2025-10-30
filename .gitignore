@@ -368,3 +368,5 @@ FodyWeavers.xsd
 .github/*
 .windsurf/*
 .vscode/*
+.bmad-core/*
+# BMAD (local only)
