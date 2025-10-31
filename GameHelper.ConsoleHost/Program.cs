@@ -102,7 +102,14 @@ var host = Host.CreateDefaultBuilder(args)
                 return ProcessMonitorFactory.CreateNoOp();
             }
         });
-        services.AddSingleton<IHdrController, NoOpHdrController>();
+        if (OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<IHdrController, WindowsHdrController>();
+        }
+        else
+        {
+            services.AddSingleton<IHdrController, NoOpHdrController>();
+        }
         services.AddSingleton<IPlayTimeService, CsvBackedPlayTimeService>();
         services.AddSingleton<IAutoStartManager>(sp =>
         {
