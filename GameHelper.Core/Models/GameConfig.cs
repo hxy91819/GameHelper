@@ -23,6 +23,6 @@ namespace GameHelper.Core.Models
         /// <summary>
         /// Desired HDR state while this game is active. Current HDR controller may be a NoOp.
         /// </summary>
-        public bool HDREnabled { get; set; } = true;
+        public bool HDREnabled { get; set; } = false;
     }
 }

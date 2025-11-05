@@ -850,7 +850,7 @@ namespace GameHelper.ConsoleHost.Interactive
             var enable = PromptSelection(enablePrompt, enableChoices, value => Markup.Escape(value), enableTitle);
 
             var hdrTitle = "在游戏运行时如何控制 HDR？";
-            var defaultHdrEnabled = existingConfig?.HDREnabled ?? true;
+            var defaultHdrEnabled = existingConfig?.HDREnabled ?? false;
             var hdrChoices = defaultHdrEnabled
                 ? new[] { "自动开启 HDR", "保持关闭" }
                 : new[] { "保持关闭", "自动开启 HDR" };

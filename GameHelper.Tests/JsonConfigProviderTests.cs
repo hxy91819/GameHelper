@@ -69,7 +69,7 @@ namespace GameHelper.Tests
             Assert.All(map.Values, cfg =>
             {
                 Assert.True(cfg.IsEnabled);
-                Assert.True(cfg.HDREnabled);
+                Assert.False(cfg.HDREnabled);
                 Assert.False(string.IsNullOrWhiteSpace(cfg.Name));
             });
         }
