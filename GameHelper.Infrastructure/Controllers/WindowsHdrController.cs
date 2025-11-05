@@ -32,6 +32,9 @@ namespace GameHelper.Infrastructure.Controllers
         private bool _isHdrForceDisabled;
         private bool _loggedUnsupported;
         private bool _loggedForceDisabled;
+        private bool? _lastLoggedSupported;
+        private bool? _lastLoggedEnabled;
+        private bool? _lastLoggedForceDisabled;
 
         public WindowsHdrController(ILogger<WindowsHdrController> logger)
         {
@@ -192,8 +195,13 @@ namespace GameHelper.Infrastructure.Controllers
                 }
 
                 _isHdrSupported = supported;
-                _isHdrEnabled = enabled;
+                _isHdrEnabled = supported && enabled;
                 _isHdrForceDisabled = forceDisabled && !supported;
+
+                if (ShouldLogSummary())
+                {
+                    LogDisplaySummary(displays);
+                }
             }
             catch (Exception ex)
             {
@@ -242,7 +250,25 @@ namespace GameHelper.Infrastructure.Controllers
                     continue;
                 }
 
+                var targetName = new DISPLAYCONFIG_TARGET_DEVICE_NAME
+                {
+                    header = new DISPLAYCONFIG_DEVICE_INFO_HEADER
+                    {
+                        type = DISPLAYCONFIG_DEVICE_INFO_TYPE.DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
+                        size = (uint)Marshal.SizeOf<DISPLAYCONFIG_TARGET_DEVICE_NAME>(),
+                        adapterId = paths[i].targetInfo.adapterId,
+                        id = paths[i].targetInfo.id
+                    }
+                };
+
+                status = DisplayConfigGetDeviceInfo(ref targetName);
+
+                var name = status == ErrorSuccess
+                    ? GetDisplayName(targetName)
+                    : $"Display {i + 1}";
+
                 result.Add(new DisplayAdvancedColorInfo(
+                    name,
                     info.AdvancedColorSupported,
                     info.AdvancedColorEnabled,
                     info.AdvancedColorForceDisabled));
@@ -251,20 +277,43 @@ namespace GameHelper.Infrastructure.Controllers
             return result;
         }
 
-        private static bool TrySendToggleHotkey()
+        private bool TrySendToggleHotkey()
         {
             var inputs = new[]
             {
-                CreateKeyInput(VkLwin, true, extended: true),
-                CreateKeyInput(VkMenu, true, extended: true),
+                CreateKeyInput(VkLwin, true),
+                CreateKeyInput(VkMenu, true),
                 CreateKeyInput(VkB, true),
                 CreateKeyInput(VkB, false),
-                CreateKeyInput(VkMenu, false, extended: true),
-                CreateKeyInput(VkLwin, false, extended: true)
+                CreateKeyInput(VkMenu, false),
+                CreateKeyInput(VkLwin, false)
             };
 
-            var sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
-            return sent == (uint)inputs.Length;
+            var size = Marshal.SizeOf<INPUT>();
+            var sent = SendInput((uint)inputs.Length, inputs, size);
+            if (sent == (uint)inputs.Length)
+            {
+                return true;
+            }
+
+            var batchError = Marshal.GetLastWin32Error();
+            _logger.LogDebug("SendInput batch submission failed with error {Error}; attempting sequential fallback.", batchError);
+
+            for (var index = 0; index < inputs.Length; index++)
+            {
+                var single = new[] { inputs[index] };
+                var singleSent = SendInput(1, single, size);
+                if (singleSent != 1)
+                {
+                    var stepError = Marshal.GetLastWin32Error();
+                    _logger.LogDebug("SendInput fallback failed at step {Index} with error {Error}.", index, stepError);
+                    return false;
+                }
+
+                Thread.Sleep(30);
+            }
+
+            return true;
         }
 
         private static INPUT CreateKeyInput(ushort key, bool keyDown, bool extended = false)
@@ -292,6 +341,65 @@ namespace GameHelper.Infrastructure.Controllers
             };
         }
 
+        private static string GetDisplayName(in DISPLAYCONFIG_TARGET_DEVICE_NAME name)
+        {
+            if (!string.IsNullOrWhiteSpace(name.monitorFriendlyDeviceName))
+            {
+                return name.monitorFriendlyDeviceName.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(name.monitorDevicePath))
+            {
+                return name.monitorDevicePath.Trim();
+            }
+
+            return "Unknown Display";
+        }
+
+        private bool ShouldLogSummary()
+        {
+            if (_lastLoggedSupported != _isHdrSupported ||
+                _lastLoggedEnabled != _isHdrEnabled ||
+                _lastLoggedForceDisabled != _isHdrForceDisabled)
+            {
+                _lastLoggedSupported = _isHdrSupported;
+                _lastLoggedEnabled = _isHdrEnabled;
+                _lastLoggedForceDisabled = _isHdrForceDisabled;
+                return true;
+            }
+
+            return false;
+        }
+
+        private void LogDisplaySummary(IReadOnlyList<DisplayAdvancedColorInfo> displays)
+        {
+            if (displays.Count == 0)
+            {
+                _logger.LogInformation("No active display paths were reported; HDR will be treated as unsupported.");
+                return;
+            }
+
+            foreach (var display in displays)
+            {
+                var status = display.Supported
+                    ? (display.Enabled ? "HDR supported and currently enabled" : "HDR supported but currently disabled")
+                    : "HDR not supported";
+
+                if (display.ForceDisabled)
+                {
+                    status += " (Windows reports the feature as force-disabled)";
+                }
+
+                _logger.LogInformation("Display '{Display}': {Status}.", display.Name, status);
+            }
+
+            _logger.LogInformation(
+                "HDR detection summary: Supported={Supported}, Enabled={Enabled}, ForceDisabled={ForceDisabled}.",
+                _isHdrSupported,
+                _isHdrEnabled,
+                _isHdrForceDisabled);
+        }
+
         #region Native interop
 
         [DllImport("user32.dll")]
@@ -302,6 +410,9 @@ namespace GameHelper.Infrastructure.Controllers
 
         [DllImport("user32.dll")]
         private static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO requestPacket);
+
+        [DllImport("user32.dll")]
+        private static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_TARGET_DEVICE_NAME requestPacket);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
@@ -392,6 +503,23 @@ namespace GameHelper.Infrastructure.Controllers
             public uint id;
         }
 
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct DISPLAYCONFIG_TARGET_DEVICE_NAME
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public uint flags;
+            public uint outputTechnology;
+            public ushort edidManufactureId;
+            public ushort edidProductCodeId;
+            public uint connectorInstance;
+
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+            public string monitorFriendlyDeviceName;
+
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string monitorDevicePath;
+        }
+
         [StructLayout(LayoutKind.Sequential)]
         private struct DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO
         {
@@ -429,7 +557,7 @@ namespace GameHelper.Infrastructure.Controllers
             public UIntPtr dwExtraInfo;
         }
 
-        private readonly record struct DisplayAdvancedColorInfo(bool Supported, bool Enabled, bool ForceDisabled);
+        private readonly record struct DisplayAdvancedColorInfo(string Name, bool Supported, bool Enabled, bool ForceDisabled);
 
         #endregion
     }
