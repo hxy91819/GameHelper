@@ -71,7 +71,7 @@ namespace GameHelper.ConsoleHost.Commands
                 return;
             }
 
-            map[name] = new GameConfig { Name = name, IsEnabled = true, HDREnabled = true };
+            map[name] = new GameConfig { Name = name, IsEnabled = true, HDREnabled = false };
             provider.Save(map);
             Console.WriteLine($"Added {name}.");
         }

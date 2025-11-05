@@ -47,6 +47,7 @@ namespace GameHelper.Tests
             ConfigCommand.Run(_serviceProvider, new[] { "add", gameName });
 
             Assert.Contains(gameName, _configData.Keys);
+            Assert.False(_configData[gameName].HDREnabled);
             Assert.Equal($"Added {gameName}.", _consoleOutput.ToString().Trim());
             _mockConfigProvider.Verify(p => p.Save(It.IsAny<IReadOnlyDictionary<string, GameConfig>>()), Times.Once);
         }
