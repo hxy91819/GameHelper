@@ -29,7 +29,9 @@ namespace GameHelper.Infrastructure.Controllers
 
         private bool _isHdrSupported;
         private bool _isHdrEnabled;
+        private bool _isHdrForceDisabled;
         private bool _loggedUnsupported;
+        private bool _loggedForceDisabled;
 
         public WindowsHdrController(ILogger<WindowsHdrController> logger)
         {
@@ -63,6 +65,12 @@ namespace GameHelper.Infrastructure.Controllers
             lock (_sync)
             {
                 RefreshState();
+
+                if (_isHdrForceDisabled)
+                {
+                    LogForceDisabledOnce();
+                    return;
+                }
 
                 if (!_isHdrSupported)
                 {
@@ -102,12 +110,29 @@ namespace GameHelper.Infrastructure.Controllers
             _logger.LogInformation("System HDR is not supported; skipping HDR automation.");
         }
 
+        private void LogForceDisabledOnce()
+        {
+            if (_loggedForceDisabled)
+            {
+                return;
+            }
+
+            _loggedForceDisabled = true;
+            _logger.LogWarning("Windows reports HDR as force-disabled; skipping HDR automation.");
+        }
+
         private bool WaitForDesiredState(bool desiredState)
         {
             for (var attempt = 0; attempt < MaxStatePollingAttempts; attempt++)
             {
                 Thread.Sleep(StatePollingDelayMs);
                 RefreshState();
+
+                if (_isHdrForceDisabled)
+                {
+                    LogForceDisabledOnce();
+                    return false;
+                }
 
                 if (_isHdrSupported && _isHdrEnabled == desiredState)
                 {
@@ -118,6 +143,13 @@ namespace GameHelper.Infrastructure.Controllers
 
             // Final refresh to capture the latest state even on failure.
             RefreshState();
+
+            if (_isHdrForceDisabled)
+            {
+                LogForceDisabledOnce();
+                return false;
+            }
+
             return _isHdrSupported && _isHdrEnabled == desiredState;
         }
 
@@ -127,6 +159,7 @@ namespace GameHelper.Infrastructure.Controllers
             {
                 _isHdrSupported = false;
                 _isHdrEnabled = false;
+                _isHdrForceDisabled = false;
                 return;
             }
 
@@ -135,11 +168,18 @@ namespace GameHelper.Infrastructure.Controllers
                 var displays = EnumerateDisplays();
                 var supported = false;
                 var enabled = false;
+                var forceDisabled = false;
 
                 foreach (var info in displays)
                 {
                     if (!info.Supported)
                     {
+                        continue;
+                    }
+
+                    if (info.ForceDisabled)
+                    {
+                        forceDisabled = true;
                         continue;
                     }
 
@@ -153,12 +193,14 @@ namespace GameHelper.Infrastructure.Controllers
 
                 _isHdrSupported = supported;
                 _isHdrEnabled = enabled;
+                _isHdrForceDisabled = forceDisabled && !supported;
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to query HDR state via DisplayConfig APIs.");
                 _isHdrSupported = false;
                 _isHdrEnabled = false;
+                _isHdrForceDisabled = false;
             }
         }
 
@@ -200,7 +242,10 @@ namespace GameHelper.Infrastructure.Controllers
                     continue;
                 }
 
-                result.Add(new DisplayAdvancedColorInfo(info.AdvancedColorSupported, info.AdvancedColorEnabled));
+                result.Add(new DisplayAdvancedColorInfo(
+                    info.AdvancedColorSupported,
+                    info.AdvancedColorEnabled,
+                    info.AdvancedColorForceDisabled));
             }
 
             return result;
@@ -357,6 +402,8 @@ namespace GameHelper.Infrastructure.Controllers
 
             public bool AdvancedColorSupported => (_value & 0x1) == 0x1;
             public bool AdvancedColorEnabled => (_value & 0x2) == 0x2;
+            public bool WideColorEnforced => (_value & 0x4) == 0x4;
+            public bool AdvancedColorForceDisabled => (_value & 0x8) == 0x8;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -382,7 +429,7 @@ namespace GameHelper.Infrastructure.Controllers
             public UIntPtr dwExtraInfo;
         }
 
-        private readonly record struct DisplayAdvancedColorInfo(bool Supported, bool Enabled);
+        private readonly record struct DisplayAdvancedColorInfo(bool Supported, bool Enabled, bool ForceDisabled);
 
         #endregion
     }
