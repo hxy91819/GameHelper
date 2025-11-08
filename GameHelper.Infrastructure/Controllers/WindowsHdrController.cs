@@ -24,6 +24,11 @@ namespace GameHelper.Infrastructure.Controllers
         private const uint KeyeventfExtendedkey = 0x0001;
         private const uint KeyeventfKeyup = 0x0002;
 
+        private const uint KeyeventfKeybdEventKeyup = 0x0002;
+
+        [DllImport("user32.dll")]
+        private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
         private readonly ILogger<WindowsHdrController> _logger;
         private readonly object _sync = new();
 
@@ -279,6 +284,18 @@ namespace GameHelper.Infrastructure.Controllers
 
         private bool TrySendToggleHotkey()
         {
+            if (TrySendInputHotkey())
+            {
+                return true;
+            }
+
+            _logger.LogDebug("SendInput API failed; falling back to keybd_event sequence.");
+
+            return TrySendKeybdEventHotkey();
+        }
+
+        private bool TrySendInputHotkey()
+        {
             var inputs = new[]
             {
                 CreateKeyInput(VkLwin, true),
@@ -297,16 +314,15 @@ namespace GameHelper.Infrastructure.Controllers
             }
 
             var batchError = Marshal.GetLastWin32Error();
-            _logger.LogDebug("SendInput batch submission failed with error {Error}; attempting sequential fallback.", batchError);
+            _logger.LogDebug("SendInput batch submission failed with error {Error}; attempting sequential submission.", batchError);
 
             for (var index = 0; index < inputs.Length; index++)
             {
-                var single = new[] { inputs[index] };
-                var singleSent = SendInput(1, single, size);
+                var singleSent = SendInput(1, new[] { inputs[index] }, size);
                 if (singleSent != 1)
                 {
                     var stepError = Marshal.GetLastWin32Error();
-                    _logger.LogDebug("SendInput fallback failed at step {Index} with error {Error}.", index, stepError);
+                    _logger.LogDebug("SendInput sequential submission failed at step {Index} with error {Error}.", index, stepError);
                     return false;
                 }
 
@@ -314,6 +330,29 @@ namespace GameHelper.Infrastructure.Controllers
             }
 
             return true;
+        }
+
+        private bool TrySendKeybdEventHotkey()
+        {
+            try
+            {
+                keybd_event((byte)VkLwin, 0, 0, UIntPtr.Zero);
+                keybd_event((byte)VkMenu, 0, 0, UIntPtr.Zero);
+                keybd_event((byte)VkB, 0, 0, UIntPtr.Zero);
+
+                Thread.Sleep(50);
+
+                keybd_event((byte)VkB, 0, KeyeventfKeybdEventKeyup, UIntPtr.Zero);
+                keybd_event((byte)VkMenu, 0, KeyeventfKeybdEventKeyup, UIntPtr.Zero);
+                keybd_event((byte)VkLwin, 0, KeyeventfKeybdEventKeyup, UIntPtr.Zero);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "keybd_event fallback failed to issue HDR toggle.");
+                return false;
+            }
         }
 
         private static INPUT CreateKeyInput(ushort key, bool keyDown, bool extended = false)
