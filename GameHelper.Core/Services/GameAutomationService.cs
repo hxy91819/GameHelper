@@ -135,10 +135,14 @@ namespace GameHelper.Core.Services
                 _logger.LogError(ex, "Failed to start tracking for {Process}", key);
             }
 
+            UpdateHdrState(
+                _configs.TryGetValue(key, out var cfg) && cfg.HDREnabled
+                    ? "HDR-enabled game became active"
+                    : "Active game prefers SDR");
+
             if (wasEmpty && _active.Count == 1)
             {
-                _logger.LogInformation("First active game detected, enabling HDR");
-                _hdr.Enable();
+                _logger.LogInformation("First active game detected; enabling stop event subscription");
                 // Enable Stop events now that we have at least one active game
                 try { _stopControl?.SetStopEventsEnabled(true); _logger.LogDebug("Stop events enabled (first active)"); }
                 catch (Exception ex) { _logger.LogDebug(ex, "Failed to enable stop events"); }
@@ -203,10 +207,11 @@ namespace GameHelper.Core.Services
 
             _logger.LogDebug("Active count after stop: {Count}", _active.Count);
 
+            UpdateHdrState("Active game list updated");
+
             if (_active.Count == 0)
             {
-                _logger.LogInformation("Last active game exited, disabling HDR");
-                _hdr.Disable();
+                _logger.LogInformation("Last active game exited; disabling stop event subscription");
                 // No active games -> disable Stop events to minimize idle overhead
                 try { _stopControl?.SetStopEventsEnabled(false); _logger.LogDebug("Stop events disabled (no active games)"); }
                 catch (Exception ex) { _logger.LogDebug(ex, "Failed to disable stop events"); }
@@ -341,6 +346,35 @@ namespace GameHelper.Core.Services
             }
 
             bucket.Add(key);
+        }
+
+        private void UpdateHdrState(string reason)
+        {
+            var shouldEnableHdr = ShouldEnableHdr();
+
+            if (shouldEnableHdr && !_hdr.IsEnabled)
+            {
+                _logger.LogInformation("Enabling HDR ({Reason})", reason);
+                _hdr.Enable();
+            }
+            else if (!shouldEnableHdr && _hdr.IsEnabled)
+            {
+                _logger.LogInformation("Disabling HDR ({Reason})", reason);
+                _hdr.Disable();
+            }
+        }
+
+        private bool ShouldEnableHdr()
+        {
+            foreach (var name in _active)
+            {
+                if (_configs.TryGetValue(name, out var cfg) && cfg.HDREnabled)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private bool TryRemoveActive(string key)

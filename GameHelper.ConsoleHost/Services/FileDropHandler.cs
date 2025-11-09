@@ -82,18 +82,17 @@ namespace GameHelper.ConsoleHost.Services
 
                     if (map.TryGetValue(key, out var existing))
                     {
-                        // Overwrite alias with latest dragged name per user requirement; ensure enabled flags are true by default
+                        // Overwrite alias with latest dragged name per user requirement; ensure automation is enabled by default
                         existing.Alias = alias;
                         existing.IsEnabled = true;
-                        if (!existing.HDREnabled) existing.HDREnabled = true;
                         updated++;
                         Console.WriteLine($"Updated: {key}  Alias={existing.Alias}  Enabled={existing.IsEnabled}  HDR={existing.HDREnabled}");
                     }
                     else
                     {
-                        map[key] = new GameConfig { Name = key, Alias = alias, IsEnabled = true, HDREnabled = true };
+                        map[key] = new GameConfig { Name = key, Alias = alias, IsEnabled = true, HDREnabled = false };
                         added++;
-                        Console.WriteLine($"Added:   {key}  Alias={alias}  Enabled=true  HDR=true");
+                        Console.WriteLine($"Added:   {key}  Alias={alias}  Enabled=true  HDR=false");
                     }
                 }
                 catch (Exception ex)

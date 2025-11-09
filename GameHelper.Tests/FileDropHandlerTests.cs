@@ -57,7 +57,7 @@ public sealed class FileDropHandlerTests
             Assert.True(map.TryGetValue("NewAdventure.exe", out var config));
             Assert.Equal("NewAdventure", config.Alias);
             Assert.True(config.IsEnabled);
-            Assert.True(config.HDREnabled);
+            Assert.False(config.HDREnabled);
         }
         finally
         {
@@ -66,7 +66,7 @@ public sealed class FileDropHandlerTests
     }
 
     [Fact]
-    public void ProcessFilePaths_UpdatesExistingGameAndReEnables()
+    public void ProcessFilePaths_UpdatesExistingGameAndPreservesHdrChoice()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
@@ -103,7 +103,7 @@ public sealed class FileDropHandlerTests
             Assert.True(map.TryGetValue("LegacyClassic.exe", out var config));
             Assert.Equal("LegacyClassic", config.Alias);
             Assert.True(config.IsEnabled);
-            Assert.True(config.HDREnabled);
+            Assert.False(config.HDREnabled);
         }
         finally
         {
@@ -151,7 +151,7 @@ public sealed class FileDropHandlerTests
             Assert.True(map.TryGetValue("SteamAdventure.exe", out var config));
             Assert.Equal("SteamShortcut", config.Alias);
             Assert.True(config.IsEnabled);
-            Assert.True(config.HDREnabled);
+            Assert.False(config.HDREnabled);
         }
         finally
         {
