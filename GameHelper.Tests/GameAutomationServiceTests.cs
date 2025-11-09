@@ -30,6 +30,7 @@ namespace GameHelper.Tests
         public bool IsEnabled { get; private set; }
         public void Enable() { IsEnabled = true; EnableCalls++; }
         public void Disable() { IsEnabled = false; DisableCalls++; }
+        public void SetState(bool enabled) { IsEnabled = enabled; }
     }
 
     file sealed class FakePlayTime : IPlayTimeService
@@ -106,12 +107,12 @@ namespace GameHelper.Tests
 
     public class GameAutomationServiceTests
     {
-        private static IReadOnlyDictionary<string, CoreGameConfig> Dict(params (string name, bool enabled)[] items)
+        private static IReadOnlyDictionary<string, CoreGameConfig> Dict(params (string name, bool enabled, bool hdrEnabled)[] items)
         {
             var dict = new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (name, enabled) in items)
+            foreach (var (name, enabled, hdrEnabled) in items)
             {
-                dict[name] = new CoreGameConfig { Name = name, IsEnabled = enabled, HDREnabled = true };
+                dict[name] = new CoreGameConfig { Name = name, IsEnabled = enabled, HDREnabled = hdrEnabled };
             }
             return dict;
         }
@@ -120,7 +121,7 @@ namespace GameHelper.Tests
         public void SingleGame_Lifecycle_EnablesAndDisablesHdr_TracksPlaytime()
         {
             var monitor = new FakeMonitor();
-            var cfg = new FakeConfig(Dict(("witcher3.exe", true)));
+            var cfg = new FakeConfig(Dict(("witcher3.exe", true, true)));
             var hdr = new FakeHdr();
             var play = new FakePlayTime();
             var logger = NullLogger<GameAutomationService>.Instance;
@@ -146,7 +147,7 @@ namespace GameHelper.Tests
         public void MultipleGames_HdrOnlyOnFirstAndLast()
         {
             var monitor = new FakeMonitor();
-            var cfg = new FakeConfig(Dict(("a.exe", true), ("b.exe", true)));
+            var cfg = new FakeConfig(Dict(("a.exe", true, true), ("b.exe", true, true)));
             var hdr = new FakeHdr();
             var play = new FakePlayTime();
             var logger = NullLogger<GameAutomationService>.Instance;
@@ -175,10 +176,60 @@ namespace GameHelper.Tests
         }
 
         [Fact]
+        public void GameConfiguredToDisableHdr_TogglesOffIfHdrWasEnabled()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new FakeConfig(Dict(("sdr.exe", true, false)));
+            var hdr = new FakeHdr();
+            hdr.SetState(true); // simulate HDR already enabled before the game starts
+            var play = new FakePlayTime();
+            var logger = NullLogger<GameAutomationService>.Instance;
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+
+            svc.Start();
+
+            monitor.RaiseStart("sdr.exe");
+
+            Assert.Equal(1, hdr.DisableCalls);
+            Assert.False(hdr.IsEnabled);
+
+            monitor.RaiseStop("sdr.exe");
+            Assert.Equal(1, hdr.DisableCalls);
+        }
+
+        [Fact]
+        public void MixedHdrPreferences_OnlyEnablesWhenRequested()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new FakeConfig(Dict(("hdr.exe", true, true), ("sdr.exe", true, false)));
+            var hdr = new FakeHdr();
+            var play = new FakePlayTime();
+            var logger = NullLogger<GameAutomationService>.Instance;
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+
+            svc.Start();
+
+            monitor.RaiseStart("sdr.exe");
+            Assert.Equal(0, hdr.EnableCalls);
+            Assert.False(hdr.IsEnabled);
+
+            monitor.RaiseStart("hdr.exe");
+            Assert.Equal(1, hdr.EnableCalls);
+            Assert.True(hdr.IsEnabled);
+
+            monitor.RaiseStop("hdr.exe");
+            Assert.Equal(1, hdr.DisableCalls);
+            Assert.False(hdr.IsEnabled);
+
+            monitor.RaiseStop("sdr.exe");
+            Assert.Equal(1, hdr.DisableCalls);
+        }
+
+        [Fact]
         public void DisabledGame_Ignored()
         {
             var monitor = new FakeMonitor();
-            var cfg = new FakeConfig(Dict(("c.exe", false)));
+            var cfg = new FakeConfig(Dict(("c.exe", false, true)));
             var hdr = new FakeHdr();
             var play = new FakePlayTime();
             var logger = NullLogger<GameAutomationService>.Instance;
@@ -199,7 +250,7 @@ namespace GameHelper.Tests
         public void Stop_Unsubscribes_EventsNoLongerProcessed()
         {
             var monitor = new FakeMonitor();
-            var cfg = new FakeConfig(Dict(("a.exe", true)));
+            var cfg = new FakeConfig(Dict(("a.exe", true, true)));
             var hdr = new FakeHdr();
             var play = new FakePlayTime();
             var logger = NullLogger<GameAutomationService>.Instance;
@@ -223,7 +274,7 @@ namespace GameHelper.Tests
         public void StopEvent_LogsFormattedDurationIncludingSeconds()
         {
             var monitor = new FakeMonitor();
-            var cfg = new FakeConfig(Dict(("game.exe", true)));
+            var cfg = new FakeConfig(Dict(("game.exe", true, true)));
             var hdr = new FakeHdr();
             var play = new FakePlayTimeWithDuration(
                 DateTime.SpecifyKind(new DateTime(2025, 1, 1, 8, 0, 0), DateTimeKind.Local),

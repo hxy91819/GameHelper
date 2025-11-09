@@ -86,7 +86,7 @@ namespace GameHelper.Infrastructure.Providers
                             {
                                 if (!string.IsNullOrWhiteSpace(n))
                                 {
-                                    result[n] = new GameConfig { Name = n, Alias = null, IsEnabled = true, HDREnabled = true };
+                                    result[n] = new GameConfig { Name = n, Alias = null, IsEnabled = true, HDREnabled = false };
                                 }
                             }
                         }
