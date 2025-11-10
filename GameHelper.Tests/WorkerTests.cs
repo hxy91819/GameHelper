@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using GameHelper.ConsoleHost;
 using GameHelper.Core.Abstractions;
+using GameHelper.Core.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -13,13 +14,13 @@ namespace GameHelper.Tests
     {
         public int StartCalls { get; private set; }
         public int StopCalls { get; private set; }
-        public event Action<string>? ProcessStarted;
-        public event Action<string>? ProcessStopped;
+        public event Action<ProcessEventInfo>? ProcessStarted;
+        public event Action<ProcessEventInfo>? ProcessStopped;
         public void Start() => StartCalls++;
         public void Stop() => StopCalls++;
         public void Dispose() { }
-        public void RaiseStart(string name) => ProcessStarted?.Invoke(name);
-        public void RaiseStop(string name) => ProcessStopped?.Invoke(name);
+        public void RaiseStart(ProcessEventInfo info) => ProcessStarted?.Invoke(info);
+        public void RaiseStop(ProcessEventInfo info) => ProcessStopped?.Invoke(info);
     }
 
     file sealed class FakeHdr : IHdrController

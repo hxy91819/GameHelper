@@ -35,8 +35,22 @@ namespace GameHelper.Tests
             var provider = new YamlConfigProvider(_configPath);
             var input = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
             {
-                ["cyberpunk2077.exe"] = new GameConfig { Name = "cyberpunk2077.exe", IsEnabled = true, HDREnabled = true },
-                ["rdr2.exe"] = new GameConfig { Name = "rdr2.exe", IsEnabled = false, HDREnabled = false },
+                ["cyberpunk2077.exe"] = new GameConfig
+                {
+                    DataKey = "cyberpunk2077",
+                    ExecutableName = "cyberpunk2077.exe",
+                    DisplayName = "Cyberpunk 2077",
+                    IsEnabled = true,
+                    HDREnabled = true
+                },
+                ["rdr2.exe"] = new GameConfig
+                {
+                    DataKey = "rdr2",
+                    ExecutableName = "rdr2.exe",
+                    DisplayName = "Red Dead Redemption 2",
+                    IsEnabled = false,
+                    HDREnabled = false
+                },
             };
 
             provider.Save(input);
@@ -46,12 +60,38 @@ namespace GameHelper.Tests
             Assert.Equal(2, output.Count);
 
             var cp = output["CYBERPUNK2077.EXE"]; // case-insensitive
+            Assert.Equal("cyberpunk2077", cp.DataKey);
+            Assert.Equal("Cyberpunk 2077", cp.DisplayName);
             Assert.True(cp.IsEnabled);
             Assert.True(cp.HDREnabled);
 
             var rdr2 = output["rdr2.exe"];
+            Assert.Equal("rdr2", rdr2.DataKey);
+            Assert.Equal("Red Dead Redemption 2", rdr2.DisplayName);
             Assert.False(rdr2.IsEnabled);
             Assert.False(rdr2.HDREnabled);
+        }
+
+        [Fact]
+        public void Load_WhenGameMissingDataKeyAndExecutableName_Throws()
+        {
+            var yaml = "games:\n  - displayName: Broken Entry\n";
+            File.WriteAllText(_configPath, yaml);
+            var provider = new YamlConfigProvider(_configPath);
+
+            var exception = Assert.Throws<InvalidDataException>(() => provider.Load());
+            Assert.Contains("配置项缺少必填字段 DataKey", exception.Message);
+        }
+
+        [Fact]
+        public void Load_WhenGameMissingDataKeyButHasExecutableName_Throws()
+        {
+            var yaml = "games:\n  - executableName: sample.exe\n";
+            File.WriteAllText(_configPath, yaml);
+            var provider = new YamlConfigProvider(_configPath);
+
+            var exception = Assert.Throws<InvalidDataException>(() => provider.Load());
+            Assert.Contains("配置项缺少必填字段 DataKey", exception.Message);
         }
 
         [Fact]

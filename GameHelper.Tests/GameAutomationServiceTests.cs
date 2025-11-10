@@ -14,13 +14,13 @@ namespace GameHelper.Tests
     // Fakes
     file sealed class FakeMonitor : IProcessMonitor
     {
-        public event Action<string>? ProcessStarted;
-        public event Action<string>? ProcessStopped;
+        public event Action<ProcessEventInfo>? ProcessStarted;
+        public event Action<ProcessEventInfo>? ProcessStopped;
         public void Start() { }
         public void Stop() { }
         public void Dispose() { }
-        public void RaiseStart(string name) => ProcessStarted?.Invoke(name);
-        public void RaiseStop(string name) => ProcessStopped?.Invoke(name);
+        public void RaiseStart(ProcessEventInfo info) => ProcessStarted?.Invoke(info);
+        public void RaiseStop(ProcessEventInfo info) => ProcessStopped?.Invoke(info);
     }
 
     file sealed class FakeHdr : IHdrController
@@ -112,7 +112,13 @@ namespace GameHelper.Tests
             var dict = new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase);
             foreach (var (name, enabled, hdrEnabled) in items)
             {
-                dict[name] = new CoreGameConfig { Name = name, IsEnabled = enabled, HDREnabled = hdrEnabled };
+                dict[name] = new CoreGameConfig 
+                { 
+                    DataKey = name, 
+                    ExecutableName = name, 
+                    IsEnabled = enabled, 
+                    HDREnabled = hdrEnabled 
+                };
             }
             return dict;
         }
@@ -130,14 +136,14 @@ namespace GameHelper.Tests
             svc.Start();
 
             // Case-insensitive start
-            monitor.RaiseStart("WITCHER3.EXE");
+            monitor.RaiseStart(new ProcessEventInfo("WITCHER3.EXE", null));
             Assert.Equal(1, hdr.EnableCalls);
             Assert.True(hdr.IsEnabled);
             Assert.Equal(1, play.StartCalls);
-            Assert.Contains(play.Started, s => string.Equals(s, "WITCHER3.EXE", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(play.Started, s => string.Equals(s, "witcher3.exe", StringComparison.OrdinalIgnoreCase));
 
             // Stop -> disable when last game exits
-            monitor.RaiseStop("witcher3.exe");
+            monitor.RaiseStop(new ProcessEventInfo("witcher3.exe", null));
             Assert.Equal(1, play.StopCalls);
             Assert.Equal(1, hdr.DisableCalls);
             Assert.False(hdr.IsEnabled);
@@ -155,21 +161,21 @@ namespace GameHelper.Tests
 
             svc.Start();
 
-            monitor.RaiseStart("a.exe");
+            monitor.RaiseStart(new ProcessEventInfo("a.exe", null));
             Assert.Equal(1, hdr.EnableCalls);
             Assert.True(hdr.IsEnabled);
 
-            monitor.RaiseStart("b.exe");
+            monitor.RaiseStart(new ProcessEventInfo("b.exe", null));
             // still only once
             Assert.Equal(1, hdr.EnableCalls);
             Assert.True(hdr.IsEnabled);
 
-            monitor.RaiseStop("a.exe");
+            monitor.RaiseStop(new ProcessEventInfo("a.exe", null));
             // still enabled due to b.exe
             Assert.Equal(0, hdr.DisableCalls);
             Assert.True(hdr.IsEnabled);
 
-            monitor.RaiseStop("b.exe");
+            monitor.RaiseStop(new ProcessEventInfo("b.exe", null));
             // last one -> disable
             Assert.Equal(1, hdr.DisableCalls);
             Assert.False(hdr.IsEnabled);
@@ -188,12 +194,12 @@ namespace GameHelper.Tests
 
             svc.Start();
 
-            monitor.RaiseStart("sdr.exe");
+            monitor.RaiseStart(new ProcessEventInfo("sdr.exe", null));
 
             Assert.Equal(1, hdr.DisableCalls);
             Assert.False(hdr.IsEnabled);
 
-            monitor.RaiseStop("sdr.exe");
+            monitor.RaiseStop(new ProcessEventInfo("sdr.exe", null));
             Assert.Equal(1, hdr.DisableCalls);
         }
 
@@ -209,19 +215,19 @@ namespace GameHelper.Tests
 
             svc.Start();
 
-            monitor.RaiseStart("sdr.exe");
+            monitor.RaiseStart(new ProcessEventInfo("sdr.exe", null));
             Assert.Equal(0, hdr.EnableCalls);
             Assert.False(hdr.IsEnabled);
 
-            monitor.RaiseStart("hdr.exe");
+            monitor.RaiseStart(new ProcessEventInfo("hdr.exe", null));
             Assert.Equal(1, hdr.EnableCalls);
             Assert.True(hdr.IsEnabled);
 
-            monitor.RaiseStop("hdr.exe");
+            monitor.RaiseStop(new ProcessEventInfo("hdr.exe", null));
             Assert.Equal(1, hdr.DisableCalls);
             Assert.False(hdr.IsEnabled);
 
-            monitor.RaiseStop("sdr.exe");
+            monitor.RaiseStop(new ProcessEventInfo("sdr.exe", null));
             Assert.Equal(1, hdr.DisableCalls);
         }
 
@@ -237,8 +243,8 @@ namespace GameHelper.Tests
 
             svc.Start();
 
-            monitor.RaiseStart("c.exe");
-            monitor.RaiseStop("c.exe");
+            monitor.RaiseStart(new ProcessEventInfo("c.exe", null));
+            monitor.RaiseStop(new ProcessEventInfo("c.exe", null));
 
             Assert.Equal(0, hdr.EnableCalls);
             Assert.Equal(0, hdr.DisableCalls);
@@ -257,14 +263,14 @@ namespace GameHelper.Tests
             var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
 
             svc.Start();
-            monitor.RaiseStart("a.exe");
+            monitor.RaiseStart(new ProcessEventInfo("a.exe", null));
             Assert.Equal(1, hdr.EnableCalls);
 
             svc.Stop();
 
             // After Stop, further events should not be handled
-            monitor.RaiseStop("a.exe");
-            monitor.RaiseStart("a.exe");
+            monitor.RaiseStop(new ProcessEventInfo("a.exe", null));
+            monitor.RaiseStart(new ProcessEventInfo("a.exe", null));
 
             Assert.Equal(1, hdr.EnableCalls);
             Assert.Equal(0, hdr.DisableCalls); // not processed after Stop
@@ -283,8 +289,8 @@ namespace GameHelper.Tests
             var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
 
             svc.Start();
-            monitor.RaiseStart("game.exe");
-            monitor.RaiseStop("game.exe");
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null));
+            monitor.RaiseStop(new ProcessEventInfo("game.exe", null));
 
             var entry = Assert.Single(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("本次游玩时长"));
             Assert.Contains("本次游玩时长：1分钟15秒", entry.Message);

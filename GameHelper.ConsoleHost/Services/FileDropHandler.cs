@@ -83,16 +83,27 @@ namespace GameHelper.ConsoleHost.Services
                     if (map.TryGetValue(key, out var existing))
                     {
                         // Overwrite alias with latest dragged name per user requirement; ensure automation is enabled by default
-                        existing.Alias = alias;
+                        existing.DataKey = existing.DataKey ?? key;
+                        existing.ExecutablePath = exe; // Update with full path for L1 matching
+                        existing.ExecutableName = key;
+                        existing.DisplayName = alias;
                         existing.IsEnabled = true;
                         updated++;
-                        Console.WriteLine($"Updated: {key}  Alias={existing.Alias}  Enabled={existing.IsEnabled}  HDR={existing.HDREnabled}");
+                        Console.WriteLine($"Updated: {key}  Path={exe}  DisplayName={existing.DisplayName}  Enabled={existing.IsEnabled}  HDR={existing.HDREnabled}");
                     }
                     else
                     {
-                        map[key] = new GameConfig { Name = key, Alias = alias, IsEnabled = true, HDREnabled = false };
+                        map[key] = new GameConfig
+                        {
+                            DataKey = key,
+                            ExecutablePath = exe, // Store full path for L1 matching
+                            ExecutableName = key,
+                            DisplayName = alias,
+                            IsEnabled = true,
+                            HDREnabled = false
+                        };
                         added++;
-                        Console.WriteLine($"Added:   {key}  Alias={alias}  Enabled=true  HDR=false");
+                        Console.WriteLine($"Added:   {key}  Path={exe}  DisplayName={alias}  Enabled=true  HDR=false");
                     }
                 }
                 catch (Exception ex)

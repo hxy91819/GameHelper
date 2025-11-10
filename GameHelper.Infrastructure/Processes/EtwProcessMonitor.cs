@@ -5,6 +5,8 @@ using System.Linq;
 using System.Security.Principal;
 using System.Threading;
 using GameHelper.Core.Abstractions;
+using GameHelper.Core.Models;
+
 using GameHelper.Infrastructure.Exceptions;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Parsers;
@@ -29,9 +31,9 @@ namespace GameHelper.Infrastructure.Processes
         private readonly string _sessionName;
 
         /// <inheritdoc />
-        public event Action<string>? ProcessStarted;
+        public event Action<ProcessEventInfo>? ProcessStarted;
         /// <inheritdoc />
-        public event Action<string>? ProcessStopped;
+        public event Action<ProcessEventInfo>? ProcessStopped;
 
         /// <summary>
         /// Creates a new ETW process monitor with optional process filtering.
@@ -171,7 +173,8 @@ namespace GameHelper.Infrastructure.Processes
                 if (IsAllowedProcess(processName))
                 {
                     _logger?.LogDebug("Process started: {ProcessName} (PID: {ProcessId})", processName, data.ProcessID);
-                    ProcessStarted?.Invoke(processName);
+                    var info = new ProcessEventInfo(processName, data.PayloadByName("ImageFileName") as string);
+                    ProcessStarted?.Invoke(info);
                 }
             }
             catch (Exception ex)
@@ -194,7 +197,8 @@ namespace GameHelper.Infrastructure.Processes
                 if (IsAllowedProcess(processName))
                 {
                     _logger?.LogDebug("Process stopped: {ProcessName} (PID: {ProcessId})", processName, data.ProcessID);
-                    ProcessStopped?.Invoke(processName);
+                    var info = new ProcessEventInfo(processName, data.PayloadByName("ImageFileName") as string);
+                    ProcessStopped?.Invoke(info);
                 }
             }
             catch (Exception ex)

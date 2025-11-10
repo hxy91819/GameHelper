@@ -49,6 +49,91 @@
     dotnet run --project GameHelper.ConsoleHost -- validate-config
     ```
 
+## 拖放添加游戏（快速配置）
+
+GameHelper 支持通过拖放游戏可执行文件或快捷方式来快速添加游戏配置。
+
+### 使用方法
+
+1. **拖放文件到程序**
+   - 将游戏的 `.exe` 文件或 `.lnk` 快捷方式拖放到 `GameHelper.ConsoleHost.exe` 上
+   - 程序会自动：
+     - 解析快捷方式（如果是 .lnk 文件）
+     - 提取游戏元数据（ProductName）
+     - 生成建议的 DataKey
+     - 添加或更新配置
+
+2. **交互式添加游戏**
+   - 在互动界面中选择"管理游戏配置" → "添加新游戏"
+   - 输入游戏可执行文件名或拖放文件路径
+   - 系统会自动提取元数据并提示确认：
+     - **DataKey**：用于数据关联的唯一标识符（必需）
+     - **ExecutablePath**：完整路径，用于精确匹配（可选）
+     - **DisplayName**：显示名称（可选）
+     - **IsEnabled**：是否启用自动化
+     - **HDREnabled**：是否自动开启 HDR
+
+3. **编辑现有游戏**
+   - 在互动界面中选择"管理游戏配置" → "修改现有游戏"
+   - 可以更新 ExecutablePath、DisplayName 等字段
+   - 输入 'clear' 或 'remove' 可清除 ExecutablePath
+
+### 元数据提取
+
+程序会尝试从可执行文件中提取以下信息：
+- **ProductName**：产品名称（用作 DataKey 的建议值）
+- **CompanyName**：公司名称（仅供参考）
+
+如果无法提取元数据，程序会使用文件名作为回退方案。
+
+### 配置模型说明
+
+新的配置模型支持以下字段：
+- **DataKey**（必需）：用于数据关联的唯一标识符，关联到 playtime 数据
+- **ExecutablePath**（可选）：完整路径，用于 L1 精确路径匹配
+- **ExecutableName**（可选）：可执行文件名，用于 L2 回退匹配
+- **DisplayName**（可选）：显示名称，用于 UI 展示
+- **IsEnabled**：是否启用自动化
+- **HDREnabled**：是否自动开启 HDR
+
+### 示例
+
+**拖放添加：**
+```powershell
+# 将 C:\Games\Witcher3\bin\x64\witcher3.exe 拖放到 GameHelper.ConsoleHost.exe
+# 程序会自动添加配置：
+# DataKey: "The Witcher 3: Wild Hunt"
+# ExecutablePath: "C:\Games\Witcher3\bin\x64\witcher3.exe"
+# ExecutableName: "witcher3.exe"
+# DisplayName: "The Witcher 3: Wild Hunt"
+```
+
+**交互式添加：**
+```
+请输入游戏的可执行文件名或拖放 EXE/LNK 文件
+> C:\Games\Witcher3\bin\x64\witcher3.exe
+
+检测到游戏文件：
+  路径: C:\Games\Witcher3\bin\x64\witcher3.exe
+  可执行文件名: witcher3.exe
+  产品名称: The Witcher 3: Wild Hunt
+
+请输入 DataKey（用于数据关联的唯一标识符）
+建议值: The Witcher 3: Wild Hunt
+> [回车使用建议值]
+
+输入显示名称（可选，直接回车跳过）
+> 巫师3
+
+是否启用自动化？
+> 启用
+
+在游戏运行时如何控制 HDR？
+> 自动开启 HDR
+
+已保存：witcher3.exe (DataKey: The Witcher 3: Wild Hunt)
+```
+
 ## 配置文件说明（仅 YAML）
 
 - 路径：`%AppData%/GameHelper/config.yml`
@@ -204,3 +289,43 @@ dotnet publish GameHelper.ConsoleHost \
 
 - 若需开机自启，可在“任务计划程序”中创建任务，触发器为用户登录，操作指向发布目录的 EXE。
 - 需要 WMI 服务与管理员权限以确保进程监控事件正常。
+
+
+## 更新日志
+
+### 2025-11-10 - Story 1.3: UI 拖放支持
+
+**新增功能：**
+1. **拖放添加游戏**：支持将 .exe 或 .lnk 文件拖放到程序上快速添加游戏配置
+2. **元数据自动提取**：自动从可执行文件提取 ProductName 作为 DataKey 建议值
+3. **交互式添加增强**：在互动界面中添加游戏时支持文件路径输入和元数据提取
+4. **编辑游戏增强**：支持修改 ExecutablePath，可输入 'clear' 清除路径
+
+**新配置字段：**
+- `dataKey`（必需）：用于数据关联的唯一标识符
+- `executablePath`（可选）：完整路径，用于 L1 精确路径匹配
+- `executableName`（可选）：可执行文件名，用于 L2 回退匹配
+- `displayName`（可选）：显示名称
+
+**向后兼容：**
+- 旧字段 `name` 和 `alias` 仍然支持
+- `name` 映射到 `executableName` 和 `dataKey`
+- `alias` 映射到 `displayName`
+
+**使用示例：**
+```yaml
+games:
+  # 新格式（推荐）
+  - dataKey: "The Witcher 3: Wild Hunt"
+    executablePath: "C:\\Games\\Witcher3\\bin\\x64\\witcher3.exe"
+    executableName: "witcher3.exe"
+    displayName: "巫师3"
+    isEnabled: true
+    hDREnabled: true
+  
+  # 旧格式（仍然支持）
+  - name: "cyberpunk2077.exe"
+    alias: "赛博朋克2077"
+    isEnabled: true
+    hDREnabled: false
+```

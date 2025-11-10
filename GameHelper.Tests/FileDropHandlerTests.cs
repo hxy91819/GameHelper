@@ -78,8 +78,9 @@ public sealed class FileDropHandlerTests
         {
             ["LegacyClassic.exe"] = new GameConfig
             {
-                Name = "LegacyClassic.exe",
-                Alias = "旧版经典",
+                DataKey = "LegacyClassic.exe",
+                ExecutableName = "LegacyClassic.exe",
+                DisplayName = "旧版经典",
                 IsEnabled = false,
                 HDREnabled = false
             }
