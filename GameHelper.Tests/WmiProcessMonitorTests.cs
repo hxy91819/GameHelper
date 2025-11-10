@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Processes;
 using Xunit;
 
@@ -9,13 +10,13 @@ namespace GameHelper.Tests
     {
         private sealed class FakeWatcher : IProcessEventWatcher
         {
-            public event Action<string>? ProcessEvent;
+            public event Action<ProcessEventInfo>? ProcessEvent;
             public bool Started { get; private set; }
 
             public void Start() => Started = true;
             public void Stop() => Started = false;
 
-            public void Raise(string name) => ProcessEvent?.Invoke(name);
+            public void Raise(ProcessEventInfo info) => ProcessEvent?.Invoke(info);
         }
 
         [Fact]
@@ -27,14 +28,14 @@ namespace GameHelper.Tests
 
             var started = new List<string>();
             var stopped = new List<string>();
-            monitor.ProcessStarted += s => started.Add(s);
-            monitor.ProcessStopped += s => stopped.Add(s);
+            monitor.ProcessStarted += info => started.Add(info.ExecutableName);
+            monitor.ProcessStopped += info => stopped.Add(info.ExecutableName);
 
             monitor.Start();
 
-            start.Raise("game.exe");
-            start.Raise("other.exe");
-            stop.Raise("game.exe");
+            start.Raise(new ProcessEventInfo("game.exe", null));
+            start.Raise(new ProcessEventInfo("other.exe", null));
+            stop.Raise(new ProcessEventInfo("game.exe", null));
 
             Assert.Equal(new[] { "game.exe", "other.exe" }, started);
             Assert.Equal(new[] { "game.exe" }, stopped);
@@ -42,8 +43,8 @@ namespace GameHelper.Tests
             monitor.Stop();
 
             // After Stop, further events should not be forwarded
-            start.Raise("after.exe");
-            stop.Raise("after.exe");
+            start.Raise(new ProcessEventInfo("after.exe", null));
+            stop.Raise(new ProcessEventInfo("after.exe", null));
 
             Assert.DoesNotContain("after.exe", started);
             Assert.DoesNotContain("after.exe", stopped);

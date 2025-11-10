@@ -1,4 +1,5 @@
 using System;
+using GameHelper.Core.Models;
 
 namespace GameHelper.Core.Abstractions
 {
@@ -10,14 +11,14 @@ namespace GameHelper.Core.Abstractions
     public interface IProcessMonitor : IDisposable
     {
         /// <summary>
-        /// Raised when a process starts. Payload is the process executable name (case-insensitive).
+        /// Raised when a process starts. Payload contains both executable name and optional full path information.
         /// </summary>
-        event Action<string>? ProcessStarted;
+        event Action<ProcessEventInfo>? ProcessStarted;
 
         /// <summary>
-        /// Raised when a process stops. Payload is the process executable name (case-insensitive).
+        /// Raised when a process stops. Payload contains both executable name and optional full path information.
         /// </summary>
-        event Action<string>? ProcessStopped;
+        event Action<ProcessEventInfo>? ProcessStopped;
 
         /// <summary>
         /// Starts monitoring and begins raising events.

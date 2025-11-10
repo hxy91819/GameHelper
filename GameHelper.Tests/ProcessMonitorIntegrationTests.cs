@@ -33,10 +33,10 @@ namespace GameHelper.Tests
             var startEvent = new ManualResetEventSlim(false);
 
             using var monitor = ProcessMonitorFactory.Create(ProcessMonitorType.WMI);
-            monitor.ProcessStarted += processName =>
+            monitor.ProcessStarted += processInfo =>
             {
-                _output.WriteLine($"WMI: Process started: {processName}");
-                if (processName.Contains("cmd", StringComparison.OrdinalIgnoreCase))
+                _output.WriteLine($"WMI: Process started: {processInfo.ExecutableName}");
+                if (processInfo.ExecutableName.Contains("cmd", StringComparison.OrdinalIgnoreCase))
                 {
                     processStarted = true;
                     startEvent.Set();
@@ -92,10 +92,10 @@ namespace GameHelper.Tests
             var startEvent = new ManualResetEventSlim(false);
 
             using var monitor = ProcessMonitorFactory.Create(ProcessMonitorType.ETW);
-            monitor.ProcessStarted += processName =>
+            monitor.ProcessStarted += processInfo =>
             {
-                _output.WriteLine($"ETW: Process started: {processName}");
-                if (processName.Contains("cmd", StringComparison.OrdinalIgnoreCase))
+                _output.WriteLine($"ETW: Process started: {processInfo.ExecutableName}");
+                if (processInfo.ExecutableName.Contains("cmd", StringComparison.OrdinalIgnoreCase))
                 {
                     processStarted = true;
                     startEvent.Set();
