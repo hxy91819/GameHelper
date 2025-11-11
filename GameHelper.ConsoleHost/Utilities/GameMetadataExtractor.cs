@@ -53,18 +53,15 @@ namespace GameHelper.ConsoleHost.Utilities
 
         /// <summary>
         /// Generates a suggested DataKey from metadata or file name.
+        /// This method is deprecated. Use DataKeyGenerator.GenerateBaseDataKey() instead.
         /// </summary>
         /// <param name="exePath">Path to the executable file.</param>
         /// <param name="productName">Optional product name from metadata.</param>
         /// <returns>A suggested DataKey string.</returns>
+        [Obsolete("Use DataKeyGenerator.GenerateBaseDataKey() for consistent DataKey generation")]
         public static string GenerateSuggestedDataKey(string exePath, string? productName)
         {
-            if (!string.IsNullOrWhiteSpace(productName))
-            {
-                return productName!;
-            }
-
-            return Path.GetFileNameWithoutExtension(exePath);
+            return DataKeyGenerator.GenerateBaseDataKey(exePath, productName);
         }
     }
 }

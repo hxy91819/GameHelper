@@ -887,7 +887,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 // Extract metadata
                 (productName, _) = GameMetadataExtractor.ExtractMetadata(exePath);
                 executableName = Path.GetFileName(exePath);
-                suggestedDataKey = GameMetadataExtractor.GenerateSuggestedDataKey(exePath, productName);
+                suggestedDataKey = DataKeyGenerator.GenerateUniqueDataKey(exePath, productName, _configProvider);
 
                 // Display extracted information
                 _console.MarkupLine("[green]检测到游戏文件：[/]");
@@ -903,7 +903,7 @@ namespace GameHelper.ConsoleHost.Interactive
             {
                 // Treat as executable name only
                 executableName = input;
-                suggestedDataKey = Path.GetFileNameWithoutExtension(executableName);
+                suggestedDataKey = DataKeyGenerator.GenerateBaseDataKey(input);
             }
 
             // Check for existing config

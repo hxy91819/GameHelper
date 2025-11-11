@@ -56,6 +56,8 @@ namespace GameHelper.Infrastructure.Providers
         private static ISerializer Serializer => new SerializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
+            .WithIndentedSequences()
+            .WithNewLine("\n")
             .Build();
 
         public IReadOnlyDictionary<string, GameConfig> Load()

@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Security.Principal;
+using System.Text;
 using System.Threading;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
@@ -173,7 +176,11 @@ namespace GameHelper.Infrastructure.Processes
                 if (IsAllowedProcess(processName))
                 {
                     _logger?.LogDebug("Process started: {ProcessName} (PID: {ProcessId})", processName, data.ProcessID);
-                    var info = new ProcessEventInfo(processName, data.PayloadByName("ImageFileName") as string);
+                    
+                    // 尝试获取真实的可执行文件路径
+                    var realPath = GetRealProcessPath(data.ProcessID) ?? data.PayloadByName("ImageFileName") as string;
+                    
+                    var info = new ProcessEventInfo(processName, realPath);
                     ProcessStarted?.Invoke(info);
                 }
             }
@@ -197,7 +204,11 @@ namespace GameHelper.Infrastructure.Processes
                 if (IsAllowedProcess(processName))
                 {
                     _logger?.LogDebug("Process stopped: {ProcessName} (PID: {ProcessId})", processName, data.ProcessID);
-                    var info = new ProcessEventInfo(processName, data.PayloadByName("ImageFileName") as string);
+                    
+                    // 尝试获取真实的可执行文件路径（进程可能已退出，所以可能失败）
+                    var realPath = GetRealProcessPath(data.ProcessID) ?? data.PayloadByName("ImageFileName") as string;
+                    
+                    var info = new ProcessEventInfo(processName, realPath);
                     ProcessStopped?.Invoke(info);
                 }
             }
@@ -253,6 +264,64 @@ namespace GameHelper.Infrastructure.Processes
                 name += ".exe";
             }
             return name;
+        }
+
+        /// <summary>
+        /// 获取进程的真实可执行文件路径，解决快捷方式启动时路径不正确的问题。
+        /// </summary>
+        /// <param name="processId">进程 ID</param>
+        /// <returns>真实的可执行文件路径，如果获取失败则返回 null</returns>
+        private string? GetRealProcessPath(int processId)
+        {
+            try
+            {
+                using var process = Process.GetProcessById(processId);
+                return QueryFullProcessImageName(process.Handle);
+            }
+            catch (Exception ex)
+            {
+                // 进程可能已经退出，或权限不足
+                _logger?.LogDebug(ex, "无法获取进程 {ProcessId} 的真实路径", processId);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 使用 Win32 API QueryFullProcessImageName 获取进程的完整映像路径。
+        /// 这个方法比 ETW 的 ImageFileName 更可靠，能正确处理快捷方式启动的情况。
+        /// </summary>
+        /// <param name="processHandle">进程句柄</param>
+        /// <returns>完整的可执行文件路径，如果失败则返回 null</returns>
+        private static string? QueryFullProcessImageName(IntPtr processHandle)
+        {
+            const uint maxPath = 1024;
+            uint size = maxPath;
+            var sb = new StringBuilder((int)size);
+
+            if (NativeMethods.QueryFullProcessImageName(processHandle, 0, sb, ref size))
+            {
+                return sb.ToString();
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Win32 API 声明
+        /// </summary>
+        private static class NativeMethods
+        {
+            /// <summary>
+            /// 获取进程的完整映像文件名。
+            /// 参考：https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamea
+            /// </summary>
+            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool QueryFullProcessImageName(
+                IntPtr hProcess,
+                uint dwFlags,
+                StringBuilder lpExeName,
+                ref uint lpdwSize);
         }
 
         private static bool IsRunningAsAdministrator()

@@ -82,7 +82,7 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void GenerateSuggestedDataKey_WithProductName_ReturnsProductName()
+        public void GenerateSuggestedDataKey_WithProductName_ReturnsNormalizedProductName()
         {
             // Arrange
             var exePath = @"C:\Games\MyGame\game.exe";
@@ -92,7 +92,7 @@ namespace GameHelper.Tests
             var result = GameMetadataExtractor.GenerateSuggestedDataKey(exePath, productName);
 
             // Assert
-            Assert.Equal("My Awesome Game", result);
+            Assert.Equal("myawesomegame", result); // Normalized: lowercase, no spaces
         }
 
         [Fact]
