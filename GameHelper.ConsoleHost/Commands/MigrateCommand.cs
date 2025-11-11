@@ -7,9 +7,12 @@ using System.Text;
 using FuzzySharp;
 using GameHelper.ConsoleHost.Models;
 using GameHelper.ConsoleHost.Services;
+using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Providers;
 using Spectre.Console;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 
 namespace GameHelper.ConsoleHost.Commands
 {
@@ -166,25 +169,82 @@ namespace GameHelper.ConsoleHost.Commands
         }
 
         /// <summary>
+        /// Loads configuration directly from YAML file without DataKey validation.
+        /// This is needed for migration to read old format configs.
+        /// </summary>
+        private static IReadOnlyDictionary<string, GameConfig> LoadConfigDirectly(string configPath)
+        {
+            var deserializer = new DeserializerBuilder()
+                .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                .IgnoreUnmatchedProperties()
+                .Build();
+
+            var yaml = File.ReadAllText(configPath);
+            
+            // Try new AppConfig format first
+            try
+            {
+                var appConfig = deserializer.Deserialize<AppConfig?>(yaml);
+                if (appConfig?.Games != null)
+                {
+                    var result = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var game in appConfig.Games)
+                    {
+                        if (game != null)
+                        {
+                            // Use ExecutableName or Name as key (for old format compatibility)
+                            string key = game.ExecutableName ?? game.Name ?? game.DataKey ?? string.Empty;
+                            if (!string.IsNullOrWhiteSpace(key))
+                            {
+                                result[key] = game;
+                            }
+                        }
+                    }
+                    return result;
+                }
+            }
+            catch
+            {
+                // Fall through to legacy format
+            }
+
+            // Try legacy Root format
+            var root = deserializer.Deserialize<LegacyRoot?>(yaml);
+            if (root?.Games != null)
+            {
+                var result = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+                foreach (var game in root.Games)
+                {
+                    if (game != null)
+                    {
+                        string key = game.ExecutableName ?? game.Name ?? game.DataKey ?? string.Empty;
+                        if (!string.IsNullOrWhiteSpace(key))
+                        {
+                            result[key] = game;
+                        }
+                    }
+                }
+                return result;
+            }
+
+            return new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Legacy root format for backward compatibility.
+        /// </summary>
+        private sealed class LegacyRoot
+        {
+            public List<GameConfig>? Games { get; set; }
+        }
+
+        /// <summary>
         /// Generates a DataKey from an executable name.
+        /// Uses centralized DataKeyGenerator for consistency.
         /// </summary>
         private static string GenerateDataKey(string executableName)
         {
-            if (string.IsNullOrWhiteSpace(executableName))
-            {
-                return string.Empty;
-            }
-
-            // Extract filename without path
-            string fileName = Path.GetFileNameWithoutExtension(executableName);
-            
-            // Convert to lowercase
-            string dataKey = fileName.ToLowerInvariant();
-            
-            // Remove spaces
-            dataKey = dataKey.Replace(" ", "");
-            
-            return dataKey;
+            return DataKeyGenerator.GenerateBaseDataKey(executableName);
         }
 
         /// <summary>
@@ -202,9 +262,8 @@ namespace GameHelper.ConsoleHost.Commands
 
             try
             {
-                // Load existing configuration
-                var provider = new YamlConfigProvider(configPath);
-                var existingConfigs = provider.Load();
+                // Load existing configuration directly from YAML to bypass DataKey validation
+                var existingConfigs = LoadConfigDirectly(configPath);
 
                 // Detect format
                 var format = DetectConfigFormat(existingConfigs);
@@ -300,7 +359,8 @@ namespace GameHelper.ConsoleHost.Commands
                 File.Copy(configPath, backupPath);
                 AnsiConsole.MarkupLine($"[green]✓ 已备份配置文件: {Path.GetFileName(backupPath)}[/]");
 
-                // Save migrated configuration
+                // Save migrated configuration using YamlConfigProvider
+                var provider = new YamlConfigProvider(configPath);
                 provider.Save(migratedConfigs);
                 AnsiConsole.MarkupLine($"[green]✓ 成功迁移 {gamesToMigrate.Count} 个游戏配置[/]");
 

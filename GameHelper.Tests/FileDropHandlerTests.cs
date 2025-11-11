@@ -55,7 +55,9 @@ public sealed class FileDropHandlerTests
             var map = provider.Load();
 
             Assert.True(map.TryGetValue("NewAdventure.exe", out var config));
-            Assert.Equal("NewAdventure", config.Alias);
+            Assert.Equal("newadventure", config.DataKey); // DataKey is normalized: lowercase, no .exe
+            Assert.Equal("NewAdventure.exe", config.ExecutableName);
+            Assert.Equal("NewAdventure", config.DisplayName);
             Assert.True(config.IsEnabled);
             Assert.False(config.HDREnabled);
         }
@@ -78,7 +80,7 @@ public sealed class FileDropHandlerTests
         {
             ["LegacyClassic.exe"] = new GameConfig
             {
-                DataKey = "LegacyClassic.exe",
+                DataKey = "LegacyClassic", // Existing DataKey without .exe
                 ExecutableName = "LegacyClassic.exe",
                 DisplayName = "旧版经典",
                 IsEnabled = false,
@@ -102,9 +104,11 @@ public sealed class FileDropHandlerTests
             var map = provider.Load();
 
             Assert.True(map.TryGetValue("LegacyClassic.exe", out var config));
-            Assert.Equal("LegacyClassic", config.Alias);
-            Assert.True(config.IsEnabled);
-            Assert.False(config.HDREnabled);
+            Assert.Equal("LegacyClassic", config.DataKey); // DataKey should be preserved
+            Assert.Equal("LegacyClassic.exe", config.ExecutableName);
+            Assert.Equal("LegacyClassic", config.DisplayName);
+            Assert.True(config.IsEnabled); // Updated to enabled
+            Assert.False(config.HDREnabled); // HDR preserved
         }
         finally
         {
@@ -150,7 +154,9 @@ public sealed class FileDropHandlerTests
             var map = provider.Load();
 
             Assert.True(map.TryGetValue("SteamAdventure.exe", out var config));
-            Assert.Equal("SteamShortcut", config.Alias);
+            Assert.Equal("steamadventure", config.DataKey); // DataKey is normalized: lowercase, no .exe
+            Assert.Equal("SteamAdventure.exe", config.ExecutableName);
+            Assert.Equal("SteamShortcut", config.DisplayName); // DisplayName from .url filename
             Assert.True(config.IsEnabled);
             Assert.False(config.HDREnabled);
         }

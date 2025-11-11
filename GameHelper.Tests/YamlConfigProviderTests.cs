@@ -156,6 +156,47 @@ namespace GameHelper.Tests
             Assert.Contains("Failed to deserialize config file", exception.Message);
         }
 
+        [Fact]
+        public void Save_WithExecutablePath_FormatsYamlCorrectly()
+        {
+            var provider = new YamlConfigProvider(_configPath);
+            var input = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["RE.exe"] = new GameConfig
+                {
+                    DataKey = "RE.exe",
+                    ExecutablePath = @"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe",
+                    ExecutableName = "RE.exe",
+                    DisplayName = "极品采花郎",
+                    IsEnabled = true,
+                    HDREnabled = false
+                }
+            };
+
+            provider.Save(input);
+            Assert.True(File.Exists(_configPath));
+
+            var yamlContent = File.ReadAllText(_configPath);
+            
+            // Debug output
+            Console.WriteLine("=== YAML Content ===");
+            Console.WriteLine(yamlContent);
+            Console.WriteLine("=== End YAML ===");
+            
+            // Verify it contains newlines
+            Assert.Contains("\n", yamlContent);
+            
+            // Verify it can be loaded back
+            var output = provider.Load();
+            Assert.Single(output);
+            
+            var game = output["RE.exe"];
+            Assert.Equal("RE.exe", game.DataKey);
+            Assert.Equal(@"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe", game.ExecutablePath);
+            Assert.Equal("RE.exe", game.ExecutableName);
+            Assert.Equal("极品采花郎", game.DisplayName);
+        }
+
         public void Dispose()
         {
             try

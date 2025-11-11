@@ -34,7 +34,10 @@ namespace GameHelper.Core.Services
         private IReadOnlyDictionary<string, GameConfig> _configsByPath = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
         private NameConfigEntry[] _nameConfigs = Array.Empty<NameConfigEntry>();
 
-        private const int FuzzyThreshold = 80;
+        // 动态阈值常量
+        private const int ShortNameThreshold = 95;   // 2-4 字符
+        private const int MediumNameThreshold = 90;  // 5-8 字符
+        private const int LongNameThreshold = 80;    // 9+ 字符
 
         public GameAutomationService(
             IProcessMonitor monitor,
@@ -283,7 +286,18 @@ namespace GameHelper.Core.Services
         {
             label = "名称模糊匹配";
 
-            var searchText = TryGetProductName(normalizedPath ?? processInfo.ExecutablePath);
+            var exePath = normalizedPath ?? processInfo.ExecutablePath;
+
+            // 黑名单检查：拒绝系统路径
+            if (!string.IsNullOrWhiteSpace(exePath) && IsSystemPath(exePath))
+            {
+                _logger.LogDebug(
+                    "L2 匹配拒绝: 系统路径黑名单 - {ExePath}",
+                    exePath);
+                return null;
+            }
+
+            var searchText = TryGetProductName(exePath);
             var usedProductName = !string.IsNullOrWhiteSpace(searchText);
 
             if (!usedProductName)
@@ -301,31 +315,72 @@ namespace GameHelper.Core.Services
             GameConfig? bestMatch = null;
             string? matchedName = null;
             var bestScore = 0;
+            var requiredThreshold = 0;
 
             foreach (var entry in _nameConfigs)
             {
+                var config = entry.Config;
+                if (string.IsNullOrWhiteSpace(config.ExecutableName))
+                {
+                    continue;
+                }
+
+                // 计算动态阈值
+                var threshold = CalculateFuzzyThreshold(config.ExecutableName);
                 var score = Fuzz.Ratio(searchUpper, entry.ExecutableNameUpper);
-                if (score > FuzzyThreshold && score > bestScore)
+
+                _logger.LogDebug(
+                    "L2 模糊匹配尝试: {SearchName} vs {ExecutableName} - Score={Score}, Threshold={Threshold}, NameLength={Length}",
+                    searchText,
+                    config.ExecutableName,
+                    score,
+                    threshold,
+                    Path.GetFileNameWithoutExtension(config.ExecutableName).Length);
+
+                if (score >= threshold && score > bestScore)
                 {
                     bestScore = score;
-                    bestMatch = entry.Config;
+                    bestMatch = config;
                     matchedName = entry.ExecutableName;
+                    requiredThreshold = threshold;
                 }
             }
 
-            if (bestMatch is not null)
+            if (bestMatch is null)
             {
-                label = usedProductName
-                    ? $"ProductName 模糊匹配 (score {bestScore})"
-                    : $"ExecutableName 模糊匹配 (score {bestScore})";
-
-                _logger.LogInformation(
-                    "L2 模糊匹配成功: {Search} -> {ExecutableName} (score: {Score}, DataKey: {DataKey})",
-                    searchText,
-                    matchedName,
-                    bestScore,
-                    bestMatch.DataKey);
+                _logger.LogDebug("L2 模糊匹配失败: 无候选配置达到阈值");
+                return null;
             }
+
+            // 路径相关性验证
+            if (!string.IsNullOrWhiteSpace(exePath) && !IsPathRelated(exePath, bestMatch.ExecutablePath))
+            {
+                _logger.LogWarning(
+                    "L2 匹配拒绝: 路径不相关 - ProcessPath={ProcessPath}, ConfigPath={ConfigPath}, Score={Score}, Threshold={Threshold}",
+                    exePath,
+                    bestMatch.ExecutablePath ?? "(无)",
+                    bestScore,
+                    requiredThreshold);
+                return null;
+            }
+
+            // 匹配成功
+            var pathValidation = string.IsNullOrWhiteSpace(bestMatch.ExecutablePath) 
+                ? "旧配置模式（跳过路径验证）" 
+                : "路径验证通过";
+
+            label = usedProductName
+                ? $"ProductName 模糊匹配 (score {bestScore})"
+                : $"ExecutableName 模糊匹配 (score {bestScore})";
+
+            _logger.LogInformation(
+                "L2 模糊匹配成功: {SearchName} -> {ExecutableName} (score: {Score}, threshold: {Threshold}, DataKey: {DataKey}, {PathValidation})",
+                searchText,
+                matchedName,
+                bestScore,
+                requiredThreshold,
+                bestMatch.DataKey,
+                pathValidation);
 
             return bestMatch;
         }
@@ -515,6 +570,117 @@ namespace GameHelper.Core.Services
                 _logger.LogDebug(ex, "无法获取 ProductName: {Path}", executablePath);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// 检查进程路径是否在系统路径黑名单中。
+        /// 系统工具不应该被匹配为游戏。
+        /// </summary>
+        /// <param name="processPath">进程的完整路径</param>
+        /// <returns>如果是系统路径则返回 true</returns>
+        private bool IsSystemPath(string processPath)
+        {
+            if (string.IsNullOrWhiteSpace(processPath))
+            {
+                return false;
+            }
+
+            // 系统路径黑名单
+            var systemPaths = new[]
+            {
+                @"C:\Windows\System32\",
+                @"C:\Windows\SysWOW64\",
+                @"C:\Windows\"
+            };
+
+            try
+            {
+                var normalizedPath = Path.GetFullPath(processPath);
+                
+                foreach (var systemPath in systemPaths)
+                {
+                    if (normalizedPath.StartsWith(systemPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                // 路径处理异常时，保守地认为不是系统路径
+                _logger.LogDebug(ex, "系统路径检查失败: {ProcessPath}", processPath);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 验证进程路径是否与配置路径相关（在同一目录树下）。
+        /// </summary>
+        /// <param name="processPath">进程的完整路径</param>
+        /// <param name="configPath">配置的可执行文件路径（可为空）</param>
+        /// <returns>如果路径相关或 configPath 为空则返回 true</returns>
+        private bool IsPathRelated(string processPath, string? configPath)
+        {
+            // 旧配置兼容：如果没有配置路径，跳过验证
+            if (string.IsNullOrWhiteSpace(configPath))
+            {
+                return true;
+            }
+
+            try
+            {
+                // 规范化路径（处理相对路径、大小写）
+                var normalizedProcessPath = Path.GetFullPath(processPath);
+                var normalizedConfigPath = Path.GetFullPath(configPath);
+
+                // 获取目录路径
+                var processDir = Path.GetDirectoryName(normalizedProcessPath);
+                var configDir = Path.GetDirectoryName(normalizedConfigPath);
+
+                if (processDir is null || configDir is null)
+                {
+                    return false;
+                }
+
+                // 检查是否在同一目录或子目录
+                // 使用 StartsWith 检查目录前缀（不区分大小写）
+                return processDir.StartsWith(configDir, StringComparison.OrdinalIgnoreCase) ||
+                       configDir.StartsWith(processDir, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                // 路径处理异常时，保守地拒绝匹配
+                _logger.LogDebug(ex, "路径验证失败: ProcessPath={ProcessPath}, ConfigPath={ConfigPath}",
+                    processPath, configPath);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 根据可执行文件名长度计算模糊匹配阈值。
+        /// 短文件名需要更高的相似度以避免误匹配。
+        /// </summary>
+        /// <param name="executableName">可执行文件名（可含扩展名）</param>
+        /// <returns>推荐的模糊匹配阈值（80-95）</returns>
+        private static int CalculateFuzzyThreshold(string executableName)
+        {
+            if (string.IsNullOrWhiteSpace(executableName))
+            {
+                return ShortNameThreshold; // 最严格阈值
+            }
+
+            // 移除扩展名
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(executableName);
+            var length = nameWithoutExt.Length;
+
+            return length switch
+            {
+                <= 4 => ShortNameThreshold,   // 短名称：非常严格
+                <= 8 => MediumNameThreshold,  // 中等名称：较严格
+                _ => LongNameThreshold        // 长名称：标准阈值
+            };
         }
 
         private static string FormatDuration(TimeSpan duration)
