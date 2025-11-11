@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using GameHelper.ConsoleHost;
@@ -38,6 +39,21 @@ namespace GameHelper.Tests
         public void Stop() => StopCalls++;
     }
 
+    file sealed class FakeConfigProvider : IConfigProvider
+    {
+        private readonly Dictionary<string, GameConfig> _configs = new();
+
+        public IReadOnlyDictionary<string, GameConfig> Load() => _configs;
+        public void Save(IReadOnlyDictionary<string, GameConfig> configs)
+        {
+            _configs.Clear();
+            foreach (var kv in configs)
+            {
+                _configs[kv.Key] = kv.Value;
+            }
+        }
+    }
+
     public class WorkerTests
     {
         [Fact]
@@ -46,8 +62,9 @@ namespace GameHelper.Tests
             var monitor = new FakeMonitor();
             var hdr = new FakeHdr();
             var automation = new FakeAutomation();
+            var configProvider = new FakeConfigProvider();
             var logger = NullLogger<Worker>.Instance;
-            var worker = new Worker(logger, monitor, hdr, automation);
+            var worker = new Worker(logger, monitor, hdr, automation, configProvider);
 
             using var cts = new CancellationTokenSource();
 

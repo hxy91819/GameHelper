@@ -30,6 +30,37 @@ namespace GameHelper.Tests
         }
 
         [Fact]
+        public void LoadAppConfig_WhenFileMissing_DefaultsToETW()
+        {
+            var provider = new YamlConfigProvider(_configPath);
+            var config = provider.LoadAppConfig();
+            Assert.NotNull(config);
+            Assert.Equal(ProcessMonitorType.ETW, config.ProcessMonitorType);
+        }
+
+        [Fact]
+        public void LoadAppConfig_WhenProcessMonitorTypeNotSpecified_DefaultsToETW()
+        {
+            var yaml = "games:\n  - dataKey: test\n    executableName: test.exe\n";
+            File.WriteAllText(_configPath, yaml);
+            var provider = new YamlConfigProvider(_configPath);
+            var config = provider.LoadAppConfig();
+            Assert.NotNull(config);
+            Assert.Equal(ProcessMonitorType.ETW, config.ProcessMonitorType);
+        }
+
+        [Fact]
+        public void LoadAppConfig_WhenLegacyFormat_DefaultsToETW()
+        {
+            var yaml = "games:\n  - dataKey: test\n    executableName: test.exe\n";
+            File.WriteAllText(_configPath, yaml);
+            var provider = new YamlConfigProvider(_configPath);
+            var config = provider.LoadAppConfig();
+            Assert.NotNull(config);
+            Assert.Equal(ProcessMonitorType.ETW, config.ProcessMonitorType);
+        }
+
+        [Fact]
         public void Save_Then_Load_Roundtrip_PreservesEntries()
         {
             var provider = new YamlConfigProvider(_configPath);
@@ -92,6 +123,28 @@ namespace GameHelper.Tests
 
             var exception = Assert.Throws<InvalidDataException>(() => provider.Load());
             Assert.Contains("配置项缺少必填字段 DataKey", exception.Message);
+        }
+
+        [Fact]
+        public void LoadAppConfig_WhenExplicitlySetToWMI_UsesWMI()
+        {
+            var yaml = "processMonitorType: WMI\ngames:\n  - dataKey: test\n    executableName: test.exe\n";
+            File.WriteAllText(_configPath, yaml);
+            var provider = new YamlConfigProvider(_configPath);
+            var config = provider.LoadAppConfig();
+            Assert.NotNull(config);
+            Assert.Equal(ProcessMonitorType.WMI, config.ProcessMonitorType);
+        }
+
+        [Fact]
+        public void LoadAppConfig_WhenExplicitlySetToETW_UsesETW()
+        {
+            var yaml = "processMonitorType: ETW\ngames:\n  - dataKey: test\n    executableName: test.exe\n";
+            File.WriteAllText(_configPath, yaml);
+            var provider = new YamlConfigProvider(_configPath);
+            var config = provider.LoadAppConfig();
+            Assert.NotNull(config);
+            Assert.Equal(ProcessMonitorType.ETW, config.ProcessMonitorType);
         }
 
         [Fact]

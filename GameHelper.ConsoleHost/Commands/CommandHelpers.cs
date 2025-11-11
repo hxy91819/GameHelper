@@ -14,6 +14,7 @@ namespace GameHelper.ConsoleHost.Commands
             Console.WriteLine("  config add <exe> [--config <path>] [--debug]");
             Console.WriteLine("  config remove <exe> [--config <path>] [--debug]");
             Console.WriteLine("  stats [--game <name>] [--config <path>] [--debug]");
+            Console.WriteLine("  migrate [--config <path>] [--csv <path>] [--dry-run] [--force]");
             Console.WriteLine("  convert-config");
             Console.WriteLine("  validate-config");
             Console.WriteLine();
@@ -24,6 +25,12 @@ namespace GameHelper.ConsoleHost.Commands
             Console.WriteLine("  --monitor-dry-run  Dry-run monitor flow without starting background services");
             Console.WriteLine("  --debug, -v        Enable verbose debug logging");
             Console.WriteLine("  --interactive      强制进入互动模式（等价于 interactive 命令）");
+            Console.WriteLine();
+            Console.WriteLine("Migrate command options:");
+            Console.WriteLine("  --config <path>    配置文件路径（默认: %AppData%\\GameHelper\\config.yml）");
+            Console.WriteLine("  --csv <path>       CSV 文件路径（默认: %AppData%\\GameHelper\\playtime.csv）");
+            Console.WriteLine("  --dry-run          预览模式，不修改文件");
+            Console.WriteLine("  --force            跳过确认提示");
         }
 
         public static void PrintBuildInfo(bool debug)

@@ -99,7 +99,11 @@ namespace GameHelper.Infrastructure.Providers
 
                 if (!File.Exists(_configFilePath))
                 {
-                    return new AppConfig { Games = new List<GameConfig>() };
+                    return new AppConfig 
+                    { 
+                        Games = new List<GameConfig>(),
+                        ProcessMonitorType = ProcessMonitorType.ETW // Default to ETW
+                    };
                 }
 
                 var yaml = File.ReadAllText(_configFilePath);
@@ -110,6 +114,8 @@ namespace GameHelper.Infrastructure.Providers
                     var appConfig = Deserializer.Deserialize<AppConfig?>(yaml);
                     if (appConfig != null)
                     {
+                        // If ProcessMonitorType is not specified, default to ETW
+                        appConfig.ProcessMonitorType ??= ProcessMonitorType.ETW;
                         return appConfig;
                     }
                 }
@@ -123,7 +129,7 @@ namespace GameHelper.Infrastructure.Providers
                 return new AppConfig
                 {
                     Games = root?.Games ?? new List<GameConfig>(),
-                    ProcessMonitorType = null // Default to WMI for legacy configs
+                    ProcessMonitorType = ProcessMonitorType.ETW // Default to ETW for all configs
                 };
             }
             catch (YamlException ex)
