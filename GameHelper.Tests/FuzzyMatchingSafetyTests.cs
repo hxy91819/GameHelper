@@ -258,6 +258,34 @@ namespace GameHelper.Tests
         }
 
         [Fact]
+        public void PathRelated_ParentDirectory_Rejects()
+        {
+            // Arrange
+            var config = new GameConfig
+            {
+                DataKey = "Game.exe",
+                ExecutableName = "Game.exe",
+                ExecutablePath = @"D:\\Games\\MyGame\\Game.exe",
+                IsEnabled = true
+            };
+
+            var service = CreateService(config);
+            var monitor = (FakeMonitor)typeof(GameAutomationService)
+                .GetField("_monitor", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                .GetValue(service)!;
+
+            var playTime = (FakePlayTime)typeof(GameAutomationService)
+                .GetField("_playTime", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                .GetValue(service)!;
+
+            // Act: 进程位于配置目录的父目录
+            monitor.RaiseStart(new ProcessEventInfo("Game.exe", @"D:\\Games\\Game.exe"));
+
+            // Assert
+            Assert.DoesNotContain(playTime.Started, s => string.Equals(s, "Game.exe", StringComparison.OrdinalIgnoreCase));
+        }
+
+        [Fact]
         public void PathRelated_DifferentDirectory_Rejects()
         {
             // Arrange
