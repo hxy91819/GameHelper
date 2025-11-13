@@ -366,7 +366,7 @@ FodyWeavers.xsd
 .codebuddy/*
 .gemini/*
 .github/*
-.windsurf/*
+# .windsurf/*
 .vscode/*
 .bmad-core/*
 # BMAD (local only)

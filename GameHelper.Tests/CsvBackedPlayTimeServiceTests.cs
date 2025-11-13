@@ -237,6 +237,81 @@ namespace GameHelper.Tests
             Assert.False(File.Exists(_csvFile)); // No file should be created
         }
 
+        // Story 1.4: Tests for DataKey usage
+        [Fact]
+        public void StopTracking_ShouldWriteDataKeyToCsv()
+        {
+            // Given: 使用 DataKey "elden_ring" 开始跟踪
+            var svc = new CsvBackedPlayTimeService(_dir);
+            var dataKey = "elden_ring";
+            
+            svc.StartTracking(dataKey);
+            
+            // When: 停止跟踪
+            var session = svc.StopTracking(dataKey);
+            
+            // Then: 
+            // - Session 应该返回并包含正确的 DataKey
+            Assert.NotNull(session);
+            Assert.Equal(dataKey, session!.GameName);
+            
+            // - CSV 文件应包含 "elden_ring" 作为 game 列的值
+            Assert.True(File.Exists(_csvFile));
+            var csvContent = File.ReadAllText(_csvFile);
+            Assert.Contains("elden_ring", csvContent);
+            
+            var lines = File.ReadAllLines(_csvFile);
+            Assert.True(lines.Length >= 2);
+            Assert.StartsWith("elden_ring,", lines[1]);
+        }
+
+        [Fact]
+        public void StopTracking_ShouldEscapeSpecialCharactersInDataKey()
+        {
+            // Given: DataKey 包含逗号和引号
+            var dataKey = "Game, The: \"Special Edition\"";
+            var svc = new CsvBackedPlayTimeService(_dir);
+            
+            svc.StartTracking(dataKey);
+            
+            // When: 停止跟踪
+            var session = svc.StopTracking(dataKey);
+            
+            // Then: CSV 应正确转义逗号和引号
+            Assert.NotNull(session);
+            
+            var lines = File.ReadAllLines(_csvFile);
+            var sessionLine = lines[1];
+            
+            // Should be wrapped in quotes and internal quotes doubled
+            Assert.StartsWith("\"Game, The: \"\"Special Edition\"\"\",", sessionLine);
+        }
+
+        [Fact]
+        public void MultipleGamesWithDataKeys_ShouldWriteCorrectly()
+        {
+            // Given: 多个游戏使用 DataKey 格式
+            var svc = new CsvBackedPlayTimeService(_dir);
+            
+            // When: 记录多个游戏会话
+            svc.StartTracking("elden_ring");
+            svc.StopTracking("elden_ring");
+            
+            svc.StartTracking("dark_souls_3");
+            svc.StopTracking("dark_souls_3");
+            
+            svc.StartTracking("elden_ring");
+            svc.StopTracking("elden_ring");
+            
+            // Then: CSV 应包含正确的 DataKey 记录
+            var lines = File.ReadAllLines(_csvFile);
+            var sessionLines = lines.Skip(1).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
+            
+            Assert.Equal(3, sessionLines.Length);
+            Assert.Equal(2, sessionLines.Count(l => l.StartsWith("elden_ring,")));
+            Assert.Equal(1, sessionLines.Count(l => l.StartsWith("dark_souls_3,")));
+        }
+
         public void Dispose()
         {
             try

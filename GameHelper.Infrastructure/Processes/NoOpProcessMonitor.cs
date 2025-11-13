@@ -1,12 +1,13 @@
 using System;
 using GameHelper.Core.Abstractions;
+using GameHelper.Core.Models;
 
 namespace GameHelper.Infrastructure.Processes
 {
     public class NoOpProcessMonitor : IProcessMonitor
     {
-        public event Action<string>? ProcessStarted;
-        public event Action<string>? ProcessStopped;
+        public event Action<ProcessEventInfo>? ProcessStarted;
+        public event Action<ProcessEventInfo>? ProcessStopped;
 
         public void Start()
         {
@@ -24,7 +25,7 @@ namespace GameHelper.Infrastructure.Processes
         }
 
         // Helpers to simulate events in future tests if needed
-        public void SimulateStart(string processName) => ProcessStarted?.Invoke(processName);
-        public void SimulateStop(string processName) => ProcessStopped?.Invoke(processName);
+        public void SimulateStart(ProcessEventInfo processInfo) => ProcessStarted?.Invoke(processInfo);
+        public void SimulateStop(ProcessEventInfo processInfo) => ProcessStopped?.Invoke(processInfo);
     }
 }

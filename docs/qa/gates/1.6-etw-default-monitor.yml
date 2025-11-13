@@ -1,0 +1,43 @@
+# Quality Gate: Story 1.6 - ETW 设为默认进程监听方式
+schema: 1
+story: "1.6"
+story_title: "将 ETW 设为默认进程监听方式"
+gate: PASS
+status_reason: "所有验收标准已满足，代码质量优秀，测试覆盖全面，文档完整更新。"
+reviewer: "Quinn (Test Architect)"
+updated: "2025-11-11T12:00:00Z"
+
+top_issues: []
+
+waiver: { active: false }
+
+quality_score: 100
+
+evidence:
+  tests_reviewed: 10
+  risks_identified: 2
+  trace:
+    ac_covered: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+    ac_gaps: []
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: "无安全问题。默认值更改不影响安全性，管理员权限要求已在文档中清晰说明。"
+  performance:
+    status: PASS
+    notes: "性能提升显著。ETW 作为默认值提供更低延迟（< 1秒 vs 1-3秒）和更低资源占用。"
+  reliability:
+    status: PASS
+    notes: "可靠性优秀。自动降级机制确保 ETW 失败时自动切换到 WMI，保证服务可用性。"
+  maintainability:
+    status: PASS
+    notes: "可维护性优秀。代码清晰，测试覆盖全面（10个新测试），文档详尽。"
+
+recommendations:
+  immediate: []
+  future:
+    - action: "考虑在启动日志中更清晰地显示当前使用的监听方式和降级情况"
+      refs: ["GameHelper.ConsoleHost/Program.cs"]
+    - action: "考虑添加配置验证，在配置文件中检测无效的 processMonitorType 值"
+      refs: ["GameHelper.Infrastructure/Providers/YamlConfigProvider.cs"]
