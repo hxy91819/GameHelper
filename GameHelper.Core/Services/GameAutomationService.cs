@@ -542,6 +542,23 @@ namespace GameHelper.Core.Services
                 return null;
             }
 
+            if (TryResolveWindowsPath(executablePath, out var windowsPath, out _))
+            {
+                if (windowsPath.Length > 3 &&
+                    windowsPath[1] == ':' &&
+                    windowsPath.EndsWith("\\", StringComparison.Ordinal))
+                {
+                    windowsPath = windowsPath.TrimEnd('\\');
+                }
+                else if (windowsPath.StartsWith("\\\\", StringComparison.Ordinal) &&
+                         windowsPath.EndsWith("\\", StringComparison.Ordinal))
+                {
+                    windowsPath = windowsPath.TrimEnd('\\');
+                }
+
+                return windowsPath;
+            }
+
             try
             {
                 return Path.GetFullPath(executablePath)
@@ -595,8 +612,22 @@ namespace GameHelper.Core.Services
 
             try
             {
+                if (TryResolveWindowsPath(processPath, out var windowsPath, out var processDir))
+                {
+                    foreach (var systemPath in systemPaths)
+                    {
+                        if (processDir.StartsWith(systemPath, StringComparison.OrdinalIgnoreCase) ||
+                            windowsPath.StartsWith(systemPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+
                 var normalizedPath = Path.GetFullPath(processPath);
-                
+
                 foreach (var systemPath in systemPaths)
                 {
                     if (normalizedPath.StartsWith(systemPath, StringComparison.OrdinalIgnoreCase))
@@ -631,6 +662,21 @@ namespace GameHelper.Core.Services
 
             try
             {
+                var processHasWindowsRoot = TryResolveWindowsPath(processPath, out _, out var processWindowsDir);
+                var configHasWindowsRoot = TryResolveWindowsPath(configPath, out _, out var configWindowsDir);
+
+                if (processHasWindowsRoot || configHasWindowsRoot)
+                {
+                    if (!processHasWindowsRoot || !configHasWindowsRoot)
+                    {
+                        return false;
+                    }
+
+                    processWindowsDir = EnsureTrailingSeparator(processWindowsDir, preferBackslash: true);
+                    configWindowsDir = EnsureTrailingSeparator(configWindowsDir, preferBackslash: true);
+                    return processWindowsDir.StartsWith(configWindowsDir, StringComparison.OrdinalIgnoreCase);
+                }
+
                 // 规范化路径（处理相对路径、大小写）
                 var normalizedProcessPath = Path.GetFullPath(processPath);
                 var normalizedConfigPath = Path.GetFullPath(configPath);
@@ -639,7 +685,7 @@ namespace GameHelper.Core.Services
                 var processDir = Path.GetDirectoryName(normalizedProcessPath);
                 var configDir = Path.GetDirectoryName(normalizedConfigPath);
 
-                if (processDir is null || configDir is null)
+                if (string.IsNullOrEmpty(processDir) || string.IsNullOrEmpty(configDir))
                 {
                     return false;
                 }
@@ -659,7 +705,172 @@ namespace GameHelper.Core.Services
             }
         }
 
-        private static string EnsureTrailingSeparator(string path)
+        private static bool TryResolveWindowsPath(string path, out string normalizedPath, out string directory)
+        {
+            normalizedPath = string.Empty;
+            directory = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+
+            var trimmed = path.Trim();
+
+            if (IsWindowsDrivePath(trimmed))
+            {
+                return TryResolveDrivePath(trimmed, out normalizedPath, out directory);
+            }
+
+            if (IsWindowsUncPath(trimmed))
+            {
+                return TryResolveUncPath(trimmed, out normalizedPath, out directory);
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveDrivePath(string path, out string normalizedPath, out string directory)
+        {
+            normalizedPath = string.Empty;
+            directory = string.Empty;
+
+            var segments = path.Substring(2)
+                .Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+
+            var resolved = new List<string>();
+            foreach (var segment in segments)
+            {
+                if (segment == ".")
+                {
+                    continue;
+                }
+
+                if (segment == "..")
+                {
+                    if (resolved.Count == 0)
+                    {
+                        return false;
+                    }
+
+                    resolved.RemoveAt(resolved.Count - 1);
+                    continue;
+                }
+
+                resolved.Add(segment);
+            }
+
+            var hasTrailingSeparator = path.EndsWith("\\", StringComparison.Ordinal) ||
+                                       path.EndsWith("/", StringComparison.Ordinal);
+
+            var drive = char.ToUpperInvariant(path[0]);
+            normalizedPath = $"{drive}:\\";
+
+            if (resolved.Count > 0)
+            {
+                normalizedPath += string.Join("\\", resolved);
+
+                if (hasTrailingSeparator)
+                {
+                    normalizedPath += "\\";
+                }
+            }
+
+            var directorySegments = new List<string>(resolved);
+            if (!hasTrailingSeparator && directorySegments.Count > 0)
+            {
+                directorySegments.RemoveAt(directorySegments.Count - 1);
+            }
+
+            directory = $"{drive}:\\";
+            if (directorySegments.Count > 0)
+            {
+                directory += string.Join("\\", directorySegments) + "\\";
+            }
+
+            return true;
+        }
+
+        private static bool TryResolveUncPath(string path, out string normalizedPath, out string directory)
+        {
+            normalizedPath = string.Empty;
+            directory = string.Empty;
+
+            var segments = path.Substring(2)
+                .Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (segments.Length < 2)
+            {
+                return false;
+            }
+
+            var resolved = new List<string>
+            {
+                segments[0],
+                segments[1]
+            };
+
+            for (var i = 2; i < segments.Length; i++)
+            {
+                var segment = segments[i];
+
+                if (segment == ".")
+                {
+                    continue;
+                }
+
+                if (segment == "..")
+                {
+                    if (resolved.Count > 2)
+                    {
+                        resolved.RemoveAt(resolved.Count - 1);
+                    }
+
+                    continue;
+                }
+
+                resolved.Add(segment);
+            }
+
+            var hasTrailingSeparator = path.EndsWith("\\", StringComparison.Ordinal) ||
+                                       path.EndsWith("/", StringComparison.Ordinal);
+
+            normalizedPath = "\\\\" + string.Join("\\", resolved);
+            if (hasTrailingSeparator)
+            {
+                normalizedPath += "\\";
+            }
+
+            var directorySegments = resolved;
+            if (!hasTrailingSeparator && resolved.Count > 2)
+            {
+                directorySegments = resolved.Take(resolved.Count - 1).ToList();
+            }
+
+            directory = "\\\\" + string.Join("\\", directorySegments);
+            if (!directory.EndsWith("\\", StringComparison.Ordinal))
+            {
+                directory += "\\";
+            }
+
+            return true;
+        }
+
+        private static bool IsWindowsDrivePath(string path)
+        {
+            return path.Length >= 3 &&
+                   char.IsLetter(path[0]) &&
+                   path[1] == ':' &&
+                   (path[2] == '\\' || path[2] == '/');
+        }
+
+        private static bool IsWindowsUncPath(string path)
+        {
+            return path.StartsWith("\\\\", StringComparison.Ordinal) ||
+                   path.StartsWith("//", StringComparison.Ordinal);
+        }
+
+        private static string EnsureTrailingSeparator(string path, bool preferBackslash = false)
         {
             if (string.IsNullOrEmpty(path))
             {
@@ -667,12 +878,17 @@ namespace GameHelper.Core.Services
             }
 
             if (path.EndsWith(Path.DirectorySeparatorChar) ||
-                path.EndsWith(Path.AltDirectorySeparatorChar))
+                path.EndsWith(Path.AltDirectorySeparatorChar) ||
+                path.EndsWith("\\", StringComparison.Ordinal))
             {
                 return path;
             }
 
-            return path + Path.DirectorySeparatorChar;
+            var separator = preferBackslash || path.Contains("\\", StringComparison.Ordinal)
+                ? '\\'
+                : Path.DirectorySeparatorChar;
+
+            return path + separator;
         }
 
         /// <summary>
