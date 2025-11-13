@@ -644,10 +644,11 @@ namespace GameHelper.Core.Services
                     return false;
                 }
 
-                // 检查是否在同一目录或子目录
-                // 使用 StartsWith 检查目录前缀（不区分大小写）
-                return processDir.StartsWith(configDir, StringComparison.OrdinalIgnoreCase) ||
-                       configDir.StartsWith(processDir, StringComparison.OrdinalIgnoreCase);
+                // 仅当进程路径位于配置目录或其子目录时才视为相关
+                processDir = EnsureTrailingSeparator(processDir);
+                configDir = EnsureTrailingSeparator(configDir);
+
+                return processDir.StartsWith(configDir, StringComparison.OrdinalIgnoreCase);
             }
             catch (Exception ex)
             {
@@ -656,6 +657,22 @@ namespace GameHelper.Core.Services
                     processPath, configPath);
                 return false;
             }
+        }
+
+        private static string EnsureTrailingSeparator(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return path;
+            }
+
+            if (path.EndsWith(Path.DirectorySeparatorChar) ||
+                path.EndsWith(Path.AltDirectorySeparatorChar))
+            {
+                return path;
+            }
+
+            return path + Path.DirectorySeparatorChar;
         }
 
         /// <summary>
