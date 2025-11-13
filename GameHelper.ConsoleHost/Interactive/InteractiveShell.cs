@@ -165,7 +165,14 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private void RenderWelcome()
         {
-            _console.Clear();
+            try
+            {
+                _console.Clear();
+            }
+            catch (IOException)
+            {
+                // Ignore clear failures in test environments or redirected output
+            }
 
             var title = new FigletText("GameHelper")
             {
@@ -601,17 +608,27 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             var table = new Table { Border = TableBorder.Rounded };
+            table.AddColumn("DataKey");
             table.AddColumn("可执行文件");
             table.AddColumn("显示名称");
+            table.AddColumn("路径");
             table.AddColumn("自动化");
             table.AddColumn("HDR");
 
-            foreach (var entry in configs.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
+            foreach (var entry in configs.OrderBy(e => e.Value.DataKey, StringComparer.OrdinalIgnoreCase))
             {
                 var cfg = entry.Value;
+                var pathDisplay = string.IsNullOrWhiteSpace(cfg.ExecutablePath) 
+                    ? "-" 
+                    : (cfg.ExecutablePath.Length > 30 
+                        ? "..." + cfg.ExecutablePath.Substring(cfg.ExecutablePath.Length - 27) 
+                        : cfg.ExecutablePath);
+                
                 table.AddRow(
-                    Markup.Escape(entry.Key),
-                    string.IsNullOrWhiteSpace(cfg.Alias) ? "-" : Markup.Escape(cfg.Alias!),
+                    Markup.Escape(cfg.DataKey),
+                    Markup.Escape(cfg.ExecutableName ?? entry.Key),
+                    string.IsNullOrWhiteSpace(cfg.DisplayName) ? "-" : Markup.Escape(cfg.DisplayName!),
+                    Markup.Escape(pathDisplay),
                     cfg.IsEnabled ? "[green]启用[/]" : "[red]禁用[/]",
                     cfg.HDREnabled ? "[green]开启[/]" : "[yellow]保持关闭[/]");
             }
@@ -825,21 +842,108 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             var configs = LoadConfigs();
 
-            var exe = Prompt(new TextPrompt<string>("请输入游戏的可执行文件名 (例如 [green]game.exe[/])")
-                .Validate(name => string.IsNullOrWhiteSpace(name)
-                    ? ConsoleValidationResult.Error("文件名不能为空。")
-                    : ConsoleValidationResult.Success()));
+            // Prompt for input - can be file path or executable name
+            var inputPrompt = new TextPrompt<string>(
+                "请输入游戏的可执行文件名或拖放 EXE/LNK 文件\n" +
+                "(例如 [green]game.exe[/] 或完整路径 [green]C:\\Games\\game.exe[/])")
+                .Validate(input => string.IsNullOrWhiteSpace(input)
+                    ? ConsoleValidationResult.Error("输入不能为空。")
+                    : ConsoleValidationResult.Success());
 
-            configs.TryGetValue(exe, out var existingConfig);
+            var input = Prompt(inputPrompt);
+            input = input.Trim().Trim('"'); // Remove quotes if dragged
 
-            var defaultAlias = existingConfig != null && !string.IsNullOrWhiteSpace(existingConfig.Alias)
-                ? existingConfig.Alias!
-                : string.Empty;
-            var aliasPrompt = new TextPrompt<string>("输入显示名称（可选，直接回车跳过）")
+            string? exePath = null;
+            string executableName;
+            string? productName = null;
+            string? suggestedDataKey;
+
+            // Check if input is a file path
+            if (File.Exists(input))
+            {
+                var ext = Path.GetExtension(input).ToLowerInvariant();
+                
+                if (ext == ".lnk")
+                {
+                    // Resolve shortcut
+                    exePath = ExecutableResolver.TryResolveFromInput(input);
+                    if (string.IsNullOrWhiteSpace(exePath))
+                    {
+                        _console.MarkupLine("[red]无法解析快捷方式目标。[/]");
+                        return;
+                    }
+                    _console.MarkupLine($"[grey]已解析快捷方式目标：{Markup.Escape(exePath)}[/]");
+                }
+                else if (ext == ".exe")
+                {
+                    exePath = input;
+                }
+                else
+                {
+                    _console.MarkupLine("[yellow]不支持的文件类型。请提供 .exe 或 .lnk 文件。[/]");
+                    return;
+                }
+
+                // Extract metadata
+                (productName, _) = GameMetadataExtractor.ExtractMetadata(exePath);
+                executableName = Path.GetFileName(exePath);
+                suggestedDataKey = DataKeyGenerator.GenerateUniqueDataKey(exePath, productName, _configProvider);
+
+                // Display extracted information
+                _console.MarkupLine("[green]检测到游戏文件：[/]");
+                _console.MarkupLine($"  路径: {Markup.Escape(exePath)}");
+                _console.MarkupLine($"  可执行文件名: {Markup.Escape(executableName)}");
+                if (!string.IsNullOrWhiteSpace(productName))
+                {
+                    _console.MarkupLine($"  产品名称: {Markup.Escape(productName)}");
+                }
+                _console.WriteLine();
+            }
+            else
+            {
+                // Treat as executable name only
+                executableName = input;
+                suggestedDataKey = DataKeyGenerator.GenerateBaseDataKey(input);
+            }
+
+            // Check for existing config
+            configs.TryGetValue(executableName, out var existingConfig);
+
+            // Prompt for DataKey
+            var dataKeyPrompt = new TextPrompt<string>(
+                $"请输入 DataKey（用于数据关联的唯一标识符）\n" +
+                $"建议值: [green]{Markup.Escape(suggestedDataKey)}[/]")
                 .AllowEmpty()
-                .DefaultValue(defaultAlias);
-            var alias = Prompt(aliasPrompt);
+                .DefaultValue(suggestedDataKey)
+                .Validate(key =>
+                {
+                    if (string.IsNullOrWhiteSpace(key))
+                    {
+                        return ConsoleValidationResult.Error("DataKey 不能为空。");
+                    }
+                    // Check uniqueness (excluding current executable if updating)
+                    if (configs.Values.Any(c => 
+                        string.Equals(c.DataKey, key, StringComparison.OrdinalIgnoreCase) && 
+                        !string.Equals(c.ExecutableName, executableName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return ConsoleValidationResult.Error($"DataKey '{key}' 已被其他游戏使用。");
+                    }
+                    return ConsoleValidationResult.Success();
+                });
 
+            var dataKey = Prompt(dataKeyPrompt);
+
+            // Prompt for DisplayName
+            var defaultDisplayName = existingConfig != null && !string.IsNullOrWhiteSpace(existingConfig.DisplayName)
+                ? existingConfig.DisplayName!
+                : productName ?? string.Empty;
+            
+            var displayNamePrompt = new TextPrompt<string>("输入显示名称（可选，直接回车跳过）")
+                .AllowEmpty()
+                .DefaultValue(defaultDisplayName);
+            var displayName = Prompt(displayNamePrompt);
+
+            // Prompt for automation enable
             var enableTitle = "是否启用自动化？";
             var enableChoices = existingConfig?.IsEnabled == false
                 ? new[] { "禁用", "启用" }
@@ -849,6 +953,7 @@ namespace GameHelper.ConsoleHost.Interactive
             enablePrompt.AddChoices(enableChoices);
             var enable = PromptSelection(enablePrompt, enableChoices, value => Markup.Escape(value), enableTitle);
 
+            // Prompt for HDR
             var hdrTitle = "在游戏运行时如何控制 HDR？";
             var defaultHdrEnabled = existingConfig?.HDREnabled ?? false;
             var hdrChoices = defaultHdrEnabled
@@ -859,16 +964,19 @@ namespace GameHelper.ConsoleHost.Interactive
             hdrPrompt.AddChoices(hdrChoices);
             var hdr = PromptSelection(hdrPrompt, hdrChoices, value => Markup.Escape(value), hdrTitle);
 
-            configs[exe] = new GameConfig
+            // Create or update config
+            configs[executableName] = new GameConfig
             {
-                Name = exe,
-                Alias = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim(),
+                DataKey = dataKey,
+                ExecutablePath = exePath, // Will be null if only name was provided
+                ExecutableName = executableName,
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim(),
                 IsEnabled = string.Equals(enable, "启用", StringComparison.Ordinal),
                 HDREnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal)
             };
 
             await PersistAsync(configs).ConfigureAwait(false);
-            _console.MarkupLine($"[green]已保存[/]：{Markup.Escape(exe)}");
+            _console.MarkupLine($"[green]已保存[/]：{Markup.Escape(executableName)} (DataKey: {Markup.Escape(dataKey)})");
         }
 
         private async Task EditGameAsync()
@@ -898,11 +1006,76 @@ namespace GameHelper.ConsoleHost.Interactive
                 return;
             }
 
-            var aliasPrompt = new TextPrompt<string>("更新显示名称（可留空）")
-                .AllowEmpty()
-                .DefaultValue(cfg.Alias ?? string.Empty);
-            var alias = Prompt(aliasPrompt);
+            // Display current configuration
+            _console.MarkupLine("[yellow]当前配置：[/]");
+            _console.MarkupLine($"  DataKey: {Markup.Escape(cfg.DataKey)}");
+            _console.MarkupLine($"  可执行文件名: {Markup.Escape(cfg.ExecutableName ?? exe)}");
+            if (!string.IsNullOrWhiteSpace(cfg.ExecutablePath))
+            {
+                _console.MarkupLine($"  完整路径: {Markup.Escape(cfg.ExecutablePath)}");
+            }
+            if (!string.IsNullOrWhiteSpace(cfg.DisplayName))
+            {
+                _console.MarkupLine($"  显示名称: {Markup.Escape(cfg.DisplayName)}");
+            }
+            _console.WriteLine();
 
+            // Prompt for ExecutablePath update
+            var pathPrompt = new TextPrompt<string>(
+                "更新可执行文件路径（可选，直接回车保持不变）\n" +
+                "可以拖放 EXE 或 LNK 文件")
+                .AllowEmpty()
+                .DefaultValue(cfg.ExecutablePath ?? string.Empty);
+            var pathInput = Prompt(pathPrompt);
+            pathInput = pathInput.Trim().Trim('"');
+
+            string? newExecutablePath = cfg.ExecutablePath;
+            if (!string.IsNullOrWhiteSpace(pathInput) && pathInput != cfg.ExecutablePath)
+            {
+                if (File.Exists(pathInput))
+                {
+                    var ext = Path.GetExtension(pathInput).ToLowerInvariant();
+                    if (ext == ".lnk")
+                    {
+                        newExecutablePath = ExecutableResolver.TryResolveFromInput(pathInput);
+                        if (string.IsNullOrWhiteSpace(newExecutablePath))
+                        {
+                            _console.MarkupLine("[red]无法解析快捷方式目标，保持原路径不变。[/]");
+                            newExecutablePath = cfg.ExecutablePath;
+                        }
+                        else
+                        {
+                            _console.MarkupLine($"[grey]已解析快捷方式目标：{Markup.Escape(newExecutablePath)}[/]");
+                        }
+                    }
+                    else if (ext == ".exe")
+                    {
+                        newExecutablePath = pathInput;
+                    }
+                    else
+                    {
+                        _console.MarkupLine("[yellow]不支持的文件类型，保持原路径不变。[/]");
+                    }
+                }
+                else if (string.Equals(pathInput, "clear", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(pathInput, "remove", StringComparison.OrdinalIgnoreCase))
+                {
+                    newExecutablePath = null;
+                    _console.MarkupLine("[grey]已清除可执行文件路径。[/]");
+                }
+                else
+                {
+                    _console.MarkupLine("[yellow]文件不存在，保持原路径不变。输入 'clear' 可清除路径。[/]");
+                }
+            }
+
+            // Prompt for DisplayName update
+            var displayNamePrompt = new TextPrompt<string>("更新显示名称（可留空）")
+                .AllowEmpty()
+                .DefaultValue(cfg.DisplayName ?? string.Empty);
+            var displayName = Prompt(displayNamePrompt);
+
+            // Prompt for automation enable
             var enableTitle = "是否启用自动化？";
             var enableChoices = cfg.IsEnabled
                 ? new[] { "启用", "禁用" }
@@ -912,6 +1085,7 @@ namespace GameHelper.ConsoleHost.Interactive
             enablePrompt.AddChoices(enableChoices);
             var enable = PromptSelection(enablePrompt, enableChoices, value => Markup.Escape(value), enableTitle);
 
+            // Prompt for HDR
             var hdrTitle = "在游戏运行时如何控制 HDR？";
             var hdrChoices = cfg.HDREnabled
                 ? new[] { "自动开启 HDR", "保持关闭" }
@@ -921,13 +1095,28 @@ namespace GameHelper.ConsoleHost.Interactive
             hdrPrompt.AddChoices(hdrChoices);
             var hdr = PromptSelection(hdrPrompt, hdrChoices, value => Markup.Escape(value), hdrTitle);
 
-            cfg.Alias = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
+            // Update configuration
+            cfg.ExecutablePath = newExecutablePath;
+            cfg.DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim();
             cfg.IsEnabled = string.Equals(enable, "启用", StringComparison.Ordinal);
             cfg.HDREnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal);
 
             configs[exe] = cfg;
             await PersistAsync(configs).ConfigureAwait(false);
             _console.MarkupLine("[green]配置已更新。[/]");
+            
+            // Display updated configuration
+            _console.WriteLine();
+            _console.MarkupLine("[yellow]更新后的配置：[/]");
+            _console.MarkupLine($"  DataKey: {Markup.Escape(cfg.DataKey)}");
+            if (!string.IsNullOrWhiteSpace(cfg.ExecutablePath))
+            {
+                _console.MarkupLine($"  完整路径: {Markup.Escape(cfg.ExecutablePath)}");
+            }
+            if (!string.IsNullOrWhiteSpace(cfg.DisplayName))
+            {
+                _console.MarkupLine($"  显示名称: {Markup.Escape(cfg.DisplayName)}");
+            }
         }
 
         private async Task RemoveGameAsync()

@@ -47,7 +47,10 @@ namespace GameHelper.Tests
             ConfigCommand.Run(_serviceProvider, new[] { "add", gameName });
 
             Assert.Contains(gameName, _configData.Keys);
-            Assert.False(_configData[gameName].HDREnabled);
+            var cfg = _configData[gameName];
+            Assert.Equal(gameName, cfg.DataKey);
+            Assert.Equal(gameName, cfg.ExecutableName);
+            Assert.False(cfg.HDREnabled);
             Assert.Equal($"Added {gameName}.", _consoleOutput.ToString().Trim());
             _mockConfigProvider.Verify(p => p.Save(It.IsAny<IReadOnlyDictionary<string, GameConfig>>()), Times.Once);
         }
@@ -69,7 +72,7 @@ namespace GameHelper.Tests
         public void Remove_ExistingGame_SavesToConfig()
         {
             var gameName = "test.exe";
-            _configData[gameName] = new GameConfig { Name = gameName };
+            _configData[gameName] = new GameConfig { DataKey = gameName, ExecutableName = gameName };
 
             ConfigCommand.Run(_serviceProvider, new[] { "remove", gameName });
 
@@ -81,8 +84,8 @@ namespace GameHelper.Tests
         [Fact]
         public void List_WithGames_PrintsGames()
         {
-            _configData["a.exe"] = new GameConfig { Name = "a.exe", IsEnabled = true, HDREnabled = true };
-            _configData["b.exe"] = new GameConfig { Name = "b.exe", IsEnabled = false, HDREnabled = false };
+            _configData["a.exe"] = new GameConfig { DataKey = "a.exe", ExecutableName = "a.exe", IsEnabled = true, HDREnabled = true };
+            _configData["b.exe"] = new GameConfig { DataKey = "b.exe", ExecutableName = "b.exe", IsEnabled = false, HDREnabled = false };
 
             ConfigCommand.Run(_serviceProvider, new[] { "list" });
 

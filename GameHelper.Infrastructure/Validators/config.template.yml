@@ -1,5 +1,9 @@
 games:
-  - name: string!
+  - dataKey: string!
+    executablePath: string
+    executableName: string
+    name: string
+    displayName: string
     alias: string
     isEnabled: bool
     hDREnabled: bool

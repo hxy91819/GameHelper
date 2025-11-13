@@ -1,0 +1,60 @@
+schema: 1
+story: '1.2'
+story_title: '更新核心匹配逻辑（混合策略）'
+gate: CONCERNS
+status_reason: '核心实现完成且质量良好，但缺少新匹配策略的专项测试覆盖。'
+reviewer: 'Quinn (Test Architect)'
+updated: '2025-11-10T21:15:00Z'
+
+top_issues:
+  - id: 'TEST-002'
+    severity: medium
+    finding: '缺少 L1 路径匹配和 L2 模糊匹配的专项测试覆盖'
+    suggested_action: '添加测试覆盖配置分组、路径匹配、ProductName 获取、模糊匹配阈值等场景'
+    suggested_owner: 'dev'
+  - id: 'TEST-003'
+    severity: medium
+    finding: '缺少模糊匹配阈值边界测试（分数 = 80, < 80, > 80）'
+    suggested_action: '添加边界条件测试验证阈值逻辑正确'
+    suggested_owner: 'dev'
+  - id: 'DOC-001'
+    severity: low
+    finding: '故事任务清单未更新（FuzzySharp 依赖和 tech-stack.md 已完成但未勾选）'
+    suggested_action: '更新故事文件中的任务清单，勾选已完成的任务'
+    suggested_owner: 'dev'
+
+waiver: { active: false }
+
+quality_score: 70
+expires: '2025-11-24T21:15:00Z'
+
+evidence:
+  tests_reviewed: 7
+  risks_identified: 3
+  trace:
+    ac_covered: [1, 2, 3, 4, 5, 6, 7]  # 代码实现覆盖所有 AC
+    ac_gaps: []  # 代码层面无缺失，但测试覆盖不足
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: '无安全问题；FileVersionInfo 异常处理适当'
+  performance:
+    status: PASS
+    notes: 'L2 匹配性能在预期范围内；已优化 ExecutableNameUpper 预计算'
+  reliability:
+    status: CONCERNS
+    notes: '代码实现可靠，但缺少专项测试验证边界条件'
+  maintainability:
+    status: PASS
+    notes: '代码质量优秀，符合所有编码标准；测试基础设施已更新'
+
+recommendations:
+  immediate: []  # 无阻塞问题
+  future:
+    - action: '添加 L1/L2 匹配策略的专项测试'
+      refs: ['GameHelper.Tests/GameAutomationServiceTests.cs']
+    - action: '添加模糊匹配阈值边界测试'
+      refs: ['GameHelper.Tests/GameAutomationServiceTests.cs']
+    - action: '添加配置分组逻辑测试'
+      refs: ['GameHelper.Tests/GameAutomationServiceTests.cs']

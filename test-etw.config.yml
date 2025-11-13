@@ -1,5 +1,10 @@
-# Test configuration with ETW monitor type
-processMonitorType: ETW
+# 测试配置文件 - 显式使用 ETW 监控
+# 
+# 注意：ETW 是默认监控方式，此配置文件显式指定 ETW 仅用于测试目的
+# 如果需要使用 WMI 监控（无需管理员权限），请设置：
+# processMonitorType: WMI
+
+processMonitorType: ETW  # 显式指定 ETW（实际上这是默认值）
 
 games:
   - name: "notepad.exe"

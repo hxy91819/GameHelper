@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using FuzzySharp;
 using Microsoft.Extensions.Logging;
 
 namespace GameHelper.Core.Services
@@ -16,16 +18,26 @@ namespace GameHelper.Core.Services
     public sealed class GameAutomationService : IGameAutomationService
     {
         private readonly IProcessMonitor _monitor;
-        private readonly IStopEventsControl? _stopControl; // optional capability
+        private readonly IStopEventsControl? _stopControl;
         private readonly IConfigProvider _configProvider;
         private readonly IHdrController _hdr;
         private readonly IPlayTimeService _playTime;
         private readonly ILogger<GameAutomationService> _logger;
 
-        private readonly HashSet<string> _active = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, HashSet<string>> _activeByStem = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, List<ActiveProcessEntry>> _activeByName = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<ActiveProcessEntry>> _activeByPath = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, int> _dataKeyRefs = new(StringComparer.OrdinalIgnoreCase);
+
         private IReadOnlyDictionary<string, GameConfig> _configs = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-        private IReadOnlyList<StemEntry> _enabledStemIndex = Array.Empty<StemEntry>();
+        private IReadOnlyDictionary<string, GameConfig> _configsByDataKey = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+        private IReadOnlyDictionary<string, GameConfig> _configsByName = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+        private IReadOnlyDictionary<string, GameConfig> _configsByPath = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+        private NameConfigEntry[] _nameConfigs = Array.Empty<NameConfigEntry>();
+
+        // 动态阈值常量
+        private const int ShortNameThreshold = 95;   // 2-4 字符
+        private const int MediumNameThreshold = 90;  // 5-8 字符
+        private const int LongNameThreshold = 80;    // 9+ 字符
 
         public GameAutomationService(
             IProcessMonitor monitor,
@@ -42,372 +54,866 @@ namespace GameHelper.Core.Services
             _logger = logger;
         }
 
-        /// <summary>
-        /// Loads configuration and subscribes to process monitor events. Idempotent.
-        /// </summary>
         public void Start()
         {
             _configs = _configProvider.Load();
-            _enabledStemIndex = BuildEnabledStemIndex(_configs);
+
+            _configsByDataKey = _configs.Values
+                .Where(c => c is not null && !string.IsNullOrWhiteSpace(c.DataKey))
+                .ToDictionary(c => c.DataKey!, c => c, StringComparer.OrdinalIgnoreCase);
+
+            var pathMap = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+            var nameMap = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+            var nameEntries = new List<NameConfigEntry>();
+
+            foreach (var config in _configs.Values)
+            {
+                if (config is null || !config.IsEnabled)
+                {
+                    continue;
+                }
+
+                var normalizedPath = NormalizePath(config.ExecutablePath);
+                if (normalizedPath is not null)
+                {
+                    pathMap[normalizedPath] = config;
+                }
+
+                var normalizedName = NormalizeName(config.ExecutableName);
+                if (normalizedName is not null)
+                {
+                    nameMap[normalizedName] = config;
+                    nameEntries.Add(new NameConfigEntry(normalizedName, normalizedName.ToUpperInvariant(), config));
+                }
+            }
+
+            _configsByPath = pathMap;
+            _configsByName = nameMap;
+            _nameConfigs = nameEntries.ToArray();
+
+            _activeByName.Clear();
+            _activeByPath.Clear();
+            _dataKeyRefs.Clear();
+
             _monitor.ProcessStarted += OnProcessStarted;
             _monitor.ProcessStopped += OnProcessStopped;
-            // Optimization: if supported, do not listen to Stop events until we have the first active game
-            try { _stopControl?.SetStopEventsEnabled(false); _logger.LogDebug("Stop events listening disabled at startup"); }
-            catch (Exception ex) { _logger.LogDebug(ex, "Failed to disable stop events at startup"); }
-            _logger.LogInformation("GameAutomationService started with {Count} configs", _configs.Count);
+
+            try
+            {
+                _stopControl?.SetStopEventsEnabled(false);
+                _logger.LogDebug("Stop events listening disabled at startup");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to disable stop events at startup");
+            }
+
+            _logger.LogInformation(
+                "GameAutomationService started: {Total} configs ({PathCount} path, {NameCount} name)",
+                _configs.Count,
+                _configsByPath.Count,
+                _nameConfigs.Length);
         }
 
-        /// <summary>
-        /// Unsubscribes from monitor events and flushes any active play sessions to storage
-        /// to prevent data loss when the host shuts down.
-        /// </summary>
         public void Stop()
         {
             _monitor.ProcessStarted -= OnProcessStarted;
             _monitor.ProcessStopped -= OnProcessStopped;
-            // Flush any active sessions to ensure playtime is persisted when the host shuts down
-            if (_active.Count > 0)
+
+            foreach (var dataKey in _dataKeyRefs.Keys.ToList())
             {
-                foreach (var name in _active.ToArray())
+                try
                 {
-                    try
-                    {
-                        _logger.LogInformation("Flushing active session on stop: {Process}", name);
-                        _playTime.StopTracking(name);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to flush session for {Process}", name);
-                    }
+                    _playTime.StopTracking(dataKey);
                 }
-                _active.Clear();
-                _activeByStem.Clear();
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to flush session for {DataKey}", dataKey);
+                }
             }
+
+            _dataKeyRefs.Clear();
+            _activeByName.Clear();
+            _activeByPath.Clear();
+
+            try
+            {
+                _stopControl?.SetStopEventsEnabled(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to disable stop events during shutdown");
+            }
+
             _logger.LogInformation("GameAutomationService stopped");
         }
 
-        /// <summary>
-        /// Handler for process start events. Starts a playtime session and enables HDR if this is the first active game.
-        /// </summary>
-        private void OnProcessStarted(string processName)
+        private void OnProcessStarted(ProcessEventInfo processInfo)
         {
-            var key = Normalize(processName);
-            if (!IsEnabled(key))
-            {
-                // Try a config-driven fuzzy fallback: map incoming name by stem to a single enabled config key
-                var stemKey = Stem(key);
-                var candidates = FindEnabledStemCandidates(stemKey);
+            var normalizedPath = NormalizePath(processInfo.ExecutablePath);
+            var normalizedName = NormalizeName(processInfo.ExecutableName);
 
-                if (candidates.Count == 1)
+            var config = MatchByPath(normalizedPath);
+            string matchLabel = "路径匹配";
+
+            if (config is null)
+            {
+                config = MatchByMetadata(processInfo, normalizedPath, out matchLabel);
+            }
+
+            if (config is null)
+            {
+                _logger.LogDebug("未匹配到配置: {Executable} (Path={Path})", processInfo.ExecutableName, processInfo.ExecutablePath);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(config.DataKey))
+            {
+                _logger.LogWarning("匹配到缺少 DataKey 的配置，忽略: {Executable}", processInfo.ExecutableName);
+                return;
+            }
+
+            var hadAnyActive = _dataKeyRefs.Count > 0;
+            var firstForDataKey = RegisterActive(config.DataKey, normalizedName, normalizedPath);
+
+            _logger.LogInformation(
+                "Process start: DataKey={DataKey}, Via={Match}, Executable={Executable}, Path={Path}",
+                config.DataKey,
+                matchLabel,
+                normalizedName ?? processInfo.ExecutableName ?? "n/a",
+                normalizedPath ?? "n/a");
+
+            if (firstForDataKey)
+            {
+                try
                 {
-                    var mapped = candidates[0];
-                    _logger.LogInformation("Start fallback matched by fuzzy stem: {Stem} -> {Process}", stemKey, mapped);
-                    key = mapped; // continue using canonical config key
+                    _playTime.StartTracking(config.DataKey);
                 }
-                else
+                catch (Exception ex)
                 {
-                    if (candidates.Count > 1)
-                    {
-                        _logger.LogInformation("Start fallback ambiguous, multiple matches for stem {Stem}: {Candidates}", stemKey, string.Join(", ", candidates));
-                    }
-                    else
-                    {
-                        _logger.LogDebug("Ignoring start for not-enabled process: {Process}", key);
-                    }
-                    return;
+                    _logger.LogError(ex, "Failed to start tracking for {DataKey}", config.DataKey);
                 }
             }
 
-            var wasEmpty = _active.Count == 0;
-            if (_active.Add(key))
-            {
-                TrackActiveStem(key);
-            }
-            _logger.LogDebug("Active count after start: {Count}", _active.Count);
+            UpdateHdrState();
 
-            _logger.LogInformation("Process started: {Process}", key);
-            try
+            if (!hadAnyActive && _dataKeyRefs.Count > 0)
             {
-                _playTime.StartTracking(key);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to start tracking for {Process}", key);
-            }
-
-            UpdateHdrState(
-                _configs.TryGetValue(key, out var cfg) && cfg.HDREnabled
-                    ? "HDR-enabled game became active"
-                    : "Active game prefers SDR");
-
-            if (wasEmpty && _active.Count == 1)
-            {
-                _logger.LogInformation("First active game detected; enabling stop event subscription");
-                // Enable Stop events now that we have at least one active game
-                try { _stopControl?.SetStopEventsEnabled(true); _logger.LogDebug("Stop events enabled (first active)"); }
-                catch (Exception ex) { _logger.LogDebug(ex, "Failed to enable stop events"); }
+                try
+                {
+                    _stopControl?.SetStopEventsEnabled(true);
+                    _logger.LogDebug("Stop events enabled (first active)");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to enable stop events");
+                }
             }
         }
 
-        /// <summary>
-        /// Handler for process stop events. Stops a playtime session and disables HDR if it was the last active game.
-        /// Includes fallbacks to handle minor name variations from OS events.
-        /// </summary>
-        private void OnProcessStopped(string processName)
+        private void OnProcessStopped(ProcessEventInfo processInfo)
         {
-            var key = Normalize(processName);
-            // Log raw stop events only at Debug to reduce noise for unrelated processes
-            _logger.LogDebug("Stop event received: {Process}", key);
+            var hadAnyActive = _dataKeyRefs.Count > 0;
 
-            var removed = TryRemoveActive(key);
-            if (!removed)
+            if (!TryResolveActive(processInfo, out var entry))
             {
-                // Fallback: fuzzy stem match to handle minor truncations/variations
-                var stemKey = Stem(key);
-                var candidates = FindActiveStemCandidates(stemKey);
+                _logger.LogDebug("Stop ignored, no active record for {Executable}", processInfo.ExecutableName);
+                return;
+            }
 
-                if (candidates.Count == 1)
+            var isLastForDataKey = ReleaseActive(entry.DataKey);
+
+            _logger.LogInformation(
+                "Process stop: DataKey={DataKey}, Executable={Executable}, Path={Path}",
+                entry.DataKey,
+                entry.NormalizedName ?? processInfo.ExecutableName ?? "n/a",
+                entry.NormalizedPath ?? processInfo.ExecutablePath ?? "n/a");
+
+            if (isLastForDataKey)
+            {
+                try
                 {
-                    var candidate = candidates[0];
-                    _logger.LogInformation("Stop fallback matched by fuzzy stem: {Stem} -> {Process}", stemKey, candidate);
-                    TryRemoveActive(candidate);
-                    key = candidate; // continue using the active canonical key
-                }
-                else
-                {
-                    if (candidates.Count > 1)
+                    var session = _playTime.StopTracking(entry.DataKey);
+                    if (session is not null)
                     {
-                        _logger.LogInformation("Stop fallback ambiguous, multiple matches for stem {Stem}: {Candidates}", stemKey, string.Join(", ", candidates));
+                        var formatted = FormatDuration(session.Duration);
+                        _logger.LogInformation(
+                            "本次游玩时长：{Duration}（开始 {StartTime:t}，结束 {EndTime:t}）",
+                            formatted,
+                            session.StartTime,
+                            session.EndTime);
                     }
-                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to stop tracking for {DataKey}", entry.DataKey);
                 }
             }
 
-            _logger.LogInformation("Process stopped: {Process}", key);
+            UpdateHdrState();
 
-            PlaySession? session = null;
-            try
+            if (_dataKeyRefs.Count == 0 && hadAnyActive)
             {
-                session = _playTime.StopTracking(key);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to stop tracking for {Process}", key);
-            }
-
-            if (session is not null)
-            {
-                var formatted = FormatDuration(session.Duration);
-                _logger.LogInformation(
-                    "本次游玩时长：{Duration}（开始 {StartTime:t}，结束 {EndTime:t}）",
-                    formatted,
-                    session.StartTime,
-                    session.EndTime);
-            }
-
-            _logger.LogDebug("Active count after stop: {Count}", _active.Count);
-
-            UpdateHdrState("Active game list updated");
-
-            if (_active.Count == 0)
-            {
-                _logger.LogInformation("Last active game exited; disabling stop event subscription");
-                // No active games -> disable Stop events to minimize idle overhead
-                try { _stopControl?.SetStopEventsEnabled(false); _logger.LogDebug("Stop events disabled (no active games)"); }
-                catch (Exception ex) { _logger.LogDebug(ex, "Failed to disable stop events"); }
+                try
+                {
+                    _stopControl?.SetStopEventsEnabled(false);
+                    _logger.LogDebug("Stop events disabled (none active)");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to disable stop events");
+                }
             }
         }
 
-        /// <summary>
-        /// Returns whether a process (by executable name) is enabled in the loaded config.
-        /// Normalization ensures consistent matching against keys.
-        /// </summary>
-        private bool IsEnabled(string processName)
+        private GameConfig? MatchByPath(string? normalizedPath)
         {
-            var key = Normalize(processName);
-            if (string.IsNullOrWhiteSpace(key)) return false;
-            if (_configs.TryGetValue(key, out var cfg))
+            if (normalizedPath is null)
             {
-                return cfg.IsEnabled;
+                return null;
             }
+
+            if (_configsByPath.TryGetValue(normalizedPath, out var config))
+            {
+                _logger.LogInformation("L1 路径匹配成功: {Path} -> {DataKey}", normalizedPath, config.DataKey);
+                return config;
+            }
+
+            return null;
+        }
+
+        private GameConfig? MatchByMetadata(ProcessEventInfo processInfo, string? normalizedPath, out string label)
+        {
+            label = "名称模糊匹配";
+
+            var exePath = normalizedPath ?? processInfo.ExecutablePath;
+
+            // 黑名单检查：拒绝系统路径
+            if (!string.IsNullOrWhiteSpace(exePath) && IsSystemPath(exePath))
+            {
+                _logger.LogDebug(
+                    "L2 匹配拒绝: 系统路径黑名单 - {ExePath}",
+                    exePath);
+                return null;
+            }
+
+            var searchText = TryGetProductName(exePath);
+            var usedProductName = !string.IsNullOrWhiteSpace(searchText);
+
+            if (!usedProductName)
+            {
+                searchText = NormalizeName(processInfo.ExecutableName);
+            }
+
+            if (string.IsNullOrWhiteSpace(searchText) || _nameConfigs.Length == 0)
+            {
+                return null;
+            }
+
+            var searchUpper = searchText.ToUpperInvariant();
+
+            GameConfig? bestMatch = null;
+            string? matchedName = null;
+            var bestScore = 0;
+            var requiredThreshold = 0;
+
+            foreach (var entry in _nameConfigs)
+            {
+                var config = entry.Config;
+                if (string.IsNullOrWhiteSpace(config.ExecutableName))
+                {
+                    continue;
+                }
+
+                // 计算动态阈值
+                var threshold = CalculateFuzzyThreshold(config.ExecutableName);
+                var score = Fuzz.Ratio(searchUpper, entry.ExecutableNameUpper);
+
+                _logger.LogDebug(
+                    "L2 模糊匹配尝试: {SearchName} vs {ExecutableName} - Score={Score}, Threshold={Threshold}, NameLength={Length}",
+                    searchText,
+                    config.ExecutableName,
+                    score,
+                    threshold,
+                    Path.GetFileNameWithoutExtension(config.ExecutableName).Length);
+
+                if (score >= threshold && score > bestScore)
+                {
+                    bestScore = score;
+                    bestMatch = config;
+                    matchedName = entry.ExecutableName;
+                    requiredThreshold = threshold;
+                }
+            }
+
+            if (bestMatch is null)
+            {
+                _logger.LogDebug("L2 模糊匹配失败: 无候选配置达到阈值");
+                return null;
+            }
+
+            // 路径相关性验证
+            if (!string.IsNullOrWhiteSpace(exePath) && !IsPathRelated(exePath, bestMatch.ExecutablePath))
+            {
+                _logger.LogWarning(
+                    "L2 匹配拒绝: 路径不相关 - ProcessPath={ProcessPath}, ConfigPath={ConfigPath}, Score={Score}, Threshold={Threshold}",
+                    exePath,
+                    bestMatch.ExecutablePath ?? "(无)",
+                    bestScore,
+                    requiredThreshold);
+                return null;
+            }
+
+            // 匹配成功
+            var pathValidation = string.IsNullOrWhiteSpace(bestMatch.ExecutablePath) 
+                ? "旧配置模式（跳过路径验证）" 
+                : "路径验证通过";
+
+            label = usedProductName
+                ? $"ProductName 模糊匹配 (score {bestScore})"
+                : $"ExecutableName 模糊匹配 (score {bestScore})";
+
+            _logger.LogInformation(
+                "L2 模糊匹配成功: {SearchName} -> {ExecutableName} (score: {Score}, threshold: {Threshold}, DataKey: {DataKey}, {PathValidation})",
+                searchText,
+                matchedName,
+                bestScore,
+                requiredThreshold,
+                bestMatch.DataKey,
+                pathValidation);
+
+            return bestMatch;
+        }
+
+        private bool RegisterActive(string dataKey, string? normalizedName, string? normalizedPath)
+        {
+            var entry = new ActiveProcessEntry(dataKey, normalizedName, normalizedPath);
+
+            if (normalizedName is not null)
+            {
+                if (!_activeByName.TryGetValue(normalizedName, out var list))
+                {
+                    list = new List<ActiveProcessEntry>();
+                    _activeByName[normalizedName] = list;
+                }
+
+                list.Add(entry);
+            }
+
+            if (normalizedPath is not null)
+            {
+                if (!_activeByPath.TryGetValue(normalizedPath, out var list))
+                {
+                    list = new List<ActiveProcessEntry>();
+                    _activeByPath[normalizedPath] = list;
+                }
+
+                list.Add(entry);
+            }
+
+            if (!_dataKeyRefs.TryGetValue(dataKey, out var count))
+            {
+                _dataKeyRefs[dataKey] = 1;
+                return true;
+            }
+
+            _dataKeyRefs[dataKey] = count + 1;
             return false;
         }
 
-        /// <summary>
-        /// Normalizes process names to a canonical key: keep only file name and ensure ".exe" suffix.
-        /// This reduces mismatch between start/stop events and configuration keys.
-        /// </summary>
-        private static string Normalize(string processName)
+        private bool TryResolveActive(ProcessEventInfo processInfo, out ActiveProcessEntry entry)
         {
-            if (string.IsNullOrWhiteSpace(processName)) return processName;
-            // keep filename only
-            var name = Path.GetFileName(processName.Trim());
-            // ensure .exe suffix for consistency across WMI Start/Stop differences
-            if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            var normalizedPath = NormalizePath(processInfo.ExecutablePath);
+            if (normalizedPath is not null &&
+                _activeByPath.TryGetValue(normalizedPath, out var byPath) &&
+                byPath.Count > 0)
             {
-                name += ".exe";
-            }
-            return name;
-        }
-
-        /// <summary>
-        /// Produces a fuzzy stem used for tolerant comparisons: alphanumeric-only, lower-cased,
-        /// without extension and punctuation. Helps handle minor truncations/variations.
-        /// </summary>
-        private static string Stem(string processName)
-        {
-            var n = Normalize(processName);
-            var stem = Path.GetFileNameWithoutExtension(n);
-            // alphanumeric-only, lower invariant to make fuzzy comparisons more robust (ignore spaces, dots, hyphens)
-            var filtered = new string(stem.Where(char.IsLetterOrDigit).ToArray());
-            return filtered.ToLowerInvariant();
-        }
-
-        private static IReadOnlyList<StemEntry> BuildEnabledStemIndex(IReadOnlyDictionary<string, GameConfig> configs)
-        {
-            if (configs.Count == 0)
-            {
-                return Array.Empty<StemEntry>();
+                entry = byPath[0];
+                RemoveEntry(normalizedPath, entry, byPath, _activeByPath);
+                return true;
             }
 
-            var list = new List<StemEntry>(configs.Count);
-            foreach (var (key, cfg) in configs)
+            var normalizedName = NormalizeName(processInfo.ExecutableName);
+            if (normalizedName is not null &&
+                _activeByName.TryGetValue(normalizedName, out var byName) &&
+                byName.Count > 0)
             {
-                if (!cfg.IsEnabled)
+                entry = byName[0];
+                RemoveEntry(normalizedName, entry, byName, _activeByName);
+                return true;
+            }
+
+            entry = default;
+            return false;
+        }
+
+        private bool ReleaseActive(string dataKey)
+        {
+            if (!_dataKeyRefs.TryGetValue(dataKey, out var count))
+            {
+                return true;
+            }
+
+            if (count <= 1)
+            {
+                _dataKeyRefs.Remove(dataKey);
+                return true;
+            }
+
+            _dataKeyRefs[dataKey] = count - 1;
+            return false;
+        }
+
+        private void RemoveEntry(
+            string key,
+            ActiveProcessEntry entry,
+            List<ActiveProcessEntry> list,
+            Dictionary<string, List<ActiveProcessEntry>> map)
+        {
+            list.Remove(entry);
+            if (list.Count == 0)
+            {
+                map.Remove(key);
+            }
+
+            if (entry.NormalizedName is not null &&
+                _activeByName.TryGetValue(entry.NormalizedName, out var nameList))
+            {
+                nameList.Remove(entry);
+                if (nameList.Count == 0)
                 {
-                    continue;
+                    _activeByName.Remove(entry.NormalizedName);
                 }
+            }
 
-                var stem = Stem(key);
-                if (stem.Length == 0)
+            if (entry.NormalizedPath is not null &&
+                _activeByPath.TryGetValue(entry.NormalizedPath, out var pathList))
+            {
+                pathList.Remove(entry);
+                if (pathList.Count == 0)
                 {
-                    continue;
+                    _activeByPath.Remove(entry.NormalizedPath);
                 }
-
-                list.Add(new StemEntry(stem, key));
             }
-
-            return list;
         }
 
-        private IReadOnlyList<string> FindEnabledStemCandidates(string stemKey)
+        private void UpdateHdrState()
         {
-            if (string.IsNullOrEmpty(stemKey))
-            {
-                return Array.Empty<string>();
-            }
-
-            List<string>? matches = null;
-            var snapshot = _enabledStemIndex;
-            for (var i = 0; i < snapshot.Count; i++)
-            {
-                var entry = snapshot[i];
-                if (!StemMatches(entry.Stem, stemKey))
-                {
-                    continue;
-                }
-
-                matches ??= new List<string>();
-                matches.Add(entry.Key);
-            }
-
-            return matches ?? (IReadOnlyList<string>)Array.Empty<string>();
-        }
-
-        private IReadOnlyList<string> FindActiveStemCandidates(string stemKey)
-        {
-            if (string.IsNullOrEmpty(stemKey) || _activeByStem.Count == 0)
-            {
-                return Array.Empty<string>();
-            }
-
-            List<string>? matches = null;
-            foreach (var (stem, values) in _activeByStem)
-            {
-                if (!StemMatches(stem, stemKey))
-                {
-                    continue;
-                }
-
-                matches ??= new List<string>();
-                matches.AddRange(values);
-            }
-
-            return matches ?? (IReadOnlyList<string>)Array.Empty<string>();
-        }
-
-        private void TrackActiveStem(string key)
-        {
-            var stem = Stem(key);
-            if (!_activeByStem.TryGetValue(stem, out var bucket))
-            {
-                bucket = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                _activeByStem[stem] = bucket;
-            }
-
-            bucket.Add(key);
-        }
-
-        private void UpdateHdrState(string reason)
-        {
-            var shouldEnableHdr = ShouldEnableHdr();
+            var shouldEnableHdr = _dataKeyRefs.Keys.Any(dataKey =>
+                _configsByDataKey.TryGetValue(dataKey, out var config) && config.HDREnabled);
 
             if (shouldEnableHdr && !_hdr.IsEnabled)
             {
-                _logger.LogInformation("Enabling HDR ({Reason})", reason);
+                _logger.LogInformation("Enabling HDR (active HDR-enabled game)");
                 _hdr.Enable();
             }
             else if (!shouldEnableHdr && _hdr.IsEnabled)
             {
-                _logger.LogInformation("Disabling HDR ({Reason})", reason);
+                _logger.LogInformation("Disabling HDR (no HDR-enabled game remaining)");
                 _hdr.Disable();
             }
         }
 
-        private bool ShouldEnableHdr()
+        private static string? NormalizeName(string? executableName)
         {
-            foreach (var name in _active)
+            if (string.IsNullOrWhiteSpace(executableName))
             {
-                if (_configs.TryGetValue(name, out var cfg) && cfg.HDREnabled)
+                return null;
+            }
+
+            var name = Path.GetFileName(executableName.Trim());
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return null;
+            }
+
+            if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                name += ".exe";
+            }
+
+            return name;
+        }
+
+        private static string? NormalizePath(string? executablePath)
+        {
+            if (string.IsNullOrWhiteSpace(executablePath))
+            {
+                return null;
+            }
+
+            if (TryResolveWindowsPath(executablePath, out var windowsPath, out _))
+            {
+                if (windowsPath.Length > 3 &&
+                    windowsPath[1] == ':' &&
+                    windowsPath.EndsWith("\\", StringComparison.Ordinal))
                 {
-                    return true;
+                    windowsPath = windowsPath.TrimEnd('\\');
                 }
+                else if (windowsPath.StartsWith("\\\\", StringComparison.Ordinal) &&
+                         windowsPath.EndsWith("\\", StringComparison.Ordinal))
+                {
+                    windowsPath = windowsPath.TrimEnd('\\');
+                }
+
+                return windowsPath;
+            }
+
+            try
+            {
+                return Path.GetFullPath(executablePath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch
+            {
+                return executablePath.Trim();
+            }
+        }
+
+        private string? TryGetProductName(string? executablePath)
+        {
+            if (string.IsNullOrWhiteSpace(executablePath))
+            {
+                return null;
+            }
+
+            try
+            {
+                var info = FileVersionInfo.GetVersionInfo(executablePath);
+                return info.ProductName;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "无法获取 ProductName: {Path}", executablePath);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 检查进程路径是否在系统路径黑名单中。
+        /// 系统工具不应该被匹配为游戏。
+        /// </summary>
+        /// <param name="processPath">进程的完整路径</param>
+        /// <returns>如果是系统路径则返回 true</returns>
+        private bool IsSystemPath(string processPath)
+        {
+            if (string.IsNullOrWhiteSpace(processPath))
+            {
+                return false;
+            }
+
+            // 系统路径黑名单
+            var systemPaths = new[]
+            {
+                @"C:\Windows\System32\",
+                @"C:\Windows\SysWOW64\",
+                @"C:\Windows\"
+            };
+
+            try
+            {
+                if (TryResolveWindowsPath(processPath, out var windowsPath, out var processDir))
+                {
+                    foreach (var systemPath in systemPaths)
+                    {
+                        if (processDir.StartsWith(systemPath, StringComparison.OrdinalIgnoreCase) ||
+                            windowsPath.StartsWith(systemPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+
+                var normalizedPath = Path.GetFullPath(processPath);
+
+                foreach (var systemPath in systemPaths)
+                {
+                    if (normalizedPath.StartsWith(systemPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                // 路径处理异常时，保守地认为不是系统路径
+                _logger.LogDebug(ex, "系统路径检查失败: {ProcessPath}", processPath);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 验证进程路径是否与配置路径相关（在同一目录树下）。
+        /// </summary>
+        /// <param name="processPath">进程的完整路径</param>
+        /// <param name="configPath">配置的可执行文件路径（可为空）</param>
+        /// <returns>如果路径相关或 configPath 为空则返回 true</returns>
+        private bool IsPathRelated(string processPath, string? configPath)
+        {
+            // 旧配置兼容：如果没有配置路径，跳过验证
+            if (string.IsNullOrWhiteSpace(configPath))
+            {
+                return true;
+            }
+
+            try
+            {
+                var processHasWindowsRoot = TryResolveWindowsPath(processPath, out _, out var processWindowsDir);
+                var configHasWindowsRoot = TryResolveWindowsPath(configPath, out _, out var configWindowsDir);
+
+                if (processHasWindowsRoot || configHasWindowsRoot)
+                {
+                    if (!processHasWindowsRoot || !configHasWindowsRoot)
+                    {
+                        return false;
+                    }
+
+                    processWindowsDir = EnsureTrailingSeparator(processWindowsDir, preferBackslash: true);
+                    configWindowsDir = EnsureTrailingSeparator(configWindowsDir, preferBackslash: true);
+                    return processWindowsDir.StartsWith(configWindowsDir, StringComparison.OrdinalIgnoreCase);
+                }
+
+                // 规范化路径（处理相对路径、大小写）
+                var normalizedProcessPath = Path.GetFullPath(processPath);
+                var normalizedConfigPath = Path.GetFullPath(configPath);
+
+                // 获取目录路径
+                var processDir = Path.GetDirectoryName(normalizedProcessPath);
+                var configDir = Path.GetDirectoryName(normalizedConfigPath);
+
+                if (string.IsNullOrEmpty(processDir) || string.IsNullOrEmpty(configDir))
+                {
+                    return false;
+                }
+
+                // 仅当进程路径位于配置目录或其子目录时才视为相关
+                processDir = EnsureTrailingSeparator(processDir);
+                configDir = EnsureTrailingSeparator(configDir);
+
+                return processDir.StartsWith(configDir, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                // 路径处理异常时，保守地拒绝匹配
+                _logger.LogDebug(ex, "路径验证失败: ProcessPath={ProcessPath}, ConfigPath={ConfigPath}",
+                    processPath, configPath);
+                return false;
+            }
+        }
+
+        private static bool TryResolveWindowsPath(string path, out string normalizedPath, out string directory)
+        {
+            normalizedPath = string.Empty;
+            directory = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+
+            var trimmed = path.Trim();
+
+            if (IsWindowsDrivePath(trimmed))
+            {
+                return TryResolveDrivePath(trimmed, out normalizedPath, out directory);
+            }
+
+            if (IsWindowsUncPath(trimmed))
+            {
+                return TryResolveUncPath(trimmed, out normalizedPath, out directory);
             }
 
             return false;
         }
 
-        private bool TryRemoveActive(string key)
+        private static bool TryResolveDrivePath(string path, out string normalizedPath, out string directory)
         {
-            if (!_active.Remove(key))
+            normalizedPath = string.Empty;
+            directory = string.Empty;
+
+            var segments = path.Substring(2)
+                .Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+
+            var resolved = new List<string>();
+            foreach (var segment in segments)
+            {
+                if (segment == ".")
+                {
+                    continue;
+                }
+
+                if (segment == "..")
+                {
+                    if (resolved.Count == 0)
+                    {
+                        return false;
+                    }
+
+                    resolved.RemoveAt(resolved.Count - 1);
+                    continue;
+                }
+
+                resolved.Add(segment);
+            }
+
+            var hasTrailingSeparator = path.EndsWith("\\", StringComparison.Ordinal) ||
+                                       path.EndsWith("/", StringComparison.Ordinal);
+
+            var drive = char.ToUpperInvariant(path[0]);
+            normalizedPath = $"{drive}:\\";
+
+            if (resolved.Count > 0)
+            {
+                normalizedPath += string.Join("\\", resolved);
+
+                if (hasTrailingSeparator)
+                {
+                    normalizedPath += "\\";
+                }
+            }
+
+            var directorySegments = new List<string>(resolved);
+            if (!hasTrailingSeparator && directorySegments.Count > 0)
+            {
+                directorySegments.RemoveAt(directorySegments.Count - 1);
+            }
+
+            directory = $"{drive}:\\";
+            if (directorySegments.Count > 0)
+            {
+                directory += string.Join("\\", directorySegments) + "\\";
+            }
+
+            return true;
+        }
+
+        private static bool TryResolveUncPath(string path, out string normalizedPath, out string directory)
+        {
+            normalizedPath = string.Empty;
+            directory = string.Empty;
+
+            var segments = path.Substring(2)
+                .Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (segments.Length < 2)
             {
                 return false;
             }
 
-            RemoveActiveStem(key);
+            var resolved = new List<string>
+            {
+                segments[0],
+                segments[1]
+            };
+
+            for (var i = 2; i < segments.Length; i++)
+            {
+                var segment = segments[i];
+
+                if (segment == ".")
+                {
+                    continue;
+                }
+
+                if (segment == "..")
+                {
+                    if (resolved.Count > 2)
+                    {
+                        resolved.RemoveAt(resolved.Count - 1);
+                    }
+
+                    continue;
+                }
+
+                resolved.Add(segment);
+            }
+
+            var hasTrailingSeparator = path.EndsWith("\\", StringComparison.Ordinal) ||
+                                       path.EndsWith("/", StringComparison.Ordinal);
+
+            normalizedPath = "\\\\" + string.Join("\\", resolved);
+            if (hasTrailingSeparator)
+            {
+                normalizedPath += "\\";
+            }
+
+            var directorySegments = resolved;
+            if (!hasTrailingSeparator && resolved.Count > 2)
+            {
+                directorySegments = resolved.Take(resolved.Count - 1).ToList();
+            }
+
+            directory = "\\\\" + string.Join("\\", directorySegments);
+            if (!directory.EndsWith("\\", StringComparison.Ordinal))
+            {
+                directory += "\\";
+            }
+
             return true;
         }
 
-        private void RemoveActiveStem(string key)
+        private static bool IsWindowsDrivePath(string path)
         {
-            var stem = Stem(key);
-            if (!_activeByStem.TryGetValue(stem, out var bucket))
-            {
-                return;
-            }
-
-            bucket.Remove(key);
-            if (bucket.Count == 0)
-            {
-                _activeByStem.Remove(stem);
-            }
+            return path.Length >= 3 &&
+                   char.IsLetter(path[0]) &&
+                   path[1] == ':' &&
+                   (path[2] == '\\' || path[2] == '/');
         }
 
-        private static bool StemMatches(string candidateStem, string searchStem)
+        private static bool IsWindowsUncPath(string path)
         {
-            return candidateStem == searchStem
-                || candidateStem.StartsWith(searchStem, StringComparison.Ordinal)
-                || searchStem.StartsWith(candidateStem, StringComparison.Ordinal);
+            return path.StartsWith("\\\\", StringComparison.Ordinal) ||
+                   path.StartsWith("//", StringComparison.Ordinal);
+        }
+
+        private static string EnsureTrailingSeparator(string path, bool preferBackslash = false)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return path;
+            }
+
+            if (path.EndsWith(Path.DirectorySeparatorChar) ||
+                path.EndsWith(Path.AltDirectorySeparatorChar) ||
+                path.EndsWith("\\", StringComparison.Ordinal))
+            {
+                return path;
+            }
+
+            var separator = preferBackslash || path.Contains("\\", StringComparison.Ordinal)
+                ? '\\'
+                : Path.DirectorySeparatorChar;
+
+            return path + separator;
+        }
+
+        /// <summary>
+        /// 根据可执行文件名长度计算模糊匹配阈值。
+        /// 短文件名需要更高的相似度以避免误匹配。
+        /// </summary>
+        /// <param name="executableName">可执行文件名（可含扩展名）</param>
+        /// <returns>推荐的模糊匹配阈值（80-95）</returns>
+        private static int CalculateFuzzyThreshold(string executableName)
+        {
+            if (string.IsNullOrWhiteSpace(executableName))
+            {
+                return ShortNameThreshold; // 最严格阈值
+            }
+
+            // 移除扩展名
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(executableName);
+            var length = nameWithoutExt.Length;
+
+            return length switch
+            {
+                <= 4 => ShortNameThreshold,   // 短名称：非常严格
+                <= 8 => MediumNameThreshold,  // 中等名称：较严格
+                _ => LongNameThreshold        // 长名称：标准阈值
+            };
         }
 
         private static string FormatDuration(TimeSpan duration)
@@ -447,6 +953,8 @@ namespace GameHelper.Core.Services
             return string.Concat(parts);
         }
 
-        private readonly record struct StemEntry(string Stem, string Key);
+        private sealed record NameConfigEntry(string ExecutableName, string ExecutableNameUpper, GameConfig Config);
+
+        private readonly record struct ActiveProcessEntry(string DataKey, string? NormalizedName, string? NormalizedPath);
     }
 }

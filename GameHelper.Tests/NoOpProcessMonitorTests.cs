@@ -1,4 +1,5 @@
 using System;
+using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Processes;
 using Xunit;
 
@@ -20,22 +21,22 @@ namespace GameHelper.Tests
         public void SimulateStart_Raises_ProcessStarted()
         {
             var monitor = new NoOpProcessMonitor();
-            string? received = null;
-            monitor.ProcessStarted += name => received = name;
+            ProcessEventInfo? received = null;
+            monitor.ProcessStarted += info => received = info;
 
-            monitor.SimulateStart("game.exe");
-            Assert.Equal("game.exe", received);
+            monitor.SimulateStart(new ProcessEventInfo("game.exe", null));
+            Assert.Equal("game.exe", received?.ExecutableName);
         }
 
         [Fact]
         public void SimulateStop_Raises_ProcessStopped()
         {
             var monitor = new NoOpProcessMonitor();
-            string? received = null;
-            monitor.ProcessStopped += name => received = name;
+            ProcessEventInfo? received = null;
+            monitor.ProcessStopped += info => received = info;
 
-            monitor.SimulateStop("game.exe");
-            Assert.Equal("game.exe", received);
+            monitor.SimulateStop(new ProcessEventInfo("game.exe", null));
+            Assert.Equal("game.exe", received?.ExecutableName);
         }
     }
 }
