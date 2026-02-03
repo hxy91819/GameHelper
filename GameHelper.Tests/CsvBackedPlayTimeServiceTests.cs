@@ -222,7 +222,7 @@ namespace GameHelper.Tests
             var lines = File.ReadAllLines(_csvFile);
             var sessionLines = lines.Skip(1).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
             
-            Assert.Equal(1, sessionLines.Length); // Only one session should be recorded
+            Assert.Single(sessionLines); // Only one session should be recorded
         }
 
         [Fact]

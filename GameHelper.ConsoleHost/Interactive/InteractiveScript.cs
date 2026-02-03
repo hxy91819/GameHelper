@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace GameHelper.ConsoleHost.Interactive
 {
@@ -84,21 +85,13 @@ namespace GameHelper.ConsoleHost.Interactive
 
             if (typeof(T).IsEnum)
             {
-                if (input is string enumName && Enum.TryParse(typeof(T), enumName, true, out var parsed))
+                if (TryConvertEnum(input, out value))
                 {
-                    value = (T)parsed;
                     return true;
                 }
 
-                if (input is int enumIndex)
-                {
-                    var values = Enum.GetValues(typeof(T));
-                    if (enumIndex >= 0 && enumIndex < values.Length)
-                    {
-                        value = (T)values.GetValue(enumIndex)!;
-                        return true;
-                    }
-                }
+                value = default!;
+                return false;
             }
 
             if (typeof(T) == typeof(string))
@@ -131,6 +124,88 @@ namespace GameHelper.ConsoleHost.Interactive
 
             value = default!;
             return false;
+        }
+
+        private static bool TryConvertEnum<T>(object? input, out T value)
+        {
+            value = default!;
+            var enumType = typeof(T);
+            var values = Enum.GetValues(enumType);
+
+            if (input is string text)
+            {
+                if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var index))
+                {
+                    if (index >= 0 && index < values.Length)
+                    {
+                        value = (T)values.GetValue(index)!;
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                if (Enum.TryParse(enumType, text, true, out var parsed) && IsDefinedOrFlagsValue(enumType, parsed))
+                {
+                    value = (T)parsed;
+                    return true;
+                }
+
+                return false;
+            }
+
+            if (input is int enumIndex)
+            {
+                if (enumIndex >= 0 && enumIndex < values.Length)
+                {
+                    value = (T)values.GetValue(enumIndex)!;
+                    return true;
+                }
+
+                return false;
+            }
+
+            if (input is IConvertible convertible)
+            {
+                try
+                {
+                    var underlyingType = Enum.GetUnderlyingType(enumType);
+                    var numeric = Convert.ChangeType(convertible, underlyingType, CultureInfo.InvariantCulture);
+                    if (numeric is not null && IsDefinedOrFlagsValue(enumType, Enum.ToObject(enumType, numeric)))
+                    {
+                        value = (T)Enum.ToObject(enumType, numeric);
+                        return true;
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsDefinedOrFlagsValue(Type enumType, object value)
+        {
+            if (Enum.IsDefined(enumType, value))
+            {
+                return true;
+            }
+
+            var isFlags = enumType.IsDefined(typeof(FlagsAttribute), inherit: false);
+            if (!isFlags)
+            {
+                return false;
+            }
+
+            var inputValue = Convert.ToUInt64(value, CultureInfo.InvariantCulture);
+            ulong definedMask = 0;
+            foreach (var item in Enum.GetValues(enumType))
+            {
+                definedMask |= Convert.ToUInt64(item, CultureInfo.InvariantCulture);
+            }
+
+            return (inputValue & ~definedMask) == 0;
         }
     }
 }

@@ -9,6 +9,7 @@ using GameHelper.ConsoleHost.Models;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 using GameHelper.Infrastructure.Providers;
 using Spectre.Console;
 using YamlDotNet.Serialization;
@@ -67,17 +68,14 @@ namespace GameHelper.ConsoleHost.Commands
             }
 
             // Default paths if not specified
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string gameHelperDir = Path.Combine(appData, "GameHelper");
-            
             if (string.IsNullOrEmpty(configPath))
             {
-                configPath = Path.Combine(gameHelperDir, "config.yml");
+                configPath = AppDataPath.GetConfigPath();
             }
             
             if (string.IsNullOrEmpty(csvPath))
             {
-                csvPath = Path.Combine(gameHelperDir, "playtime.csv");
+                csvPath = AppDataPath.GetPlaytimeCsvPath();
             }
 
             if (dryRun)

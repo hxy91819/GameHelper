@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using YamlDotNet.Core;
@@ -167,10 +168,7 @@ namespace GameHelper.Infrastructure.Providers
             public List<GameConfig>? Games { get; set; }
         }
 
-        private static string ResolveDefaultPath() => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "GameHelper",
-            "config.yml");
+        private static string ResolveDefaultPath() => AppDataPath.GetConfigPath();
 
         private GameConfig NormalizeLoadedConfig(GameConfig source)
         {
