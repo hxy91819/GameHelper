@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 
 namespace GameHelper.Infrastructure.Providers
 {
@@ -17,8 +18,8 @@ namespace GameHelper.Infrastructure.Providers
 
         public AutoConfigProvider()
         {
-            string baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GameHelper");
-            string yml = Path.Combine(baseDir, "config.yml");
+            string baseDir = AppDataPath.GetGameHelperDirectory();
+            string yml = AppDataPath.GetConfigPath();
             string json = Path.Combine(baseDir, "config.json");
 
             if (File.Exists(yml))

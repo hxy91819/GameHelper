@@ -24,7 +24,7 @@ namespace GameHelper.Tests
             string padded = DisplayWidth.PadRight(value, targetWidth);
 
             Assert.Equal(targetWidth, DisplayWidth.Measure(padded));
-            Assert.True(padded.EndsWith("    "));
+            Assert.EndsWith("    ", padded);
         }
     }
 }

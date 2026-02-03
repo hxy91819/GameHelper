@@ -72,6 +72,7 @@ namespace GameHelper.Tests.Interactive
                 .Enqueue("Configuration")
                 .Enqueue("Add")
                 .Enqueue("celeste.exe")
+                .Enqueue(string.Empty)
                 .Enqueue("Celeste")
                 .Enqueue("启用")
                 .Enqueue("自动开启 HDR")

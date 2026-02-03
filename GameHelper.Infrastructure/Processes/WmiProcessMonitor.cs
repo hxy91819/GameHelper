@@ -232,18 +232,24 @@ namespace GameHelper.Infrastructure.Processes
         {
             try
             {
+                var newEvent = e.NewEvent;
+                if (newEvent is null)
+                {
+                    return;
+                }
+
                 string? resolvedName = null;
                 string? resolvedPath = null;
                 int pid = -1;
                 string? className = null;
 
                 // Determine event class name first
-                try { className = e.NewEvent?.ClassPath?.ClassName; } catch { }
+                try { className = newEvent.ClassPath?.ClassName; } catch { }
 
                 // Extract PID if available
                 try
                 {
-                    var pidObj = e.NewEvent["ProcessID"]; // available on Win32_ProcessStartTrace/StopTrace
+                    var pidObj = newEvent["ProcessID"]; // available on Win32_ProcessStartTrace/StopTrace
                     if (pidObj is not null)
                     {
                         pid = Convert.ToInt32(pidObj);
@@ -293,7 +299,7 @@ namespace GameHelper.Infrastructure.Processes
                     // Still null? Fall back to the raw ProcessName provided by the event
                     if (string.IsNullOrWhiteSpace(resolvedName))
                     {
-                        resolvedName = e.NewEvent["ProcessName"]?.ToString();
+                        resolvedName = newEvent["ProcessName"]?.ToString();
                     }
                 }
 

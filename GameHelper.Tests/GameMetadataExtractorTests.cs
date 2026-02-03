@@ -82,53 +82,53 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void GenerateSuggestedDataKey_WithProductName_ReturnsNormalizedProductName()
+        public void GenerateBaseDataKey_WithProductName_ReturnsNormalizedProductName()
         {
             // Arrange
             var exePath = @"C:\Games\MyGame\game.exe";
             var productName = "My Awesome Game";
 
             // Act
-            var result = GameMetadataExtractor.GenerateSuggestedDataKey(exePath, productName);
+            var result = DataKeyGenerator.GenerateBaseDataKey(exePath, productName);
 
             // Assert
             Assert.Equal("myawesomegame", result); // Normalized: lowercase, no spaces
         }
 
         [Fact]
-        public void GenerateSuggestedDataKey_WithoutProductName_ReturnsFileName()
+        public void GenerateBaseDataKey_WithoutProductName_ReturnsFileName()
         {
             // Arrange
             var exePath = @"C:\Games\MyGame\game.exe";
 
             // Act
-            var result = GameMetadataExtractor.GenerateSuggestedDataKey(exePath, null);
+            var result = DataKeyGenerator.GenerateBaseDataKey(exePath, null);
 
             // Assert
             Assert.Equal("game", result);
         }
 
         [Fact]
-        public void GenerateSuggestedDataKey_WithEmptyProductName_ReturnsFileName()
+        public void GenerateBaseDataKey_WithEmptyProductName_ReturnsFileName()
         {
             // Arrange
             var exePath = @"C:\Games\MyGame\game.exe";
 
             // Act
-            var result = GameMetadataExtractor.GenerateSuggestedDataKey(exePath, "   ");
+            var result = DataKeyGenerator.GenerateBaseDataKey(exePath, "   ");
 
             // Assert
             Assert.Equal("game", result);
         }
 
         [Fact]
-        public void GenerateSuggestedDataKey_WithComplexPath_ReturnsCorrectFileName()
+        public void GenerateBaseDataKey_WithComplexPath_ReturnsCorrectFileName()
         {
             // Arrange
             var exePath = @"C:\Program Files (x86)\Steam\steamapps\common\MyGame\bin\x64\game.exe";
 
             // Act
-            var result = GameMetadataExtractor.GenerateSuggestedDataKey(exePath, null);
+            var result = DataKeyGenerator.GenerateBaseDataKey(exePath, null);
 
             // Assert
             Assert.Equal("game", result);

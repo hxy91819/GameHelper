@@ -11,6 +11,7 @@ using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 using GameHelper.Infrastructure.Providers;
 using GameHelper.Infrastructure.Validators;
 using Microsoft.Extensions.DependencyInjection;
@@ -1285,10 +1286,9 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             try
             {
-                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                string dir = Path.Combine(appData, "GameHelper");
+                string dir = AppDataPath.GetGameHelperDirectory();
                 string jsonPath = Path.Combine(dir, "config.json");
-                string ymlPath = Path.Combine(dir, "config.yml");
+                string ymlPath = AppDataPath.GetConfigPath();
 
                 if (!File.Exists(jsonPath))
                 {
@@ -1368,10 +1368,9 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private bool TryLoadPlaytimeData(out List<GameItem> items, out string source)
         {
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string dir = Path.Combine(appData, "GameHelper");
-            string csvFile = Path.Combine(dir, "playtime.csv");
-            string jsonFile = Path.Combine(dir, "playtime.json");
+            string dir = AppDataPath.GetGameHelperDirectory();
+            string csvFile = AppDataPath.GetPlaytimeCsvPath();
+            string jsonFile = AppDataPath.GetPlaytimeJsonPath();
 
             if (File.Exists(csvFile))
             {

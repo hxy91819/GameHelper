@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 
 namespace GameHelper.Infrastructure.Providers
 {
@@ -21,8 +22,7 @@ namespace GameHelper.Infrastructure.Providers
         private readonly Dictionary<string, DateTime> _starts;
 
         public FileBackedPlayTimeService()
-            : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                                 "GameHelper"))
+            : this(AppDataPath.GetGameHelperDirectory())
         {
         }
 

@@ -7,6 +7,7 @@ using GameHelper.ConsoleHost.Models;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 using GameHelper.Infrastructure.Providers;
 
 namespace GameHelper.ConsoleHost.Commands
@@ -15,10 +16,9 @@ namespace GameHelper.ConsoleHost.Commands
     {
         public static void Run(string[] args)
         {
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string dir = Path.Combine(appData, "GameHelper");
-            string csvFile = Path.Combine(dir, "playtime.csv");
-            string jsonFile = Path.Combine(dir, "playtime.json");
+            string dir = AppDataPath.GetGameHelperDirectory();
+            string csvFile = AppDataPath.GetPlaytimeCsvPath();
+            string jsonFile = AppDataPath.GetPlaytimeJsonPath();
 
             string? filterGame = null;
             if (args.Length >= 2 && args[0] == "--game") filterGame = args[1];

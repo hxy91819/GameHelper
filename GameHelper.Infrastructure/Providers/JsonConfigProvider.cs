@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 
 namespace GameHelper.Infrastructure.Providers
 {
@@ -17,8 +18,7 @@ namespace GameHelper.Infrastructure.Providers
         private readonly string _configFilePath;
 
         public JsonConfigProvider()
-            : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                                 "GameHelper", "config.json"))
+            : this(Path.Combine(AppDataPath.GetGameHelperDirectory(), "config.json"))
         {
         }
 

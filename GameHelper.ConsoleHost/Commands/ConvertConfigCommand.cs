@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using GameHelper.Core.Utilities;
 using GameHelper.Infrastructure.Providers;
 
 namespace GameHelper.ConsoleHost.Commands
@@ -10,10 +11,9 @@ namespace GameHelper.ConsoleHost.Commands
         {
             try
             {
-                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                string dir = Path.Combine(appData, "GameHelper");
+                string dir = AppDataPath.GetGameHelperDirectory();
                 string jsonPath = Path.Combine(dir, "config.json");
-                string ymlPath = Path.Combine(dir, "config.yml");
+                string ymlPath = AppDataPath.GetConfigPath();
 
                 if (!File.Exists(jsonPath))
                 {

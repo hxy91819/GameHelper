@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace GameHelper.Infrastructure.Providers
@@ -25,8 +26,7 @@ namespace GameHelper.Infrastructure.Providers
         private readonly Dictionary<string, DateTime> _activeSessions;
 
         public CsvBackedPlayTimeService(ILogger<CsvBackedPlayTimeService>? logger = null)
-            : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                                 "GameHelper"), logger)
+            : this(AppDataPath.GetGameHelperDirectory(), logger)
         {
         }
 
