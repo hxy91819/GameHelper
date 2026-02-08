@@ -1,6 +1,7 @@
 using System;
 using System.Management;
 using GameHelper.Core.Abstractions;
+using GameHelper.Core.Models;
 
 namespace GameHelper.Infrastructure.Processes
 {
@@ -21,9 +22,9 @@ namespace GameHelper.Infrastructure.Processes
         private bool _stopEventsEnabled = true; // default to true for backward compatibility
 
         /// <inheritdoc />
-        public event Action<string>? ProcessStarted;
+        public event Action<ProcessEventInfo>? ProcessStarted;
         /// <inheritdoc />
-        public event Action<string>? ProcessStopped;
+        public event Action<ProcessEventInfo>? ProcessStopped;
 
         // Default ctor uses real WMI watchers without any filtering (listen to all processes)
         public WmiProcessMonitor() { }
@@ -135,16 +136,24 @@ namespace GameHelper.Infrastructure.Processes
             SafeTearDown();
         }
 
-        private void OnStartEvent(string processName)
+        private void OnStartEvent(ProcessEventInfo processInfo)
         {
-            if (!string.IsNullOrWhiteSpace(processName))
-                ProcessStarted?.Invoke(processName);
+            if (string.IsNullOrWhiteSpace(processInfo.ExecutableName))
+            {
+                return;
+            }
+
+            ProcessStarted?.Invoke(processInfo);
         }
 
-        private void OnStopEvent(string processName)
+        private void OnStopEvent(ProcessEventInfo processInfo)
         {
-            if (!string.IsNullOrWhiteSpace(processName))
-                ProcessStopped?.Invoke(processName);
+            if (string.IsNullOrWhiteSpace(processInfo.ExecutableName))
+            {
+                return;
+            }
+
+            ProcessStopped?.Invoke(processInfo);
         }
 
         private void SafeTearDown()
@@ -188,7 +197,7 @@ namespace GameHelper.Infrastructure.Processes
         private readonly System.Collections.Generic.Dictionary<int, string> _pidToName = new();
 
         /// <inheritdoc />
-        public event Action<string>? ProcessEvent;
+        public event Action<ProcessEventInfo>? ProcessEvent;
 
         /// <summary>
         /// Creates a watcher for the specified WQL query (e.g., StartTrace/StopTrace).
@@ -223,17 +232,24 @@ namespace GameHelper.Infrastructure.Processes
         {
             try
             {
+                var newEvent = e.NewEvent;
+                if (newEvent is null)
+                {
+                    return;
+                }
+
                 string? resolvedName = null;
+                string? resolvedPath = null;
                 int pid = -1;
                 string? className = null;
 
                 // Determine event class name first
-                try { className = e.NewEvent?.ClassPath?.ClassName; } catch { }
+                try { className = newEvent.ClassPath?.ClassName; } catch { }
 
                 // Extract PID if available
                 try
                 {
-                    var pidObj = e.NewEvent["ProcessID"]; // available on Win32_ProcessStartTrace/StopTrace
+                    var pidObj = newEvent["ProcessID"]; // available on Win32_ProcessStartTrace/StopTrace
                     if (pidObj is not null)
                     {
                         pid = Convert.ToInt32(pidObj);
@@ -249,11 +265,15 @@ namespace GameHelper.Infrastructure.Processes
                                 resolvedName = proc["Name"] as string;
                                 if (string.IsNullOrWhiteSpace(resolvedName))
                                 {
-                                    var path = proc["ExecutablePath"] as string;
-                                    if (!string.IsNullOrWhiteSpace(path))
+                                    resolvedPath = proc["ExecutablePath"] as string;
+                                    if (!string.IsNullOrWhiteSpace(resolvedPath))
                                     {
-                                        try { resolvedName = System.IO.Path.GetFileName(path); } catch { }
+                                        try { resolvedName = System.IO.Path.GetFileName(resolvedPath); } catch { }
                                     }
+                                }
+                                else
+                                {
+                                    resolvedPath = proc["ExecutablePath"] as string;
                                 }
                                 break; // first match
                             }
@@ -279,7 +299,7 @@ namespace GameHelper.Infrastructure.Processes
                     // Still null? Fall back to the raw ProcessName provided by the event
                     if (string.IsNullOrWhiteSpace(resolvedName))
                     {
-                        resolvedName = e.NewEvent["ProcessName"]?.ToString();
+                        resolvedName = newEvent["ProcessName"]?.ToString();
                     }
                 }
 
@@ -298,7 +318,8 @@ namespace GameHelper.Infrastructure.Processes
                         }
                     }
 
-                    ProcessEvent?.Invoke(resolvedName);
+                    var info = new ProcessEventInfo(resolvedName, resolvedPath);
+                    ProcessEvent?.Invoke(info);
                 }
             }
             catch

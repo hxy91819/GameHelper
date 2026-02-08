@@ -65,9 +65,14 @@ namespace GameHelper.ConsoleHost.Services
                         skipped++;
                         continue;
                     }
-                    var key = Path.GetFileName(exe);
+                    var executableName = Path.GetFileName(exe);
+                    
+                    // Extract metadata to generate DataKey
+                    var (productName, _) = GameMetadataExtractor.ExtractMetadata(exe);
+                    var dataKey = DataKeyGenerator.GenerateUniqueDataKey(exe, productName, provider);
+                    
                     // Prefer the dragged item's display name for alias when available (.lnk/.url), otherwise fallback to exe filename
-                    string alias = Path.GetFileNameWithoutExtension(exe);
+                    string displayName = Path.GetFileNameWithoutExtension(exe);
                     try
                     {
                         var dragExt = Path.GetExtension(p);
@@ -75,25 +80,53 @@ namespace GameHelper.ConsoleHost.Services
                             dragExt.Equals(".url", StringComparison.OrdinalIgnoreCase))
                         {
                             var candidate = Path.GetFileNameWithoutExtension(p);
-                            if (!string.IsNullOrWhiteSpace(candidate)) alias = candidate;
+                            if (!string.IsNullOrWhiteSpace(candidate)) displayName = candidate;
                         }
                     }
                     catch { }
 
-                    if (map.TryGetValue(key, out var existing))
+                    if (map.TryGetValue(executableName, out var existing))
                     {
-                        // Overwrite alias with latest dragged name per user requirement; ensure enabled flags are true by default
-                        existing.Alias = alias;
+                        // Update existing config - preserve DataKey if it already exists
+                        existing.DataKey = existing.DataKey ?? dataKey;
+                        
+                        // Update ExecutablePath (or add if missing)
+                        // Note: This allows upgrading from name-only matching to path-based L1 matching
+                        var oldPath = existing.ExecutablePath;
+                        existing.ExecutablePath = exe;
+                        
+                        existing.ExecutableName = executableName;
+                        existing.DisplayName = displayName;
                         existing.IsEnabled = true;
-                        if (!existing.HDREnabled) existing.HDREnabled = true;
                         updated++;
-                        Console.WriteLine($"Updated: {key}  Alias={existing.Alias}  Enabled={existing.IsEnabled}  HDR={existing.HDREnabled}");
+                        
+                        // Show path change info if path was different
+                        if (!string.IsNullOrEmpty(oldPath) && !string.Equals(oldPath, exe, StringComparison.OrdinalIgnoreCase))
+                        {
+                            Console.WriteLine($"Updated: {executableName}  DataKey={existing.DataKey}  Path={exe} (changed from {oldPath})  DisplayName={existing.DisplayName}  Enabled={existing.IsEnabled}  HDR={existing.HDREnabled}");
+                        }
+                        else if (string.IsNullOrEmpty(oldPath))
+                        {
+                            Console.WriteLine($"Updated: {executableName}  DataKey={existing.DataKey}  Path={exe} (added)  DisplayName={existing.DisplayName}  Enabled={existing.IsEnabled}  HDR={existing.HDREnabled}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Updated: {executableName}  DataKey={existing.DataKey}  Path={exe}  DisplayName={existing.DisplayName}  Enabled={existing.IsEnabled}  HDR={existing.HDREnabled}");
+                        }
                     }
                     else
                     {
-                        map[key] = new GameConfig { Name = key, Alias = alias, IsEnabled = true, HDREnabled = true };
+                        map[executableName] = new GameConfig
+                        {
+                            DataKey = dataKey,
+                            ExecutablePath = exe, // Store full path for L1 matching
+                            ExecutableName = executableName,
+                            DisplayName = displayName,
+                            IsEnabled = true,
+                            HDREnabled = false
+                        };
                         added++;
-                        Console.WriteLine($"Added:   {key}  Alias={alias}  Enabled=true  HDR=true");
+                        Console.WriteLine($"Added:   {executableName}  DataKey={dataKey}  Path={exe}  DisplayName={displayName}  Enabled=true  HDR=false");
                     }
                 }
                 catch (Exception ex)

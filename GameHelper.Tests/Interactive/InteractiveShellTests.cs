@@ -72,6 +72,7 @@ namespace GameHelper.Tests.Interactive
                 .Enqueue("Configuration")
                 .Enqueue("Add")
                 .Enqueue("celeste.exe")
+                .Enqueue(string.Empty)
                 .Enqueue("Celeste")
                 .Enqueue("启用")
                 .Enqueue("自动开启 HDR")
@@ -432,13 +433,13 @@ namespace GameHelper.Tests.Interactive
             public int StartCalls { get; private set; }
             public int StopCalls { get; private set; }
 
-            public event Action<string>? ProcessStarted
+            public event Action<ProcessEventInfo>? ProcessStarted
             {
                 add { }
                 remove { }
             }
 
-            public event Action<string>? ProcessStopped
+            public event Action<ProcessEventInfo>? ProcessStopped
             {
                 add { }
                 remove { }

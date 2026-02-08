@@ -7,6 +7,7 @@ using GameHelper.ConsoleHost.Models;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 using GameHelper.Infrastructure.Providers;
 
 namespace GameHelper.ConsoleHost.Commands
@@ -15,10 +16,9 @@ namespace GameHelper.ConsoleHost.Commands
     {
         public static void Run(string[] args)
         {
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string dir = Path.Combine(appData, "GameHelper");
-            string csvFile = Path.Combine(dir, "playtime.csv");
-            string jsonFile = Path.Combine(dir, "playtime.json");
+            string dir = AppDataPath.GetGameHelperDirectory();
+            string csvFile = AppDataPath.GetPlaytimeCsvPath();
+            string jsonFile = AppDataPath.GetPlaytimeJsonPath();
 
             string? filterGame = null;
             if (args.Length >= 2 && args[0] == "--game") filterGame = args[1];
@@ -62,7 +62,7 @@ namespace GameHelper.ConsoleHost.Commands
 
         private static void DisplayStats(List<GameItem> games, string? filterGame)
         {
-            // load config to resolve Alias for display (YAML only)
+            // load config to resolve DisplayName for display (YAML only)
             var cfgProvider = new YamlConfigProvider();
             var cfg = new Dictionary<string, GameConfig>(cfgProvider.Load(), StringComparer.OrdinalIgnoreCase);
 
@@ -71,11 +71,14 @@ namespace GameHelper.ConsoleHost.Commands
             var cutoff = now.AddDays(-14);
 
             // project with computed fields
+            // Display priority: DisplayName > DataKey > CSV original value
             var projected = games
                 .Select(g => new
                 {
                     Game = g,
-                    Name = (cfg.TryGetValue(g.GameName, out var gc) && !string.IsNullOrWhiteSpace(gc.Alias)) ? gc.Alias! : g.GameName,
+                    Name = cfg.TryGetValue(g.GameName, out var gc) && !string.IsNullOrWhiteSpace(gc.DisplayName)
+                        ? gc.DisplayName!
+                        : (cfg.TryGetValue(g.GameName, out gc) ? gc.DataKey : g.GameName),
                     TotalMinutes = g.Sessions?.Sum(s => s.DurationMinutes) ?? 0,
                     RecentMinutes = g.Sessions?.Where(s => s.EndTime >= cutoff).Sum(s => s.DurationMinutes) ?? 0,
                     SessionCount = g.Sessions?.Count ?? 0

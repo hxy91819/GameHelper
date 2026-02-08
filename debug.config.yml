@@ -1,17 +1,24 @@
-# Debug configuration for GameHelper
-# Placeholders for quick local testing. Keys should be executable names (with .exe).
-# You can edit this file and run:
-#   dotnet run --project GameHelper.ConsoleHost -- monitor --config ./debug.config.yml
-# Or via your IDE launch configuration.
+# GameHelper 配置文件
+# 
+# processMonitorType: 进程监控方式
+#   - ETW (默认): 低延迟高性能，需要管理员权限
+#   - WMI: 兼容性最好，无需管理员权限，延迟稍高
+#   如果不指定，默认使用 ETW
+#
+# processMonitorType: ETW  # 可省略，默认就是 ETW
 
 games:
-  - name: "Cheat Engine.exe"
-    alias: "Cheat Engine"
-    isEnabled: true
-    hdrEnabled: false
-  - name: "Project_Plague.exe"
-    alias: "明末：渊虚之羽"
-    isEnabled: true
-    hdrEnabled: false
-  - name: "Tales of Arise.exe"
-    alias: "破晓传说"
+- name: Cheat Engine.exe
+  alias: Cheat Engine
+  isEnabled: true
+  hDREnabled: true
+- name: Project_Plague.exe
+  alias: 明末：渊虚之羽
+  isEnabled: true
+  hDREnabled: false
+- name: Tales of Arise.exe
+  alias: 破晓传说
+  isEnabled: true
+  hDREnabled: false
+autoStartInteractiveMonitor: false
+launchOnSystemStartup: false

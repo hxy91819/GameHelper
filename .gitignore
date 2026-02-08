@@ -369,3 +369,6 @@ FodyWeavers.xsd
 .windsurf/*
 .vscode/*
 .vscode/settings.json
+.bmad-core/*
+# BMAD (local only)
+

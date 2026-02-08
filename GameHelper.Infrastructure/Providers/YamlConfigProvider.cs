@@ -1,8 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using YamlDotNet.Core;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -16,17 +20,31 @@ namespace GameHelper.Infrastructure.Providers
     public sealed class YamlConfigProvider : IConfigProvider, IConfigPathProvider, IAppConfigProvider
     {
         private readonly string _configFilePath;
+        private readonly ILogger<YamlConfigProvider> _logger;
 
         public YamlConfigProvider()
-            : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                                 "GameHelper", "config.yml"))
+            : this(ResolveDefaultPath(), NullLogger<YamlConfigProvider>.Instance)
         {
         }
 
-        // For tests
-        public YamlConfigProvider(string configFilePath)
+        public YamlConfigProvider(ILogger<YamlConfigProvider> logger)
+            : this(ResolveDefaultPath(), logger)
         {
+        }
+
+        // For tests / overrides
+        public YamlConfigProvider(string configFilePath)
+            : this(configFilePath, NullLogger<YamlConfigProvider>.Instance)
+        {
+        }
+
+        public YamlConfigProvider(string configFilePath, ILogger<YamlConfigProvider> logger)
+        {
+            if (string.IsNullOrWhiteSpace(configFilePath))
+                throw new ArgumentException("configFilePath required", nameof(configFilePath));
+
             _configFilePath = configFilePath;
+            _logger = logger ?? NullLogger<YamlConfigProvider>.Instance;
         }
 
         public string ConfigPath => _configFilePath;
@@ -39,6 +57,8 @@ namespace GameHelper.Infrastructure.Providers
         private static ISerializer Serializer => new SerializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
+            .WithIndentedSequences()
+            .WithNewLine("\n")
             .Build();
 
         public IReadOnlyDictionary<string, GameConfig> Load()
@@ -47,21 +67,27 @@ namespace GameHelper.Infrastructure.Providers
             var comparer = StringComparer.OrdinalIgnoreCase;
             var result = new Dictionary<string, GameConfig>(comparer);
 
-            if (appConfig.Games != null)
+            if (appConfig.Games == null || appConfig.Games.Count == 0)
             {
-                foreach (var g in appConfig.Games)
+                return result;
+            }
+
+            foreach (var source in appConfig.Games)
+            {
+                if (source is null)
                 {
-                    if (!string.IsNullOrWhiteSpace(g.Name))
-                    {
-                        result[g.Name] = new GameConfig
-                        {
-                            Name = g.Name,
-                            Alias = g.Alias,
-                            IsEnabled = g.IsEnabled,
-                            HDREnabled = g.HDREnabled
-                        };
-                    }
+                    continue;
                 }
+
+                var normalized = NormalizeLoadedConfig(source);
+                var key = DetermineDictionaryKey(normalized);
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    _logger.LogWarning("跳过配置项 {DataKey}：缺少 ExecutableName，暂无法参与进程匹配。", normalized.DataKey);
+                    continue;
+                }
+
+                result[key] = normalized;
             }
 
             return result;
@@ -76,7 +102,11 @@ namespace GameHelper.Infrastructure.Providers
 
                 if (!File.Exists(_configFilePath))
                 {
-                    return new AppConfig { Games = new List<GameConfig>() };
+                    return new AppConfig 
+                    { 
+                        Games = new List<GameConfig>(),
+                        ProcessMonitorType = ProcessMonitorType.ETW // Default to ETW
+                    };
                 }
 
                 var yaml = File.ReadAllText(_configFilePath);
@@ -87,6 +117,8 @@ namespace GameHelper.Infrastructure.Providers
                     var appConfig = Deserializer.Deserialize<AppConfig?>(yaml);
                     if (appConfig != null)
                     {
+                        // If ProcessMonitorType is not specified, default to ETW
+                        appConfig.ProcessMonitorType ??= ProcessMonitorType.ETW;
                         return appConfig;
                     }
                 }
@@ -100,7 +132,7 @@ namespace GameHelper.Infrastructure.Providers
                 return new AppConfig
                 {
                     Games = root?.Games ?? new List<GameConfig>(),
-                    ProcessMonitorType = null // Default to WMI for legacy configs
+                    ProcessMonitorType = ProcessMonitorType.ETW // Default to ETW for all configs
                 };
             }
             catch (YamlException ex)
@@ -114,7 +146,11 @@ namespace GameHelper.Infrastructure.Providers
         {
             // Load existing app config to preserve global settings
             var appConfig = LoadAppConfig();
-            appConfig.Games = new List<GameConfig>(configs.Values);
+            var normalizedGames = configs
+                .Select(kv => NormalizeForSave(kv.Key, kv.Value))
+                .ToList();
+
+            appConfig.Games = normalizedGames;
             SaveAppConfig(appConfig);
         }
 
@@ -130,6 +166,79 @@ namespace GameHelper.Infrastructure.Providers
         private sealed class Root
         {
             public List<GameConfig>? Games { get; set; }
+        }
+
+        private static string ResolveDefaultPath() => AppDataPath.GetConfigPath();
+
+        private GameConfig NormalizeLoadedConfig(GameConfig source)
+        {
+            var dataKey = (source.DataKey ?? string.Empty).Trim();
+            var executableName = (source.ExecutableName ?? source.Name ?? string.Empty).Trim();
+            var executablePath = (source.ExecutablePath ?? string.Empty).Trim();
+            var displayName = (source.DisplayName ?? source.Alias ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(dataKey))
+            {
+                throw new InvalidDataException("配置项缺少必填字段 DataKey，无法完成加载。");
+            }
+
+            if (string.IsNullOrWhiteSpace(executablePath) && !string.IsNullOrWhiteSpace(executableName))
+            {
+                _logger.LogWarning("配置项 {DataKey} 未提供 ExecutablePath，将仅使用 ExecutableName 进行匹配。", dataKey);
+            }
+
+            return new GameConfig
+            {
+                DataKey = dataKey,
+                ExecutableName = string.IsNullOrWhiteSpace(executableName) ? null : executableName,
+                ExecutablePath = string.IsNullOrWhiteSpace(executablePath) ? null : executablePath,
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
+                IsEnabled = source.IsEnabled,
+                HDREnabled = source.HDREnabled
+            };
+        }
+
+        private GameConfig NormalizeForSave(string key, GameConfig source)
+        {
+            var executableName = (source.ExecutableName ?? source.Name ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(executableName))
+            {
+                executableName = (key ?? string.Empty).Trim();
+            }
+
+            var dataKey = (source.DataKey ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(dataKey))
+            {
+                throw new InvalidDataException($"无法保存缺少 DataKey 的配置项（字典键：{key}）。");
+            }
+
+            var executablePath = (source.ExecutablePath ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(executablePath) && !string.IsNullOrWhiteSpace(executableName))
+            {
+                _logger.LogWarning("配置项 {DataKey} 在保存时缺少 ExecutablePath，将维持仅 ExecutableName 状态。", dataKey);
+            }
+
+            var displayName = (source.DisplayName ?? source.Alias ?? string.Empty).Trim();
+
+            return new GameConfig
+            {
+                DataKey = dataKey,
+                ExecutableName = string.IsNullOrWhiteSpace(executableName) ? null : executableName,
+                ExecutablePath = string.IsNullOrWhiteSpace(executablePath) ? null : executablePath,
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
+                IsEnabled = source.IsEnabled,
+                HDREnabled = source.HDREnabled
+            };
+        }
+
+        private static string? DetermineDictionaryKey(GameConfig config)
+        {
+            if (!string.IsNullOrWhiteSpace(config.ExecutableName))
+            {
+                return config.ExecutableName;
+            }
+
+            return config.DataKey;
         }
     }
 }

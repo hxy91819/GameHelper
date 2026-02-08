@@ -20,6 +20,9 @@
 - Local testing assumes Windows for ETW coverage, but most unit tests should run cross-platform.
 - Publishing instructions use `dotnet publish` targeting `win-x64`.
 
+## Communication
+- 默认使用中文回复用户的请求，除非用户特别指定其它语言。
+
 ## Coding Conventions
 - Follow the existing C# style in the repo: file-scoped namespaces, explicit access modifiers, and expression-bodied members when they improve clarity.
 - Keep types small and purposeful—prefer extracting helpers over large monolithic classes or methods.
@@ -5391,4 +5394,6 @@ Choose a number (0-8) or 9 to proceed:
 ```
 
 <!-- END: BMAD-AGENTS -->
+
+
 

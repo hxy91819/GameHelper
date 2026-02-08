@@ -26,13 +26,13 @@
 # 体验全新互动命令行（无命令时默认进入）
 dotnet run --project .\GameHelper.ConsoleHost --
 
-# 启动监控（默认使用 WMI）
+# 启动监控（默认使用 ETW，需要管理员权限）
 dotnet run --project .\GameHelper.ConsoleHost -- monitor [--config <path>] [--debug]
 
-# 使用 ETW 监控（需要管理员权限，更低延迟）
+# 显式使用 ETW 监控（需要管理员权限，更低延迟）
 dotnet run --project .\GameHelper.ConsoleHost -- monitor --monitor-type ETW [--config <path>] [--debug]
 
-# 使用 WMI 监控（兼容性最好）
+# 使用 WMI 监控（兼容性最好，无需管理员权限）
 dotnet run --project .\GameHelper.ConsoleHost -- monitor --monitor-type WMI [--config <path>] [--debug]
 
 # Dry-run 演练（跳过实时监控模块，便于跨平台验证）
@@ -96,7 +96,7 @@ $pub = ".\GameHelper.ConsoleHost\bin\Release\net8.0-windows\win-x64\publish"
 路径：`%AppData%/GameHelper/config.yml`
 ```yaml
 # 全局设置
-processMonitorType: ETW  # 可选: WMI (默认) 或 ETW
+processMonitorType: ETW  # 可选: ETW (默认，需管理员权限) 或 WMI (兼容性最好)
 
 # 游戏配置
 games:
@@ -107,7 +107,7 @@ games:
 ```
 
 **配置说明**：
-- `processMonitorType`: 进程监控方式，可选 `WMI`（默认）或 `ETW`
+- `processMonitorType`: 进程监控方式，可选 `ETW`（默认，需管理员权限）或 `WMI`（兼容性最好）
 - `name`: 匹配进程名（大小写不敏感）
 - `alias`: 显示名称
 - `isEnabled`: 是否启用该游戏的所有自动化功能
@@ -156,8 +156,9 @@ Usage:
 
 Global options:
   --config, -c       Override path to config.yml
-  --monitor-type     Process monitor type: WMI (default) or ETW
+  --monitor-type     Process monitor type: ETW (default) or WMI
                      ETW provides lower latency but requires admin privileges
+                     WMI works without admin privileges but has higher latency
   --monitor-dry-run  Dry-run monitor flow without starting background services
   --debug, -v        Enable verbose debug logging
   --interactive      强制进入互动模式（等价于 interactive 命令）
@@ -167,7 +168,20 @@ Global options:
 
 1. **命令行参数** `--monitor-type` （最高优先级）
 2. **配置文件** `processMonitorType` 设置
-3. **默认值** WMI（最低优先级）
+3. **默认值** ETW（最低优先级，需管理员权限）
+
+**注意**：如果 ETW 初始化失败（如非管理员权限），系统会自动降级到 WMI 监控。
+
+### 从旧版本迁移
+
+**如果你从旧版本（默认 WMI）升级到新版本（默认 ETW）**：
+
+1. **无需修改配置**：如果你有管理员权限，新版本会自动使用 ETW，性能更好
+2. **继续使用 WMI**：如果你希望保持使用 WMI（如无管理员权限），在配置文件中添加：
+   ```yaml
+   processMonitorType: WMI
+   ```
+3. **自动降级**：如果你没有管理员权限且未配置 WMI，程序会自动降级到 WMI 并记录警告日志
 
 ## 故障排除
 
@@ -183,22 +197,25 @@ Global options:
    - **权限不足**: ETW 需要管理员权限，请以管理员身份运行
    - **自动降级**: 如果 ETW 失败，程序会自动切换到 WMI
    - **防火墙/安全软件**: 某些安全软件可能阻止 ETW 访问
+   - **非管理员环境**: 如果无法获得管理员权限，可在配置文件中设置 `processMonitorType: WMI`
 
 3. **配置文件问题**
    - 使用 `validate-config` 命令检查配置
    - 确保 YAML 格式正确
-   - 检查 `processMonitorType` 值是否为 `WMI` 或 `ETW`
+   - 检查 `processMonitorType` 值是否为 `ETW` 或 `WMI`
 
 4. **权限问题**
    - 确保有写入配置目录的权限
    - 检查 CSV 文件的写入权限
 
-### ETW 监控最佳实践
+### 监控方式最佳实践
 
-- **开发/测试**: 使用 WMI 监控，无需管理员权限
-- **生产环境**: 使用 ETW 监控获得最佳性能
+- **默认推荐**: 使用 ETW 监控（默认），获得最佳性能和最低延迟
+- **管理员权限**: ETW 需要管理员权限，建议以管理员身份运行
+- **非管理员环境**: 如无法获得管理员权限，在配置文件中设置 `processMonitorType: WMI`
+- **开发/测试**: 可使用 WMI 监控，无需管理员权限
 - **服务器部署**: 配置为 Windows 服务并以管理员权限运行
-- **故障恢复**: 利用自动降级机制确保服务可用性
+- **故障恢复**: 利用自动降级机制确保服务可用性（ETW 失败时自动切换到 WMI）
 
 ## 性能优化
 
@@ -219,12 +236,19 @@ Global options:
 ### 配置优化
 
 ```yaml
-# 高性能配置
-processMonitorType: ETW
+# 高性能配置（默认）
+processMonitorType: ETW  # 默认值，可省略
 games:
   - name: "game.exe"
     isEnabled: true    # 只监控需要的游戏
     hdrEnabled: false  # 暂时禁用未实现的功能
+
+# 兼容性配置（无管理员权限）
+processMonitorType: WMI
+games:
+  - name: "game.exe"
+    isEnabled: true
+    hdrEnabled: false
 ```
 
 ## 开发计划
@@ -327,7 +351,8 @@ ProcessMonitorFactory
 ---
 
 **注意**：
-- ETW 监控需要管理员权限，WMI 监控可在普通用户权限下运行
+- **默认使用 ETW 监控**，需要管理员权限才能正常运行
+- 如果 ETW 初始化失败，程序会自动降级到 WMI 监控
+- 如无法获得管理员权限，建议在配置文件中显式设置 `processMonitorType: WMI`
 - HDR 切换当前未实现（NoOp），仅记录会话与统计数据
 - 程序不会收集或上传任何个人数据
-- 建议在生产环境中使用 ETW 监控以获得最佳性能

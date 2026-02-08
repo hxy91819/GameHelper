@@ -1,19 +1,33 @@
+using System;
+using System.ComponentModel.DataAnnotations;
+
 namespace GameHelper.Core.Models
 {
     /// <summary>
-    /// Represents a single game's automation settings keyed by executable name.
+    /// Represents a single game's automation settings and metadata.
     /// </summary>
     public class GameConfig
     {
         /// <summary>
-        /// Executable name (e.g., "game.exe"). Used as the key in configuration.
+        /// Uniquely identifies this game across configuration and playtime data.
         /// </summary>
-        public string Name { get; set; } = string.Empty;
+        [Required(AllowEmptyStrings = false)]
+        public string DataKey { get; set; } = string.Empty;
 
         /// <summary>
-        /// Optional display alias. Purely cosmetic and not used for matching.
+        /// Optional absolute executable path for precise matching (L1).
         /// </summary>
-        public string? Alias { get; set; }
+        public string? ExecutablePath { get; set; }
+
+        /// <summary>
+        /// Optional executable name (e.g., "game.exe") used for fallback matching (L2).
+        /// </summary>
+        public string? ExecutableName { get; set; }
+
+        /// <summary>
+        /// Optional display-friendly name for UI surfaces.
+        /// </summary>
+        public string? DisplayName { get; set; }
 
         /// <summary>
         /// Whether this game participates in automation (monitoring/HDR/playtime).
@@ -23,6 +37,26 @@ namespace GameHelper.Core.Models
         /// <summary>
         /// Desired HDR state while this game is active. Current HDR controller may be a NoOp.
         /// </summary>
-        public bool HDREnabled { get; set; } = true;
+        public bool HDREnabled { get; set; } = false;
+
+        /// <summary>
+        /// Legacy accessor retained for backward compatibility with older configuration serializers.
+        /// Maps to <see cref="ExecutableName"/>.
+        /// </summary>
+        public string Name
+        {
+            get => ExecutableName ?? string.Empty;
+            set => ExecutableName = value;
+        }
+
+        /// <summary>
+        /// Legacy accessor retained for backward compatibility with older configuration serializers.
+        /// Maps to <see cref="DisplayName"/>.
+        /// </summary>
+        public string? Alias
+        {
+            get => DisplayName;
+            set => DisplayName = value;
+        }
     }
 }
