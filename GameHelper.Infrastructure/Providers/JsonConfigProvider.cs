@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 
 namespace GameHelper.Infrastructure.Providers
 {
@@ -17,8 +18,7 @@ namespace GameHelper.Infrastructure.Providers
         private readonly string _configFilePath;
 
         public JsonConfigProvider()
-            : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                                 "GameHelper", "config.json"))
+            : this(Path.Combine(AppDataPath.GetGameHelperDirectory(), "config.json"))
         {
         }
 
@@ -57,19 +57,17 @@ namespace GameHelper.Infrastructure.Providers
                         {
                             foreach (var g in gameConfigs)
                             {
-                                if (!string.IsNullOrWhiteSpace(g.Name))
-                                {
-                                    result[g.Name] = new GameConfig
-                                    {
-                                        Name = g.Name,
-                                        Alias = g.Alias,
-                                        IsEnabled = g.IsEnabled,
-                                        HDREnabled = g.HDREnabled
-                                    };
-                                }
+                                var normalized = NormalizeLoadedConfig(g);
+                                var key = DetermineDictionaryKey(normalized);
+                                if (string.IsNullOrWhiteSpace(key)) continue;
+                                result[key] = normalized;
                             }
                             return result;
                         }
+                    }
+                    catch (InvalidDataException)
+                    {
+                        throw;
                     }
                     catch
                     {
@@ -86,7 +84,16 @@ namespace GameHelper.Infrastructure.Providers
                             {
                                 if (!string.IsNullOrWhiteSpace(n))
                                 {
-                                    result[n] = new GameConfig { Name = n, Alias = null, IsEnabled = true, HDREnabled = true };
+                                    var trimmed = n.Trim();
+                                    if (trimmed.Length == 0) continue;
+                                    result[trimmed] = new GameConfig
+                                    {
+                                        DataKey = trimmed,
+                                        ExecutableName = trimmed,
+                                        DisplayName = null,
+                                        IsEnabled = true,
+                                        HDREnabled = false
+                                    };
                                 }
                             }
                         }
@@ -99,9 +106,13 @@ namespace GameHelper.Infrastructure.Providers
 
                 return result;
             }
+            catch (InvalidDataException)
+            {
+                throw;
+            }
             catch
             {
-                // On any error, return empty to avoid crashing caller
+                // On other errors, return empty to avoid crashing caller
                 return new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
             }
         }
@@ -113,21 +124,80 @@ namespace GameHelper.Infrastructure.Providers
 
             var payload = new Dictionary<string, object>
             {
-                ["games"] = configs.Values
-                    .Where(v => !string.IsNullOrWhiteSpace(v.Name))
-                    .OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
-                    .Select(v => new GameConfig
-                    {
-                        Name = v.Name,
-                        Alias = string.IsNullOrWhiteSpace(v.Alias) ? null : v.Alias,
-                        IsEnabled = v.IsEnabled,
-                        HDREnabled = v.HDREnabled
-                    })
+                ["games"] = configs
+                    .Select(kv => NormalizeForSave(kv.Key, kv.Value))
+                    .Where(cfg => cfg.HasValue)
+                    .Select(cfg => cfg!.Value)
+                    .OrderBy(cfg => cfg.ExecutableKey, StringComparer.OrdinalIgnoreCase)
+                    .Select(cfg => cfg.Game)
                     .ToArray()
             };
 
             var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_configFilePath, json);
+        }
+
+        private static GameConfig NormalizeLoadedConfig(GameConfig source)
+        {
+            var dataKey = (source.DataKey ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(dataKey))
+            {
+                throw new InvalidDataException("配置项缺少必填字段 DataKey，无法完成加载。");
+            }
+
+            var executableName = (source.ExecutableName ?? source.Name ?? string.Empty).Trim();
+            var executablePath = (source.ExecutablePath ?? string.Empty).Trim();
+            var displayName = (source.DisplayName ?? source.Alias ?? string.Empty).Trim();
+
+            return new GameConfig
+            {
+                DataKey = dataKey,
+                ExecutableName = executableName.Length == 0 ? null : executableName,
+                ExecutablePath = executablePath.Length == 0 ? null : executablePath,
+                DisplayName = displayName.Length == 0 ? null : displayName,
+                IsEnabled = source.IsEnabled,
+                HDREnabled = source.HDREnabled
+            };
+        }
+
+        private static (string ExecutableKey, GameConfig Game)? NormalizeForSave(string key, GameConfig source)
+        {
+            var executableName = (source.ExecutableName ?? source.Name ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(executableName))
+            {
+                executableName = (key ?? string.Empty).Trim();
+            }
+
+            var dataKey = (source.DataKey ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(dataKey))
+            {
+                throw new InvalidDataException($"无法保存缺少 DataKey 的配置项（字典键：{key}）。");
+            }
+
+            var executablePath = (source.ExecutablePath ?? string.Empty).Trim();
+            var displayName = (source.DisplayName ?? source.Alias ?? string.Empty).Trim();
+
+            var normalized = new GameConfig
+            {
+                DataKey = dataKey,
+                ExecutableName = executableName.Length == 0 ? null : executableName,
+                ExecutablePath = executablePath.Length == 0 ? null : executablePath,
+                DisplayName = displayName.Length == 0 ? null : displayName,
+                IsEnabled = source.IsEnabled,
+                HDREnabled = source.HDREnabled
+            };
+
+            return (executableName.Length == 0 ? dataKey : executableName, normalized);
+        }
+
+        private static string? DetermineDictionaryKey(GameConfig config)
+        {
+            if (!string.IsNullOrWhiteSpace(config.ExecutableName))
+            {
+                return config.ExecutableName;
+            }
+
+            return config.DataKey;
         }
     }
 }

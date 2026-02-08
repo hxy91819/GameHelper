@@ -34,20 +34,20 @@ namespace GameHelper.Tests
             Process? testProcess = null;
 
             using var monitor = ProcessMonitorFactory.Create(ProcessMonitorType.WMI);
-            monitor.ProcessStarted += processName =>
+            monitor.ProcessStarted += processInfo =>
             {
-                if (IsTargetProcessEvent(processName, testProcess))
+                if (IsTargetProcessEvent(processInfo.ExecutableName, testProcess))
                 {
-                    _output.WriteLine($"WMI: Process started: {processName}");
+                    _output.WriteLine($"WMI: Process started: {processInfo.ExecutableName}");
                     processStarted = true;
                     startEvent.Set();
                 }
             };
-            monitor.ProcessStopped += processName =>
+            monitor.ProcessStopped += processInfo =>
             {
-                if (IsTargetProcessEvent(processName, testProcess))
+                if (IsTargetProcessEvent(processInfo.ExecutableName, testProcess))
                 {
-                    _output.WriteLine($"WMI: Process stopped: {processName}");
+                    _output.WriteLine($"WMI: Process stopped: {processInfo.ExecutableName}");
                     processStopped = true;
                     stopEvent.Set();
                 }
@@ -106,20 +106,20 @@ namespace GameHelper.Tests
             Process? testProcess = null;
 
             using var monitor = ProcessMonitorFactory.Create(ProcessMonitorType.ETW);
-            monitor.ProcessStarted += processName =>
+            monitor.ProcessStarted += processInfo =>
             {
-                if (IsTargetProcessEvent(processName, testProcess))
+                if (IsTargetProcessEvent(processInfo.ExecutableName, testProcess))
                 {
-                    _output.WriteLine($"ETW: Process started: {processName}");
+                    _output.WriteLine($"ETW: Process started: {processInfo.ExecutableName}");
                     processStarted = true;
                     startEvent.Set();
                 }
             };
-            monitor.ProcessStopped += processName =>
+            monitor.ProcessStopped += processInfo =>
             {
-                if (IsTargetProcessEvent(processName, testProcess))
+                if (IsTargetProcessEvent(processInfo.ExecutableName, testProcess))
                 {
-                    _output.WriteLine($"ETW: Process stopped: {processName}");
+                    _output.WriteLine($"ETW: Process stopped: {processInfo.ExecutableName}");
                     processStopped = true;
                     stopEvent.Set();
                 }

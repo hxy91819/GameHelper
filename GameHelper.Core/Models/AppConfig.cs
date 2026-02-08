@@ -13,7 +13,9 @@ namespace GameHelper.Core.Models
         public List<GameConfig>? Games { get; set; }
 
         /// <summary>
-        /// Type of process monitor to use. If not specified, defaults to WMI for backward compatibility.
+        /// Type of process monitor to use. If not specified, defaults to ETW (Event Tracing for Windows).
+        /// ETW provides better performance and lower latency but requires administrator privileges.
+        /// Users can explicitly set this to WMI for backward compatibility or non-admin environments.
         /// </summary>
         public ProcessMonitorType? ProcessMonitorType { get; set; }
 

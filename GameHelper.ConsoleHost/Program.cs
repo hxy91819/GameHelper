@@ -58,8 +58,8 @@ var host = Host.CreateDefaultBuilder(args)
             var appConfigProvider = sp.GetRequiredService<IAppConfigProvider>();
             var appConfig = appConfigProvider.LoadAppConfig();
 
-            // Determine monitor type: command line > config file > default (WMI)
-            ProcessMonitorType monitorType = ProcessMonitorType.WMI; // default
+            // Determine monitor type: command line > config file > default (ETW)
+            ProcessMonitorType monitorType = ProcessMonitorType.ETW; // default
 
             if (!string.IsNullOrWhiteSpace(parsedArgs.MonitorType))
             {
@@ -70,7 +70,7 @@ var host = Host.CreateDefaultBuilder(args)
                 }
                 else
                 {
-                    logger.LogWarning("Invalid monitor type '{MonitorType}' specified in command line, using default WMI", parsedArgs.MonitorType);
+                    logger.LogWarning("Invalid monitor type '{MonitorType}' specified in command line, using default ETW", parsedArgs.MonitorType);
                 }
             }
             else if (appConfig.ProcessMonitorType.HasValue)
@@ -102,7 +102,14 @@ var host = Host.CreateDefaultBuilder(args)
                 return ProcessMonitorFactory.CreateNoOp();
             }
         });
-        services.AddSingleton<IHdrController, NoOpHdrController>();
+        if (OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<IHdrController, WindowsHdrController>();
+        }
+        else
+        {
+            services.AddSingleton<IHdrController, NoOpHdrController>();
+        }
         services.AddSingleton<IPlayTimeService, CsvBackedPlayTimeService>();
         services.AddSingleton<IAutoStartManager>(sp =>
         {
@@ -190,6 +197,11 @@ switch (command)
 
     case "validate-config":
         ValidateConfigCommand.Run();
+        break;
+
+    case "migrate":
+    case "migrate-config":
+        MigrateCommand.Run(parsedArgs.EffectiveArgs.Skip(1).ToArray());
         break;
 
     case "interactive":

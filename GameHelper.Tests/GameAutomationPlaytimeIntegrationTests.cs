@@ -16,13 +16,13 @@ namespace GameHelper.Tests
     {
         private sealed class FakeMonitor : IProcessMonitor
         {
-            public event Action<string>? ProcessStarted;
-            public event Action<string>? ProcessStopped;
+            public event Action<ProcessEventInfo>? ProcessStarted;
+            public event Action<ProcessEventInfo>? ProcessStopped;
             public void Start() { }
             public void Stop() { }
             public void Dispose() { }
-            public void RaiseStart(string name) => ProcessStarted?.Invoke(name);
-            public void RaiseStop(string name) => ProcessStopped?.Invoke(name);
+            public void RaiseStart(ProcessEventInfo info) => ProcessStarted?.Invoke(info);
+            public void RaiseStop(ProcessEventInfo info) => ProcessStopped?.Invoke(info);
         }
 
         private sealed class FakeHdr : IHdrController
@@ -57,14 +57,14 @@ namespace GameHelper.Tests
             var hdr = new FakeHdr();
             var cfg = new FakeConfig(new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
             {
-                ["demo.exe"] = new GameConfig { Name = "demo.exe", IsEnabled = true, HDREnabled = true }
+                ["demo.exe"] = new GameConfig { DataKey = "demo.exe", ExecutableName = "demo.exe", IsEnabled = true, HDREnabled = true }
             });
             var play = new FileBackedPlayTimeService(_dir);
             var svc = new GameAutomationService(monitor, cfg, hdr, play, NullLogger<GameAutomationService>.Instance);
 
             svc.Start();
-            monitor.RaiseStart("DEMO.EXE"); // case-insensitive
-            monitor.RaiseStop("demo.exe");
+            monitor.RaiseStart(new ProcessEventInfo("DEMO.EXE", null)); // case-insensitive
+            monitor.RaiseStop(new ProcessEventInfo("demo.exe", null));
             svc.Stop();
 
             Assert.True(File.Exists(_file));
@@ -82,13 +82,13 @@ namespace GameHelper.Tests
             var hdr = new FakeHdr();
             var cfg = new FakeConfig(new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
             {
-                ["flush.exe"] = new GameConfig { Name = "flush.exe", IsEnabled = true, HDREnabled = true }
+                ["flush.exe"] = new GameConfig { DataKey = "flush.exe", ExecutableName = "flush.exe", IsEnabled = true, HDREnabled = true }
             });
             var play = new FileBackedPlayTimeService(_dir);
             var svc = new GameAutomationService(monitor, cfg, hdr, play, NullLogger<GameAutomationService>.Instance);
 
             svc.Start();
-            monitor.RaiseStart("flush.exe");
+            monitor.RaiseStart(new ProcessEventInfo("flush.exe", null));
             // Do NOT raise stop; rely on GameAutomationService.Stop() to flush
             svc.Stop();
 

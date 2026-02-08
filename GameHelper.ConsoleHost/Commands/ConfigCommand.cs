@@ -64,16 +64,23 @@ namespace GameHelper.ConsoleHost.Commands
                 return;
             }
 
-            var name = args[1];
-            if (string.IsNullOrWhiteSpace(name))
+            var executableName = args[1];
+            if (string.IsNullOrWhiteSpace(executableName))
             {
                 Console.WriteLine("Game name cannot be empty.");
                 return;
             }
 
-            map[name] = new GameConfig { Name = name, IsEnabled = true, HDREnabled = true };
+            var dataKey = executableName;
+            map[executableName] = new GameConfig
+            {
+                DataKey = dataKey,
+                ExecutableName = executableName,
+                IsEnabled = true,
+                HDREnabled = false
+            };
             provider.Save(map);
-            Console.WriteLine($"Added {name}.");
+            Console.WriteLine($"Added {executableName}.");
         }
 
         private static void RemoveGame(string[] args, Dictionary<string, GameConfig> map, IConfigProvider provider)
