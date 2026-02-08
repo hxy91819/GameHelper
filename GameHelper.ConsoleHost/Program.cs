@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using GameHelper.ConsoleHost;
+using GameHelper.ConsoleHost.Api;
 using GameHelper.ConsoleHost.Commands;
 using GameHelper.ConsoleHost.Interactive;
 using GameHelper.ConsoleHost.Services;
@@ -167,6 +168,25 @@ catch (Exception ex)
     Environment.Exit(1);
 }
 
+// Start embedded web server if requested
+WebServerHost? webServer = null;
+if (parsedArgs.EnableWebServer)
+{
+    try
+    {
+        var webLogger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("WebServer");
+        webServer = new WebServerHost(host.Services, parsedArgs.WebServerPort, webLogger);
+        await webServer.StartAsync();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Failed to start web server: {ex.Message}");
+    }
+}
+
+try
+{
+
 // Execute the appropriate command
 var interactiveMode = parsedArgs.UseInteractiveShell || parsedArgs.EffectiveArgs.Length == 0;
 if (interactiveMode)
@@ -212,4 +232,11 @@ switch (command)
     default:
         CommandHelpers.PrintUsage();
         break;
+}
+
+}
+finally
+{
+    if (webServer != null)
+        await webServer.DisposeAsync();
 }

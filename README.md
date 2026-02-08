@@ -58,6 +58,43 @@ dotnet run --project .\GameHelper.ConsoleHost -- convert-config
 - 查看两周内的游戏时长统计，自动汇总总时长与会话次数。
 - 一键触发配置转换与校验工具，结果将以高亮表格方式呈现。
 
+### Web UI 管理界面
+
+GameHelper 内置了一个 Web 管理界面，可通过浏览器查看游戏统计和管理配置。
+
+```powershell
+# 启动时同时开启 Web 服务（默认端口 5123）
+dotnet run --project .\GameHelper.ConsoleHost -- --web
+
+# 指定端口
+dotnet run --project .\GameHelper.ConsoleHost -- --web --port 8080
+
+# 搭配其他选项使用
+dotnet run --project .\GameHelper.ConsoleHost -- --web --monitor-dry-run --debug
+```
+
+启动后在浏览器访问 `http://127.0.0.1:5123`（生产模式）或 `http://localhost:3000`（开发模式）。
+
+Web 界面提供以下功能页面：
+- **Dashboard**: 统计概览、最近游玩时间柱状图
+- **Game Library**: 游戏配置 CRUD（添加、编辑、删除、开关监控/HDR）
+- **Statistics**: 游戏时长排行、每日趋势图、单游戏详情
+- **Settings**: 全局设置（监控方式、自启动等）
+
+#### 前端开发模式
+
+```powershell
+# 1. 启动后端 API
+dotnet run --project .\GameHelper.ConsoleHost -- --web --monitor-dry-run
+
+# 2. 在另一个终端启动前端开发服务器
+cd GameHelper.Web
+npm install
+npm run dev
+```
+
+前端开发服务器默认运行在 `http://localhost:3000`，通过环境变量 `NEXT_PUBLIC_API_URL` 连接后端 API（默认 `http://localhost:5123`）。
+
 ### 发布自包含可执行
 ```powershell
 dotnet clean .\GameHelper.ConsoleHost -c Release
@@ -162,6 +199,8 @@ Global options:
   --monitor-dry-run  Dry-run monitor flow without starting background services
   --debug, -v        Enable verbose debug logging
   --interactive      强制进入互动模式（等价于 interactive 命令）
+  --web              启动内嵌 Web 管理界面（默认端口 5123）
+  --port <number>    指定 Web 服务端口（默认 5123）
 ```
 
 ### 监控类型选择优先级
@@ -183,74 +222,6 @@ Global options:
    ```
 3. **自动降级**：如果你没有管理员权限且未配置 WMI，程序会自动降级到 WMI 并记录警告日志
 
-## 故障排除
-
-### 常见问题
-
-1. **进程检测不到**
-   - 检查游戏名称是否正确配置
-   - 确认游戏进程确实在运行
-   - 查看调试日志 `--debug`
-   - 尝试切换监控方式（WMI ↔ ETW）
-
-2. **ETW 监控问题**
-   - **权限不足**: ETW 需要管理员权限，请以管理员身份运行
-   - **自动降级**: 如果 ETW 失败，程序会自动切换到 WMI
-   - **防火墙/安全软件**: 某些安全软件可能阻止 ETW 访问
-   - **非管理员环境**: 如果无法获得管理员权限，可在配置文件中设置 `processMonitorType: WMI`
-
-3. **配置文件问题**
-   - 使用 `validate-config` 命令检查配置
-   - 确保 YAML 格式正确
-   - 检查 `processMonitorType` 值是否为 `ETW` 或 `WMI`
-
-4. **权限问题**
-   - 确保有写入配置目录的权限
-   - 检查 CSV 文件的写入权限
-
-### 监控方式最佳实践
-
-- **默认推荐**: 使用 ETW 监控（默认），获得最佳性能和最低延迟
-- **管理员权限**: ETW 需要管理员权限，建议以管理员身份运行
-- **非管理员环境**: 如无法获得管理员权限，在配置文件中设置 `processMonitorType: WMI`
-- **开发/测试**: 可使用 WMI 监控，无需管理员权限
-- **服务器部署**: 配置为 Windows 服务并以管理员权限运行
-- **故障恢复**: 利用自动降级机制确保服务可用性（ETW 失败时自动切换到 WMI）
-
-## 性能优化
-
-### 监控方式选择建议
-
-**使用 ETW 的场景**:
-- 需要快速响应游戏启动（< 1秒）
-- 系统资源充足
-- 可以获得管理员权限
-- 对延迟敏感的自动化场景
-
-**使用 WMI 的场景**:
-- 无法获得管理员权限
-- 系统兼容性要求高
-- 对延迟不敏感（1-3秒可接受）
-- 稳定性优先的生产环境
-
-### 配置优化
-
-```yaml
-# 高性能配置（默认）
-processMonitorType: ETW  # 默认值，可省略
-games:
-  - name: "game.exe"
-    isEnabled: true    # 只监控需要的游戏
-    hdrEnabled: false  # 暂时禁用未实现的功能
-
-# 兼容性配置（无管理员权限）
-processMonitorType: WMI
-games:
-  - name: "game.exe"
-    isEnabled: true
-    hdrEnabled: false
-```
-
 ## 开发计划
 
 ### 核心自动化与监控
@@ -268,7 +239,7 @@ games:
 ### 游戏库管理与发现
 - [x] 拖动图标到程序上自动添加
   - [x] 拖动时自动以快捷方式名替换 alias
-- [x] 支持 Steam URL：steam://rungameid/<appid>
+- [ ] 支持 Steam URL：steam://rungameid/<appid>
 - [ ] 自动扫描游戏（合并原重复项）
   - [ ] 支持多平台及“学习版”来源
 
@@ -307,7 +278,8 @@ games:
 
 - `GameHelper.Core`: 核心业务逻辑和抽象接口
 - `GameHelper.Infrastructure`: 基础设施实现（WMI、ETW、文件操作等）
-- `GameHelper.ConsoleHost`: 控制台应用程序入口
+- `GameHelper.ConsoleHost`: 控制台应用程序入口（含 ASP.NET Core Minimal API）
+- `GameHelper.Web`: Web 前端（Next.js + TypeScript + Tailwind CSS + shadcn/ui）
 - `GameHelper.Tests`: 单元测试和集成测试
 
 ### 进程监控架构
@@ -333,6 +305,11 @@ ProcessMonitorFactory
 - **YamlDotNet**: YAML 配置文件解析
 - **xUnit**: 单元测试框架
 - **Microsoft.Extensions.Hosting**: 后台服务框架
+- **ASP.NET Core Minimal API**: Web API 端点
+- **Next.js 16**: Web 前端框架（App Router + TypeScript）
+- **Tailwind CSS + shadcn/ui**: UI 组件库
+- **Recharts**: 数据可视化图表
+- **SWR**: 数据请求与缓存
 
 ## 许可证
 

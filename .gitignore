@@ -370,3 +370,8 @@ FodyWeavers.xsd
 .vscode/*
 .bmad-core/*
 # BMAD (local only)
+
+
+.codex
+.windsurf
+.agent
