@@ -366,12 +366,14 @@ FodyWeavers.xsd
 .codebuddy/*
 .gemini/*
 .github/*
+!.github/workflows/
+!.github/workflows/*.yml
 # .windsurf/*
 .vscode/*
 .bmad-core/*
 # BMAD (local only)
 
 
-.codex
-.windsurf
-.agent
+.codex/
+.windsurf/
+.agent/

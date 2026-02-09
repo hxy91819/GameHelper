@@ -10,22 +10,16 @@ namespace GameHelper.ConsoleHost
     public class Worker : BackgroundService
     {
         private readonly ILogger<Worker> _logger;
-        private readonly IProcessMonitor _monitor;
-        private readonly IHdrController _hdr;
-        private readonly IGameAutomationService _automation;
+        private readonly IMonitorControlService _monitorControlService;
         private readonly IConfigProvider _configProvider;
 
         public Worker(
             ILogger<Worker> logger,
-            IProcessMonitor monitor,
-            IHdrController hdr,
-            IGameAutomationService automation,
+            IMonitorControlService monitorControlService,
             IConfigProvider configProvider)
         {
             _logger = logger;
-            _monitor = monitor;
-            _hdr = hdr;
-            _automation = automation;
+            _monitorControlService = monitorControlService;
             _configProvider = configProvider;
         }
 
@@ -36,13 +30,11 @@ namespace GameHelper.ConsoleHost
             // Detect old format configuration and warn user
             DetectOldFormatConfiguration();
 
-            _automation.Start();
-            _monitor.Start();
+            _monitorControlService.Start();
 
             stoppingToken.Register(() =>
             {
-                _monitor.Stop();
-                _automation.Stop();
+                _monitorControlService.Stop();
                 _logger.LogInformation("GameHelper ConsoleHost stopping");
             });
 
