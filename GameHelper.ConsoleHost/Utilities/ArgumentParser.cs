@@ -11,8 +11,6 @@ namespace GameHelper.ConsoleHost.Utilities
         public string? MonitorType { get; set; }
         public bool MonitorDryRun { get; set; }
         public bool UseInteractiveShell { get; set; }
-        public bool EnableWebServer { get; set; }
-        public int WebServerPort { get; set; } = 5123;
         public string[] EffectiveArgs { get; set; } = Array.Empty<string>();
     }
 
@@ -95,33 +93,6 @@ namespace GameHelper.ConsoleHost.Utilities
                     {
                         result.UseInteractiveShell = true;
                         list.RemoveAt(iidx);
-                    }
-
-                    // Handle --web (boolean flag)
-                    int widx = list.FindIndex(s =>
-                        string.Equals(s, "--web", StringComparison.OrdinalIgnoreCase));
-                    if (widx >= 0)
-                    {
-                        result.EnableWebServer = true;
-                        list.RemoveAt(widx);
-                    }
-
-                    // Handle --port <number>
-                    int pidx = list.FindIndex(s =>
-                        string.Equals(s, "--port", StringComparison.OrdinalIgnoreCase));
-                    if (pidx >= 0)
-                    {
-                        if (pidx + 1 < list.Count && int.TryParse(list[pidx + 1], out var port))
-                        {
-                            result.WebServerPort = port;
-                            list.RemoveAt(pidx + 1);
-                            list.RemoveAt(pidx);
-                        }
-                        else
-                        {
-                            Console.WriteLine("Missing or invalid port after --port. Using default 5123.");
-                            list.RemoveAt(pidx);
-                        }
                     }
 
                     result.EffectiveArgs = list.ToArray();

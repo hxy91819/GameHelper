@@ -1,20 +1,65 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  Product direction:
+  - Windows-only product for end users (Windows 10/11).
+  - Prefer native desktop evolution with WinUI 3 + .NET 8.
+  - Do not introduce Rust/Node as desktop main process for core product runtime.
+  - Existing Web frontend is transitional and can be replaced if architecture benefits are clear.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  Required architecture:
+  - One Core, multiple shells:
+    - GameHelper.Core: pure domain logic, no UI framework dependencies.
+    - GameHelper.Infrastructure: system adapters/integration implementations.
+    - UI shell (WinUI 3): presentation only, no business logic duplication.
+    - CLI shell (optional but recommended): reuses Core, useful for automation and fallback.
+  - Business logic must be shared across UI/CLI; avoid duplicate workflows in shell layer.
+  - System calls (WMI/ETW/Win32) must be behind interfaces and injected.
+  - Non-Windows environments must be able to run core tests via fakes/mocks.
+
+  Engineering quality bar:
+  - Keep design simple and incremental; prefer reversible changes.
+  - High AI-collaboration friendliness: explicit module boundaries, stable contracts, predictable naming.
+  - Avoid introducing unnecessary frameworks when .NET built-ins are sufficient.
+
+  Testing and CI baseline:
+  - Use test pyramid:
+    - Most tests in unit/integration layers (Core + Infrastructure contracts).
+    - Minimal desktop UI E2E/smoke coverage for critical user flows only.
+  - Desktop UI automation default: FlaUI for .NET-first workflow; Appium/WinAppDriver as optional secondary path.
+  - Every code change should keep dotnet build and dotnet test green.
+  - CI should include Windows runner; cross-platform runners validate shared logic and tooling.
+  - Platform-specific tests must be explicitly categorized to prevent false failures on unsupported OS.
+  - UI automation execution policy:
+    - GitHub-hosted Windows runner: run only lightweight deterministic smoke tests.
+    - Self-hosted Windows runner with interactive desktop session: run full desktop UI automation suite.
+
+rules:
+  proposal:
+    - "Must include Why, Goals, Non-goals, and Migration Strategy."
+    - "Must explicitly state impacted layers (UI/Core/Infrastructure/CLI) and ownership boundaries."
+    - "Must identify whether the change increases or decreases architecture complexity."
+    - "Must include test strategy by layer (unit/integration/UI smoke) and CI impact."
+    - "Must include rollout/rollback considerations for Windows release."
+
+  design:
+    - "Must include an architecture diagram and clear dependency direction between layers."
+    - "Must enforce no business logic in UI shell and no UI framework references in Core."
+    - "Must define interface boundaries for all Windows-specific integrations (WMI/ETW/Win32)."
+    - "Must define observability/diagnostics approach (logs, errors, telemetry) for troubleshooting."
+    - "For any desktop UI automation plan, must specify execution environment (hosted vs self-hosted Windows runner) and fallback strategy."
+    - "Must include tradeoffs and rejected alternatives with rationale."
+
+  specs:
+    - "Use Given/When/Then scenarios for requirements."
+    - "Requirements must be testable and mapped to the target layer."
+    - "Explicitly mark platform scope (Windows-only runtime vs cross-platform development/testing)."
+    - "Add acceptance criteria for automation: deterministic behavior, stable identifiers, reproducible setup."
+
+  tasks:
+    - "Tasks must be ordered by dependency and small enough for incremental delivery."
+    - "Include explicit testing tasks for each layer touched by implementation."
+    - "Include CI updates when build/test behavior changes."
+    - "Any desktop UI automation task must include stable locator strategy (AutomationId-first) and flakiness controls (timeouts/retries/isolation)."
+    - "Include documentation updates when user-facing behavior or architecture decisions change."
+    - "Avoid broad 'refactor all' tasks; split into reviewable, verifiable chunks."

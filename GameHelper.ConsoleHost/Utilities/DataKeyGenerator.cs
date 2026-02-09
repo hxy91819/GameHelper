@@ -71,11 +71,23 @@ namespace GameHelper.ConsoleHost.Utilities
             else
             {
                 // Fallback to filename
-                var fileName = Path.GetFileNameWithoutExtension(exePath);
+                var fileName = GetFileNameWithoutExtensionCrossPlatform(exePath);
                 baseKey = NormalizeDataKey(fileName);
             }
             
             return baseKey;
+        }
+
+        private static string GetFileNameWithoutExtensionCrossPlatform(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return string.Empty;
+            }
+
+            // Normalize Windows separators so macOS/Linux can also parse Windows-style paths.
+            var normalizedPath = path.Replace('\\', '/');
+            return Path.GetFileNameWithoutExtension(normalizedPath);
         }
         
         /// <summary>

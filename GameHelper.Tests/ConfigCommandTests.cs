@@ -13,6 +13,7 @@ namespace GameHelper.Tests
     public class ConfigCommandTests
     {
         private readonly Mock<IConfigProvider> _mockConfigProvider;
+        private readonly IGameCatalogService _gameCatalogService;
         private readonly IServiceProvider _serviceProvider;
         private readonly StringWriter _consoleOutput;
         private Dictionary<string, GameConfig> _configData;
@@ -24,6 +25,7 @@ namespace GameHelper.Tests
             _mockConfigProvider.Setup(p => p.Load()).Returns(() => _configData);
             _mockConfigProvider.Setup(p => p.Save(It.IsAny<IReadOnlyDictionary<string, GameConfig>>()))
                 .Callback<IReadOnlyDictionary<string, GameConfig>>(data => _configData = new Dictionary<string, GameConfig>(data));
+            _gameCatalogService = new GameHelper.Core.Services.GameCatalogService(_mockConfigProvider.Object);
 
             var mockServiceProvider = new Mock<IServiceProvider>();
             var mockScope = new Mock<IServiceScope>();
@@ -32,7 +34,7 @@ namespace GameHelper.Tests
             mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
             mockScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
             mockServiceProvider.Setup(p => p.GetService(typeof(IServiceScopeFactory))).Returns(mockScopeFactory.Object);
-            mockServiceProvider.Setup(p => p.GetService(typeof(IConfigProvider))).Returns(_mockConfigProvider.Object);
+            mockServiceProvider.Setup(p => p.GetService(typeof(IGameCatalogService))).Returns(_gameCatalogService);
 
             _serviceProvider = mockServiceProvider.Object;
 

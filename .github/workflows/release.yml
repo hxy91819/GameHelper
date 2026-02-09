@@ -3,19 +3,19 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag name to use when manually triggering the release workflow'
+        description: "Tag name to use when manually triggering the release workflow"
         required: true
+
 permissions:
   contents: write
 
 jobs:
   build:
     runs-on: windows-latest
-
     env:
       TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name || github.ref_name }}
 
@@ -29,9 +29,20 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Restore
-        run: dotnet restore GameHelper.sln
+        run: |
+          dotnet restore GameHelper.WinUI/GameHelper.WinUI.csproj
+          dotnet restore GameHelper.ConsoleHost/GameHelper.ConsoleHost.csproj
 
-      - name: Publish self-contained executable
+      - name: Publish WinUI shell (primary artifact)
+        run: >-
+          dotnet publish GameHelper.WinUI/GameHelper.WinUI.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=false
+          -p:PublishTrimmed=false
+
+      - name: Publish ConsoleHost fallback (rollback channel)
         run: >-
           dotnet publish GameHelper.ConsoleHost/GameHelper.ConsoleHost.csproj
           -c Release
@@ -44,21 +55,35 @@ jobs:
       - name: Prepare artifacts
         shell: pwsh
         run: |
-          $publishDir = "GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish"
-          if (!(Test-Path $publishDir)) {
-            throw "Publish directory not found: $publishDir"
-          }
           $tag = if ($env:TAG_NAME) { $env:TAG_NAME } else { $env:GITHUB_REF_NAME }
           if (-not $tag) { $tag = "v0.0.1" }
-          $archiveName = "GameHelper-${tag}-win-x64.zip"
-          Compress-Archive -Path "$publishDir/*" -DestinationPath $archiveName
-          echo "ARCHIVE_NAME=$archiveName" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Upload release asset
+          $winUiPublishDir = "GameHelper.WinUI/bin/Release/net8.0-windows10.0.19041.0/win-x64/publish"
+          if (!(Test-Path $winUiPublishDir)) {
+            throw "WinUI publish directory not found: $winUiPublishDir"
+          }
+
+          $cliPublishDir = "GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish"
+          if (!(Test-Path $cliPublishDir)) {
+            throw "ConsoleHost publish directory not found: $cliPublishDir"
+          }
+
+          $winUiArchive = "GameHelper-WinUI-${tag}-win-x64.zip"
+          $cliArchive = "GameHelper-CLI-Fallback-${tag}-win-x64.zip"
+
+          Compress-Archive -Path "$winUiPublishDir/*" -DestinationPath $winUiArchive
+          Compress-Archive -Path "$cliPublishDir/*" -DestinationPath $cliArchive
+
+          echo "WINUI_ARCHIVE=$winUiArchive" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "CLI_ARCHIVE=$cliArchive" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
-          files: ${{ env.ARCHIVE_NAME }}
+          files: |
+            ${{ env.WINUI_ARCHIVE }}
+            ${{ env.CLI_ARCHIVE }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
