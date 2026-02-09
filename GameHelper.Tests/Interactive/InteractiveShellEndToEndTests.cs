@@ -152,7 +152,8 @@ namespace GameHelper.Tests.Interactive
         private static string GetSampleConfig()
         {
             return "games:\n" +
-                   "  - name: sample.exe\n" +
+                   "  - dataKey: sample.exe\n" +
+                   "    name: sample.exe\n" +
                    "    alias: Sample Game\n" +
                    "    isEnabled: true\n" +
                    "    hdrEnabled: true\n";
