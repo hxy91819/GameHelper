@@ -6,15 +6,27 @@ namespace GameHelper.Core.Services;
 public sealed class GameCatalogService : IGameCatalogService
 {
     private readonly IConfigProvider _configProvider;
+    // Cache to avoid reading from disk on every request.
+    private IReadOnlyDictionary<string, GameConfig>? _cachedConfigs;
 
     public GameCatalogService(IConfigProvider configProvider)
     {
         _configProvider = configProvider;
     }
 
+    // Loads configurations from the provider only if not already cached.
+    private IReadOnlyDictionary<string, GameConfig> LoadConfigs()
+    {
+        if (_cachedConfigs == null)
+        {
+            _cachedConfigs = _configProvider.Load();
+        }
+        return _cachedConfigs;
+    }
+
     public IReadOnlyList<GameEntry> GetAll()
     {
-        var configs = _configProvider.Load();
+        var configs = LoadConfigs();
         return configs
             .OrderBy(kv => kv.Value.DisplayName ?? kv.Key, StringComparer.OrdinalIgnoreCase)
             .Select(kv => ToEntry(kv.Key, kv.Value))
@@ -29,7 +41,7 @@ public sealed class GameCatalogService : IGameCatalogService
             throw new ArgumentException("ExecutableName is required.", nameof(request));
         }
 
-        var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
+        var configs = new Dictionary<string, GameConfig>(LoadConfigs(), StringComparer.OrdinalIgnoreCase);
         var dataKey = executableName;
 
         var config = new GameConfig
@@ -44,6 +56,7 @@ public sealed class GameCatalogService : IGameCatalogService
 
         configs[dataKey] = config;
         _configProvider.Save(configs);
+        _cachedConfigs = configs;
         return ToEntry(dataKey, config);
     }
 
@@ -54,21 +67,26 @@ public sealed class GameCatalogService : IGameCatalogService
             throw new ArgumentException("Data key is required.", nameof(dataKey));
         }
 
-        var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
+        var configs = new Dictionary<string, GameConfig>(LoadConfigs(), StringComparer.OrdinalIgnoreCase);
         if (!configs.TryGetValue(dataKey, out var existing))
         {
             throw new KeyNotFoundException($"Game '{dataKey}' not found.");
         }
 
-        existing.ExecutableName = NormalizeExecutableName(request.ExecutableName) ?? existing.ExecutableName;
-        existing.ExecutablePath = request.ExecutablePath ?? existing.ExecutablePath;
-        existing.DisplayName = request.DisplayName ?? existing.DisplayName;
-        existing.IsEnabled = request.IsEnabled;
-        existing.HDREnabled = request.HdrEnabled;
+        var updated = new GameConfig
+        {
+            DataKey = existing.DataKey,
+            ExecutableName = NormalizeExecutableName(request.ExecutableName) ?? existing.ExecutableName,
+            ExecutablePath = request.ExecutablePath ?? existing.ExecutablePath,
+            DisplayName = request.DisplayName ?? existing.DisplayName,
+            IsEnabled = request.IsEnabled,
+            HDREnabled = request.HdrEnabled
+        };
 
-        configs[dataKey] = existing;
+        configs[dataKey] = updated;
         _configProvider.Save(configs);
-        return ToEntry(dataKey, existing);
+        _cachedConfigs = configs;
+        return ToEntry(dataKey, updated);
     }
 
     public bool Delete(string dataKey)
@@ -78,13 +96,14 @@ public sealed class GameCatalogService : IGameCatalogService
             return false;
         }
 
-        var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
+        var configs = new Dictionary<string, GameConfig>(LoadConfigs(), StringComparer.OrdinalIgnoreCase);
         if (!configs.Remove(dataKey))
         {
             return false;
         }
 
         _configProvider.Save(configs);
+        _cachedConfigs = configs;
         return true;
     }
 
