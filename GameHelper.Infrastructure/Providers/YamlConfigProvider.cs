@@ -80,6 +80,11 @@ namespace GameHelper.Infrastructure.Providers
                 }
 
                 var normalized = NormalizeLoadedConfig(source);
+                if (normalized is null)
+                {
+                    continue;
+                }
+
                 var key = DetermineDictionaryKey(normalized);
                 if (string.IsNullOrWhiteSpace(key))
                 {
@@ -170,7 +175,7 @@ namespace GameHelper.Infrastructure.Providers
 
         private static string ResolveDefaultPath() => AppDataPath.GetConfigPath();
 
-        private GameConfig NormalizeLoadedConfig(GameConfig source)
+        private GameConfig? NormalizeLoadedConfig(GameConfig source)
         {
             var dataKey = (source.DataKey ?? string.Empty).Trim();
             var executableName = (source.ExecutableName ?? source.Name ?? string.Empty).Trim();
@@ -179,7 +184,21 @@ namespace GameHelper.Infrastructure.Providers
 
             if (string.IsNullOrWhiteSpace(dataKey))
             {
-                throw new InvalidDataException("配置项缺少必填字段 DataKey，无法完成加载。");
+                if (!string.IsNullOrWhiteSpace(executableName))
+                {
+                    dataKey = executableName;
+                    _logger.LogWarning("配置项缺少 DataKey，已使用 ExecutableName='{ExecutableName}' 作为 DataKey。", executableName);
+                }
+                else if (!string.IsNullOrWhiteSpace(displayName))
+                {
+                    dataKey = displayName;
+                    _logger.LogWarning("配置项缺少 DataKey，已使用 DisplayName='{DisplayName}' 作为 DataKey。", displayName);
+                }
+                else
+                {
+                    _logger.LogWarning("跳过配置项：DataKey/ExecutableName/DisplayName 全部缺失，无法完成加载。");
+                    return null;
+                }
             }
 
             if (string.IsNullOrWhiteSpace(executablePath) && !string.IsNullOrWhiteSpace(executableName))

@@ -104,25 +104,33 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void Load_WhenGameMissingDataKeyAndExecutableName_Throws()
+        public void Load_WhenGameMissingDataKeyAndExecutableName_UsesDisplayName()
         {
             var yaml = "games:\n  - displayName: Broken Entry\n";
             File.WriteAllText(_configPath, yaml);
             var provider = new YamlConfigProvider(_configPath);
 
-            var exception = Assert.Throws<InvalidDataException>(() => provider.Load());
-            Assert.Contains("配置项缺少必填字段 DataKey", exception.Message);
+            var output = provider.Load();
+            Assert.Single(output);
+
+            var entry = output["Broken Entry"];
+            Assert.Equal("Broken Entry", entry.DataKey);
+            Assert.Equal("Broken Entry", entry.DisplayName);
         }
 
         [Fact]
-        public void Load_WhenGameMissingDataKeyButHasExecutableName_Throws()
+        public void Load_WhenGameMissingDataKeyButHasExecutableName_UsesExecutableName()
         {
             var yaml = "games:\n  - executableName: sample.exe\n";
             File.WriteAllText(_configPath, yaml);
             var provider = new YamlConfigProvider(_configPath);
 
-            var exception = Assert.Throws<InvalidDataException>(() => provider.Load());
-            Assert.Contains("配置项缺少必填字段 DataKey", exception.Message);
+            var output = provider.Load();
+            Assert.Single(output);
+
+            var entry = output["sample.exe"];
+            Assert.Equal("sample.exe", entry.DataKey);
+            Assert.Equal("sample.exe", entry.ExecutableName);
         }
 
         [Fact]

@@ -9,21 +9,79 @@
     xmlns:viewModels="using:GameHelper.WinUI.ViewModels"
     mc:Ignorable="d"
     Title="GameHelper">
-    <Grid>
+    <Grid Background="{ThemeResource GH.SurfaceBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <StackPanel Orientation="Horizontal" Spacing="12" Margin="16,16,16,8">
-            <TextBlock Text="GameHelper (WinUI)" FontSize="24" FontWeight="SemiBold" />
-            <Button
-                Content="{x:Bind ViewModel.Shell.MonitorButtonText, Mode=OneWay}"
-                Command="{x:Bind ViewModel.Shell.ToggleMonitorCommand}"
-                AutomationProperties.AutomationId="Shell_ToggleMonitorButton" />
-        </StackPanel>
+        <Border Margin="16,16,16,8" Padding="16" CornerRadius="12" Background="{ThemeResource GH.CardBrush}" BorderBrush="{ThemeResource GH.BorderBrush}" BorderThickness="1">
+            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="GameHelper" FontSize="28" FontWeight="SemiBold" />
+                    <TextBlock Text="WinUI 控制台助手 · 进程监控 / 配置 / 统计" Opacity="0.7" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <Border Padding="10,6" CornerRadius="999" Background="{ThemeResource GH.SurfaceBrush}" BorderBrush="{ThemeResource GH.BorderBrush}" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <SymbolIcon Symbol="Play" />
+                            <TextBlock Text="{x:Bind ViewModel.Shell.MonitorStatusText, Mode=OneWay}" />
+                        </StackPanel>
+                    </Border>
+                    <Button
+                        Content="{x:Bind ViewModel.Shell.MonitorButtonText, Mode=OneWay}"
+                        Command="{x:Bind ViewModel.Shell.ToggleMonitorCommand}"
+                        AutomationProperties.AutomationId="Shell_ToggleMonitorButton" />
+                </StackPanel>
+            </Grid>
+        </Border>
 
         <TabView Grid.Row="1" Margin="16,0,16,16" AutomationProperties.AutomationId="Shell_TabView">
+            <TabViewItem Header="Monitor">
+                <Grid Padding="12" RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button
+                            Content="{x:Bind ViewModel.Shell.MonitorButtonText, Mode=OneWay}"
+                            Command="{x:Bind ViewModel.Shell.ToggleMonitorCommand}" />
+                        <Button
+                            Content="Clear Logs"
+                            Command="{x:Bind ViewModel.Shell.ClearLogsCommand}" />
+                        <TextBlock
+                            Text="日志只显示配置中的游戏进程"
+                            VerticalAlignment="Center"
+                            Opacity="0.7"
+                            Margin="8,0,0,0" />
+                    </StackPanel>
+
+                    <Border Grid.Row="1" CornerRadius="10" Background="{ThemeResource GH.CardBrush}" BorderBrush="{ThemeResource GH.BorderBrush}" BorderThickness="1" Padding="8">
+                        <Grid RowDefinitions="Auto,*">
+                            <Grid ColumnDefinitions="120,90,*" Margin="4,4,4,8">
+                                <TextBlock Text="Time" FontWeight="SemiBold" Opacity="0.7" />
+                                <TextBlock Grid.Column="1" Text="Level" FontWeight="SemiBold" Opacity="0.7" />
+                                <TextBlock Grid.Column="2" Text="Message" FontWeight="SemiBold" Opacity="0.7" />
+                            </Grid>
+                            <ListView Grid.Row="1" ItemsSource="{x:Bind ViewModel.Shell.MonitorLogs, Mode=OneWay}">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="viewModels:MonitorLogEntry">
+                                        <Grid ColumnDefinitions="120,90,*" Padding="4,6">
+                                            <TextBlock Text="{x:Bind TimestampText, Mode=OneWay}" Opacity="0.7" />
+                                            <TextBlock Grid.Column="1" Text="{x:Bind Level}" Opacity="0.7" />
+                                            <TextBlock Grid.Column="2" Text="{x:Bind Message}" TextWrapping="WrapWholeWords" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </TabViewItem>
+
             <TabViewItem Header="Settings">
                 <StackPanel Padding="12" Spacing="8">
                     <ComboBox
@@ -53,20 +111,30 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <ListView
-                        ItemsSource="{x:Bind ViewModel.Games.Games, Mode=OneWay}"
-                        SelectedItem="{x:Bind ViewModel.Games.SelectedGame, Mode=TwoWay}"
-                        AutomationProperties.AutomationId="Games_ListView">
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="models:GameEntry">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <TextBlock Text="{x:Bind DisplayName}" />
-                                    <TextBlock Text="{x:Bind ExecutableName}" Opacity="0.7" />
-                                    <TextBlock Text="{x:Bind IsEnabled}" Opacity="0.7" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                    <Border CornerRadius="10" Background="{ThemeResource GH.CardBrush}" BorderBrush="{ThemeResource GH.BorderBrush}" BorderThickness="1" Padding="8">
+                        <Grid RowDefinitions="Auto,*">
+                            <Grid ColumnDefinitions="2*,2*,1*" Margin="4,4,4,8">
+                                <TextBlock Text="Display Name" FontWeight="SemiBold" Opacity="0.7" />
+                                <TextBlock Grid.Column="1" Text="Executable" FontWeight="SemiBold" Opacity="0.7" />
+                                <TextBlock Grid.Column="2" Text="Enabled" FontWeight="SemiBold" Opacity="0.7" />
+                            </Grid>
+                            <ListView
+                                Grid.Row="1"
+                                ItemsSource="{x:Bind ViewModel.Games.Games, Mode=OneWay}"
+                                SelectedItem="{x:Bind ViewModel.Games.SelectedGame, Mode=TwoWay}"
+                                AutomationProperties.AutomationId="Games_ListView">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="models:GameEntry">
+                                        <Grid ColumnDefinitions="2*,2*,1*" Padding="4,6">
+                                            <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" />
+                                            <TextBlock Grid.Column="1" Text="{x:Bind ExecutableName}" Opacity="0.7" />
+                                            <TextBlock Grid.Column="2" Text="{x:Bind IsEnabled}" Opacity="0.7" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </Grid>
+                    </Border>
 
                     <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
                         <Button Content="Refresh" Command="{x:Bind ViewModel.Games.RefreshCommand}" AutomationProperties.AutomationId="Games_RefreshButton" />
@@ -89,17 +157,22 @@
                         Command="{x:Bind ViewModel.Stats.RefreshCommand}"
                         AutomationProperties.AutomationId="Stats_RefreshButton" />
 
-                    <ListView Grid.Row="1" ItemsSource="{x:Bind ViewModel.Stats.Stats, Mode=OneWay}" AutomationProperties.AutomationId="Stats_ListView">
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="models:GameStatsSummary">
-                                <StackPanel Spacing="2">
-                                    <TextBlock Text="{x:Bind DisplayName}" />
-                                    <TextBlock Text="{x:Bind GameName}" Opacity="0.7" />
-                                    <TextBlock Text="{x:Bind TotalMinutes}" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                    <Border Grid.Row="1" CornerRadius="10" Background="{ThemeResource GH.CardBrush}" BorderBrush="{ThemeResource GH.BorderBrush}" BorderThickness="1" Padding="8">
+                        <ListView ItemsSource="{x:Bind ViewModel.Stats.Stats, Mode=OneWay}" AutomationProperties.AutomationId="Stats_ListView">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:GameStatsSummary">
+                                    <StackPanel Spacing="2" Padding="4,6">
+                                        <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{x:Bind GameName}" Opacity="0.7" />
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="{x:Bind TotalMinutes}" />
+                                            <TextBlock Text="min" Opacity="0.7" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Border>
                 </Grid>
             </TabViewItem>
         </TabView>
