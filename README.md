@@ -33,8 +33,9 @@ flowchart LR
 
 ### 环境要求
 
-- Windows 10/11
-- .NET 8 Runtime
+- Windows 10 (19041+) / Windows 11
+- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- [Windows App SDK 1.6+](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads)（开发时 WinUI 运行依赖）
 - ETW 场景建议管理员权限
 
 ### CLI 运行示例
@@ -55,9 +56,34 @@ dotnet run --project .\GameHelper.ConsoleHost -- config add <exe>
 dotnet run --project .\GameHelper.ConsoleHost -- config remove <exe>
 ```
 
-### WinUI 运行
+### WinUI 运行（开发调试）
 
-在 Windows 上使用 Visual Studio 2022 打开 `GameHelper.sln`，将 `GameHelper.WinUI` 设为启动项目并运行。
+```powershell
+# 编译
+dotnet build .\GameHelper.WinUI
+
+# 直接运行
+dotnet run --project .\GameHelper.WinUI
+```
+
+也可以使用 Visual Studio 2022 打开 `GameHelper.sln`，将 `GameHelper.WinUI` 设为启动项目后直接 F5 运行。
+
+> **提示**：`dotnet run` 依赖本机已安装 Windows App Runtime 1.6。面向最终用户请使用下面的自包含发布包。
+
+> **注意**：ETW 监控需要管理员权限，可以在管理员终端中执行上述命令，或在 VS 中以管理员身份启动。
+
+### WinUI 自包含发布（推荐给最终用户）
+
+自包含发布会把 Windows App Runtime 打包进发布结果，用户机器无需额外安装运行时。
+
+```powershell
+dotnet publish .\GameHelper.WinUI -p:PublishProfile=WinUI-SelfContained
+```
+
+发布产物默认路径：
+`GameHelper.WinUI\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\GameHelper.WinUI.exe`
+
+> **提示**：开发阶段的 `dotnet run` 仍依赖已安装的 Windows App Runtime；面向用户发布请使用上面的自包含包。
 
 ## 配置文件
 

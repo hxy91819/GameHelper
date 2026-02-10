@@ -10,6 +10,7 @@ using GameHelper.WinUI.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Linq;
 
 namespace GameHelper.WinUI.Services;
 
@@ -40,7 +41,12 @@ public static class ServiceLocator
                     var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("WinUI.ProcessMonitor");
                     var appConfig = appConfigProvider.LoadAppConfig();
                     var preferredMonitor = appConfig.ProcessMonitorType ?? ProcessMonitorType.ETW;
-                    return ProcessMonitorFactory.CreateWithFallback(preferredMonitor, null, logger);
+                    var allowedProcesses = appConfig.Games?
+                        .Select(game => game.ExecutableName ?? game.Name ?? game.DataKey)
+                        .Where(name => !string.IsNullOrWhiteSpace(name))
+                        .ToArray();
+
+                    return ProcessMonitorFactory.CreateWithFallback(preferredMonitor, allowedProcesses, logger);
                 });
                 services.AddSingleton<IHdrController, WindowsHdrController>();
                 services.AddSingleton<IPlayTimeService, CsvBackedPlayTimeService>();

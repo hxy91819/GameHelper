@@ -1,10 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <EnableWinUITests Condition="'$(EnableWinUITests)' == ''">false</EnableWinUITests>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,7 +34,7 @@
     <Compile Remove="Desktop/**/*.cs" />
   </ItemGroup>
 
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(EnableWinUITests)' == 'true'">
     <PackageReference Include="FlaUI.Core" Version="5.0.0" />
     <PackageReference Include="FlaUI.UIA3" Version="5.0.0" />
     <ProjectReference Include="..\GameHelper.WinUI\GameHelper.WinUI.csproj" />
