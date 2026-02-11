@@ -30,9 +30,11 @@ public static class ServiceLocator
             {
                 logging.ClearProviders();
                 logging.AddConsole();
+                logging.AddProvider(new UiLoggerProvider(UiLogSink.Instance));
             })
             .ConfigureServices(services =>
             {
+                services.AddSingleton(UiLogSink.Instance);
                 services.AddSingleton<IConfigProvider>(_ => new YamlConfigProvider());
                 services.AddSingleton<IAppConfigProvider>(sp => (YamlConfigProvider)sp.GetRequiredService<IConfigProvider>());
                 services.AddSingleton<IProcessMonitor>(sp =>
