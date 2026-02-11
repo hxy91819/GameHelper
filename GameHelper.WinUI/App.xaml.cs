@@ -14,7 +14,7 @@ public partial class App : Application
         _logPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "GameHelper",
-            "winui-startup.log");
+            "winui-errors.log");
 
         InitializeComponent();
         ServiceLocator.Initialize();
@@ -42,7 +42,6 @@ public partial class App : Application
         {
             _window = new MainWindow();
             _window.Activate();
-            Log("MainWindow activated.");
         }
         catch (Exception ex)
         {

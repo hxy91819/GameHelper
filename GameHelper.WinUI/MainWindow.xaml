@@ -53,7 +53,7 @@
                             Content="Clear Logs"
                             Command="{x:Bind ViewModel.Shell.ClearLogsCommand}" />
                         <TextBlock
-                            Text="日志只显示配置中的游戏进程"
+                            Text="日志包含监控与系统信息"
                             VerticalAlignment="Center"
                             Opacity="0.7"
                             Margin="8,0,0,0" />
@@ -61,18 +61,42 @@
 
                     <Border Grid.Row="1" CornerRadius="10" Background="{ThemeResource GH.CardBrush}" BorderBrush="{ThemeResource GH.BorderBrush}" BorderThickness="1" Padding="8">
                         <Grid RowDefinitions="Auto,*">
-                            <Grid ColumnDefinitions="120,90,*" Margin="4,4,4,8">
+                            <Grid ColumnDefinitions="110,110,260,*" ColumnSpacing="12" Margin="4,4,4,8">
                                 <TextBlock Text="Time" FontWeight="SemiBold" Opacity="0.7" />
                                 <TextBlock Grid.Column="1" Text="Level" FontWeight="SemiBold" Opacity="0.7" />
-                                <TextBlock Grid.Column="2" Text="Message" FontWeight="SemiBold" Opacity="0.7" />
+                                <TextBlock Grid.Column="2" Text="Category" FontWeight="SemiBold" Opacity="0.7" />
+                                <TextBlock Grid.Column="3" Text="Message" FontWeight="SemiBold" Opacity="0.7" />
                             </Grid>
-                            <ListView Grid.Row="1" ItemsSource="{x:Bind ViewModel.Shell.MonitorLogs, Mode=OneWay}">
+                            <ListView Grid.Row="1"
+                                      ItemsSource="{x:Bind ViewModel.Shell.MonitorLogs, Mode=OneWay}"
+                                      HorizontalContentAlignment="Stretch"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem">
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    </Style>
+                                </ListView.ItemContainerStyle>
                                 <ListView.ItemTemplate>
                                     <DataTemplate x:DataType="viewModels:MonitorLogEntry">
-                                        <Grid ColumnDefinitions="120,90,*" Padding="4,6">
-                                            <TextBlock Text="{x:Bind TimestampText, Mode=OneWay}" Opacity="0.7" />
-                                            <TextBlock Grid.Column="1" Text="{x:Bind Level}" Opacity="0.7" />
-                                            <TextBlock Grid.Column="2" Text="{x:Bind Message}" TextWrapping="WrapWholeWords" />
+                                        <Grid ColumnDefinitions="110,110,260,*" ColumnSpacing="12" Padding="4,6">
+                                            <TextBlock Text="{x:Bind TimestampText, Mode=OneWay}"
+                                                       Opacity="0.7"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{x:Bind LevelText}"
+                                                       Opacity="0.7"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{x:Bind Category}"
+                                                       Opacity="0.7"
+                                                       TextWrapping="NoWrap"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Grid.Column="3"
+                                                       Text="{x:Bind Message}"
+                                                       TextWrapping="WrapWholeWords"
+                                                       MaxLines="3"
+                                                       TextTrimming="CharacterEllipsis" />
                                         </Grid>
                                     </DataTemplate>
                                 </ListView.ItemTemplate>
