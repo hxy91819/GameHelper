@@ -1,8 +1,9 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -203,6 +204,8 @@ namespace GameHelper.ConsoleHost.Interactive
             infoTable.AddRow("配置文件", GetConfigPathDescription());
             infoTable.AddRow("日志级别", _arguments.EnableDebug ? "Debug（命令行启用）" : "Information");
             infoTable.AddRow("监控模式", GetMonitorModeDescription());
+            infoTable.AddRow("Version", GetVersionDescription());
+            infoTable.AddRow("Build Time", GetBuildTimeDescription());
             infoTable.Caption("输入序号或使用方向键选择功能，回车确认");
             _console.Write(infoTable);
 
@@ -1185,19 +1188,19 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             var cfg = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
+            var configIndex = BuildConfigIndex(cfg);
             var now = DateTime.Now;
             var cutoff = now.AddDays(-14);
 
             var projected = list.Select(g => new
             {
-                Name = cfg.TryGetValue(g.GameName, out var gc) && !string.IsNullOrWhiteSpace(gc.Alias)
-                    ? gc.Alias!
-                    : g.GameName,
+                Name = ResolveDisplayName(g.GameName, cfg, configIndex),
                 TotalMinutes = g.Sessions?.Sum(s => s.DurationMinutes) ?? 0,
                 RecentMinutes = g.Sessions?.Where(s => s.EndTime >= cutoff).Sum(s => s.DurationMinutes) ?? 0,
                 Sessions = g.Sessions?.Count ?? 0
             })
             .OrderByDescending(x => x.RecentMinutes)
+            .ThenByDescending(x => x.TotalMinutes)
             .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -1426,6 +1429,56 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             return "WMI（默认）";
+        }
+
+        private static string GetVersionDescription()
+        {
+            try
+            {
+                var assembly = Assembly.GetEntryAssembly() ?? typeof(InteractiveShell).Assembly;
+                var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+                if (!string.IsNullOrWhiteSpace(informational))
+                {
+                    var plusIndex = informational.IndexOf('+');
+                    return plusIndex > 0 ? informational[..plusIndex] : informational;
+                }
+
+                return assembly.GetName().Version?.ToString() ?? "unknown";
+            }
+            catch
+            {
+                return "unknown";
+            }
+        }
+
+        private static string GetBuildTimeDescription()
+        {
+            try
+            {
+                string? path = Assembly.GetEntryAssembly()?.Location;
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                {
+                    try
+                    {
+                        path = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+                    }
+                    catch
+                    {
+                        path = null;
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                {
+                    return "unknown";
+                }
+
+                return File.GetLastWriteTime(path).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            }
+            catch
+            {
+                return "unknown";
+            }
         }
 
         private T PromptSelection<T>(SelectionPrompt<T> prompt, IReadOnlyList<T> choices, Func<T, string> labelFactory, string? displayTitle)
@@ -1853,14 +1906,13 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
+            var configIndex = BuildConfigIndex(configs);
             var keys = new HashSet<SessionKey>();
             var records = new List<SessionRecord>();
 
             foreach (var item in items)
             {
-                var displayName = configs.TryGetValue(item.GameName, out var cfg) && !string.IsNullOrWhiteSpace(cfg.Alias)
-                    ? cfg.Alias!
-                    : item.GameName;
+                var displayName = ResolveDisplayName(item.GameName, configs, configIndex);
 
                 foreach (var session in item.Sessions)
                 {
@@ -1871,6 +1923,38 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             return new SessionSnapshot(keys, records, source);
+        }
+
+        private static ConfigIndex BuildConfigIndex(IReadOnlyDictionary<string, GameConfig> configs)
+        {
+            var byDataKey = configs.Values
+                .Where(c => c is not null && !string.IsNullOrWhiteSpace(c.DataKey))
+                .ToDictionary(c => c.DataKey!, c => c, StringComparer.OrdinalIgnoreCase);
+
+            var byExecutableName = configs.Values
+                .Where(c => c is not null && !string.IsNullOrWhiteSpace(c.ExecutableName))
+                .ToDictionary(c => c.ExecutableName!, c => c, StringComparer.OrdinalIgnoreCase);
+
+            return new ConfigIndex(byDataKey, byExecutableName);
+        }
+
+        private static string ResolveDisplayName(string key, IReadOnlyDictionary<string, GameConfig> configs, ConfigIndex index)
+        {
+            GameConfig? cfg = null;
+            if (index.ByDataKey.TryGetValue(key, out var byDataKey))
+            {
+                cfg = byDataKey;
+            }
+            else if (index.ByExecutableName.TryGetValue(key, out var byExecutableName))
+            {
+                cfg = byExecutableName;
+            }
+            else if (configs.TryGetValue(key, out var byMapKey))
+            {
+                cfg = byMapKey;
+            }
+
+            return !string.IsNullOrWhiteSpace(cfg?.DisplayName) ? cfg.DisplayName! : key;
         }
 
         private static string FormatTimestamp(DateTime timestamp)
@@ -1905,5 +1989,9 @@ namespace GameHelper.ConsoleHost.Interactive
         }
 
         private readonly record struct SessionKey(string Game, DateTime Start, DateTime End, long DurationMinutes);
+
+        private sealed record ConfigIndex(
+            IReadOnlyDictionary<string, GameConfig> ByDataKey,
+            IReadOnlyDictionary<string, GameConfig> ByExecutableName);
     }
 }

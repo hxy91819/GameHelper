@@ -95,6 +95,91 @@ public sealed class CoreApplicationServicesTests
     }
 
     [Fact]
+    public void StatisticsService_ShouldPreferDisplayName_WhenRecordUsesDataKey()
+    {
+        var provider = new FakeConfigProvider();
+        provider.Save(new Dictionary<string, GameConfig>
+        {
+            // Simulate provider keyed by executable name while data is tracked by DataKey.
+            ["wh40krt.exe"] = new()
+            {
+                DataKey = "wh40krt",
+                ExecutableName = "wh40krt.exe",
+                DisplayName = "Warhammer 40,000: Rogue Trader"
+            }
+        });
+
+        var now = DateTime.Now;
+        var snapshot = new FakePlaytimeSnapshotProvider
+        {
+            Records = new List<GamePlaytimeRecord>
+            {
+                new()
+                {
+                    GameName = "wh40krt",
+                    Sessions =
+                    {
+                        new PlaySession("wh40krt", now.AddHours(-1), now, TimeSpan.FromHours(1), 60)
+                    }
+                }
+            }
+        };
+
+        var service = new StatisticsService(snapshot, provider);
+        var overview = service.GetOverview();
+
+        Assert.Single(overview);
+        Assert.Equal("wh40krt", overview[0].GameName);
+        Assert.Equal("Warhammer 40,000: Rogue Trader", overview[0].DisplayName);
+    }
+
+    [Fact]
+    public void StatisticsService_WhenRecentMinutesTie_ShouldSortByTotalMinutesDescending()
+    {
+        var provider = new FakeConfigProvider();
+        provider.Save(new Dictionary<string, GameConfig>
+        {
+            ["a.exe"] = new() { DataKey = "a", ExecutableName = "a.exe", DisplayName = "A" },
+            ["b.exe"] = new() { DataKey = "b", ExecutableName = "b.exe", DisplayName = "B" }
+        });
+
+        var now = DateTime.Now;
+        var snapshot = new FakePlaytimeSnapshotProvider
+        {
+            Records = new List<GamePlaytimeRecord>
+            {
+                new()
+                {
+                    GameName = "a",
+                    Sessions =
+                    {
+                        // recent = 60, total = 120
+                        new PlaySession("a", now.AddHours(-1), now, TimeSpan.FromMinutes(60), 60),
+                        new PlaySession("a", now.AddDays(-30), now.AddDays(-30).AddMinutes(60), TimeSpan.FromMinutes(60), 60)
+                    }
+                },
+                new()
+                {
+                    GameName = "b",
+                    Sessions =
+                    {
+                        // recent = 60, total = 90
+                        new PlaySession("b", now.AddHours(-2), now.AddHours(-1), TimeSpan.FromMinutes(60), 60),
+                        new PlaySession("b", now.AddDays(-30), now.AddDays(-30).AddMinutes(30), TimeSpan.FromMinutes(30), 30)
+                    }
+                }
+            }
+        };
+
+        var service = new StatisticsService(snapshot, provider);
+        var overview = service.GetOverview();
+
+        Assert.Equal(2, overview.Count);
+        Assert.Equal("a", overview[0].GameName);
+        Assert.Equal("b", overview[1].GameName);
+    }
+
+    [Fact]
     public void MonitorControlService_ShouldStartAndStop()
     {
         var processMonitor = new FakeProcessMonitor();
