@@ -74,6 +74,33 @@ public sealed class FilePlaytimeSnapshotProviderTests : IDisposable
         Assert.Equal("json-game.exe", records[0].GameName);
     }
 
+    [Fact]
+    public void GetPlaytimeRecords_WithComplexCsv_ShouldHandleQuotesAndCommas()
+    {
+        var gameDir = Path.Combine(_tempRoot, "GameHelper");
+        Directory.CreateDirectory(gameDir);
+        var csvPath = Path.Combine(gameDir, "playtime.csv");
+        // Create CSV with quoted game name containing comma, and normal date/times
+        File.WriteAllText(
+            csvPath,
+            "game,start_time,end_time,duration_minutes\n" +
+            "\"My Game, The Sequel\",2026-01-01T10:00:00,2026-01-01T12:00:00,120\n" +
+            "\"Another Game\"\"WithQuotes\"\"\",2026-01-02T10:00:00,2026-01-02T11:00:00,60\n");
+
+        var provider = new FilePlaytimeSnapshotProvider();
+        var records = provider.GetPlaytimeRecords();
+
+        Assert.Equal(2, records.Count);
+
+        var record1 = records.First(r => r.GameName == "My Game, The Sequel");
+        Assert.Single(record1.Sessions);
+        Assert.Equal(120, record1.Sessions[0].DurationMinutes);
+
+        var record2 = records.First(r => r.GameName == "Another Game\"WithQuotes\"");
+        Assert.Single(record2.Sessions);
+        Assert.Equal(60, record2.Sessions[0].DurationMinutes);
+    }
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable("APPDATA", _originalAppData);
