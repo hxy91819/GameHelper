@@ -172,6 +172,10 @@ public sealed class CoreApplicationServicesTests
             StartCalled = true;
         }
 
+        public void ReloadConfig()
+        {
+        }
+
         public void Stop()
         {
             StopCalled = true;

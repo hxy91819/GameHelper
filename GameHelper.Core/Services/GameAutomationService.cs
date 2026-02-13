@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -23,6 +23,7 @@ namespace GameHelper.Core.Services
         private readonly IHdrController _hdr;
         private readonly IPlayTimeService _playTime;
         private readonly ILogger<GameAutomationService> _logger;
+        private readonly object _stateLock = new();
 
         private readonly Dictionary<string, List<ActiveProcessEntry>> _activeByName = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, List<ActiveProcessEntry>> _activeByPath = new(StringComparer.OrdinalIgnoreCase);
@@ -34,10 +35,10 @@ namespace GameHelper.Core.Services
         private IReadOnlyDictionary<string, GameConfig> _configsByPath = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
         private NameConfigEntry[] _nameConfigs = Array.Empty<NameConfigEntry>();
 
-        // 动态阈值常量
-        private const int ShortNameThreshold = 95;   // 2-4 字符
-        private const int MediumNameThreshold = 90;  // 5-8 字符
-        private const int LongNameThreshold = 80;    // 9+ 字符
+        // 鍔ㄦ€侀槇鍊煎父閲?
+        private const int ShortNameThreshold = 95;   // 2-4 瀛楃
+        private const int MediumNameThreshold = 90;  // 5-8 瀛楃
+        private const int LongNameThreshold = 80;    // 9+ 瀛楃
 
         public GameAutomationService(
             IProcessMonitor monitor,
@@ -55,6 +56,210 @@ namespace GameHelper.Core.Services
         }
 
         public void Start()
+        {
+            lock (_stateLock)
+            {
+                LoadAndBuildIndexes();
+
+                _activeByName.Clear();
+                _activeByPath.Clear();
+                _dataKeyRefs.Clear();
+
+                _monitor.ProcessStarted += OnProcessStarted;
+                _monitor.ProcessStopped += OnProcessStopped;
+
+                try
+                {
+                    _stopControl?.SetStopEventsEnabled(false);
+                    _logger.LogDebug("Stop events listening disabled at startup");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to disable stop events at startup");
+                }
+
+                _logger.LogInformation(
+                    "GameAutomationService started: {Total} configs ({PathCount} path, {NameCount} name)",
+                    _configs.Count,
+                    _configsByPath.Count,
+                    _nameConfigs.Length);
+            }
+        }
+
+        public void ReloadConfig()
+        {
+            lock (_stateLock)
+            {
+                LoadAndBuildIndexes();
+                _logger.LogInformation(
+                    "GameAutomationService config reloaded: {Total} configs ({PathCount} path, {NameCount} name)",
+                    _configs.Count,
+                    _configsByPath.Count,
+                    _nameConfigs.Length);
+            }
+        }
+
+        public void Stop()
+        {
+            lock (_stateLock)
+            {
+                _monitor.ProcessStarted -= OnProcessStarted;
+                _monitor.ProcessStopped -= OnProcessStopped;
+
+                foreach (var dataKey in _dataKeyRefs.Keys.ToList())
+                {
+                    try
+                    {
+                        _playTime.StopTracking(dataKey);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to flush session for {DataKey}", dataKey);
+                    }
+                }
+
+                _dataKeyRefs.Clear();
+                _activeByName.Clear();
+                _activeByPath.Clear();
+
+                try
+                {
+                    _stopControl?.SetStopEventsEnabled(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to disable stop events during shutdown");
+                }
+
+                _logger.LogInformation("GameAutomationService stopped");
+            }
+        }
+
+        private void OnProcessStarted(ProcessEventInfo processInfo)
+        {
+            lock (_stateLock)
+            {
+                var normalizedPath = NormalizePath(processInfo.ExecutablePath);
+                var normalizedName = NormalizeName(processInfo.ExecutableName);
+
+                var config = MatchByPath(normalizedPath);
+                string matchLabel = "路径匹配";
+
+                if (config is null)
+                {
+                    config = MatchByMetadata(processInfo, normalizedPath, out matchLabel);
+                }
+
+                if (config is null)
+                {
+                    _logger.LogDebug("未匹配到配置: {Executable} (Path={Path})", processInfo.ExecutableName, processInfo.ExecutablePath);
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(config.DataKey))
+                {
+                    _logger.LogWarning("匹配到缺少 DataKey 的配置，忽略: {Executable}", processInfo.ExecutableName);
+                    return;
+                }
+
+                var hadAnyActive = _dataKeyRefs.Count > 0;
+                var firstForDataKey = RegisterActive(config.DataKey, normalizedName, normalizedPath);
+
+                _logger.LogInformation(
+                    "Process start: DataKey={DataKey}, Via={Match}, Executable={Executable}, Path={Path}",
+                    config.DataKey,
+                    matchLabel,
+                    normalizedName ?? processInfo.ExecutableName ?? "n/a",
+                    normalizedPath ?? "n/a");
+
+                if (firstForDataKey)
+                {
+                    try
+                    {
+                        _playTime.StartTracking(config.DataKey);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to start tracking for {DataKey}", config.DataKey);
+                    }
+                }
+
+                UpdateHdrState();
+
+                if (!hadAnyActive && _dataKeyRefs.Count > 0)
+                {
+                    try
+                    {
+                        _stopControl?.SetStopEventsEnabled(true);
+                        _logger.LogDebug("Stop events enabled (first active)");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Failed to enable stop events");
+                    }
+                }
+            }
+        }
+
+        private void OnProcessStopped(ProcessEventInfo processInfo)
+        {
+            lock (_stateLock)
+            {
+                var hadAnyActive = _dataKeyRefs.Count > 0;
+
+                if (!TryResolveActive(processInfo, out var entry))
+                {
+                    _logger.LogDebug("Stop ignored, no active record for {Executable}", processInfo.ExecutableName);
+                    return;
+                }
+
+                var isLastForDataKey = ReleaseActive(entry.DataKey);
+
+                _logger.LogInformation(
+                    "Process stop: DataKey={DataKey}, Executable={Executable}, Path={Path}",
+                    entry.DataKey,
+                    entry.NormalizedName ?? processInfo.ExecutableName ?? "n/a",
+                    entry.NormalizedPath ?? processInfo.ExecutablePath ?? "n/a");
+
+                if (isLastForDataKey)
+                {
+                    try
+                    {
+                        var session = _playTime.StopTracking(entry.DataKey);
+                        if (session is not null)
+                        {
+                            var formatted = FormatDuration(session.Duration);
+                            _logger.LogInformation(
+                                "本次游玩时长: {Duration} (开始 {StartTime:t}, 结束 {EndTime:t})",
+                                formatted,
+                                session.StartTime,
+                                session.EndTime);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to stop tracking for {DataKey}", entry.DataKey);
+                    }
+                }
+
+                UpdateHdrState();
+
+                if (_dataKeyRefs.Count == 0 && hadAnyActive)
+                {
+                    try
+                    {
+                        _stopControl?.SetStopEventsEnabled(false);
+                        _logger.LogDebug("Stop events disabled (none active)");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Failed to disable stop events");
+                    }
+                }
+            }
+        }
+
+        private void LoadAndBuildIndexes()
         {
             _configs = _configProvider.Load();
 
@@ -90,180 +295,6 @@ namespace GameHelper.Core.Services
             _configsByPath = pathMap;
             _configsByName = nameMap;
             _nameConfigs = nameEntries.ToArray();
-
-            _activeByName.Clear();
-            _activeByPath.Clear();
-            _dataKeyRefs.Clear();
-
-            _monitor.ProcessStarted += OnProcessStarted;
-            _monitor.ProcessStopped += OnProcessStopped;
-
-            try
-            {
-                _stopControl?.SetStopEventsEnabled(false);
-                _logger.LogDebug("Stop events listening disabled at startup");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to disable stop events at startup");
-            }
-
-            _logger.LogInformation(
-                "GameAutomationService started: {Total} configs ({PathCount} path, {NameCount} name)",
-                _configs.Count,
-                _configsByPath.Count,
-                _nameConfigs.Length);
-        }
-
-        public void Stop()
-        {
-            _monitor.ProcessStarted -= OnProcessStarted;
-            _monitor.ProcessStopped -= OnProcessStopped;
-
-            foreach (var dataKey in _dataKeyRefs.Keys.ToList())
-            {
-                try
-                {
-                    _playTime.StopTracking(dataKey);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to flush session for {DataKey}", dataKey);
-                }
-            }
-
-            _dataKeyRefs.Clear();
-            _activeByName.Clear();
-            _activeByPath.Clear();
-
-            try
-            {
-                _stopControl?.SetStopEventsEnabled(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to disable stop events during shutdown");
-            }
-
-            _logger.LogInformation("GameAutomationService stopped");
-        }
-
-        private void OnProcessStarted(ProcessEventInfo processInfo)
-        {
-            var normalizedPath = NormalizePath(processInfo.ExecutablePath);
-            var normalizedName = NormalizeName(processInfo.ExecutableName);
-
-            var config = MatchByPath(normalizedPath);
-            string matchLabel = "路径匹配";
-
-            if (config is null)
-            {
-                config = MatchByMetadata(processInfo, normalizedPath, out matchLabel);
-            }
-
-            if (config is null)
-            {
-                _logger.LogDebug("未匹配到配置: {Executable} (Path={Path})", processInfo.ExecutableName, processInfo.ExecutablePath);
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(config.DataKey))
-            {
-                _logger.LogWarning("匹配到缺少 DataKey 的配置，忽略: {Executable}", processInfo.ExecutableName);
-                return;
-            }
-
-            var hadAnyActive = _dataKeyRefs.Count > 0;
-            var firstForDataKey = RegisterActive(config.DataKey, normalizedName, normalizedPath);
-
-            _logger.LogInformation(
-                "Process start: DataKey={DataKey}, Via={Match}, Executable={Executable}, Path={Path}",
-                config.DataKey,
-                matchLabel,
-                normalizedName ?? processInfo.ExecutableName ?? "n/a",
-                normalizedPath ?? "n/a");
-
-            if (firstForDataKey)
-            {
-                try
-                {
-                    _playTime.StartTracking(config.DataKey);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to start tracking for {DataKey}", config.DataKey);
-                }
-            }
-
-            UpdateHdrState();
-
-            if (!hadAnyActive && _dataKeyRefs.Count > 0)
-            {
-                try
-                {
-                    _stopControl?.SetStopEventsEnabled(true);
-                    _logger.LogDebug("Stop events enabled (first active)");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Failed to enable stop events");
-                }
-            }
-        }
-
-        private void OnProcessStopped(ProcessEventInfo processInfo)
-        {
-            var hadAnyActive = _dataKeyRefs.Count > 0;
-
-            if (!TryResolveActive(processInfo, out var entry))
-            {
-                _logger.LogDebug("Stop ignored, no active record for {Executable}", processInfo.ExecutableName);
-                return;
-            }
-
-            var isLastForDataKey = ReleaseActive(entry.DataKey);
-
-            _logger.LogInformation(
-                "Process stop: DataKey={DataKey}, Executable={Executable}, Path={Path}",
-                entry.DataKey,
-                entry.NormalizedName ?? processInfo.ExecutableName ?? "n/a",
-                entry.NormalizedPath ?? processInfo.ExecutablePath ?? "n/a");
-
-            if (isLastForDataKey)
-            {
-                try
-                {
-                    var session = _playTime.StopTracking(entry.DataKey);
-                    if (session is not null)
-                    {
-                        var formatted = FormatDuration(session.Duration);
-                        _logger.LogInformation(
-                            "本次游玩时长：{Duration}（开始 {StartTime:t}，结束 {EndTime:t}）",
-                            formatted,
-                            session.StartTime,
-                            session.EndTime);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to stop tracking for {DataKey}", entry.DataKey);
-                }
-            }
-
-            UpdateHdrState();
-
-            if (_dataKeyRefs.Count == 0 && hadAnyActive)
-            {
-                try
-                {
-                    _stopControl?.SetStopEventsEnabled(false);
-                    _logger.LogDebug("Stop events disabled (none active)");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Failed to disable stop events");
-                }
-            }
         }
 
         private GameConfig? MatchByPath(string? normalizedPath)
@@ -348,7 +379,7 @@ namespace GameHelper.Core.Services
 
             if (bestMatch is null)
             {
-                _logger.LogDebug("L2 模糊匹配失败: 无候选配置达到阈值");
+                _logger.LogDebug("L2 fuzzy match failed: no candidate passed threshold");
                 return null;
             }
 
@@ -365,9 +396,9 @@ namespace GameHelper.Core.Services
             }
 
             // 匹配成功
-            var pathValidation = string.IsNullOrWhiteSpace(bestMatch.ExecutablePath) 
-                ? "旧配置模式（跳过路径验证）" 
-                : "路径验证通过";
+            var pathValidation = string.IsNullOrWhiteSpace(bestMatch.ExecutablePath)
+                ? "legacy-config (path validation skipped)"
+                : "path-validation passed";
 
             label = usedProductName
                 ? $"ProductName 模糊匹配 (score {bestScore})"
@@ -590,11 +621,11 @@ namespace GameHelper.Core.Services
         }
 
         /// <summary>
-        /// 检查进程路径是否在系统路径黑名单中。
-        /// 系统工具不应该被匹配为游戏。
+        /// 检查进程路径是否命中系统路径黑名单。
+        /// 系统工具不应被匹配为游戏。
         /// </summary>
-        /// <param name="processPath">进程的完整路径</param>
-        /// <returns>如果是系统路径则返回 true</returns>
+        /// <param name="processPath">进程完整路径</param>
+        /// <returns>命中系统路径时返回 true</returns>
         private bool IsSystemPath(string processPath)
         {
             if (string.IsNullOrWhiteSpace(processPath))
@@ -647,14 +678,14 @@ namespace GameHelper.Core.Services
         }
 
         /// <summary>
-        /// 验证进程路径是否与配置路径相关（在同一目录树下）。
+        /// 验证进程路径是否与配置路径相关（位于同一目录树）。
         /// </summary>
-        /// <param name="processPath">进程的完整路径</param>
+        /// <param name="processPath">进程完整路径</param>
         /// <param name="configPath">配置的可执行文件路径（可为空）</param>
-        /// <returns>如果路径相关或 configPath 为空则返回 true</returns>
+        /// <returns>路径相关或 configPath 为空时返回 true</returns>
         private bool IsPathRelated(string processPath, string? configPath)
         {
-            // 旧配置兼容：如果没有配置路径，跳过验证
+            // 旧配置兼容：未配置路径时跳过验证
             if (string.IsNullOrWhiteSpace(configPath))
             {
                 return true;
@@ -690,7 +721,7 @@ namespace GameHelper.Core.Services
                     return false;
                 }
 
-                // 仅当进程路径位于配置目录或其子目录时才视为相关
+                // 仅当进程目录位于配置目录或其子目录时才视为相关
                 processDir = EnsureTrailingSeparator(processDir);
                 configDir = EnsureTrailingSeparator(configDir);
 
@@ -698,7 +729,7 @@ namespace GameHelper.Core.Services
             }
             catch (Exception ex)
             {
-                // 路径处理异常时，保守地拒绝匹配
+                // 路径处理异常时，保守拒绝匹配
                 _logger.LogDebug(ex, "路径验证失败: ProcessPath={ProcessPath}, ConfigPath={ConfigPath}",
                     processPath, configPath);
                 return false;
@@ -893,10 +924,10 @@ namespace GameHelper.Core.Services
 
         /// <summary>
         /// 根据可执行文件名长度计算模糊匹配阈值。
-        /// 短文件名需要更高的相似度以避免误匹配。
+        /// 短文件名需要更高相似度以避免误匹配。
         /// </summary>
         /// <param name="executableName">可执行文件名（可含扩展名）</param>
-        /// <returns>推荐的模糊匹配阈值（80-95）</returns>
+        /// <returns>推荐模糊匹配阈值（80-95）</returns>
         private static int CalculateFuzzyThreshold(string executableName)
         {
             if (string.IsNullOrWhiteSpace(executableName))
@@ -911,7 +942,7 @@ namespace GameHelper.Core.Services
             return length switch
             {
                 <= 4 => ShortNameThreshold,   // 短名称：非常严格
-                <= 8 => MediumNameThreshold,  // 中等名称：较严格
+                <= 8 => MediumNameThreshold,  // 中名称：较严格
                 _ => LongNameThreshold        // 长名称：标准阈值
             };
         }
@@ -958,3 +989,6 @@ namespace GameHelper.Core.Services
         private readonly record struct ActiveProcessEntry(string DataKey, string? NormalizedName, string? NormalizedPath);
     }
 }
+
+
+

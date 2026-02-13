@@ -13,6 +13,12 @@ namespace GameHelper.Core.Abstractions
         void Start();
 
         /// <summary>
+        /// Reloads configuration from the backing store and refreshes in-memory
+        /// matching indexes for future process events.
+        /// </summary>
+        void ReloadConfig();
+
+        /// <summary>
         /// Shuts down the automation pipeline (unsubscribe). Ensures any active
         /// playtime sessions are flushed/persisted to storage.
         /// </summary>
