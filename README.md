@@ -1,47 +1,22 @@
-# GameHelper - 游戏助手
+﻿# GameHelper
 
-GameHelper 是一个面向 Windows 玩家的桌面助手，采用 WinUI 3 + .NET 8 的原生壳层，并保留 CLI 作为可选回退入口。
-
-## 功能特性
-
-- 进程监控：支持 ETW/WMI，自动识别游戏启动/退出
-- 游玩统计：记录会话并生成总时长、近两周时长等统计
-- 配置管理：支持 YAML 配置，维护游戏清单与全局设置
-- Shell 分层：WinUI 与 CLI 共享 Core 用例，避免行为漂移
-- 自动降级：ETW 不可用时可回退到 WMI
-
-## 架构（WinUI-first）
-
-依赖方向固定为：`UI/CLI -> Core -> Infrastructure`
-
-```mermaid
-flowchart LR
-  U1["桌面用户"] --> UI["GameHelper.WinUI\n(WinUI 3)"]
-  U2["CLI 用户"] --> CLI["GameHelper.ConsoleHost\n(Optional)"]
-  UI --> CORE["GameHelper.Core\n(Contracts + Use Cases)"]
-  CLI --> CORE
-  CORE --> INFRA["GameHelper.Infrastructure\n(WMI/ETW/Storage Adapters)"]
-  INFRA --> WIN["Windows APIs + Filesystem"]
-```
-
-说明：
-- `GameHelper.WinUI`：主产品入口
-- `GameHelper.ConsoleHost`：可选壳，便于自动化与诊断
-- `GameHelper.Web`：已从仓库中删除
+GameHelper 是一个面向 Windows 玩家的桌面助手，提供：
+- 进程监控（ETW/WMI）
+- 游戏时长统计
+- 游戏配置管理（YAML）
+- WinUI 桌面入口 + CLI 入口
 
 ## 快速开始
 
 ### 环境要求
-
 - Windows 10 (19041+) / Windows 11
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- [Windows App SDK 1.6+](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads)（开发时 WinUI 运行依赖）
-- ETW 场景建议管理员权限
+- .NET 8 SDK
+- （仅 WinUI 运行）Windows App SDK 1.6+
 
-### CLI 运行示例
+### 常用 CLI 命令
 
 ```powershell
-# 互动模式（默认）
+# 交互模式（默认）
 dotnet run --project .\GameHelper.ConsoleHost --
 
 # 启动监控
@@ -50,46 +25,44 @@ dotnet run --project .\GameHelper.ConsoleHost -- monitor [--monitor-type ETW|WMI
 # 查看统计
 dotnet run --project .\GameHelper.ConsoleHost -- stats [--game <name>]
 
-# 游戏配置
+# 配置游戏
 dotnet run --project .\GameHelper.ConsoleHost -- config list
 dotnet run --project .\GameHelper.ConsoleHost -- config add <exe>
 dotnet run --project .\GameHelper.ConsoleHost -- config remove <exe>
 ```
 
-> 拖放补充：当 `GameHelper.ConsoleHost` 已在运行时，再次把 `.exe/.lnk/.url` 拖到启动入口会自动转发到运行中的实例完成添加，并立即热重载配置（对后续新启动进程生效）。
+### 运行中拖拽添加（已支持）
+- 支持拖拽 `.exe` / `.lnk` / `.url`。
+- 当 CLI 主进程已在运行时，新的拖拽启动请求会自动转发给主进程处理。
+- 配置会立即热重载，对后续新启动的进程生效。
+- 不会破坏“单实例”约束（主进程始终只有一个）。
 
-### WinUI 运行（开发调试）
+## 发布
+
+### 发布 CLI
 
 ```powershell
-# 编译
-dotnet build .\GameHelper.WinUI
+# 自包含（目标机器无需预装 .NET Runtime）
+dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release -r win-x64 --self-contained true
 
-# 直接运行
-dotnet run --project .\GameHelper.WinUI
+# 非自包含（目标机器需安装 .NET 8 Runtime）
+dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release -r win-x64 --self-contained false
 ```
 
-也可以使用 Visual Studio 2022 打开 `GameHelper.sln`，将 `GameHelper.WinUI` 设为启动项目后直接 F5 运行。
+默认输出目录：
+`GameHelper.ConsoleHost\bin\Release\net8.0-windows\win-x64\publish`
 
-> **提示**：`dotnet run` 依赖本机已安装 Windows App Runtime 1.6。面向最终用户请使用下面的自包含发布包。
-
-> **注意**：ETW 监控需要管理员权限，可以在管理员终端中执行上述命令，或在 VS 中以管理员身份启动。
-
-### WinUI 自包含发布（推荐给最终用户）
-
-自包含发布会把 Windows App Runtime 打包进发布结果，用户机器无需额外安装运行时。
+### 发布 WinUI
 
 ```powershell
 dotnet publish .\GameHelper.WinUI -p:PublishProfile=WinUI-SelfContained
 ```
 
-发布产物默认路径：
-`GameHelper.WinUI\bin\Release\net8.0-windows10.0.19041.0\win-x64\publish\GameHelper.WinUI.exe`
-
-> **提示**：开发阶段的 `dotnet run` 仍依赖已安装的 Windows App Runtime；面向用户发布请使用上面的自包含包。
-
 ## 配置文件
 
-默认路径：`%AppData%/GameHelper/config.yml`
+默认路径：`%AppData%\GameHelper\config.yml`
+
+示例：
 
 ```yaml
 processMonitorType: ETW
@@ -101,52 +74,20 @@ games:
     hdrEnabled: false
 ```
 
-## 开发工作流（7.2）
-
-### 非 Windows 开发者
-
-- 重点：`GameHelper.Core`、`GameHelper.Infrastructure`、CLI 逻辑
-- 可执行：核心单元测试、契约测试、纯逻辑集成测试
-- 不要求：本机运行 WinUI/FlaUI
-
-### Windows 开发者
-
-- 覆盖：WinUI 壳层、系统集成、桌面自动化
-- 负责：WinUI 手工验证、FlaUI smoke、发布链路验证
-
-## UI 自动化策略（7.3）
-
-- 工具：FlaUI-first
-- 定位：AutomationId-first（避免文本定位脆弱性）
-- 执行分层：
-  - Hosted Windows：仅 deterministic smoke
-  - Self-hosted interactive Windows：完整 UI 套件
-- 稳定性控制：超时、重试、测试隔离、失败工件采集
-
-## 从 Web 运行路径迁移（7.4）
-
-原有 Web 运行路径与参数（`--web/--port`）已移除。
-
-迁移建议：
-1. 日常使用：改用 `GameHelper.WinUI`
-2. 脚本/自动化：继续使用 `GameHelper.ConsoleHost`
-3. 如旧脚本仍传入 `--web/--port`：请直接删除这些参数
-
-## 依赖边界约束
-
-- 文档：`docs/architecture/dependency-direction.md`
-- 自动化校验：`GameHelper.Tests/LayerDependencyRulesTests.cs`
-
 ## 项目结构
+- `GameHelper.WinUI`：WinUI 桌面入口
+- `GameHelper.ConsoleHost`：CLI 入口
+- `GameHelper.Core`：核心模型与业务逻辑
+- `GameHelper.Infrastructure`：平台集成与持久化
+- `GameHelper.Tests`：单元/集成测试
 
-- `GameHelper.WinUI`: WinUI 3 桌面壳（主入口）
-- `GameHelper.ConsoleHost`: CLI 入口（可选回退）
-- `GameHelper.Core`: 领域模型、契约、用例编排
-- `GameHelper.Infrastructure`: 平台适配器与持久化
-- `GameHelper.Tests`: 单元/集成/契约测试
+## 开发与验证
 
-## 许可证
+```powershell
+dotnet build GameHelper.sln
+dotnet test GameHelper.sln
+```
 
-本项目采用双重许可证：
+## 许可
 - 开源使用：AGPL-3.0
-- 商业使用：需商业许可证（见 `LICENSE`）
+- 商业使用：见 `LICENSE`
