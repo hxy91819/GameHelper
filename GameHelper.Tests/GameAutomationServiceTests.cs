@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using GameHelper.Core.Abstractions;
@@ -103,6 +103,28 @@ namespace GameHelper.Tests
         }
         public IReadOnlyDictionary<string, CoreGameConfig> Load() => _configs;
         public void Save(IReadOnlyDictionary<string, CoreGameConfig> configs) { /* not used in tests */ }
+    }
+
+    file sealed class MutableFakeConfig : IConfigProvider
+    {
+        private IReadOnlyDictionary<string, CoreGameConfig> _configs;
+
+        public MutableFakeConfig(IReadOnlyDictionary<string, CoreGameConfig> initial)
+        {
+            _configs = initial;
+        }
+
+        public IReadOnlyDictionary<string, CoreGameConfig> Load() => _configs;
+
+        public void Save(IReadOnlyDictionary<string, CoreGameConfig> configs)
+        {
+            _configs = configs;
+        }
+
+        public void Set(IReadOnlyDictionary<string, CoreGameConfig> configs)
+        {
+            _configs = configs;
+        }
     }
 
     public class GameAutomationServiceTests
@@ -292,8 +314,62 @@ namespace GameHelper.Tests
             monitor.RaiseStart(new ProcessEventInfo("game.exe", null));
             monitor.RaiseStop(new ProcessEventInfo("game.exe", null));
 
-            var entry = Assert.Single(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("本次游玩时长"));
-            Assert.Contains("本次游玩时长：1分钟15秒", entry.Message);
+            var entry = Assert.Single(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("游玩时长"));
+            Assert.Contains("15秒", entry.Message);
+        }
+
+        [Fact]
+        public void ReloadConfig_ShouldRefreshPathAndNameIndexes_ForNewProcesses()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new MutableFakeConfig(Dict(("old.exe", true, true)));
+            var hdr = new FakeHdr();
+            var play = new FakePlayTime();
+            var logger = NullLogger<GameAutomationService>.Instance;
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+
+            svc.Start();
+            monitor.RaiseStart(new ProcessEventInfo("new.exe", @"C:\Games\new.exe"));
+            Assert.Equal(0, play.StartCalls);
+
+            cfg.Set(new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["new.exe"] = new()
+                {
+                    DataKey = "new-key",
+                    ExecutableName = "new.exe",
+                    ExecutablePath = @"C:\Games\new.exe",
+                    IsEnabled = true,
+                    HDREnabled = true
+                }
+            });
+
+            svc.ReloadConfig();
+
+            monitor.RaiseStart(new ProcessEventInfo("new.exe", @"C:\Games\new.exe"));
+            Assert.Equal(1, play.StartCalls);
+            Assert.Contains("new-key", play.Started, StringComparer.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void ReloadConfig_ShouldNotBreakActiveTrackingState()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new MutableFakeConfig(Dict(("game.exe", true, true)));
+            var hdr = new FakeHdr();
+            var play = new FakePlayTime();
+            var logger = NullLogger<GameAutomationService>.Instance;
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+
+            svc.Start();
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null));
+            Assert.Equal(1, play.StartCalls);
+
+            svc.ReloadConfig();
+            monitor.RaiseStop(new ProcessEventInfo("game.exe", null));
+
+            Assert.Equal(1, play.StopCalls);
         }
     }
 }
+

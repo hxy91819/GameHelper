@@ -471,6 +471,10 @@ namespace GameHelper.Tests.Interactive
                 StartCalls++;
             }
 
+            public void ReloadConfig()
+            {
+            }
+
             public void Stop()
             {
                 StopCalls++;

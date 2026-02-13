@@ -56,6 +56,8 @@ dotnet run --project .\GameHelper.ConsoleHost -- config add <exe>
 dotnet run --project .\GameHelper.ConsoleHost -- config remove <exe>
 ```
 
+> 拖放补充：当 `GameHelper.ConsoleHost` 已在运行时，再次把 `.exe/.lnk/.url` 拖到启动入口会自动转发到运行中的实例完成添加，并立即热重载配置（对后续新启动进程生效）。
+
 ### WinUI 运行（开发调试）
 
 ```powershell

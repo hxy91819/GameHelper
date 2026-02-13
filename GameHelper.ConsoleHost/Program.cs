@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Linq;
+using System.Threading;
 using GameHelper.ConsoleHost;
 using GameHelper.ConsoleHost.Commands;
 using GameHelper.ConsoleHost.Interactive;
@@ -21,8 +22,29 @@ ConsoleEncoding.EnsureUtf8();
 
 // Parse command line arguments
 var parsedArgs = ArgumentParser.Parse(args);
+var isFileDropRequest = FileDropHandler.LooksLikeFilePaths(parsedArgs.EffectiveArgs);
+var claimedSingleInstance = ProcessInstanceGuard.TryClaim();
+var startupMode = StartupModeResolver.Resolve(isFileDropRequest, claimedSingleInstance);
 
-if (!ProcessInstanceGuard.TryClaim())
+if (startupMode == StartupMode.ForwardFileDropToRunningInstance)
+{
+    try
+    {
+        var response = await FileDropIpcClient.SendAsync(parsedArgs.EffectiveArgs, parsedArgs.ConfigOverride).ConfigureAwait(false);
+        var text = FormatDropResponse(response);
+        FileDropHandler.TryShowMessageBox(text, "GameHelper");
+        Environment.Exit(response.Success ? 0 : 1);
+    }
+    catch (Exception ex)
+    {
+        FileDropHandler.TryShowMessageBox($"转发到运行中实例失败: {ex.Message}", "GameHelper");
+        Environment.Exit(1);
+    }
+
+    return;
+}
+
+if (startupMode == StartupMode.ExitAlreadyRunning)
 {
     Console.WriteLine("检测到 GameHelper 已在运行，请勿重复启动。");
     return;
@@ -43,7 +65,10 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IConfigProvider>(sp =>
         {
             if (!string.IsNullOrWhiteSpace(parsedArgs.ConfigOverride))
+            {
                 return new YamlConfigProvider(parsedArgs.ConfigOverride!);
+            }
+
             return new YamlConfigProvider();
         });
         services.AddSingleton<IAppConfigProvider>(sp => (YamlConfigProvider)sp.GetRequiredService<IConfigProvider>());
@@ -55,6 +80,7 @@ var host = Host.CreateDefaultBuilder(args)
                 logger.LogInformation("Monitor dry-run enabled; using no-op process monitor.");
                 return ProcessMonitorFactory.CreateNoOp();
             }
+
             var appConfigProvider = sp.GetRequiredService<IAppConfigProvider>();
             var appConfig = appConfigProvider.LoadAppConfig();
 
@@ -86,7 +112,7 @@ var host = Host.CreateDefaultBuilder(args)
             // Get enabled games for whitelist (no filtering at monitor level - let GameAutomationService handle it)
             var configProvider = sp.GetRequiredService<IConfigProvider>();
             var gameConfigs = configProvider.Load();
-            var enabledGames = gameConfigs
+            _ = gameConfigs
                 .Where(kv => kv.Value?.IsEnabled == true)
                 .Select(kv => kv.Key)
                 .ToArray();
@@ -102,6 +128,7 @@ var host = Host.CreateDefaultBuilder(args)
                 return ProcessMonitorFactory.CreateNoOp();
             }
         });
+
         if (OperatingSystem.IsWindows())
         {
             services.AddSingleton<IHdrController, WindowsHdrController>();
@@ -110,6 +137,7 @@ var host = Host.CreateDefaultBuilder(args)
         {
             services.AddSingleton<IHdrController, NoOpHdrController>();
         }
+
         services.AddSingleton<IPlayTimeService, CsvBackedPlayTimeService>();
         services.AddSingleton<IAutoStartManager>(sp =>
         {
@@ -128,6 +156,13 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IStatisticsService, StatisticsService>();
         // Steam URL resolver for optional .url drag&drop support
         services.AddSingleton<ISteamGameResolver, SteamGameResolver>();
+
+        services.AddSingleton<IFileDropProcessor, DefaultFileDropProcessor>();
+        services.AddSingleton<IFileDropRequestHandler, FileDropRequestHandler>();
+        services.AddSingleton<FileDropIpcServer>();
+        services.AddSingleton<IFileDropIpcServer>(sp => sp.GetRequiredService<FileDropIpcServer>());
+        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<FileDropIpcServer>());
+
         services.AddHostedService<Worker>();
     })
     .Build();
@@ -140,6 +175,7 @@ try
     {
         Console.WriteLine($"Using config: {pathProvider.ConfigPath}");
     }
+
     CommandHelpers.PrintBuildInfo(parsedArgs.EnableDebug);
 
     try
@@ -158,12 +194,17 @@ try
     }
 
     // Handle file drag & drop (auto-add to config and exit)
-    if (FileDropHandler.LooksLikeFilePaths(parsedArgs.EffectiveArgs))
+    if (isFileDropRequest)
     {
-        var summary = FileDropHandler.ProcessFilePaths(parsedArgs.EffectiveArgs, parsedArgs.ConfigOverride, host.Services);
-        var text = $"已完成添加/更新\nAdded={summary.Added}, Updated={summary.Updated}, Skipped={summary.Skipped}\n重复清理: {summary.DuplicatesRemoved}\n配置: {summary.ConfigPath}";
+        var handler = host.Services.GetRequiredService<IFileDropRequestHandler>();
+        var response = await handler.HandleAsync(
+                new DropAddRequest { Paths = parsedArgs.EffectiveArgs, ConfigOverride = parsedArgs.ConfigOverride },
+                CancellationToken.None)
+            .ConfigureAwait(false);
+
+        var text = FormatDropResponse(response);
         FileDropHandler.TryShowMessageBox(text, "GameHelper");
-        Environment.Exit(0);
+        Environment.Exit(response.Success ? 0 : 1);
     }
 }
 catch (Exception ex)
@@ -176,8 +217,18 @@ catch (Exception ex)
 var interactiveMode = parsedArgs.UseInteractiveShell || parsedArgs.EffectiveArgs.Length == 0;
 if (interactiveMode)
 {
-    var shell = new InteractiveShell(host, parsedArgs);
-    await shell.RunAsync();
+    var ipcServer = host.Services.GetRequiredService<IFileDropIpcServer>();
+    await ipcServer.StartAsync(CancellationToken.None).ConfigureAwait(false);
+    try
+    {
+        var shell = new InteractiveShell(host, parsedArgs);
+        await shell.RunAsync();
+    }
+    finally
+    {
+        await ipcServer.StopAsync(CancellationToken.None).ConfigureAwait(false);
+    }
+
     return;
 }
 
@@ -210,11 +261,31 @@ switch (command)
         break;
 
     case "interactive":
-        var shell = new InteractiveShell(host, parsedArgs);
-        await shell.RunAsync();
+        var ipcServer = host.Services.GetRequiredService<IFileDropIpcServer>();
+        await ipcServer.StartAsync(CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            var shell = new InteractiveShell(host, parsedArgs);
+            await shell.RunAsync();
+        }
+        finally
+        {
+            await ipcServer.StopAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+
         break;
 
     default:
         CommandHelpers.PrintUsage();
         break;
+}
+
+static string FormatDropResponse(DropAddResponse response)
+{
+    if (!response.Success)
+    {
+        return $"添加失败: {response.Error}";
+    }
+
+    return $"已完成添加/更新\nAdded={response.Added}, Updated={response.Updated}, Skipped={response.Skipped}\n重复清理: {response.DuplicatesRemoved}\n配置: {response.ConfigPath}";
 }
