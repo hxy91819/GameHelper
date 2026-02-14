@@ -74,6 +74,34 @@ public sealed class FilePlaytimeSnapshotProviderTests : IDisposable
         Assert.Equal("json-game.exe", records[0].GameName);
     }
 
+    [Fact]
+    public void GetPlaytimeRecords_WithComplexCsv_ShouldHandleQuotesAndCommas()
+    {
+        var gameDir = Path.Combine(_tempRoot, "GameHelper");
+        Directory.CreateDirectory(gameDir);
+        var csvPath = Path.Combine(gameDir, "playtime.csv");
+        File.WriteAllText(
+            csvPath,
+            "game,start_time,end_time,duration_minutes\n" +
+            "\"Complex, Game Name\",2026-01-01T10:00:00,2026-01-01T10:30:00,30\n" +
+            "\"Another \"\"Complex\"\" One\",2026-01-01T11:00:00,2026-01-01T11:45:00,45\n");
+
+        var provider = new FilePlaytimeSnapshotProvider();
+        var records = provider.GetPlaytimeRecords();
+
+        Assert.Equal(2, records.Count);
+
+        var first = records.First(r => r.GameName == "Complex, Game Name");
+        Assert.NotNull(first);
+        Assert.Single(first.Sessions);
+        Assert.Equal(30, first.Sessions[0].DurationMinutes);
+
+        var second = records.First(r => r.GameName == "Another \"Complex\" One");
+        Assert.NotNull(second);
+        Assert.Single(second.Sessions);
+        Assert.Equal(45, second.Sessions[0].DurationMinutes);
+    }
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable("APPDATA", _originalAppData);
