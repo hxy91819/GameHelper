@@ -42,16 +42,28 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
         {
             try
             {
-                var parts = ParseCsvLine(line);
-                if (parts.Length < 4)
-                {
-                    continue;
-                }
+                var remaining = line.AsSpan();
 
-                var gameName = parts[0];
-                var startTime = DateTime.Parse(parts[1]);
-                var endTime = DateTime.Parse(parts[2]);
-                var durationMinutes = long.Parse(parts[3]);
+                // 1. Game Name
+                var gameNameSpan = SplitNextField(ref remaining);
+                if (gameNameSpan.IsEmpty && remaining.IsEmpty) continue;
+
+                // 2. Start Time
+                var startTimeSpan = SplitNextField(ref remaining);
+                if (startTimeSpan.IsEmpty) continue;
+
+                // 3. End Time
+                var endTimeSpan = SplitNextField(ref remaining);
+                if (endTimeSpan.IsEmpty) continue;
+
+                // 4. Duration
+                var durationSpan = SplitNextField(ref remaining);
+                if (durationSpan.IsEmpty) continue;
+
+                var gameName = Unescape(gameNameSpan);
+                var startTime = DateTime.Parse(startTimeSpan);
+                var endTime = DateTime.Parse(endTimeSpan);
+                var durationMinutes = long.Parse(durationSpan);
 
                 if (!map.TryGetValue(gameName, out var record))
                 {
@@ -93,39 +105,95 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
         return records ?? new List<GamePlaytimeRecord>();
     }
 
-    private static string[] ParseCsvLine(string line)
+    /// <summary>
+    /// Parses the next CSV field from the remaining line span.
+    /// Handles quoted fields (including escaped quotes via double-quote) and standard fields.
+    /// Updates the remaining span to point after the current field and delimiter.
+    /// </summary>
+    private static ReadOnlySpan<char> SplitNextField(ref ReadOnlySpan<char> remaining)
     {
-        var result = new List<string>();
-        var current = new System.Text.StringBuilder();
-        var inQuotes = false;
+        if (remaining.IsEmpty) return ReadOnlySpan<char>.Empty;
 
-        for (var i = 0; i < line.Length; i++)
+        // Check if the field starts with a quote
+        if (remaining[0] == '"')
         {
-            var c = line[i];
-            if (c == '"')
+            // Quoted field
+            // We need to find the closing quote that is NOT escaped.
+            // An escaped quote is represented as two double quotes ("").
+
+            int i = 1;
+            while (i < remaining.Length)
             {
-                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                if (remaining[i] == '"')
                 {
-                    current.Append('"');
-                    i++;
+                    // Check if this is an escaped quote ("")
+                    if (i + 1 < remaining.Length && remaining[i + 1] == '"')
+                    {
+                        // Skip the escaped quote
+                        i += 2;
+                        continue;
+                    }
+
+                    // Found the closing quote
+                    var field = remaining.Slice(1, i - 1); // Extract content inside quotes
+
+                    // Move past the closing quote
+                    int advance = i + 1;
+
+                    // Move past the comma if it exists
+                    if (advance < remaining.Length && remaining[advance] == ',')
+                    {
+                        advance++;
+                    }
+
+                    remaining = remaining.Slice(advance);
+                    return field;
                 }
-                else
-                {
-                    inQuotes = !inQuotes;
-                }
+                i++;
             }
-            else if (c == ',' && !inQuotes)
+
+            // Malformed quoted field (no closing quote), consume the rest as the field
+            var rest = remaining.Slice(1);
+            remaining = ReadOnlySpan<char>.Empty;
+            return rest;
+        }
+        else
+        {
+            // Standard field
+            int commaIndex = remaining.IndexOf(',');
+            if (commaIndex >= 0)
             {
-                result.Add(current.ToString());
-                current.Clear();
+                var field = remaining.Slice(0, commaIndex);
+                remaining = remaining.Slice(commaIndex + 1);
+                return field;
             }
             else
             {
-                current.Append(c);
+                var field = remaining;
+                remaining = ReadOnlySpan<char>.Empty;
+                return field;
+            }
+        }
+    }
+
+    private static string Unescape(ReadOnlySpan<char> field)
+    {
+        // Optimization: check if we need to replace anything
+        bool needsUnescape = false;
+        foreach (char c in field)
+        {
+            if (c == '"')
+            {
+                needsUnescape = true;
+                break;
             }
         }
 
-        result.Add(current.ToString());
-        return result.ToArray();
+        if (needsUnescape)
+        {
+            return field.ToString().Replace("\"\"", "\"");
+        }
+
+        return field.ToString();
     }
 }
