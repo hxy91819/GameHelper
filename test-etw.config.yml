@@ -1,17 +1,16 @@
-# 测试配置文件 - 显式使用 ETW 监控
-# 
-# 注意：ETW 是默认监控方式，此配置文件显式指定 ETW 仅用于测试目的
-# 如果需要使用 WMI 监控（无需管理员权限），请设置：
-# processMonitorType: WMI
-
-processMonitorType: ETW  # 显式指定 ETW（实际上这是默认值）
+# Test configuration with ETW monitor
+processMonitorType: ETW
 
 games:
-  - name: "notepad.exe"
-    alias: "Notepad"
+  - entryId: "2e97d8a3d1d44d07b74bc7d58612e58d"
+    dataKey: "notepad"
+    executableName: "notepad.exe"
+    displayName: "Notepad"
     isEnabled: true
-    hdrEnabled: false
-  - name: "cmd.exe"
-    alias: "Command Prompt"
+    hDREnabled: false
+  - entryId: "3761243362694761b0f0dfd4d5f77aa1"
+    dataKey: "cmd"
+    executableName: "cmd.exe"
+    displayName: "Command Prompt"
     isEnabled: true
-    hdrEnabled: false
+    hDREnabled: false

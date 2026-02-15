@@ -12,7 +12,7 @@ namespace GameHelper.ConsoleHost.Commands
             Console.WriteLine("  monitor [--config <path>] [--monitor-type <type>] [--debug]");
             Console.WriteLine("  config list [--config <path>] [--debug]");
             Console.WriteLine("  config add <exe> [--config <path>] [--debug]");
-            Console.WriteLine("  config remove <exe> [--config <path>] [--debug]");
+            Console.WriteLine("  config remove <dataKey> [--config <path>] [--debug]");
             Console.WriteLine("  stats [--game <name>] [--config <path>] [--debug]");
             Console.WriteLine("  migrate [--config <path>] [--csv <path>] [--dry-run] [--force]");
             Console.WriteLine("  convert-config");

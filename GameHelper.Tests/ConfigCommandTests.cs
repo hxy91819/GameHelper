@@ -48,10 +48,10 @@ namespace GameHelper.Tests
             var gameName = "test.exe";
             ConfigCommand.Run(_serviceProvider, new[] { "add", gameName });
 
-            Assert.Contains(gameName, _configData.Keys);
-            var cfg = _configData[gameName];
+            var cfg = Assert.Single(_configData.Values);
             Assert.Equal(gameName, cfg.DataKey);
             Assert.Equal(gameName, cfg.ExecutableName);
+            Assert.False(string.IsNullOrWhiteSpace(cfg.EntryId));
             Assert.False(cfg.HDREnabled);
             Assert.Equal($"Added {gameName}.", _consoleOutput.ToString().Trim());
             _mockConfigProvider.Verify(p => p.Save(It.IsAny<IReadOnlyDictionary<string, GameConfig>>()), Times.Once);

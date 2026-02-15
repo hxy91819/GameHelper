@@ -1,5 +1,6 @@
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 
 namespace GameHelper.Core.Services;
 
@@ -15,9 +16,9 @@ public sealed class GameCatalogService : IGameCatalogService
     public IReadOnlyList<GameEntry> GetAll()
     {
         var configs = _configProvider.Load();
-        return configs
-            .OrderBy(kv => kv.Value.DisplayName ?? kv.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(kv => ToEntry(kv.Key, kv.Value))
+        return configs.Values
+            .OrderBy(v => v.DisplayName ?? v.DataKey, StringComparer.OrdinalIgnoreCase)
+            .Select(ToEntry)
             .ToList();
     }
 
@@ -30,10 +31,12 @@ public sealed class GameCatalogService : IGameCatalogService
         }
 
         var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
-        var dataKey = executableName;
+        var dataKey = ConfigIdentity.EnsureUniqueDataKey(executableName, configs.Values.Select(v => v.DataKey));
+        var entryId = ConfigIdentity.EnsureEntryId(null);
 
         var config = new GameConfig
         {
+            EntryId = entryId,
             DataKey = dataKey,
             ExecutableName = executableName,
             ExecutablePath = request.ExecutablePath,
@@ -42,9 +45,9 @@ public sealed class GameCatalogService : IGameCatalogService
             HDREnabled = request.HdrEnabled
         };
 
-        configs[dataKey] = config;
+        configs[entryId] = config;
         _configProvider.Save(configs);
-        return ToEntry(dataKey, config);
+        return ToEntry(config);
     }
 
     public GameEntry Update(string dataKey, GameEntryUpsertRequest request)
@@ -55,20 +58,25 @@ public sealed class GameCatalogService : IGameCatalogService
         }
 
         var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
-        if (!configs.TryGetValue(dataKey, out var existing))
+        var existingPair = configs.FirstOrDefault(kv =>
+            string.Equals(kv.Value.DataKey, dataKey, StringComparison.OrdinalIgnoreCase));
+
+        if (existingPair.Value is null)
         {
             throw new KeyNotFoundException($"Game '{dataKey}' not found.");
         }
 
+        var existing = existingPair.Value;
+        existing.EntryId = string.IsNullOrWhiteSpace(existing.EntryId) ? existingPair.Key : existing.EntryId;
         existing.ExecutableName = NormalizeExecutableName(request.ExecutableName) ?? existing.ExecutableName;
         existing.ExecutablePath = request.ExecutablePath ?? existing.ExecutablePath;
         existing.DisplayName = request.DisplayName ?? existing.DisplayName;
         existing.IsEnabled = request.IsEnabled;
         existing.HDREnabled = request.HdrEnabled;
 
-        configs[dataKey] = existing;
+        configs[existingPair.Key] = existing;
         _configProvider.Save(configs);
-        return ToEntry(dataKey, existing);
+        return ToEntry(existing);
     }
 
     public bool Delete(string dataKey)
@@ -79,18 +87,22 @@ public sealed class GameCatalogService : IGameCatalogService
         }
 
         var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
-        if (!configs.Remove(dataKey))
+        var existingPair = configs.FirstOrDefault(kv =>
+            string.Equals(kv.Value.DataKey, dataKey, StringComparison.OrdinalIgnoreCase));
+
+        if (existingPair.Value is null)
         {
             return false;
         }
 
+        configs.Remove(existingPair.Key);
         _configProvider.Save(configs);
         return true;
     }
 
-    private static GameEntry ToEntry(string key, GameConfig config) => new()
+    private static GameEntry ToEntry(GameConfig config) => new()
     {
-        DataKey = key,
+        DataKey = config.DataKey,
         ExecutableName = config.ExecutableName,
         ExecutablePath = config.ExecutablePath,
         DisplayName = config.DisplayName,
@@ -107,4 +119,5 @@ public sealed class GameCatalogService : IGameCatalogService
 
         return executableName.Trim();
     }
+
 }
