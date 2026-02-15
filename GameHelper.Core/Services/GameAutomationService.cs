@@ -265,7 +265,7 @@ namespace GameHelper.Core.Services
             var dataKeyMap = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
 
             var pathMap = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-            var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var nameStats = new Dictionary<string, (int Count, int MissingPathCount)>(StringComparer.OrdinalIgnoreCase);
             var nameEntries = new List<NameConfigEntry>();
 
             foreach (var config in _configs.Values)
@@ -300,14 +300,36 @@ namespace GameHelper.Core.Services
                 var normalizedName = NormalizeName(config.ExecutableName);
                 if (normalizedName is not null)
                 {
-                    if (!seenNames.Add(normalizedName))
+                    if (!nameStats.TryGetValue(normalizedName, out var stat))
                     {
-                        _logger.LogWarning(
-                            "Duplicate executable name detected while building indexes: {Name}. Name-only matching may become ambiguous.",
-                            normalizedName);
+                        stat = (0, 0);
                     }
-
+                    stat.Count++;
+                    if (normalizedPath is null)
+                    {
+                        stat.MissingPathCount++;
+                    }
+                    nameStats[normalizedName] = stat;
                     nameEntries.Add(new NameConfigEntry(normalizedName, normalizedName.ToUpperInvariant(), config));
+                }
+            }
+
+            foreach (var (name, stat) in nameStats.Where(kv => kv.Value.Count > 1))
+            {
+                if (stat.MissingPathCount > 0)
+                {
+                    _logger.LogWarning(
+                        "Duplicate executable name detected while building indexes: {Name}. DuplicateCount={Count}, MissingPathCount={MissingPathCount}. Name-only matching may become ambiguous.",
+                        name,
+                        stat.Count,
+                        stat.MissingPathCount);
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        "Duplicate executable name detected while building indexes: {Name}. DuplicateCount={Count}. All entries have ExecutablePath, path-first matching remains deterministic.",
+                        name,
+                        stat.Count);
                 }
             }
 

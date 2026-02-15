@@ -370,6 +370,82 @@ namespace GameHelper.Tests
 
             Assert.Equal(1, play.StopCalls);
         }
+
+        [Fact]
+        public void Start_DuplicateExecutableNameWithMissingPath_LogsWarning()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new FakeConfig(new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["entry1"] = new()
+                {
+                    EntryId = "entry1",
+                    DataKey = "game1",
+                    ExecutableName = "Game.exe",
+                    ExecutablePath = @"D:\Games\A\Game.exe",
+                    IsEnabled = true
+                },
+                ["entry2"] = new()
+                {
+                    EntryId = "entry2",
+                    DataKey = "game2",
+                    ExecutableName = "Game.exe",
+                    ExecutablePath = null,
+                    IsEnabled = true
+                }
+            });
+            var hdr = new FakeHdr();
+            var play = new FakePlayTime();
+            var logger = new ListLogger<GameAutomationService>();
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+
+            svc.Start();
+
+            Assert.Contains(
+                logger.Entries,
+                e => e.Level == LogLevel.Warning &&
+                     e.Message.Contains("Duplicate executable name detected while building indexes", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void Start_DuplicateExecutableNameWithAllPaths_OnlyLogsDebug()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new FakeConfig(new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["entry1"] = new()
+                {
+                    EntryId = "entry1",
+                    DataKey = "game1",
+                    ExecutableName = "Game.exe",
+                    ExecutablePath = @"D:\Games\A\Game.exe",
+                    IsEnabled = true
+                },
+                ["entry2"] = new()
+                {
+                    EntryId = "entry2",
+                    DataKey = "game2",
+                    ExecutableName = "Game.exe",
+                    ExecutablePath = @"D:\Games\B\Game.exe",
+                    IsEnabled = true
+                }
+            });
+            var hdr = new FakeHdr();
+            var play = new FakePlayTime();
+            var logger = new ListLogger<GameAutomationService>();
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+
+            svc.Start();
+
+            Assert.DoesNotContain(
+                logger.Entries,
+                e => e.Level == LogLevel.Warning &&
+                     e.Message.Contains("Duplicate executable name detected while building indexes", StringComparison.Ordinal));
+            Assert.Contains(
+                logger.Entries,
+                e => e.Level == LogLevel.Debug &&
+                     e.Message.Contains("Duplicate executable name detected while building indexes", StringComparison.Ordinal));
+        }
     }
 }
 
