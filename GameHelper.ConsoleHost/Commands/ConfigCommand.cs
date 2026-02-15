@@ -79,18 +79,18 @@ public static class ConfigCommand
     {
         if (args.Length < 2)
         {
-            Console.WriteLine("Missing <exe>.");
+            Console.WriteLine("Missing <dataKey>.");
             return;
         }
 
-        var remove = args[1];
-        if (gameCatalogService.Delete(remove))
+        var dataKey = args[1];
+        if (gameCatalogService.Delete(dataKey))
         {
-            Console.WriteLine($"Removed {remove}.");
+            Console.WriteLine($"Removed {dataKey}.");
         }
         else
         {
-            Console.WriteLine($"Not found: {remove}");
+            Console.WriteLine($"Not found: {dataKey}");
         }
     }
 }

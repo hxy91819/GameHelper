@@ -1,8 +1,9 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -203,6 +204,8 @@ namespace GameHelper.ConsoleHost.Interactive
             infoTable.AddRow("配置文件", GetConfigPathDescription());
             infoTable.AddRow("日志级别", _arguments.EnableDebug ? "Debug（命令行启用）" : "Information");
             infoTable.AddRow("监控模式", GetMonitorModeDescription());
+            infoTable.AddRow("Version", GetVersionDescription());
+            infoTable.AddRow("Build Time", GetBuildTimeDescription());
             infoTable.Caption("输入序号或使用方向键选择功能，回车确认");
             _console.Write(infoTable);
 
@@ -616,9 +619,8 @@ namespace GameHelper.ConsoleHost.Interactive
             table.AddColumn("自动化");
             table.AddColumn("HDR");
 
-            foreach (var entry in configs.OrderBy(e => e.Value.DataKey, StringComparer.OrdinalIgnoreCase))
+            foreach (var cfg in configs.Values.OrderBy(e => e.DataKey, StringComparer.OrdinalIgnoreCase))
             {
-                var cfg = entry.Value;
                 var pathDisplay = string.IsNullOrWhiteSpace(cfg.ExecutablePath) 
                     ? "-" 
                     : (cfg.ExecutablePath.Length > 30 
@@ -627,7 +629,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 
                 table.AddRow(
                     Markup.Escape(cfg.DataKey),
-                    Markup.Escape(cfg.ExecutableName ?? entry.Key),
+                    Markup.Escape(cfg.ExecutableName ?? "-"),
                     string.IsNullOrWhiteSpace(cfg.DisplayName) ? "-" : Markup.Escape(cfg.DisplayName!),
                     Markup.Escape(pathDisplay),
                     cfg.IsEnabled ? "[green]启用[/]" : "[red]禁用[/]",
@@ -907,8 +909,9 @@ namespace GameHelper.ConsoleHost.Interactive
                 suggestedDataKey = DataKeyGenerator.GenerateBaseDataKey(input);
             }
 
-            // Check for existing config
-            configs.TryGetValue(executableName, out var existingConfig);
+            // Check for existing config by path first, then by unique executable name fallback.
+            var existingConfig = ConfigEntryMatcher.FindExistingForAdd(configs.Values, executableName, exePath);
+            var existingEntryId = existingConfig?.EntryId;
 
             // Prompt for DataKey
             var dataKeyPrompt = new TextPrompt<string>(
@@ -922,10 +925,10 @@ namespace GameHelper.ConsoleHost.Interactive
                     {
                         return ConsoleValidationResult.Error("DataKey 不能为空。");
                     }
-                    // Check uniqueness (excluding current executable if updating)
+                    // Check uniqueness (excluding current entry if updating)
                     if (configs.Values.Any(c => 
                         string.Equals(c.DataKey, key, StringComparison.OrdinalIgnoreCase) && 
-                        !string.Equals(c.ExecutableName, executableName, StringComparison.OrdinalIgnoreCase)))
+                        !string.Equals(c.EntryId, existingEntryId, StringComparison.OrdinalIgnoreCase)))
                     {
                         return ConsoleValidationResult.Error($"DataKey '{key}' 已被其他游戏使用。");
                     }
@@ -966,8 +969,13 @@ namespace GameHelper.ConsoleHost.Interactive
             var hdr = PromptSelection(hdrPrompt, hdrChoices, value => Markup.Escape(value), hdrTitle);
 
             // Create or update config
-            configs[executableName] = new GameConfig
+            var entryId = string.IsNullOrWhiteSpace(existingEntryId)
+                ? Guid.NewGuid().ToString("N")
+                : existingEntryId;
+
+            configs[entryId] = new GameConfig
             {
+                EntryId = entryId,
                 DataKey = dataKey,
                 ExecutablePath = exePath, // Will be null if only name was provided
                 ExecutableName = executableName,
@@ -990,7 +998,8 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             var title = "选择需要修改的游戏";
-            var choices = configs.Keys
+            var choices = configs.Values
+                .Select(c => c.DataKey)
                 .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             var prompt = new SelectionPrompt<string>
@@ -1000,8 +1009,11 @@ namespace GameHelper.ConsoleHost.Interactive
             prompt.Title(title);
             prompt.AddChoices(choices);
 
-            var exe = PromptSelection(prompt, choices, value => Markup.Escape(value), title);
-            if (!configs.TryGetValue(exe, out var cfg))
+            var selectedDataKey = PromptSelection(prompt, choices, value => Markup.Escape(value), title);
+            var selected = configs.FirstOrDefault(kv => string.Equals(kv.Value.DataKey, selectedDataKey, StringComparison.OrdinalIgnoreCase));
+            var entryId = selected.Key;
+            var cfg = selected.Value;
+            if (cfg is null || string.IsNullOrWhiteSpace(entryId))
             {
                 _console.MarkupLine("[red]未找到对应的配置。[/]");
                 return;
@@ -1010,7 +1022,7 @@ namespace GameHelper.ConsoleHost.Interactive
             // Display current configuration
             _console.MarkupLine("[yellow]当前配置：[/]");
             _console.MarkupLine($"  DataKey: {Markup.Escape(cfg.DataKey)}");
-            _console.MarkupLine($"  可执行文件名: {Markup.Escape(cfg.ExecutableName ?? exe)}");
+            _console.MarkupLine($"  可执行文件名: {Markup.Escape(cfg.ExecutableName ?? "-")}");
             if (!string.IsNullOrWhiteSpace(cfg.ExecutablePath))
             {
                 _console.MarkupLine($"  完整路径: {Markup.Escape(cfg.ExecutablePath)}");
@@ -1102,7 +1114,8 @@ namespace GameHelper.ConsoleHost.Interactive
             cfg.IsEnabled = string.Equals(enable, "启用", StringComparison.Ordinal);
             cfg.HDREnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal);
 
-            configs[exe] = cfg;
+            cfg.EntryId = string.IsNullOrWhiteSpace(cfg.EntryId) ? entryId : cfg.EntryId;
+            configs[entryId] = cfg;
             await PersistAsync(configs).ConfigureAwait(false);
             _console.MarkupLine("[green]配置已更新。[/]");
             
@@ -1130,7 +1143,8 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             var title = "选择要删除的游戏";
-            var choices = configs.Keys
+            var choices = configs.Values
+                .Select(c => c.DataKey)
                 .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             var prompt = new SelectionPrompt<string>
@@ -1140,15 +1154,21 @@ namespace GameHelper.ConsoleHost.Interactive
             prompt.Title(title);
             prompt.AddChoices(choices);
 
-            var exe = PromptSelection(prompt, choices, value => Markup.Escape(value), title);
+            var selectedDataKey = PromptSelection(prompt, choices, value => Markup.Escape(value), title);
+            var selected = configs.FirstOrDefault(kv => string.Equals(kv.Value.DataKey, selectedDataKey, StringComparison.OrdinalIgnoreCase));
+            if (selected.Value is null || string.IsNullOrWhiteSpace(selected.Key))
+            {
+                _console.MarkupLine("[red]未找到对应的配置。[/]");
+                return;
+            }
 
-            var confirm = PromptConfirm($"确定要删除 [bold]{Markup.Escape(exe)}[/] 吗？");
+            var confirm = PromptConfirm($"确定要删除 [bold]{Markup.Escape(selectedDataKey)}[/] 吗？");
             if (!confirm)
             {
                 return;
             }
 
-            configs.Remove(exe);
+            configs.Remove(selected.Key);
             await PersistAsync(configs).ConfigureAwait(false);
             _console.MarkupLine("[yellow]已移除该游戏。[/]");
         }
@@ -1185,19 +1205,19 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             var cfg = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
+            var configLookup = GameConfigLookup.Build(cfg);
             var now = DateTime.Now;
             var cutoff = now.AddDays(-14);
 
             var projected = list.Select(g => new
             {
-                Name = cfg.TryGetValue(g.GameName, out var gc) && !string.IsNullOrWhiteSpace(gc.Alias)
-                    ? gc.Alias!
-                    : g.GameName,
+                Name = ResolveDisplayName(g.GameName, configLookup),
                 TotalMinutes = g.Sessions?.Sum(s => s.DurationMinutes) ?? 0,
                 RecentMinutes = g.Sessions?.Where(s => s.EndTime >= cutoff).Sum(s => s.DurationMinutes) ?? 0,
                 Sessions = g.Sessions?.Count ?? 0
             })
             .OrderByDescending(x => x.RecentMinutes)
+            .ThenByDescending(x => x.TotalMinutes)
             .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -1426,6 +1446,56 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             return "WMI（默认）";
+        }
+
+        private static string GetVersionDescription()
+        {
+            try
+            {
+                var assembly = Assembly.GetEntryAssembly() ?? typeof(InteractiveShell).Assembly;
+                var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+                if (!string.IsNullOrWhiteSpace(informational))
+                {
+                    var plusIndex = informational.IndexOf('+');
+                    return plusIndex > 0 ? informational[..plusIndex] : informational;
+                }
+
+                return assembly.GetName().Version?.ToString() ?? "unknown";
+            }
+            catch
+            {
+                return "unknown";
+            }
+        }
+
+        private static string GetBuildTimeDescription()
+        {
+            try
+            {
+                string? path = Assembly.GetEntryAssembly()?.Location;
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                {
+                    try
+                    {
+                        path = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+                    }
+                    catch
+                    {
+                        path = null;
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                {
+                    return "unknown";
+                }
+
+                return File.GetLastWriteTime(path).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            }
+            catch
+            {
+                return "unknown";
+            }
         }
 
         private T PromptSelection<T>(SelectionPrompt<T> prompt, IReadOnlyList<T> choices, Func<T, string> labelFactory, string? displayTitle)
@@ -1853,14 +1923,13 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
+            var configLookup = GameConfigLookup.Build(configs);
             var keys = new HashSet<SessionKey>();
             var records = new List<SessionRecord>();
 
             foreach (var item in items)
             {
-                var displayName = configs.TryGetValue(item.GameName, out var cfg) && !string.IsNullOrWhiteSpace(cfg.Alias)
-                    ? cfg.Alias!
-                    : item.GameName;
+                var displayName = ResolveDisplayName(item.GameName, configLookup);
 
                 foreach (var session in item.Sessions)
                 {
@@ -1871,6 +1940,12 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             return new SessionSnapshot(keys, records, source);
+        }
+
+        private static string ResolveDisplayName(string key, GameConfigLookup lookup)
+        {
+            var cfg = lookup.Resolve(key);
+            return !string.IsNullOrWhiteSpace(cfg?.DisplayName) ? cfg.DisplayName! : key;
         }
 
         private static string FormatTimestamp(DateTime timestamp)
@@ -1905,5 +1980,6 @@ namespace GameHelper.ConsoleHost.Interactive
         }
 
         private readonly record struct SessionKey(string Game, DateTime Start, DateTime End, long DurationMinutes);
+
     }
 }

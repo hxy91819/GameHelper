@@ -1,5 +1,6 @@
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 
 namespace GameHelper.Core.Services;
 
@@ -27,9 +28,9 @@ public sealed class GameCatalogService : IGameCatalogService
     public IReadOnlyList<GameEntry> GetAll()
     {
         var configs = LoadConfigs();
-        return configs
-            .OrderBy(kv => kv.Value.DisplayName ?? kv.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(kv => ToEntry(kv.Key, kv.Value))
+        return configs.Values
+            .OrderBy(v => v.DisplayName ?? v.DataKey, StringComparer.OrdinalIgnoreCase)
+            .Select(ToEntry)
             .ToList();
     }
 
@@ -42,10 +43,12 @@ public sealed class GameCatalogService : IGameCatalogService
         }
 
         var configs = new Dictionary<string, GameConfig>(LoadConfigs(), StringComparer.OrdinalIgnoreCase);
-        var dataKey = executableName;
+        var dataKey = ConfigIdentity.EnsureUniqueDataKey(executableName, configs.Values.Select(v => v.DataKey));
+        var entryId = ConfigIdentity.EnsureEntryId(null);
 
         var config = new GameConfig
         {
+            EntryId = entryId,
             DataKey = dataKey,
             ExecutableName = executableName,
             ExecutablePath = request.ExecutablePath,
@@ -54,10 +57,10 @@ public sealed class GameCatalogService : IGameCatalogService
             HDREnabled = request.HdrEnabled
         };
 
-        configs[dataKey] = config;
+        configs[entryId] = config;
         _configProvider.Save(configs);
         _cachedConfigs = configs;
-        return ToEntry(dataKey, config);
+        return ToEntry(config);
     }
 
     public GameEntry Update(string dataKey, GameEntryUpsertRequest request)
@@ -68,25 +71,32 @@ public sealed class GameCatalogService : IGameCatalogService
         }
 
         var configs = new Dictionary<string, GameConfig>(LoadConfigs(), StringComparer.OrdinalIgnoreCase);
-        if (!configs.TryGetValue(dataKey, out var existing))
+        var existingPair = configs.FirstOrDefault(kv =>
+            string.Equals(kv.Value.DataKey, dataKey, StringComparison.OrdinalIgnoreCase));
+
+        if (existingPair.Value is null)
         {
             throw new KeyNotFoundException($"Game '{dataKey}' not found.");
         }
 
+        // Clone the existing config to avoid modifying the cache directly
+        // The dictionary 'configs' is a shallow copy of the cached dictionary, so values are references.
+        var original = existingPair.Value;
         var updated = new GameConfig
         {
-            DataKey = existing.DataKey,
-            ExecutableName = NormalizeExecutableName(request.ExecutableName) ?? existing.ExecutableName,
-            ExecutablePath = request.ExecutablePath ?? existing.ExecutablePath,
-            DisplayName = request.DisplayName ?? existing.DisplayName,
+            EntryId = string.IsNullOrWhiteSpace(original.EntryId) ? existingPair.Key : original.EntryId,
+            DataKey = original.DataKey,
+            ExecutableName = NormalizeExecutableName(request.ExecutableName) ?? original.ExecutableName,
+            ExecutablePath = request.ExecutablePath ?? original.ExecutablePath,
+            DisplayName = request.DisplayName ?? original.DisplayName,
             IsEnabled = request.IsEnabled,
             HDREnabled = request.HdrEnabled
         };
 
-        configs[dataKey] = updated;
+        configs[existingPair.Key] = updated;
         _configProvider.Save(configs);
         _cachedConfigs = configs;
-        return ToEntry(dataKey, updated);
+        return ToEntry(updated);
     }
 
     public bool Delete(string dataKey)
@@ -97,19 +107,23 @@ public sealed class GameCatalogService : IGameCatalogService
         }
 
         var configs = new Dictionary<string, GameConfig>(LoadConfigs(), StringComparer.OrdinalIgnoreCase);
-        if (!configs.Remove(dataKey))
+        var existingPair = configs.FirstOrDefault(kv =>
+            string.Equals(kv.Value.DataKey, dataKey, StringComparison.OrdinalIgnoreCase));
+
+        if (existingPair.Value is null)
         {
             return false;
         }
 
+        configs.Remove(existingPair.Key);
         _configProvider.Save(configs);
         _cachedConfigs = configs;
         return true;
     }
 
-    private static GameEntry ToEntry(string key, GameConfig config) => new()
+    private static GameEntry ToEntry(GameConfig config) => new()
     {
-        DataKey = key,
+        DataKey = config.DataKey,
         ExecutableName = config.ExecutableName,
         ExecutablePath = config.ExecutablePath,
         DisplayName = config.DisplayName,
@@ -126,4 +140,5 @@ public sealed class GameCatalogService : IGameCatalogService
 
         return executableName.Trim();
     }
+
 }
