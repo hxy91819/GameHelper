@@ -1,5 +1,6 @@
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 
 namespace GameHelper.Core.Services;
 
@@ -23,11 +24,11 @@ public sealed class StatisticsService : IStatisticsService
         }
 
         var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
-        var configIndexes = BuildConfigIndexes(configs);
+        var configLookup = GameConfigLookup.Build(configs);
         var cutoff = DateTime.Now.AddDays(-14);
 
         return records
-            .Select(record => ToSummary(record, configIndexes, cutoff))
+            .Select(record => ToSummary(record, configLookup, cutoff))
             .OrderByDescending(item => item.RecentMinutes)
             .ThenByDescending(item => item.TotalMinutes)
             .ThenBy(item => item.DisplayName ?? item.GameName, StringComparer.OrdinalIgnoreCase)
@@ -48,20 +49,20 @@ public sealed class StatisticsService : IStatisticsService
         }
 
         var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
-        var configIndexes = BuildConfigIndexes(configs);
+        var configLookup = GameConfigLookup.Build(configs);
         var cutoff = DateTime.Now.AddDays(-14);
         var match = records.FirstOrDefault(record =>
             string.Equals(record.GameName, dataKeyOrGameName, StringComparison.OrdinalIgnoreCase));
 
-        return match is null ? null : ToSummary(match, configIndexes, cutoff);
+        return match is null ? null : ToSummary(match, configLookup, cutoff);
     }
 
     private static GameStatsSummary ToSummary(
         GamePlaytimeRecord record,
-        ConfigIndexes configIndexes,
+        GameConfigLookup configLookup,
         DateTime cutoff)
     {
-        var gameConfig = ResolveGameConfig(record.GameName, configIndexes);
+        var gameConfig = configLookup.Resolve(record.GameName);
         var displayName = gameConfig?.DisplayName;
 
         var orderedSessions = record.Sessions
@@ -79,36 +80,4 @@ public sealed class StatisticsService : IStatisticsService
         };
     }
 
-    private static ConfigIndexes BuildConfigIndexes(IReadOnlyDictionary<string, GameConfig> configs)
-    {
-        var byDataKey = configs.Values
-            .Where(c => c is not null && !string.IsNullOrWhiteSpace(c.DataKey))
-            .ToDictionary(c => c.DataKey!, c => c, StringComparer.OrdinalIgnoreCase);
-
-        var byExecutableName = configs.Values
-            .Where(c => c is not null && !string.IsNullOrWhiteSpace(c.ExecutableName))
-            .ToDictionary(c => c.ExecutableName!, c => c, StringComparer.OrdinalIgnoreCase);
-
-        return new ConfigIndexes(configs, byDataKey, byExecutableName);
-    }
-
-    private static GameConfig? ResolveGameConfig(string key, ConfigIndexes indexes)
-    {
-        if (indexes.ByDataKey.TryGetValue(key, out var byDataKeyConfig))
-        {
-            return byDataKeyConfig;
-        }
-
-        if (indexes.ByExecutableName.TryGetValue(key, out var byExecutableNameConfig))
-        {
-            return byExecutableNameConfig;
-        }
-
-        return indexes.ByMapKey.TryGetValue(key, out var byMapKeyConfig) ? byMapKeyConfig : null;
-    }
-
-    private sealed record ConfigIndexes(
-        IReadOnlyDictionary<string, GameConfig> ByMapKey,
-        IReadOnlyDictionary<string, GameConfig> ByDataKey,
-        IReadOnlyDictionary<string, GameConfig> ByExecutableName);
 }

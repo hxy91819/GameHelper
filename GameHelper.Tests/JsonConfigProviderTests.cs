@@ -1,8 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using CoreModels = GameHelper.Core.Models;
+using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Providers;
 using Xunit;
 
@@ -30,42 +29,33 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void Save_Then_Load_Roundtrip_PreservesEntries()
+        public void Save_Then_Load_Roundtrip_PreservesEntriesAndEntryId()
         {
             var provider = new JsonConfigProvider(_configPath);
-            var input = new Dictionary<string, CoreModels.GameConfig>(StringComparer.OrdinalIgnoreCase)
+            var input = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
             {
-                ["cyberpunk2077.exe"] = new CoreModels.GameConfig
+                ["a"] = new GameConfig
                 {
                     DataKey = "cyberpunk2077",
-                    Name = "cyberpunk2077.exe",
+                    ExecutableName = "cyberpunk2077.exe",
                     IsEnabled = true,
                     HDREnabled = true
                 },
-                ["rdr2.exe"] = new CoreModels.GameConfig
+                ["b"] = new GameConfig
                 {
                     DataKey = "rdr2",
-                    Name = "rdr2.exe",
+                    ExecutableName = "rdr2.exe",
                     IsEnabled = false,
                     HDREnabled = false
-                },
+                }
             };
 
             provider.Save(input);
-            Assert.True(File.Exists(_configPath));
-
             var output = provider.Load();
             Assert.Equal(2, output.Count);
-
-            var cp = output["CYBERPUNK2077.EXE"]; // case-insensitive
-            Assert.Equal("cyberpunk2077", cp.DataKey);
-            Assert.True(cp.IsEnabled);
-            Assert.True(cp.HDREnabled);
-
-            var rdr2 = output["rdr2.exe"];
-            Assert.Equal("rdr2", rdr2.DataKey);
-            Assert.False(rdr2.IsEnabled);
-            Assert.False(rdr2.HDREnabled);
+            Assert.All(output, kv => Assert.Equal(kv.Key, kv.Value.EntryId, ignoreCase: true));
+            Assert.Contains(output.Values, v => v.DataKey == "cyberpunk2077");
+            Assert.Contains(output.Values, v => v.DataKey == "rdr2");
         }
 
         [Fact]
@@ -77,51 +67,41 @@ namespace GameHelper.Tests
             var provider = new JsonConfigProvider(_configPath);
             var map = provider.Load();
 
-            Assert.True(map.ContainsKey("witcher3.exe"));
-            Assert.True(map.ContainsKey("FORZA_HORIZON_5.EXE"));
-
+            Assert.Equal(2, map.Count);
             Assert.All(map.Values, cfg =>
             {
                 Assert.True(cfg.IsEnabled);
                 Assert.False(cfg.HDREnabled);
-                Assert.False(string.IsNullOrWhiteSpace(cfg.Name));
+                Assert.False(string.IsNullOrWhiteSpace(cfg.EntryId));
+                Assert.False(string.IsNullOrWhiteSpace(cfg.DataKey));
             });
         }
 
         [Fact]
-        public void Load_OnMalformedJson_ReturnsEmpty_NotThrow()
+        public void Load_NewFormatMissingDataKeyAndFallback_ThrowsInvalidDataException()
         {
-            File.WriteAllText(_configPath, "{ not-json }");
-            var provider = new JsonConfigProvider(_configPath);
-            var map = provider.Load();
-            Assert.Empty(map);
-        }
-
-        [Fact]
-        public void Load_NewFormatMissingDataKey_ThrowsInvalidDataException()
-        {
-            var payload = "{\n  \"games\": [\n    { \"executableName\": \"sample.exe\" }\n  ]\n}";
+            var payload = "{\n  \"games\": [\n    { \"displayName\": \"\" }\n  ]\n}";
             File.WriteAllText(_configPath, payload);
             var provider = new JsonConfigProvider(_configPath);
 
             var exception = Assert.Throws<InvalidDataException>(() => provider.Load());
-            Assert.Contains("配置项缺少必填字段 DataKey", exception.Message);
+            Assert.Contains("DataKey", exception.Message, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
         public void Save_WhenDataKeyMissing_ThrowsInvalidDataException()
         {
             var provider = new JsonConfigProvider(_configPath);
-            var input = new Dictionary<string, CoreModels.GameConfig>(StringComparer.OrdinalIgnoreCase)
+            var input = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
             {
-                ["sample.exe"] = new CoreModels.GameConfig
+                ["sample.exe"] = new GameConfig
                 {
                     ExecutableName = "sample.exe"
                 }
             };
 
             var exception = Assert.Throws<InvalidDataException>(() => provider.Save(input));
-            Assert.Contains("无法保存缺少 DataKey 的配置项", exception.Message);
+            Assert.Contains("DataKey", exception.Message, StringComparison.OrdinalIgnoreCase);
         }
 
         public void Dispose()

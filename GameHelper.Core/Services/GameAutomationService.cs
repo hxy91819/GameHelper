@@ -31,7 +31,6 @@ namespace GameHelper.Core.Services
 
         private IReadOnlyDictionary<string, GameConfig> _configs = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
         private IReadOnlyDictionary<string, GameConfig> _configsByDataKey = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-        private IReadOnlyDictionary<string, GameConfig> _configsByName = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
         private IReadOnlyDictionary<string, GameConfig> _configsByPath = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
         private NameConfigEntry[] _nameConfigs = Array.Empty<NameConfigEntry>();
 
@@ -263,12 +262,10 @@ namespace GameHelper.Core.Services
         {
             _configs = _configProvider.Load();
 
-            _configsByDataKey = _configs.Values
-                .Where(c => c is not null && !string.IsNullOrWhiteSpace(c.DataKey))
-                .ToDictionary(c => c.DataKey!, c => c, StringComparer.OrdinalIgnoreCase);
+            var dataKeyMap = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
 
             var pathMap = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-            var nameMap = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+            var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var nameEntries = new List<NameConfigEntry>();
 
             foreach (var config in _configs.Values)
@@ -278,22 +275,44 @@ namespace GameHelper.Core.Services
                     continue;
                 }
 
+                if (!string.IsNullOrWhiteSpace(config.DataKey) && !dataKeyMap.TryAdd(config.DataKey, config))
+                {
+                    _logger.LogWarning(
+                        "Duplicate DataKey detected while building indexes: {DataKey}. Keeping the first entry.",
+                        config.DataKey);
+                }
+
                 var normalizedPath = NormalizePath(config.ExecutablePath);
                 if (normalizedPath is not null)
                 {
-                    pathMap[normalizedPath] = config;
+                    if (pathMap.ContainsKey(normalizedPath))
+                    {
+                        _logger.LogWarning(
+                            "Duplicate executable path detected while building indexes: {Path}. Keeping the first entry.",
+                            normalizedPath);
+                    }
+                    else
+                    {
+                        pathMap[normalizedPath] = config;
+                    }
                 }
 
                 var normalizedName = NormalizeName(config.ExecutableName);
                 if (normalizedName is not null)
                 {
-                    nameMap[normalizedName] = config;
+                    if (!seenNames.Add(normalizedName))
+                    {
+                        _logger.LogWarning(
+                            "Duplicate executable name detected while building indexes: {Name}. Name-only matching may become ambiguous.",
+                            normalizedName);
+                    }
+
                     nameEntries.Add(new NameConfigEntry(normalizedName, normalizedName.ToUpperInvariant(), config));
                 }
             }
 
+            _configsByDataKey = dataKeyMap;
             _configsByPath = pathMap;
-            _configsByName = nameMap;
             _nameConfigs = nameEntries.ToArray();
         }
 
@@ -343,10 +362,8 @@ namespace GameHelper.Core.Services
 
             var searchUpper = searchText.ToUpperInvariant();
 
-            GameConfig? bestMatch = null;
-            string? matchedName = null;
+            var bestCandidates = new List<(NameConfigEntry Entry, int Score, int Threshold)>();
             var bestScore = 0;
-            var requiredThreshold = 0;
 
             foreach (var entry in _nameConfigs)
             {
@@ -368,29 +385,76 @@ namespace GameHelper.Core.Services
                     threshold,
                     Path.GetFileNameWithoutExtension(config.ExecutableName).Length);
 
-                if (score >= threshold && score > bestScore)
+                if (score < threshold)
+                {
+                    continue;
+                }
+
+                if (score > bestScore)
                 {
                     bestScore = score;
-                    bestMatch = config;
-                    matchedName = entry.ExecutableName;
-                    requiredThreshold = threshold;
+                    bestCandidates.Clear();
+                }
+
+                if (score == bestScore)
+                {
+                    bestCandidates.Add((entry, score, threshold));
                 }
             }
 
-            if (bestMatch is null)
+            if (bestCandidates.Count == 0)
             {
                 _logger.LogDebug("L2 fuzzy match failed: no candidate passed threshold");
                 return null;
             }
 
-            // 路径相关性验证
+            (NameConfigEntry Entry, int Score, int Threshold) selected;
+
+            if (bestCandidates.Count == 1)
+            {
+                selected = bestCandidates[0];
+            }
+            else if (!string.IsNullOrWhiteSpace(exePath))
+            {
+                var relatedCandidates = bestCandidates
+                    .Where(c => IsPathRelated(exePath, c.Entry.Config.ExecutablePath))
+                    .ToList();
+
+                if (relatedCandidates.Count == 1)
+                {
+                    selected = relatedCandidates[0];
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "L2 match rejected due to ambiguity. SearchName={SearchName}, CandidateCount={Count}, Path={Path}",
+                        searchText,
+                        bestCandidates.Count,
+                        exePath);
+                    return null;
+                }
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "L2 match rejected due to ambiguity without process path. SearchName={SearchName}, CandidateCount={Count}",
+                    searchText,
+                    bestCandidates.Count);
+                return null;
+            }
+
+            var bestMatch = selected.Entry.Config;
+            var matchedName = selected.Entry.ExecutableName;
+            var requiredThreshold = selected.Threshold;
+
+            // Final path relevance validation for the selected candidate.
             if (!string.IsNullOrWhiteSpace(exePath) && !IsPathRelated(exePath, bestMatch.ExecutablePath))
             {
                 _logger.LogWarning(
                     "L2 匹配拒绝: 路径不相关 - ProcessPath={ProcessPath}, ConfigPath={ConfigPath}, Score={Score}, Threshold={Threshold}",
                     exePath,
                     bestMatch.ExecutablePath ?? "(无)",
-                    bestScore,
+                    selected.Score,
                     requiredThreshold);
                 return null;
             }

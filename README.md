@@ -68,11 +68,18 @@ dotnet publish .\GameHelper.WinUI -p:PublishProfile=WinUI-SelfContained
 processMonitorType: ETW
 
 games:
-  - name: "witcher3.exe"
-    alias: "巫师3"
+  - entryId: "8c5f5ccf30b648f88f4d2f1f8b4b6c7e"
+    dataKey: "witcher3"
+    executablePath: "D:\\Games\\The Witcher 3\\bin\\x64\\witcher3.exe"
+    executableName: "witcher3.exe"
+    displayName: "巫师3"
     isEnabled: true
     hdrEnabled: false
 ```
+
+说明：
+- `entryId`：配置条目的内部唯一标识（自动生成）。
+- `dataKey`：统计主键，写入 `playtime.csv` 的 `game` 字段，必须全局唯一。
 
 ## 项目结构
 - `GameHelper.WinUI`：WinUI 桌面入口

@@ -9,7 +9,15 @@ namespace GameHelper.Core.Models
     public class GameConfig
     {
         /// <summary>
-        /// Uniquely identifies this game across configuration and playtime data.
+        /// Internal immutable identity for a config entry.
+        /// This key is used for config CRUD and deduplication only, and MUST NOT be used as playtime aggregation key.
+        /// </summary>
+        [Required(AllowEmptyStrings = false)]
+        public string EntryId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Stable business key used by playtime storage and aggregation.
+        /// This key must be globally unique to avoid cross-game data aggregation collisions.
         /// </summary>
         [Required(AllowEmptyStrings = false)]
         public string DataKey { get; set; } = string.Empty;
