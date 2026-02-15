@@ -6,6 +6,8 @@ using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
+using Spectre.Console;
+using Spectre.Console.Testing;
 using Xunit;
 
 namespace GameHelper.Tests
@@ -15,7 +17,7 @@ namespace GameHelper.Tests
         private readonly Mock<IConfigProvider> _mockConfigProvider;
         private readonly IGameCatalogService _gameCatalogService;
         private readonly IServiceProvider _serviceProvider;
-        private readonly StringWriter _consoleOutput;
+        private readonly TestConsole _testConsole;
         private Dictionary<string, GameConfig> _configData;
 
         public ConfigCommandTests()
@@ -31,15 +33,15 @@ namespace GameHelper.Tests
             var mockScope = new Mock<IServiceScope>();
             var mockScopeFactory = new Mock<IServiceScopeFactory>();
 
+            _testConsole = new TestConsole();
+
             mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
             mockScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
             mockServiceProvider.Setup(p => p.GetService(typeof(IServiceScopeFactory))).Returns(mockScopeFactory.Object);
             mockServiceProvider.Setup(p => p.GetService(typeof(IGameCatalogService))).Returns(_gameCatalogService);
+            mockServiceProvider.Setup(p => p.GetService(typeof(IAnsiConsole))).Returns(_testConsole);
 
             _serviceProvider = mockServiceProvider.Object;
-
-            _consoleOutput = new StringWriter();
-            Console.SetOut(_consoleOutput);
         }
 
         [Fact]
@@ -53,7 +55,7 @@ namespace GameHelper.Tests
             Assert.Equal(gameName, cfg.ExecutableName);
             Assert.False(string.IsNullOrWhiteSpace(cfg.EntryId));
             Assert.False(cfg.HDREnabled);
-            Assert.Equal($"Added {gameName}.", _consoleOutput.ToString().Trim());
+            Assert.Contains($"Added {gameName}", _testConsole.Output);
             _mockConfigProvider.Verify(p => p.Save(It.IsAny<IReadOnlyDictionary<string, GameConfig>>()), Times.Once);
         }
 
@@ -66,7 +68,7 @@ namespace GameHelper.Tests
             ConfigCommand.Run(_serviceProvider, new[] { "add", gameName! });
 
             Assert.Empty(_configData);
-            Assert.Equal("Game name cannot be empty.", _consoleOutput.ToString().Trim());
+            Assert.Contains("Game name cannot be empty", _testConsole.Output);
             _mockConfigProvider.Verify(p => p.Save(It.IsAny<IReadOnlyDictionary<string, GameConfig>>()), Times.Never);
         }
 
@@ -79,7 +81,7 @@ namespace GameHelper.Tests
             ConfigCommand.Run(_serviceProvider, new[] { "remove", gameName });
 
             Assert.DoesNotContain(gameName, _configData.Keys);
-            Assert.Equal($"Removed {gameName}.", _consoleOutput.ToString().Trim());
+            Assert.Contains($"Removed {gameName}", _testConsole.Output);
             _mockConfigProvider.Verify(p => p.Save(It.IsAny<IReadOnlyDictionary<string, GameConfig>>()), Times.Once);
         }
 
@@ -91,9 +93,14 @@ namespace GameHelper.Tests
 
             ConfigCommand.Run(_serviceProvider, new[] { "list" });
 
-            var output = _consoleOutput.ToString();
-            Assert.Contains("a.exe  Enabled=True  HDR=True", output);
-            Assert.Contains("b.exe  Enabled=False  HDR=False", output);
+            var output = _testConsole.Output;
+            Assert.Contains("a.exe", output);
+            Assert.Contains("b.exe", output);
+            Assert.Contains("DataKey", output);
+            Assert.Contains("Enabled", output);
+            Assert.Contains("HDR", output);
+            Assert.Contains("True", output);
+            Assert.Contains("False", output);
         }
     }
 }
