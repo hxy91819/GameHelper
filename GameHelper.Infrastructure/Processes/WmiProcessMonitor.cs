@@ -257,25 +257,44 @@ namespace GameHelper.Infrastructure.Processes
                         var isStop = className?.IndexOf("Stop", StringComparison.OrdinalIgnoreCase) >= 0;
                         if (!isStop)
                         {
-                            using var searcher = new ManagementObjectSearcher($"SELECT Name, ExecutablePath FROM Win32_Process WHERE ProcessId = {pid}");
-                            using var results = searcher.Get();
-                            foreach (ManagementObject proc in results)
+                            // Optimization: Try System.Diagnostics.Process first (faster)
+                            try
                             {
-                                // Prefer Name; if missing, take filename from ExecutablePath
-                                resolvedName = proc["Name"] as string;
-                                if (string.IsNullOrWhiteSpace(resolvedName))
+                                using var proc = System.Diagnostics.Process.GetProcessById(pid);
+                                var fullPath = proc.MainModule?.FileName;
+                                if (!string.IsNullOrWhiteSpace(fullPath))
                                 {
-                                    resolvedPath = proc["ExecutablePath"] as string;
-                                    if (!string.IsNullOrWhiteSpace(resolvedPath))
+                                    resolvedPath = fullPath;
+                                    resolvedName = System.IO.Path.GetFileName(fullPath);
+                                }
+                            }
+                            catch
+                            {
+                                // Fallback to WMI if access denied or process exited
+                            }
+
+                            if (string.IsNullOrWhiteSpace(resolvedName) || string.IsNullOrWhiteSpace(resolvedPath))
+                            {
+                                using var searcher = new ManagementObjectSearcher($"SELECT Name, ExecutablePath FROM Win32_Process WHERE ProcessId = {pid}");
+                                using var results = searcher.Get();
+                                foreach (ManagementObject proc in results)
+                                {
+                                    // Prefer Name; if missing, take filename from ExecutablePath
+                                    resolvedName = proc["Name"] as string;
+                                    if (string.IsNullOrWhiteSpace(resolvedName))
                                     {
-                                        try { resolvedName = System.IO.Path.GetFileName(resolvedPath); } catch { }
+                                        resolvedPath = proc["ExecutablePath"] as string;
+                                        if (!string.IsNullOrWhiteSpace(resolvedPath))
+                                        {
+                                            try { resolvedName = System.IO.Path.GetFileName(resolvedPath); } catch { }
+                                        }
                                     }
+                                    else
+                                    {
+                                        resolvedPath = proc["ExecutablePath"] as string;
+                                    }
+                                    break; // first match
                                 }
-                                else
-                                {
-                                    resolvedPath = proc["ExecutablePath"] as string;
-                                }
-                                break; // first match
                             }
                         }
                     }
