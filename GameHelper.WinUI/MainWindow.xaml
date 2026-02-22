@@ -50,8 +50,13 @@
                             Content="{x:Bind ViewModel.Shell.MonitorButtonText, Mode=OneWay}"
                             Command="{x:Bind ViewModel.Shell.ToggleMonitorCommand}" />
                         <Button
-                            Content="Clear Logs"
-                            Command="{x:Bind ViewModel.Shell.ClearLogsCommand}" />
+                            Command="{x:Bind ViewModel.Shell.ClearLogsCommand}"
+                            ToolTipService.ToolTip="Clear monitor logs">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <SymbolIcon Symbol="Delete" />
+                                <TextBlock Text="Clear Logs" />
+                            </StackPanel>
+                        </Button>
                         <TextBlock
                             Text="日志包含监控与系统信息"
                             VerticalAlignment="Center"
@@ -161,10 +166,30 @@
                     </Border>
 
                     <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
-                        <Button Content="Refresh" Command="{x:Bind ViewModel.Games.RefreshCommand}" AutomationProperties.AutomationId="Games_RefreshButton" />
-                        <Button Content="Add" Command="{x:Bind ViewModel.Games.AddCommand}" AutomationProperties.AutomationId="Games_AddButton" />
-                        <Button Content="Update" Command="{x:Bind ViewModel.Games.UpdateCommand}" AutomationProperties.AutomationId="Games_UpdateButton" />
-                        <Button Content="Delete" Command="{x:Bind ViewModel.Games.DeleteCommand}" AutomationProperties.AutomationId="Games_DeleteButton" />
+                        <Button Command="{x:Bind ViewModel.Games.RefreshCommand}" AutomationProperties.AutomationId="Games_RefreshButton" ToolTipService.ToolTip="Refresh list of games">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <SymbolIcon Symbol="Refresh" />
+                                <TextBlock Text="Refresh" />
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{x:Bind ViewModel.Games.AddCommand}" AutomationProperties.AutomationId="Games_AddButton" ToolTipService.ToolTip="Add a new game">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <SymbolIcon Symbol="Add" />
+                                <TextBlock Text="Add" />
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{x:Bind ViewModel.Games.UpdateCommand}" AutomationProperties.AutomationId="Games_UpdateButton" ToolTipService.ToolTip="Update selected game">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <SymbolIcon Symbol="Edit" />
+                                <TextBlock Text="Update" />
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{x:Bind ViewModel.Games.DeleteCommand}" AutomationProperties.AutomationId="Games_DeleteButton" ToolTipService.ToolTip="Delete selected game">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <SymbolIcon Symbol="Delete" />
+                                <TextBlock Text="Delete" />
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
                 </Grid>
             </TabViewItem>
@@ -177,9 +202,14 @@
                     </Grid.RowDefinitions>
 
                     <Button
-                        Content="Refresh Stats"
                         Command="{x:Bind ViewModel.Stats.RefreshCommand}"
-                        AutomationProperties.AutomationId="Stats_RefreshButton" />
+                        AutomationProperties.AutomationId="Stats_RefreshButton"
+                        ToolTipService.ToolTip="Refresh statistics">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <SymbolIcon Symbol="Refresh" />
+                            <TextBlock Text="Refresh Stats" />
+                        </StackPanel>
+                    </Button>
 
                     <Border Grid.Row="1" CornerRadius="10" Background="{ThemeResource GH.CardBrush}" BorderBrush="{ThemeResource GH.BorderBrush}" BorderThickness="1" Padding="8">
                         <ListView ItemsSource="{x:Bind ViewModel.Stats.Stats, Mode=OneWay}" AutomationProperties.AutomationId="Stats_ListView">
