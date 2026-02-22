@@ -50,6 +50,9 @@ namespace GameHelper.Infrastructure.Providers
 
         public string ConfigPath => _configFilePath;
 
+        private AppConfig? _cachedAppConfig;
+        private DateTime _lastWriteTime;
+
         private static IDeserializer Deserializer => new DeserializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .IgnoreUnmatchedProperties()
@@ -120,11 +123,18 @@ namespace GameHelper.Infrastructure.Providers
 
                 if (!File.Exists(_configFilePath))
                 {
+                    _cachedAppConfig = null;
                     return new AppConfig
                     {
                         Games = new List<GameConfig>(),
                         ProcessMonitorType = ProcessMonitorType.ETW
                     };
+                }
+
+                var currentWriteTime = File.GetLastWriteTimeUtc(_configFilePath);
+                if (_cachedAppConfig != null && currentWriteTime == _lastWriteTime)
+                {
+                    return _cachedAppConfig.Clone();
                 }
 
                 var yaml = File.ReadAllText(_configFilePath);
@@ -135,7 +145,9 @@ namespace GameHelper.Infrastructure.Providers
                     if (appConfig != null)
                     {
                         appConfig.ProcessMonitorType ??= ProcessMonitorType.ETW;
-                        return appConfig;
+                        _cachedAppConfig = appConfig;
+                        _lastWriteTime = currentWriteTime;
+                        return appConfig.Clone();
                     }
                 }
                 catch
@@ -144,11 +156,16 @@ namespace GameHelper.Infrastructure.Providers
                 }
 
                 var legacyRoot = Deserializer.Deserialize<LegacyRoot?>(yaml);
-                return new AppConfig
+                var newConfig = new AppConfig
                 {
                     Games = legacyRoot?.Games ?? new List<GameConfig>(),
                     ProcessMonitorType = ProcessMonitorType.ETW
                 };
+
+                _cachedAppConfig = newConfig;
+                _lastWriteTime = currentWriteTime;
+
+                return newConfig.Clone();
             }
             catch (YamlException ex)
             {

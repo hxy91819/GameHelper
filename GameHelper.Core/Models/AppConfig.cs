@@ -28,5 +28,13 @@ namespace GameHelper.Core.Models
         /// When enabled, GameHelper will register itself to launch automatically on system startup.
         /// </summary>
         public bool LaunchOnSystemStartup { get; set; }
+
+        public AppConfig Clone() => new()
+        {
+            Games = Games?.Select(g => g.Clone()).ToList(),
+            ProcessMonitorType = ProcessMonitorType,
+            AutoStartInteractiveMonitor = AutoStartInteractiveMonitor,
+            LaunchOnSystemStartup = LaunchOnSystemStartup
+        };
     }
 }

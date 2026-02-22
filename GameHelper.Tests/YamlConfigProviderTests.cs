@@ -133,6 +133,44 @@ games:
             Assert.Equal("Romantic Escapades", game.DisplayName);
         }
 
+        [Fact]
+        public void Load_WhenCalledTwice_ReturnsIndependentObjects()
+        {
+            var yaml = "games:\n  - entryId: id1\n    dataKey: game1\n    executableName: game1.exe";
+            File.WriteAllText(_configPath, yaml);
+            var provider = new YamlConfigProvider(_configPath);
+
+            var first = provider.Load();
+            var second = provider.Load();
+
+            Assert.NotSame(first, second);
+            Assert.NotSame(first["id1"], second["id1"]);
+
+            first["id1"].DisplayName = "Modified";
+            Assert.Null(second["id1"].DisplayName);
+        }
+
+        [Fact]
+        public void Load_WhenFileModified_RefreshesConfig()
+        {
+            var yaml1 = "games:\n  - entryId: id1\n    dataKey: game1\n    executableName: game1.exe";
+            File.WriteAllText(_configPath, yaml1);
+            var provider = new YamlConfigProvider(_configPath);
+
+            var first = provider.Load();
+            Assert.Single(first);
+            Assert.Equal("game1", first["id1"].DataKey);
+
+            // Update file and timestamp
+            var yaml2 = "games:\n  - entryId: id2\n    dataKey: game2\n    executableName: game2.exe";
+            File.WriteAllText(_configPath, yaml2);
+            File.SetLastWriteTimeUtc(_configPath, DateTime.UtcNow.AddSeconds(1));
+
+            var second = provider.Load();
+            Assert.Single(second);
+            Assert.Equal("game2", second["id2"].DataKey);
+        }
+
         public void Dispose()
         {
             try
