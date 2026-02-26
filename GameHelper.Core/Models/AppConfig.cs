@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace GameHelper.Core.Models
 {
@@ -31,7 +32,7 @@ namespace GameHelper.Core.Models
 
         public AppConfig Clone() => new()
         {
-            Games = Games?.Select(g => g.Clone()).ToList(),
+            Games = Games?.Where(g => g != null).Select(g => g.Clone()).ToList(),
             ProcessMonitorType = ProcessMonitorType,
             AutoStartInteractiveMonitor = AutoStartInteractiveMonitor,
             LaunchOnSystemStartup = LaunchOnSystemStartup
