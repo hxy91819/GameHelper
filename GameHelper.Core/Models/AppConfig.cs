@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace GameHelper.Core.Models
 {
@@ -28,5 +29,13 @@ namespace GameHelper.Core.Models
         /// When enabled, GameHelper will register itself to launch automatically on system startup.
         /// </summary>
         public bool LaunchOnSystemStartup { get; set; }
+
+        public AppConfig Clone() => new()
+        {
+            Games = Games?.Where(g => g != null).Select(g => g.Clone()).ToList(),
+            ProcessMonitorType = ProcessMonitorType,
+            AutoStartInteractiveMonitor = AutoStartInteractiveMonitor,
+            LaunchOnSystemStartup = LaunchOnSystemStartup
+        };
     }
 }
