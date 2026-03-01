@@ -1,0 +1,3 @@
+## 2025-02-13 - [LINQ vs Single-Pass Loop Optimization]
+**Learning:** Found an opportunity to replace multiple LINQ queries (`Sum` and `Where().Sum()`) iterating over the same collection with a single-pass `foreach` loop in `GameHelper.Core/Services/StatisticsService.cs`. This specific architecture was performing O(2n) operations where O(n) would suffice, and reducing LINQ overhead in this statistics calculation hot-path provides a cleaner execution with fewer allocations.
+**Action:** When calculating multiple aggregates or filtered aggregates from the same collection, prefer a single `foreach` pass over chaining multiple LINQ operations to reduce both iterations and memory allocations.
