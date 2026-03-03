@@ -73,12 +73,16 @@ public sealed class StatisticsService : IStatisticsService
         long recentMinutes = 0;
 
         // Optimization: Calculate both totals in a single pass instead of multiple LINQ allocations
-        foreach (var session in record.Sessions)
+        // LINQ Sum performs checked additions. We must preserve that behavior.
+        checked
         {
-            totalMinutes += session.DurationMinutes;
-            if (session.EndTime >= cutoff)
+            foreach (var session in record.Sessions)
             {
-                recentMinutes += session.DurationMinutes;
+                totalMinutes += session.DurationMinutes;
+                if (session.EndTime >= cutoff)
+                {
+                    recentMinutes += session.DurationMinutes;
+                }
             }
         }
 
