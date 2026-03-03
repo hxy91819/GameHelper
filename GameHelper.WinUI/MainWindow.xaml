@@ -127,9 +127,14 @@
                         IsOn="{x:Bind ViewModel.Settings.LaunchOnSystemStartup, Mode=TwoWay}"
                         AutomationProperties.AutomationId="Settings_LaunchOnStartupToggle" />
                     <Button
-                        Content="Save Settings"
                         Command="{x:Bind ViewModel.Settings.SaveCommand}"
-                        AutomationProperties.AutomationId="Settings_SaveButton" />
+                        AutomationProperties.AutomationId="Settings_SaveButton"
+                        ToolTipService.ToolTip="Save application settings">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <SymbolIcon Symbol="Save" />
+                            <TextBlock Text="Save Settings" />
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
             </TabViewItem>
 
