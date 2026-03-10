@@ -13,4 +13,8 @@ public sealed class GameEntry
     public bool IsEnabled { get; set; } = true;
 
     public bool HdrEnabled { get; set; }
+
+    public bool SpeedEnabled { get; set; }
+
+    public double? SpeedMultiplier { get; set; }
 }

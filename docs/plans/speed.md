@@ -2,6 +2,35 @@
 
 本文档保留在 `docs/plans/`，表示它仍是调研草案，不属于当前已批准 PRD 或架构基线。
 
+## 当前仓库实现状态（2026-03-10）
+
+已落地部分：
+
+- Core / CLI / Infrastructure 的托管层控制面已经接入：
+  - `AppConfig.defaultSpeedMultiplier`
+  - `AppConfig.speedToggleHotkey`
+  - `GameConfig.speedEnabled`
+  - `GameConfig.speedMultiplier`
+- CLI 交互式 Shell 已支持：
+  - 设置默认倍速倍率
+  - 设置倍速热键
+  - 在新增/编辑游戏时配置倍速开关与专属倍率
+- 监控会话已接入：
+  - Windows 全局热键监听
+  - `MOD_NOREPEAT`
+  - 退出时通过 `WM_QUIT` 停止热键线程
+  - 热键冲突时禁用本次会话的倍速热键并给出提示
+- 真实倍速执行通过 `WindowsSpeedEngine` 预留到原生 DLL：
+  - 运行时期望路径：`native/win-x64/GameHelper.Speedhack.dll`
+  - 期望导出函数：`gh_speedhack_attach`、`gh_speedhack_set_speed`、`gh_speedhack_detach`
+
+尚未完成验证的部分：
+
+- Windows 上真实的全局热键注册与注销
+- 前台进程解析在真实游戏窗口上的命中情况
+- 原生 DLL 注入、设置倍率、恢复 1.0x、进程退出 cleanup
+- 32/64 位兼容边界，目前只按 `win-x64` + 64 位目标设计
+
 在 Windows 上给任意游戏做“倍速”（speedhack）的开源方案主要还是原生 C/C++ 实现，并没有成熟的、纯 C# 的“一行引用就能全局加速任意游戏”的组件；通常做法是用 C# 做外壳/界面，底层依赖注入到目标进程的原生 DLL 来实现倍速功能。Cheat Engine 本身和第三方的 speedhack 库都可以作为参考或被间接复用。[1][2][3]
 
 > 先提醒一下：对网络游戏或带反作弊系统的游戏做 speedhack 很容易违反用户协议并导致封号甚至触法，下面内容适合在本地离线/自制程序、学习和实验场景使用。
@@ -94,6 +123,90 @@
 - 仔细阅读各个开源项目的许可证（CE、absoIute/Speedhack、第三方 CE 库等），确保与你的项目授权模式相容。[11][3][2]
 
 如果你愿意具体说说目标场景（单机/网络、自研引擎/现成商用游戏、是工具内部用还是要发布给用户），我可以帮你更细化一下架构选型和“哪部分用 C#、哪部分必须用 C++”。
+
+## Windows 验证步骤
+
+以下步骤用于后续在 Windows 机器上做首次联调和验收：
+
+1. 准备环境
+   - 安装 .NET 8 SDK。
+   - 准备一个明确支持离线验证的单机游戏或测试程序。
+   - 将原生组件放到 `GameHelper.ConsoleHost` 运行目录下的 `native\win-x64\GameHelper.Speedhack.dll`。
+
+2. 先跑基础检查
+   - `dotnet build GameHelper.sln`
+   - `dotnet test GameHelper.sln`
+   - `dotnet run --project .\GameHelper.ConsoleHost -- --debug`
+
+3. 在交互式 Shell 中配置倍速
+   - 进入“全局设置”，确认默认倍速倍率和热键。
+   - 进入“配置管理”，为目标游戏设置：
+     - `speedEnabled = true`
+     - 需要时填写游戏专属倍率
+   - 确认目标游戏已有可执行文件名或完整路径配置。
+
+4. 验证热键注册
+   - 启动“实时监控”。
+   - 观察 CLI 是否输出“倍速热键已启用：<热键>”。
+   - 若提示热键被占用，修改配置热键后重新进入监控。
+
+5. 验证前台命中与 toggle
+   - 启动目标游戏并确保窗口位于前台。
+   - 按一次热键，观察日志是否输出：
+     - 命中的 `DataKey`
+     - `PID`
+     - 切换到的倍率
+   - 再按一次热键，观察是否恢复为 `1.0x`。
+
+6. 验证边界场景
+   - 长按热键，确认不会因为重复 `WM_HOTKEY` 造成多次 toggle。
+   - 把焦点切到未配置或 `speedEnabled = false` 的程序，再按热键，确认只提示忽略。
+   - 退出监控，确认热键线程退出，且再次进入监控时可以重新注册热键。
+   - 在游戏开启倍速后直接关闭游戏，确认监控停止或下次切换前不会残留错误状态。
+
+7. 验证故障场景
+   - 临时移走 `GameHelper.Speedhack.dll`，确认会提示原生倍速组件缺失，而不是崩溃。
+   - 使用一个已被其他程序占用的组合键，确认当前会话禁用倍速热键并提示改配置。
+
+## 给后续 Agent 的提示词
+
+可以把下面这段直接给下一位 agent，作为 Windows 联调任务的起始提示：
+
+```text
+请继续处理 GameHelper 的 CLI 倍速功能 Windows 联调。
+
+当前状态：
+- 托管层已实现：配置模型、交互式 Shell 设置、全局热键监听、前台进程解析、SpeedControlService、WindowsSpeedEngine 动态加载。
+- 真实原生倍速仍依赖 native/win-x64/GameHelper.Speedhack.dll。
+- macOS 上已完成 dotnet build / dotnet test（使用 EnableWindowsTargeting=true）。
+
+请在 Windows 环境完成以下工作：
+1. 确认 native/win-x64/GameHelper.Speedhack.dll 是否存在且导出以下函数：
+   - gh_speedhack_attach
+   - gh_speedhack_set_speed
+   - gh_speedhack_detach
+2. 运行：
+   - dotnet build GameHelper.sln
+   - dotnet test GameHelper.sln
+   - dotnet run --project .\GameHelper.ConsoleHost -- --debug
+3. 在交互式 Shell 中：
+   - 设置默认倍速倍率和热键
+   - 为目标游戏开启 speedEnabled，并按需要配置 speedMultiplier
+4. 验证：
+   - 热键能否成功注册
+   - 热键冲突提示是否清晰
+   - 长按是否因 MOD_NOREPEAT 避免重复 toggle
+   - 前台进程解析是否正确命中配置游戏
+   - 第一次按热键是否切到倍率，第二次是否恢复 1.0x
+   - 退出监控时是否通过 WM_QUIT 干净停止热键线程
+   - 游戏退出后 cleanup 是否正常
+5. 如果原生 DLL 不兼容当前导出约定，请修改 WindowsSpeedEngine 或原生导出层，使两边 ABI 一致，并补充对应文档。
+
+输出要求：
+- 给出实际运行的命令和结果
+- 记录哪些验证通过，哪些失败
+- 如果失败，指出是托管层问题、原生 DLL 问题、还是 Windows 权限/环境问题
+```
 
 来源
 [1] How does CheatEngine's speed hack work? [closed] - Stack Overflow https://stackoverflow.com/questions/17512906/how-does-cheatengines-speed-hack-work

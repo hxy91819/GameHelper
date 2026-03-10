@@ -158,7 +158,8 @@ namespace GameHelper.Infrastructure.Providers
                         DataKey = trimmed,
                         ExecutableName = trimmed,
                         IsEnabled = true,
-                        HDREnabled = false
+                        HDREnabled = false,
+                        SpeedEnabled = false
                     });
                 }
             }
@@ -201,7 +202,11 @@ namespace GameHelper.Infrastructure.Providers
                 ExecutablePath = executablePath.Length == 0 ? null : executablePath,
                 DisplayName = displayName.Length == 0 ? null : displayName,
                 IsEnabled = source.IsEnabled,
-                HDREnabled = source.HDREnabled
+                HDREnabled = source.HDREnabled,
+                SpeedEnabled = source.SpeedEnabled,
+                SpeedMultiplier = source.SpeedMultiplier.HasValue
+                    ? SpeedDefaults.NormalizeMultiplier(source.SpeedMultiplier)
+                    : null
             };
         }
 
@@ -225,7 +230,11 @@ namespace GameHelper.Infrastructure.Providers
                 ExecutablePath = executablePath.Length == 0 ? null : executablePath,
                 DisplayName = displayName.Length == 0 ? null : displayName,
                 IsEnabled = source.IsEnabled,
-                HDREnabled = source.HDREnabled
+                HDREnabled = source.HDREnabled,
+                SpeedEnabled = source.SpeedEnabled,
+                SpeedMultiplier = source.SpeedMultiplier.HasValue
+                    ? SpeedDefaults.NormalizeMultiplier(source.SpeedMultiplier)
+                    : null
             };
         }
 
