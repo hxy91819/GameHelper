@@ -50,6 +50,8 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             ToggleMonitorAutoStart,
             ToggleLaunchOnStartup,
+            ConfigureSpeedMultiplier,
+            ConfigureSpeedHotkey,
             Back
         }
 
@@ -187,7 +189,7 @@ namespace GameHelper.ConsoleHost.Interactive
             highlight.AddColumn(new GridColumn().NoWrap().PadLeft(0).PadRight(1));
             highlight.AddColumn(new GridColumn().NoWrap().PadLeft(0).PadRight(0));
             highlight.AddRow(new Markup("[yellow]💡[/]"), new Markup("[bold yellow]让流程更轻松[/]：实时监控、自动 HDR、游戏时长统计"));
-            highlight.AddRow(new Markup("[yellow]⚙️[/]"), new Markup("[bold yellow]快速管理配置[/]：添加/修改/删除游戏，支持别名与 HDR 设置"));
+            highlight.AddRow(new Markup("[yellow]⚙️[/]"), new Markup("[bold yellow]快速管理配置[/]：添加/修改/删除游戏，支持别名、HDR 与倍速设置"));
             highlight.AddRow(new Markup("[yellow]🧪[/]"), new Markup("[bold yellow]诊断工具[/]：一键转换旧版配置并验证当前 YAML"));
 
             var panel = new Panel(highlight)
@@ -274,18 +276,16 @@ namespace GameHelper.ConsoleHost.Interactive
             _console.MarkupLine("[bold green]正在启动监控... 按 Q 键可随时返回主菜单。[/]");
             _console.WriteLine();
 
-            IProcessMonitor? monitor = null;
-            IGameAutomationService? automation = null;
+            IMonitorControlService? monitorControl = null;
+            ISpeedControlService? speedControl = null;
             if (!dryRun)
             {
-                monitor = _host.Services.GetRequiredService<IProcessMonitor>();
-                automation = _host.Services.GetRequiredService<IGameAutomationService>();
+                monitorControl = _host.Services.GetRequiredService<IMonitorControlService>();
+                speedControl = _host.Services.GetRequiredService<ISpeedControlService>();
             }
 
             using var monitorCts = new CancellationTokenSource();
             Task monitorLoopTask = Task.CompletedTask;
-            var automationStarted = false;
-            var monitorStarted = false;
             var started = false;
             var exitSignalled = false;
             Exception? startException = null;
@@ -295,10 +295,18 @@ namespace GameHelper.ConsoleHost.Interactive
             {
                 if (!dryRun)
                 {
-                    automation!.Start();
-                    automationStarted = true;
-                    monitor!.Start();
-                    monitorStarted = true;
+                    monitorControl!.Start();
+                    var speedStatus = speedControl!.GetStatus();
+                    if (speedStatus.IsSupported && speedStatus.HotkeyRegistered)
+                    {
+                        _console.MarkupLine($"[green]倍速热键已启用：{Markup.Escape(speedStatus.Hotkey)}[/]");
+                    }
+                    else
+                    {
+                        _console.MarkupLine($"[yellow]{Markup.Escape(speedStatus.Message)}[/]");
+                    }
+
+                    _console.WriteLine();
                 }
                 started = true;
 
@@ -342,23 +350,11 @@ namespace GameHelper.ConsoleHost.Interactive
                     runException ??= ex;
                 }
 
-                if (monitorStarted && monitor is not null)
+                if (!dryRun && monitorControl is not null)
                 {
                     try
                     {
-                        monitor.Stop();
-                    }
-                    catch (Exception ex)
-                    {
-                        runException ??= ex;
-                    }
-                }
-
-                if (automationStarted && automation is not null)
-                {
-                    try
-                    {
-                        automation.Stop();
+                        monitorControl.Stop();
                     }
                     catch (Exception ex)
                     {
@@ -535,7 +531,12 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             while (true)
             {
-                var actions = new List<SettingsAction> { SettingsAction.ToggleMonitorAutoStart };
+                var actions = new List<SettingsAction>
+                {
+                    SettingsAction.ToggleMonitorAutoStart,
+                    SettingsAction.ConfigureSpeedMultiplier,
+                    SettingsAction.ConfigureSpeedHotkey
+                };
                 if (_autoStartManager.IsSupported)
                 {
                     actions.Add(SettingsAction.ToggleLaunchOnStartup);
@@ -556,6 +557,8 @@ namespace GameHelper.ConsoleHost.Interactive
                     action => action switch
                     {
                         SettingsAction.ToggleMonitorAutoStart => "⚡️  启动后自动进入实时监控",
+                        SettingsAction.ConfigureSpeedMultiplier => "⏩  设置默认倍速倍率",
+                        SettingsAction.ConfigureSpeedHotkey => "⌨️  设置倍速热键",
                         SettingsAction.ToggleLaunchOnStartup when _autoStartManager.IsSupported => "🖥️  设置开机自启动",
                         SettingsAction.ToggleLaunchOnStartup => "🖥️  开机自启动（当前环境不支持）",
                         SettingsAction.Back => "⬅️  返回上一级",
@@ -567,6 +570,14 @@ namespace GameHelper.ConsoleHost.Interactive
                 {
                     case SettingsAction.ToggleMonitorAutoStart:
                         await ConfigureMonitorAutoStartAsync().ConfigureAwait(false);
+                        break;
+
+                    case SettingsAction.ConfigureSpeedMultiplier:
+                        await ConfigureDefaultSpeedMultiplierAsync().ConfigureAwait(false);
+                        break;
+
+                    case SettingsAction.ConfigureSpeedHotkey:
+                        await ConfigureSpeedHotkeyAsync().ConfigureAwait(false);
                         break;
 
                     case SettingsAction.ToggleLaunchOnStartup:
@@ -618,6 +629,7 @@ namespace GameHelper.ConsoleHost.Interactive
             table.AddColumn("路径");
             table.AddColumn("自动化");
             table.AddColumn("HDR");
+            table.AddColumn("倍速");
 
             foreach (var cfg in configs.Values.OrderBy(e => e.DataKey, StringComparer.OrdinalIgnoreCase))
             {
@@ -633,7 +645,8 @@ namespace GameHelper.ConsoleHost.Interactive
                     string.IsNullOrWhiteSpace(cfg.DisplayName) ? "-" : Markup.Escape(cfg.DisplayName!),
                     Markup.Escape(pathDisplay),
                     cfg.IsEnabled ? "[green]启用[/]" : "[red]禁用[/]",
-                    cfg.HDREnabled ? "[green]开启[/]" : "[yellow]保持关闭[/]");
+                    cfg.HDREnabled ? "[green]开启[/]" : "[yellow]保持关闭[/]",
+                    FormatSpeedMode(cfg));
             }
 
             _console.Write(table);
@@ -645,6 +658,8 @@ namespace GameHelper.ConsoleHost.Interactive
                     : "[yellow]启动后需要手动选择监控[/]";
                 _console.WriteLine();
                 _console.MarkupLine($"自动监控：{autoStartState}");
+                _console.MarkupLine($"默认倍速： [green]{SpeedDefaults.NormalizeMultiplier(appConfig.DefaultSpeedMultiplier):0.##}x[/]");
+                _console.MarkupLine($"倍速热键： [green]{Markup.Escape(SpeedDefaults.NormalizeHotkey(appConfig.SpeedToggleHotkey))}[/]");
 
                 var launchSegments = new List<string>
                 {
@@ -841,9 +856,203 @@ namespace GameHelper.ConsoleHost.Interactive
             }
         }
 
+        private async Task ConfigureDefaultSpeedMultiplierAsync()
+        {
+            AppConfig appConfig;
+            try
+            {
+                appConfig = _appConfigProvider.LoadAppConfig();
+            }
+            catch (Exception ex)
+            {
+                _console.MarkupLine($"[red]加载全局配置失败：{Markup.Escape(ex.Message)}[/]");
+                return;
+            }
+
+            var current = SpeedDefaults.NormalizeMultiplier(appConfig.DefaultSpeedMultiplier);
+            var prompt = new TextPrompt<string>("输入默认倍速倍率（必须大于 1.0）")
+                .DefaultValue(current.ToString("0.##", CultureInfo.InvariantCulture))
+                .Validate(value =>
+                {
+                    return TryParseSpeedMultiplier(value, out _)
+                        ? ConsoleValidationResult.Success()
+                        : ConsoleValidationResult.Error("请输入大于 1.0 的数字，例如 2.0。");
+                });
+
+            var input = Prompt(prompt);
+            _ = TryParseSpeedMultiplier(input, out var multiplier);
+            multiplier = SpeedDefaults.NormalizeMultiplier(multiplier);
+
+            if (Math.Abs(multiplier - current) < 0.0001d)
+            {
+                _console.MarkupLine("[grey]默认倍率保持不变。[/]");
+                return;
+            }
+
+            appConfig.DefaultSpeedMultiplier = multiplier;
+
+            try
+            {
+                await Task.Run(() => _appConfigProvider.SaveAppConfig(appConfig)).ConfigureAwait(false);
+                _console.MarkupLine($"[green]已更新默认倍速：{multiplier:0.##}x[/]");
+            }
+            catch (Exception ex)
+            {
+                _console.MarkupLine($"[red]保存配置失败：{Markup.Escape(ex.Message)}[/]");
+            }
+        }
+
+        private async Task ConfigureSpeedHotkeyAsync()
+        {
+            AppConfig appConfig;
+            try
+            {
+                appConfig = _appConfigProvider.LoadAppConfig();
+            }
+            catch (Exception ex)
+            {
+                _console.MarkupLine($"[red]加载全局配置失败：{Markup.Escape(ex.Message)}[/]");
+                return;
+            }
+
+            var current = SpeedDefaults.NormalizeHotkey(appConfig.SpeedToggleHotkey);
+            var prompt = new TextPrompt<string>("输入倍速热键（例如 Ctrl+Alt+F10）")
+                .DefaultValue(current)
+                .Validate(value =>
+                {
+                    return HotkeyBindingParser.TryParse(value, out _, out _)
+                        ? ConsoleValidationResult.Success()
+                        : ConsoleValidationResult.Error("请输入有效热键，例如 Ctrl+Alt+F10。");
+                });
+
+            var input = Prompt(prompt);
+            _ = HotkeyBindingParser.TryParse(input, out var binding, out _);
+            var normalized = binding?.DisplayText ?? current;
+
+            if (string.Equals(normalized, current, StringComparison.OrdinalIgnoreCase))
+            {
+                _console.MarkupLine("[grey]倍速热键保持不变。[/]");
+                return;
+            }
+
+            appConfig.SpeedToggleHotkey = normalized;
+            try
+            {
+                await Task.Run(() => _appConfigProvider.SaveAppConfig(appConfig)).ConfigureAwait(false);
+                _console.MarkupLine($"[green]已更新倍速热键：{Markup.Escape(normalized)}[/]");
+            }
+            catch (Exception ex)
+            {
+                _console.MarkupLine($"[red]保存配置失败：{Markup.Escape(ex.Message)}[/]");
+            }
+        }
+
+        private AppConfig LoadAppConfigOrDefault()
+        {
+            try
+            {
+                var appConfig = _appConfigProvider.LoadAppConfig();
+                appConfig.DefaultSpeedMultiplier = SpeedDefaults.NormalizeMultiplier(appConfig.DefaultSpeedMultiplier);
+                appConfig.SpeedToggleHotkey = SpeedDefaults.NormalizeHotkey(appConfig.SpeedToggleHotkey);
+                return appConfig;
+            }
+            catch
+            {
+                return new AppConfig
+                {
+                    DefaultSpeedMultiplier = SpeedDefaults.DefaultSpeedMultiplier,
+                    SpeedToggleHotkey = SpeedDefaults.DefaultHotkey
+                };
+            }
+        }
+
+        private (bool SpeedEnabled, double? SpeedMultiplier) PromptSpeedSettings(GameConfig? existingConfig, AppConfig appConfig)
+        {
+            var enableTitle = "是否为该游戏启用倍速功能？";
+            var speedChoices = existingConfig?.SpeedEnabled == true
+                ? new[] { "启用倍速", "禁用倍速" }
+                : new[] { "禁用倍速", "启用倍速" };
+            var speedPrompt = new SelectionPrompt<string>();
+            speedPrompt.Title(enableTitle);
+            speedPrompt.AddChoices(speedChoices);
+            var speedMode = PromptSelection(speedPrompt, speedChoices, value => Markup.Escape(value), enableTitle);
+
+            var enabled = string.Equals(speedMode, "启用倍速", StringComparison.Ordinal);
+            if (!enabled)
+            {
+                return (false, null);
+            }
+
+            var overrideTitle = "使用全局默认倍率还是游戏专属倍率？";
+            var overrideChoices = existingConfig?.SpeedMultiplier.HasValue == true
+                ? new[] { "使用专属倍率", "使用全局默认" }
+                : new[] { "使用全局默认", "使用专属倍率" };
+            var overridePrompt = new SelectionPrompt<string>();
+            overridePrompt.Title(overrideTitle);
+            overridePrompt.AddChoices(overrideChoices);
+            var overrideSelection = PromptSelection(overridePrompt, overrideChoices, value => Markup.Escape(value), overrideTitle);
+
+            if (string.Equals(overrideSelection, "使用全局默认", StringComparison.Ordinal))
+            {
+                return (true, null);
+            }
+
+            var defaultMultiplier = existingConfig?.SpeedMultiplier ?? appConfig.DefaultSpeedMultiplier;
+            var multiplierPrompt = new TextPrompt<string>("输入该游戏的专属倍率（必须大于 1.0）")
+                .DefaultValue(defaultMultiplier.ToString("0.##", CultureInfo.InvariantCulture))
+                .Validate(value =>
+                {
+                    return TryParseSpeedMultiplier(value, out _)
+                        ? ConsoleValidationResult.Success()
+                        : ConsoleValidationResult.Error("请输入大于 1.0 的数字，例如 2.5。");
+                });
+
+            var multiplierInput = Prompt(multiplierPrompt);
+            _ = TryParseSpeedMultiplier(multiplierInput, out var multiplier);
+            return (true, SpeedDefaults.NormalizeMultiplier(multiplier));
+        }
+
+        private static bool TryParseSpeedMultiplier(string? value, out double multiplier)
+        {
+            if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out multiplier) && multiplier > 1.0d)
+            {
+                return true;
+            }
+
+            if (double.TryParse(value, NumberStyles.Float, CultureInfo.CurrentCulture, out multiplier) && multiplier > 1.0d)
+            {
+                return true;
+            }
+
+            multiplier = 0;
+            return false;
+        }
+
+        private static string FormatSpeedMode(GameConfig config)
+        {
+            return config.SpeedEnabled
+                ? config.SpeedMultiplier.HasValue
+                    ? $"[green]{config.SpeedMultiplier.Value:0.##}x[/]"
+                    : "[green]全局默认[/]"
+                : "[grey]关闭[/]";
+        }
+
+        private static string FormatSpeedModePlain(GameConfig config, AppConfig appConfig)
+        {
+            if (!config.SpeedEnabled)
+            {
+                return "关闭";
+            }
+
+            return config.SpeedMultiplier.HasValue
+                ? $"{config.SpeedMultiplier.Value:0.##}x（专属）"
+                : $"{SpeedDefaults.NormalizeMultiplier(appConfig.DefaultSpeedMultiplier):0.##}x（全局默认）";
+        }
+
         private async Task AddGameAsync()
         {
             var configs = LoadConfigs();
+            var appConfig = LoadAppConfigOrDefault();
 
             // Prompt for input - can be file path or executable name
             var inputPrompt = new TextPrompt<string>(
@@ -968,6 +1177,8 @@ namespace GameHelper.ConsoleHost.Interactive
             hdrPrompt.AddChoices(hdrChoices);
             var hdr = PromptSelection(hdrPrompt, hdrChoices, value => Markup.Escape(value), hdrTitle);
 
+            var speedSettings = PromptSpeedSettings(existingConfig, appConfig);
+
             // Create or update config
             var entryId = string.IsNullOrWhiteSpace(existingEntryId)
                 ? Guid.NewGuid().ToString("N")
@@ -981,7 +1192,9 @@ namespace GameHelper.ConsoleHost.Interactive
                 ExecutableName = executableName,
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim(),
                 IsEnabled = string.Equals(enable, "启用", StringComparison.Ordinal),
-                HDREnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal)
+                HDREnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal),
+                SpeedEnabled = speedSettings.SpeedEnabled,
+                SpeedMultiplier = speedSettings.SpeedMultiplier
             };
 
             await PersistAsync(configs).ConfigureAwait(false);
@@ -991,6 +1204,7 @@ namespace GameHelper.ConsoleHost.Interactive
         private async Task EditGameAsync()
         {
             var configs = LoadConfigs();
+            var appConfig = LoadAppConfigOrDefault();
             if (configs.Count == 0)
             {
                 _console.MarkupLine("[italic grey]没有可以修改的游戏。[/]");
@@ -1031,6 +1245,7 @@ namespace GameHelper.ConsoleHost.Interactive
             {
                 _console.MarkupLine($"  显示名称: {Markup.Escape(cfg.DisplayName)}");
             }
+            _console.MarkupLine($"  倍速: {Markup.Escape(FormatSpeedModePlain(cfg, appConfig))}");
             _console.WriteLine();
 
             // Prompt for ExecutablePath update
@@ -1108,11 +1323,15 @@ namespace GameHelper.ConsoleHost.Interactive
             hdrPrompt.AddChoices(hdrChoices);
             var hdr = PromptSelection(hdrPrompt, hdrChoices, value => Markup.Escape(value), hdrTitle);
 
+            var speedSettings = PromptSpeedSettings(cfg, appConfig);
+
             // Update configuration
             cfg.ExecutablePath = newExecutablePath;
             cfg.DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim();
             cfg.IsEnabled = string.Equals(enable, "启用", StringComparison.Ordinal);
             cfg.HDREnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal);
+            cfg.SpeedEnabled = speedSettings.SpeedEnabled;
+            cfg.SpeedMultiplier = speedSettings.SpeedMultiplier;
 
             cfg.EntryId = string.IsNullOrWhiteSpace(cfg.EntryId) ? entryId : cfg.EntryId;
             configs[entryId] = cfg;
@@ -1131,6 +1350,7 @@ namespace GameHelper.ConsoleHost.Interactive
             {
                 _console.MarkupLine($"  显示名称: {Markup.Escape(cfg.DisplayName)}");
             }
+            _console.MarkupLine($"  倍速: {Markup.Escape(FormatSpeedModePlain(cfg, appConfig))}");
         }
 
         private async Task RemoveGameAsync()

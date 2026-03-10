@@ -48,6 +48,16 @@ namespace GameHelper.Core.Models
         public bool HDREnabled { get; set; } = false;
 
         /// <summary>
+        /// Whether speed control is allowed for this game.
+        /// </summary>
+        public bool SpeedEnabled { get; set; }
+
+        /// <summary>
+        /// Optional per-game speed multiplier override. When null, the global default is used.
+        /// </summary>
+        public double? SpeedMultiplier { get; set; }
+
+        /// <summary>
         /// Legacy accessor retained for backward compatibility with older configuration serializers.
         /// Maps to <see cref="ExecutableName"/>.
         /// </summary>

@@ -6,11 +6,21 @@ public sealed class MonitorControlService : IMonitorControlService
 {
     private readonly IProcessMonitor _monitor;
     private readonly IGameAutomationService _automationService;
+    private readonly ISpeedControlService _speedControlService;
 
-    public MonitorControlService(IProcessMonitor monitor, IGameAutomationService automationService)
+    public MonitorControlService(
+        IProcessMonitor monitor,
+        IGameAutomationService automationService,
+        ISpeedControlService speedControlService)
     {
         _monitor = monitor;
         _automationService = automationService;
+        _speedControlService = speedControlService;
+    }
+
+    public MonitorControlService(IProcessMonitor monitor, IGameAutomationService automationService)
+        : this(monitor, automationService, new NoOpSpeedControlService())
+    {
     }
 
     public bool IsRunning { get; private set; }
@@ -23,6 +33,7 @@ public sealed class MonitorControlService : IMonitorControlService
         }
 
         _automationService.Start();
+        _speedControlService.Start();
         _monitor.Start();
         IsRunning = true;
     }
@@ -35,6 +46,7 @@ public sealed class MonitorControlService : IMonitorControlService
         }
 
         _monitor.Stop();
+        _speedControlService.Stop();
         _automationService.Stop();
         IsRunning = false;
     }

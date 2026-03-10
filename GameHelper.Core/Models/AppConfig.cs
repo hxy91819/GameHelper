@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using GameHelper.Core.Utilities;
 
 namespace GameHelper.Core.Models
 {
@@ -28,5 +29,15 @@ namespace GameHelper.Core.Models
         /// When enabled, GameHelper will register itself to launch automatically on system startup.
         /// </summary>
         public bool LaunchOnSystemStartup { get; set; }
+
+        /// <summary>
+        /// Default speed multiplier applied when a game-specific override is not configured.
+        /// </summary>
+        public double DefaultSpeedMultiplier { get; set; } = SpeedDefaults.DefaultSpeedMultiplier;
+
+        /// <summary>
+        /// Global hotkey used to toggle speed for the current foreground game.
+        /// </summary>
+        public string SpeedToggleHotkey { get; set; } = SpeedDefaults.DefaultHotkey;
     }
 }

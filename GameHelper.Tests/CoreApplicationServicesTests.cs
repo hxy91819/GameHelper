@@ -16,12 +16,16 @@ public sealed class CoreApplicationServicesTests
         {
             ProcessMonitorType = ProcessMonitorType.WMI,
             AutoStartInteractiveMonitor = true,
-            LaunchOnSystemStartup = true
+            LaunchOnSystemStartup = true,
+            DefaultSpeedMultiplier = 2.5,
+            SpeedToggleHotkey = "Ctrl+Alt+F11"
         });
 
         Assert.Equal(ProcessMonitorType.WMI, updated.ProcessMonitorType);
         Assert.True(updated.AutoStartInteractiveMonitor);
         Assert.True(updated.LaunchOnSystemStartup);
+        Assert.Equal(2.5, updated.DefaultSpeedMultiplier);
+        Assert.Equal("Ctrl+Alt+F11", updated.SpeedToggleHotkey);
     }
 
     [Fact]
@@ -184,17 +188,20 @@ public sealed class CoreApplicationServicesTests
     {
         var processMonitor = new FakeProcessMonitor();
         var automationService = new FakeGameAutomationService();
-        var service = new MonitorControlService(processMonitor, automationService);
+        var speedService = new FakeSpeedControlService();
+        var service = new MonitorControlService(processMonitor, automationService, speedService);
 
         service.Start();
         Assert.True(service.IsRunning);
         Assert.True(processMonitor.StartCalled);
         Assert.True(automationService.StartCalled);
+        Assert.True(speedService.StartCalled);
 
         service.Stop();
         Assert.False(service.IsRunning);
         Assert.True(processMonitor.StopCalled);
         Assert.True(automationService.StopCalled);
+        Assert.True(speedService.StopCalled);
     }
 
     private sealed class FakeConfigProvider : IConfigProvider, IAppConfigProvider
@@ -265,5 +272,26 @@ public sealed class CoreApplicationServicesTests
         {
             StopCalled = true;
         }
+    }
+
+    private sealed class FakeSpeedControlService : ISpeedControlService
+    {
+        public bool StartCalled { get; private set; }
+        public bool StopCalled { get; private set; }
+        public bool IsRunning { get; private set; }
+
+        public void Start()
+        {
+            StartCalled = true;
+            IsRunning = true;
+        }
+
+        public void Stop()
+        {
+            StopCalled = true;
+            IsRunning = false;
+        }
+
+        public SpeedControlStatus GetStatus() => new();
     }
 }

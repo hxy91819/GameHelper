@@ -28,6 +28,8 @@ namespace GameHelper.Tests
             Assert.NotNull(config.Games);
             Assert.Empty(config.Games);
             Assert.Equal(ProcessMonitorType.ETW, config.ProcessMonitorType);
+            Assert.Equal(2.0, config.DefaultSpeedMultiplier);
+            Assert.Equal("Ctrl+Alt+F10", config.SpeedToggleHotkey);
         }
 
         [Fact]
@@ -42,7 +44,9 @@ namespace GameHelper.Tests
                     ExecutableName = "cyberpunk2077.exe",
                     DisplayName = "Cyberpunk 2077",
                     IsEnabled = true,
-                    HDREnabled = true
+                    HDREnabled = true,
+                    SpeedEnabled = true,
+                    SpeedMultiplier = 2.5
                 },
                 ["rdr2.exe"] = new GameConfig
                 {
@@ -69,6 +73,8 @@ namespace GameHelper.Tests
             Assert.Equal("Cyberpunk 2077", cp.DisplayName);
             Assert.True(cp.IsEnabled);
             Assert.True(cp.HDREnabled);
+            Assert.True(cp.SpeedEnabled);
+            Assert.Equal(2.5, cp.SpeedMultiplier);
         }
 
         [Fact]

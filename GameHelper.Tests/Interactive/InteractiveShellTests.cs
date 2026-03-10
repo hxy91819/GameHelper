@@ -8,6 +8,7 @@ using GameHelper.ConsoleHost.Interactive;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Spectre.Console.Testing;
@@ -76,6 +77,7 @@ namespace GameHelper.Tests.Interactive
                 .Enqueue("Celeste")
                 .Enqueue("启用")
                 .Enqueue("自动开启 HDR")
+                .Enqueue("禁用倍速")
                 .Enqueue("Back")
                 .Enqueue("Exit");
 
@@ -90,6 +92,7 @@ namespace GameHelper.Tests.Interactive
             Assert.Equal("Celeste", entry.Alias);
             Assert.True(entry.IsEnabled);
             Assert.True(entry.HDREnabled);
+            Assert.False(entry.SpeedEnabled);
         }
 
         [Fact]
@@ -337,6 +340,8 @@ namespace GameHelper.Tests.Interactive
                 .AddSingleton<IAutoStartManager>(autoStartManager)
                 .AddSingleton<IProcessMonitor, FakeProcessMonitor>()
                 .AddSingleton<IGameAutomationService, FakeAutomationService>()
+                .AddSingleton<ISpeedControlService, FakeSpeedControlService>()
+                .AddSingleton<IMonitorControlService, MonitorControlService>()
                 .BuildServiceProvider();
 
             return new AsyncDisposableHost(services);
@@ -410,11 +415,15 @@ namespace GameHelper.Tests.Interactive
                             Name = v.Name,
                             Alias = v.Alias,
                             IsEnabled = v.IsEnabled,
-                            HDREnabled = v.HDREnabled
+                            HDREnabled = v.HDREnabled,
+                            SpeedEnabled = v.SpeedEnabled,
+                            SpeedMultiplier = v.SpeedMultiplier
                         }).ToList(),
                         ProcessMonitorType = _appConfig.ProcessMonitorType,
                         AutoStartInteractiveMonitor = _appConfig.AutoStartInteractiveMonitor,
-                        LaunchOnSystemStartup = _appConfig.LaunchOnSystemStartup
+                        LaunchOnSystemStartup = _appConfig.LaunchOnSystemStartup,
+                        DefaultSpeedMultiplier = _appConfig.DefaultSpeedMultiplier,
+                        SpeedToggleHotkey = _appConfig.SpeedToggleHotkey
                     };
                 }
             }
@@ -500,6 +509,31 @@ namespace GameHelper.Tests.Interactive
                 Enabled = enabled;
                 SetCalls++;
             }
+        }
+
+        private sealed class FakeSpeedControlService : ISpeedControlService
+        {
+            public int StartCalls { get; private set; }
+            public int StopCalls { get; private set; }
+            public bool IsRunning { get; private set; }
+
+            public void Start()
+            {
+                StartCalls++;
+                IsRunning = true;
+            }
+
+            public void Stop()
+            {
+                StopCalls++;
+                IsRunning = false;
+            }
+
+            public SpeedControlStatus GetStatus() => new()
+            {
+                IsSupported = false,
+                Message = "当前平台不支持倍速功能。"
+            };
         }
 
         private sealed class AppDataScope : IDisposable

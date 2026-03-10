@@ -7,4 +7,8 @@ public sealed class AppSettingsSnapshot
     public bool AutoStartInteractiveMonitor { get; set; }
 
     public bool LaunchOnSystemStartup { get; set; }
+
+    public double DefaultSpeedMultiplier { get; set; }
+
+    public string SpeedToggleHotkey { get; set; } = string.Empty;
 }

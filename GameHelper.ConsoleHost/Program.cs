@@ -10,6 +10,7 @@ using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Services;
 using GameHelper.Infrastructure.Controllers;
+using GameHelper.Infrastructure.Hotkeys;
 using GameHelper.Infrastructure.Processes;
 using GameHelper.Infrastructure.Providers;
 using GameHelper.Infrastructure.Resolvers;
@@ -72,6 +73,7 @@ var host = Host.CreateDefaultBuilder(args)
             return new YamlConfigProvider();
         });
         services.AddSingleton<IAppConfigProvider>(sp => (YamlConfigProvider)sp.GetRequiredService<IConfigProvider>());
+        services.AddSingleton<IGameProcessMatcher, GameProcessMatcher>();
         services.AddSingleton<IProcessMonitor>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<Program>>();
@@ -132,10 +134,16 @@ var host = Host.CreateDefaultBuilder(args)
         if (OperatingSystem.IsWindows())
         {
             services.AddSingleton<IHdrController, WindowsHdrController>();
+            services.AddSingleton<IForegroundProcessResolver, WindowsForegroundProcessResolver>();
+            services.AddSingleton<IGlobalHotkeyListener, WindowsGlobalHotkeyListener>();
+            services.AddSingleton<ISpeedEngine, WindowsSpeedEngine>();
         }
         else
         {
             services.AddSingleton<IHdrController, NoOpHdrController>();
+            services.AddSingleton<IForegroundProcessResolver, NoOpForegroundProcessResolver>();
+            services.AddSingleton<IGlobalHotkeyListener, NoOpGlobalHotkeyListener>();
+            services.AddSingleton<ISpeedEngine, NoOpSpeedEngine>();
         }
 
         services.AddSingleton<IPlayTimeService, CsvBackedPlayTimeService>();
@@ -149,6 +157,7 @@ var host = Host.CreateDefaultBuilder(args)
             return new NoOpAutoStartManager();
         });
         services.AddSingleton<IGameAutomationService, GameAutomationService>();
+        services.AddSingleton<ISpeedControlService, SpeedControlService>();
         services.AddSingleton<IMonitorControlService, MonitorControlService>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IGameCatalogService, GameCatalogService>();

@@ -1,12 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
-using FuzzySharp;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace GameHelper.Core.Services
 {
@@ -20,6 +18,7 @@ namespace GameHelper.Core.Services
         private readonly IProcessMonitor _monitor;
         private readonly IStopEventsControl? _stopControl;
         private readonly IConfigProvider _configProvider;
+        private readonly IGameProcessMatcher _gameProcessMatcher;
         private readonly IHdrController _hdr;
         private readonly IPlayTimeService _playTime;
         private readonly ILogger<GameAutomationService> _logger;
@@ -29,19 +28,12 @@ namespace GameHelper.Core.Services
         private readonly Dictionary<string, List<ActiveProcessEntry>> _activeByPath = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, int> _dataKeyRefs = new(StringComparer.OrdinalIgnoreCase);
 
-        private IReadOnlyDictionary<string, GameConfig> _configs = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-        private IReadOnlyDictionary<string, GameConfig> _configsByDataKey = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-        private IReadOnlyDictionary<string, GameConfig> _configsByPath = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-        private NameConfigEntry[] _nameConfigs = Array.Empty<NameConfigEntry>();
-
-        // 鍔ㄦ€侀槇鍊煎父閲?
-        private const int ShortNameThreshold = 95;   // 2-4 瀛楃
-        private const int MediumNameThreshold = 90;  // 5-8 瀛楃
-        private const int LongNameThreshold = 80;    // 9+ 瀛楃
+        private GameProcessMatchSnapshot _snapshot = new();
 
         public GameAutomationService(
             IProcessMonitor monitor,
             IConfigProvider configProvider,
+            IGameProcessMatcher gameProcessMatcher,
             IHdrController hdr,
             IPlayTimeService playTime,
             ILogger<GameAutomationService> logger)
@@ -49,16 +41,27 @@ namespace GameHelper.Core.Services
             _monitor = monitor;
             _stopControl = monitor as IStopEventsControl;
             _configProvider = configProvider;
+            _gameProcessMatcher = gameProcessMatcher;
             _hdr = hdr;
             _playTime = playTime;
             _logger = logger;
+        }
+
+        public GameAutomationService(
+            IProcessMonitor monitor,
+            IConfigProvider configProvider,
+            IHdrController hdr,
+            IPlayTimeService playTime,
+            ILogger<GameAutomationService> logger)
+            : this(monitor, configProvider, new GameProcessMatcher(NullLogger<GameProcessMatcher>.Instance), hdr, playTime, logger)
+        {
         }
 
         public void Start()
         {
             lock (_stateLock)
             {
-                LoadAndBuildIndexes();
+                LoadSnapshot();
 
                 _activeByName.Clear();
                 _activeByPath.Clear();
@@ -79,9 +82,9 @@ namespace GameHelper.Core.Services
 
                 _logger.LogInformation(
                     "GameAutomationService started: {Total} configs ({PathCount} path, {NameCount} name)",
-                    _configs.Count,
-                    _configsByPath.Count,
-                    _nameConfigs.Length);
+                    _snapshot.Configs.Count,
+                    _snapshot.ConfigsByPath.Count,
+                    _snapshot.NameEntries.Count);
             }
         }
 
@@ -89,12 +92,12 @@ namespace GameHelper.Core.Services
         {
             lock (_stateLock)
             {
-                LoadAndBuildIndexes();
+                LoadSnapshot();
                 _logger.LogInformation(
                     "GameAutomationService config reloaded: {Total} configs ({PathCount} path, {NameCount} name)",
-                    _configs.Count,
-                    _configsByPath.Count,
-                    _nameConfigs.Length);
+                    _snapshot.Configs.Count,
+                    _snapshot.ConfigsByPath.Count,
+                    _snapshot.NameEntries.Count);
             }
         }
 
@@ -134,40 +137,38 @@ namespace GameHelper.Core.Services
             }
         }
 
+        private void LoadSnapshot()
+        {
+            _snapshot = _gameProcessMatcher.CreateSnapshot(_configProvider.Load());
+        }
+
         private void OnProcessStarted(ProcessEventInfo processInfo)
         {
             lock (_stateLock)
             {
-                var normalizedPath = NormalizePath(processInfo.ExecutablePath);
-                var normalizedName = NormalizeName(processInfo.ExecutableName);
+                var normalizedPath = _gameProcessMatcher.NormalizePath(processInfo.ExecutablePath);
+                var normalizedName = _gameProcessMatcher.NormalizeName(processInfo.ExecutableName);
+                var match = _gameProcessMatcher.Match(processInfo, _snapshot);
 
-                var config = MatchByPath(normalizedPath);
-                string matchLabel = "路径匹配";
-
-                if (config is null)
-                {
-                    config = MatchByMetadata(processInfo, normalizedPath, out matchLabel);
-                }
-
-                if (config is null)
+                if (match is null)
                 {
                     _logger.LogDebug("未匹配到配置: {Executable} (Path={Path})", processInfo.ExecutableName, processInfo.ExecutablePath);
                     return;
                 }
 
-                if (string.IsNullOrWhiteSpace(config.DataKey))
+                if (string.IsNullOrWhiteSpace(match.Config.DataKey))
                 {
                     _logger.LogWarning("匹配到缺少 DataKey 的配置，忽略: {Executable}", processInfo.ExecutableName);
                     return;
                 }
 
                 var hadAnyActive = _dataKeyRefs.Count > 0;
-                var firstForDataKey = RegisterActive(config.DataKey, normalizedName, normalizedPath);
+                var firstForDataKey = RegisterActive(match.Config.DataKey, normalizedName, normalizedPath);
 
                 _logger.LogInformation(
                     "Process start: DataKey={DataKey}, Via={Match}, Executable={Executable}, Path={Path}",
-                    config.DataKey,
-                    matchLabel,
+                    match.Config.DataKey,
+                    match.MatchLabel,
                     normalizedName ?? processInfo.ExecutableName ?? "n/a",
                     normalizedPath ?? "n/a");
 
@@ -175,11 +176,11 @@ namespace GameHelper.Core.Services
                 {
                     try
                     {
-                        _playTime.StartTracking(config.DataKey);
+                        _playTime.StartTracking(match.Config.DataKey);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Failed to start tracking for {DataKey}", config.DataKey);
+                        _logger.LogError(ex, "Failed to start tracking for {DataKey}", match.Config.DataKey);
                     }
                 }
 
@@ -258,250 +259,6 @@ namespace GameHelper.Core.Services
             }
         }
 
-        private void LoadAndBuildIndexes()
-        {
-            _configs = _configProvider.Load();
-
-            var dataKeyMap = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-
-            var pathMap = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-            var nameStats = new Dictionary<string, (int Count, int MissingPathCount)>(StringComparer.OrdinalIgnoreCase);
-            var nameEntries = new List<NameConfigEntry>();
-
-            foreach (var config in _configs.Values)
-            {
-                if (config is null || !config.IsEnabled)
-                {
-                    continue;
-                }
-
-                if (!string.IsNullOrWhiteSpace(config.DataKey) && !dataKeyMap.TryAdd(config.DataKey, config))
-                {
-                    _logger.LogWarning(
-                        "Duplicate DataKey detected while building indexes: {DataKey}. Keeping the first entry.",
-                        config.DataKey);
-                }
-
-                var normalizedPath = NormalizePath(config.ExecutablePath);
-                if (normalizedPath is not null)
-                {
-                    if (pathMap.ContainsKey(normalizedPath))
-                    {
-                        _logger.LogWarning(
-                            "Duplicate executable path detected while building indexes: {Path}. Keeping the first entry.",
-                            normalizedPath);
-                    }
-                    else
-                    {
-                        pathMap[normalizedPath] = config;
-                    }
-                }
-
-                var normalizedName = NormalizeName(config.ExecutableName);
-                if (normalizedName is not null)
-                {
-                    if (!nameStats.TryGetValue(normalizedName, out var stat))
-                    {
-                        stat = (0, 0);
-                    }
-                    stat.Count++;
-                    if (normalizedPath is null)
-                    {
-                        stat.MissingPathCount++;
-                    }
-                    nameStats[normalizedName] = stat;
-                    nameEntries.Add(new NameConfigEntry(normalizedName, normalizedName.ToUpperInvariant(), config));
-                }
-            }
-
-            foreach (var (name, stat) in nameStats.Where(kv => kv.Value.Count > 1))
-            {
-                if (stat.MissingPathCount > 0)
-                {
-                    _logger.LogWarning(
-                        "Duplicate executable name detected while building indexes: {Name}. DuplicateCount={Count}, MissingPathCount={MissingPathCount}. Name-only matching may become ambiguous.",
-                        name,
-                        stat.Count,
-                        stat.MissingPathCount);
-                }
-                else
-                {
-                    _logger.LogDebug(
-                        "Duplicate executable name detected while building indexes: {Name}. DuplicateCount={Count}. All entries have ExecutablePath, path-first matching remains deterministic.",
-                        name,
-                        stat.Count);
-                }
-            }
-
-            _configsByDataKey = dataKeyMap;
-            _configsByPath = pathMap;
-            _nameConfigs = nameEntries.ToArray();
-        }
-
-        private GameConfig? MatchByPath(string? normalizedPath)
-        {
-            if (normalizedPath is null)
-            {
-                return null;
-            }
-
-            if (_configsByPath.TryGetValue(normalizedPath, out var config))
-            {
-                _logger.LogInformation("L1 路径匹配成功: {Path} -> {DataKey}", normalizedPath, config.DataKey);
-                return config;
-            }
-
-            return null;
-        }
-
-        private GameConfig? MatchByMetadata(ProcessEventInfo processInfo, string? normalizedPath, out string label)
-        {
-            label = "名称模糊匹配";
-
-            var exePath = normalizedPath ?? processInfo.ExecutablePath;
-
-            // 黑名单检查：拒绝系统路径
-            if (!string.IsNullOrWhiteSpace(exePath) && IsSystemPath(exePath))
-            {
-                _logger.LogDebug(
-                    "L2 匹配拒绝: 系统路径黑名单 - {ExePath}",
-                    exePath);
-                return null;
-            }
-
-            var searchText = TryGetProductName(exePath);
-            var usedProductName = !string.IsNullOrWhiteSpace(searchText);
-
-            if (!usedProductName)
-            {
-                searchText = NormalizeName(processInfo.ExecutableName);
-            }
-
-            if (string.IsNullOrWhiteSpace(searchText) || _nameConfigs.Length == 0)
-            {
-                return null;
-            }
-
-            var searchUpper = searchText.ToUpperInvariant();
-
-            var bestCandidates = new List<(NameConfigEntry Entry, int Score, int Threshold)>();
-            var bestScore = 0;
-
-            foreach (var entry in _nameConfigs)
-            {
-                var config = entry.Config;
-                if (string.IsNullOrWhiteSpace(config.ExecutableName))
-                {
-                    continue;
-                }
-
-                // 计算动态阈值
-                var threshold = CalculateFuzzyThreshold(config.ExecutableName);
-                var score = Fuzz.Ratio(searchUpper, entry.ExecutableNameUpper);
-
-                _logger.LogDebug(
-                    "L2 模糊匹配尝试: {SearchName} vs {ExecutableName} - Score={Score}, Threshold={Threshold}, NameLength={Length}",
-                    searchText,
-                    config.ExecutableName,
-                    score,
-                    threshold,
-                    Path.GetFileNameWithoutExtension(config.ExecutableName).Length);
-
-                if (score < threshold)
-                {
-                    continue;
-                }
-
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    bestCandidates.Clear();
-                }
-
-                if (score == bestScore)
-                {
-                    bestCandidates.Add((entry, score, threshold));
-                }
-            }
-
-            if (bestCandidates.Count == 0)
-            {
-                _logger.LogDebug("L2 fuzzy match failed: no candidate passed threshold");
-                return null;
-            }
-
-            (NameConfigEntry Entry, int Score, int Threshold) selected;
-
-            if (bestCandidates.Count == 1)
-            {
-                selected = bestCandidates[0];
-            }
-            else if (!string.IsNullOrWhiteSpace(exePath))
-            {
-                var relatedCandidates = bestCandidates
-                    .Where(c => IsPathRelated(exePath, c.Entry.Config.ExecutablePath))
-                    .ToList();
-
-                if (relatedCandidates.Count == 1)
-                {
-                    selected = relatedCandidates[0];
-                }
-                else
-                {
-                    _logger.LogWarning(
-                        "L2 match rejected due to ambiguity. SearchName={SearchName}, CandidateCount={Count}, Path={Path}",
-                        searchText,
-                        bestCandidates.Count,
-                        exePath);
-                    return null;
-                }
-            }
-            else
-            {
-                _logger.LogWarning(
-                    "L2 match rejected due to ambiguity without process path. SearchName={SearchName}, CandidateCount={Count}",
-                    searchText,
-                    bestCandidates.Count);
-                return null;
-            }
-
-            var bestMatch = selected.Entry.Config;
-            var matchedName = selected.Entry.ExecutableName;
-            var requiredThreshold = selected.Threshold;
-
-            // Final path relevance validation for the selected candidate.
-            if (!string.IsNullOrWhiteSpace(exePath) && !IsPathRelated(exePath, bestMatch.ExecutablePath))
-            {
-                _logger.LogWarning(
-                    "L2 匹配拒绝: 路径不相关 - ProcessPath={ProcessPath}, ConfigPath={ConfigPath}, Score={Score}, Threshold={Threshold}",
-                    exePath,
-                    bestMatch.ExecutablePath ?? "(无)",
-                    selected.Score,
-                    requiredThreshold);
-                return null;
-            }
-
-            // 匹配成功
-            var pathValidation = string.IsNullOrWhiteSpace(bestMatch.ExecutablePath)
-                ? "legacy-config (path validation skipped)"
-                : "path-validation passed";
-
-            label = usedProductName
-                ? $"ProductName 模糊匹配 (score {bestScore})"
-                : $"ExecutableName 模糊匹配 (score {bestScore})";
-
-            _logger.LogInformation(
-                "L2 模糊匹配成功: {SearchName} -> {ExecutableName} (score: {Score}, threshold: {Threshold}, DataKey: {DataKey}, {PathValidation})",
-                searchText,
-                matchedName,
-                bestScore,
-                requiredThreshold,
-                bestMatch.DataKey,
-                pathValidation);
-
-            return bestMatch;
-        }
-
         private bool RegisterActive(string dataKey, string? normalizedName, string? normalizedPath)
         {
             var entry = new ActiveProcessEntry(dataKey, normalizedName, normalizedPath);
@@ -540,23 +297,23 @@ namespace GameHelper.Core.Services
 
         private bool TryResolveActive(ProcessEventInfo processInfo, out ActiveProcessEntry entry)
         {
-            var normalizedPath = NormalizePath(processInfo.ExecutablePath);
+            var normalizedPath = _gameProcessMatcher.NormalizePath(processInfo.ExecutablePath);
             if (normalizedPath is not null &&
                 _activeByPath.TryGetValue(normalizedPath, out var byPath) &&
                 byPath.Count > 0)
             {
                 entry = byPath[0];
-                RemoveEntry(normalizedPath, entry, byPath, _activeByPath);
+                RemoveEntry(normalizedPath, entry);
                 return true;
             }
 
-            var normalizedName = NormalizeName(processInfo.ExecutableName);
+            var normalizedName = _gameProcessMatcher.NormalizeName(processInfo.ExecutableName);
             if (normalizedName is not null &&
                 _activeByName.TryGetValue(normalizedName, out var byName) &&
                 byName.Count > 0)
             {
                 entry = byName[0];
-                RemoveEntry(normalizedName, entry, byName, _activeByName);
+                RemoveEntry(normalizedName, entry);
                 return true;
             }
 
@@ -581,35 +338,23 @@ namespace GameHelper.Core.Services
             return false;
         }
 
-        private void RemoveEntry(
-            string key,
-            ActiveProcessEntry entry,
-            List<ActiveProcessEntry> list,
-            Dictionary<string, List<ActiveProcessEntry>> map)
+        private void RemoveEntry(string lookupKey, ActiveProcessEntry entry)
         {
-            list.Remove(entry);
-            if (list.Count == 0)
-            {
-                map.Remove(key);
-            }
-
-            if (entry.NormalizedName is not null &&
-                _activeByName.TryGetValue(entry.NormalizedName, out var nameList))
+            if (_activeByName.TryGetValue(entry.NormalizedName ?? lookupKey, out var nameList))
             {
                 nameList.Remove(entry);
                 if (nameList.Count == 0)
                 {
-                    _activeByName.Remove(entry.NormalizedName);
+                    _activeByName.Remove(entry.NormalizedName ?? lookupKey);
                 }
             }
 
-            if (entry.NormalizedPath is not null &&
-                _activeByPath.TryGetValue(entry.NormalizedPath, out var pathList))
+            if (_activeByPath.TryGetValue(entry.NormalizedPath ?? lookupKey, out var pathList))
             {
                 pathList.Remove(entry);
                 if (pathList.Count == 0)
                 {
-                    _activeByPath.Remove(entry.NormalizedPath);
+                    _activeByPath.Remove(entry.NormalizedPath ?? lookupKey);
                 }
             }
         }
@@ -617,7 +362,7 @@ namespace GameHelper.Core.Services
         private void UpdateHdrState()
         {
             var shouldEnableHdr = _dataKeyRefs.Keys.Any(dataKey =>
-                _configsByDataKey.TryGetValue(dataKey, out var config) && config.HDREnabled);
+                _snapshot.ConfigsByDataKey.TryGetValue(dataKey, out var config) && config.HDREnabled);
 
             if (shouldEnableHdr && !_hdr.IsEnabled)
             {
@@ -629,408 +374,6 @@ namespace GameHelper.Core.Services
                 _logger.LogInformation("Disabling HDR (no HDR-enabled game remaining)");
                 _hdr.Disable();
             }
-        }
-
-        private static string? NormalizeName(string? executableName)
-        {
-            if (string.IsNullOrWhiteSpace(executableName))
-            {
-                return null;
-            }
-
-            var name = Path.GetFileName(executableName.Trim());
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return null;
-            }
-
-            if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-            {
-                name += ".exe";
-            }
-
-            return name;
-        }
-
-        private static string? NormalizePath(string? executablePath)
-        {
-            if (string.IsNullOrWhiteSpace(executablePath))
-            {
-                return null;
-            }
-
-            if (TryResolveWindowsPath(executablePath, out var windowsPath, out _))
-            {
-                if (windowsPath.Length > 3 &&
-                    windowsPath[1] == ':' &&
-                    windowsPath.EndsWith("\\", StringComparison.Ordinal))
-                {
-                    windowsPath = windowsPath.TrimEnd('\\');
-                }
-                else if (windowsPath.StartsWith("\\\\", StringComparison.Ordinal) &&
-                         windowsPath.EndsWith("\\", StringComparison.Ordinal))
-                {
-                    windowsPath = windowsPath.TrimEnd('\\');
-                }
-
-                return windowsPath;
-            }
-
-            try
-            {
-                return Path.GetFullPath(executablePath)
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            }
-            catch
-            {
-                return executablePath.Trim();
-            }
-        }
-
-        private string? TryGetProductName(string? executablePath)
-        {
-            if (string.IsNullOrWhiteSpace(executablePath))
-            {
-                return null;
-            }
-
-            try
-            {
-                var info = FileVersionInfo.GetVersionInfo(executablePath);
-                return info.ProductName;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "无法获取 ProductName: {Path}", executablePath);
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// 检查进程路径是否命中系统路径黑名单。
-        /// 系统工具不应被匹配为游戏。
-        /// </summary>
-        /// <param name="processPath">进程完整路径</param>
-        /// <returns>命中系统路径时返回 true</returns>
-        private bool IsSystemPath(string processPath)
-        {
-            if (string.IsNullOrWhiteSpace(processPath))
-            {
-                return false;
-            }
-
-            // 系统路径黑名单
-            var systemPaths = new[]
-            {
-                @"C:\Windows\System32\",
-                @"C:\Windows\SysWOW64\",
-                @"C:\Windows\"
-            };
-
-            try
-            {
-                if (TryResolveWindowsPath(processPath, out var windowsPath, out var processDir))
-                {
-                    foreach (var systemPath in systemPaths)
-                    {
-                        if (processDir.StartsWith(systemPath, StringComparison.OrdinalIgnoreCase) ||
-                            windowsPath.StartsWith(systemPath, StringComparison.OrdinalIgnoreCase))
-                        {
-                            return true;
-                        }
-                    }
-
-                    return false;
-                }
-
-                var normalizedPath = Path.GetFullPath(processPath);
-
-                foreach (var systemPath in systemPaths)
-                {
-                    if (normalizedPath.StartsWith(systemPath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
-            }
-            catch (Exception ex)
-            {
-                // 路径处理异常时，保守地认为不是系统路径
-                _logger.LogDebug(ex, "系统路径检查失败: {ProcessPath}", processPath);
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 验证进程路径是否与配置路径相关（位于同一目录树）。
-        /// </summary>
-        /// <param name="processPath">进程完整路径</param>
-        /// <param name="configPath">配置的可执行文件路径（可为空）</param>
-        /// <returns>路径相关或 configPath 为空时返回 true</returns>
-        private bool IsPathRelated(string processPath, string? configPath)
-        {
-            // 旧配置兼容：未配置路径时跳过验证
-            if (string.IsNullOrWhiteSpace(configPath))
-            {
-                return true;
-            }
-
-            try
-            {
-                var processHasWindowsRoot = TryResolveWindowsPath(processPath, out _, out var processWindowsDir);
-                var configHasWindowsRoot = TryResolveWindowsPath(configPath, out _, out var configWindowsDir);
-
-                if (processHasWindowsRoot || configHasWindowsRoot)
-                {
-                    if (!processHasWindowsRoot || !configHasWindowsRoot)
-                    {
-                        return false;
-                    }
-
-                    processWindowsDir = EnsureTrailingSeparator(processWindowsDir, preferBackslash: true);
-                    configWindowsDir = EnsureTrailingSeparator(configWindowsDir, preferBackslash: true);
-                    return processWindowsDir.StartsWith(configWindowsDir, StringComparison.OrdinalIgnoreCase);
-                }
-
-                // 规范化路径（处理相对路径、大小写）
-                var normalizedProcessPath = Path.GetFullPath(processPath);
-                var normalizedConfigPath = Path.GetFullPath(configPath);
-
-                // 获取目录路径
-                var processDir = Path.GetDirectoryName(normalizedProcessPath);
-                var configDir = Path.GetDirectoryName(normalizedConfigPath);
-
-                if (string.IsNullOrEmpty(processDir) || string.IsNullOrEmpty(configDir))
-                {
-                    return false;
-                }
-
-                // 仅当进程目录位于配置目录或其子目录时才视为相关
-                processDir = EnsureTrailingSeparator(processDir);
-                configDir = EnsureTrailingSeparator(configDir);
-
-                return processDir.StartsWith(configDir, StringComparison.OrdinalIgnoreCase);
-            }
-            catch (Exception ex)
-            {
-                // 路径处理异常时，保守拒绝匹配
-                _logger.LogDebug(ex, "路径验证失败: ProcessPath={ProcessPath}, ConfigPath={ConfigPath}",
-                    processPath, configPath);
-                return false;
-            }
-        }
-
-        private static bool TryResolveWindowsPath(string path, out string normalizedPath, out string directory)
-        {
-            normalizedPath = string.Empty;
-            directory = string.Empty;
-
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                return false;
-            }
-
-            var trimmed = path.Trim();
-
-            if (IsWindowsDrivePath(trimmed))
-            {
-                return TryResolveDrivePath(trimmed, out normalizedPath, out directory);
-            }
-
-            if (IsWindowsUncPath(trimmed))
-            {
-                return TryResolveUncPath(trimmed, out normalizedPath, out directory);
-            }
-
-            return false;
-        }
-
-        private static bool TryResolveDrivePath(string path, out string normalizedPath, out string directory)
-        {
-            normalizedPath = string.Empty;
-            directory = string.Empty;
-
-            var segments = path.Substring(2)
-                .Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
-
-            var resolved = new List<string>();
-            foreach (var segment in segments)
-            {
-                if (segment == ".")
-                {
-                    continue;
-                }
-
-                if (segment == "..")
-                {
-                    if (resolved.Count == 0)
-                    {
-                        return false;
-                    }
-
-                    resolved.RemoveAt(resolved.Count - 1);
-                    continue;
-                }
-
-                resolved.Add(segment);
-            }
-
-            var hasTrailingSeparator = path.EndsWith("\\", StringComparison.Ordinal) ||
-                                       path.EndsWith("/", StringComparison.Ordinal);
-
-            var drive = char.ToUpperInvariant(path[0]);
-            normalizedPath = $"{drive}:\\";
-
-            if (resolved.Count > 0)
-            {
-                normalizedPath += string.Join("\\", resolved);
-
-                if (hasTrailingSeparator)
-                {
-                    normalizedPath += "\\";
-                }
-            }
-
-            var directorySegments = new List<string>(resolved);
-            if (!hasTrailingSeparator && directorySegments.Count > 0)
-            {
-                directorySegments.RemoveAt(directorySegments.Count - 1);
-            }
-
-            directory = $"{drive}:\\";
-            if (directorySegments.Count > 0)
-            {
-                directory += string.Join("\\", directorySegments) + "\\";
-            }
-
-            return true;
-        }
-
-        private static bool TryResolveUncPath(string path, out string normalizedPath, out string directory)
-        {
-            normalizedPath = string.Empty;
-            directory = string.Empty;
-
-            var segments = path.Substring(2)
-                .Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
-
-            if (segments.Length < 2)
-            {
-                return false;
-            }
-
-            var resolved = new List<string>
-            {
-                segments[0],
-                segments[1]
-            };
-
-            for (var i = 2; i < segments.Length; i++)
-            {
-                var segment = segments[i];
-
-                if (segment == ".")
-                {
-                    continue;
-                }
-
-                if (segment == "..")
-                {
-                    if (resolved.Count > 2)
-                    {
-                        resolved.RemoveAt(resolved.Count - 1);
-                    }
-
-                    continue;
-                }
-
-                resolved.Add(segment);
-            }
-
-            var hasTrailingSeparator = path.EndsWith("\\", StringComparison.Ordinal) ||
-                                       path.EndsWith("/", StringComparison.Ordinal);
-
-            normalizedPath = "\\\\" + string.Join("\\", resolved);
-            if (hasTrailingSeparator)
-            {
-                normalizedPath += "\\";
-            }
-
-            var directorySegments = resolved;
-            if (!hasTrailingSeparator && resolved.Count > 2)
-            {
-                directorySegments = resolved.Take(resolved.Count - 1).ToList();
-            }
-
-            directory = "\\\\" + string.Join("\\", directorySegments);
-            if (!directory.EndsWith("\\", StringComparison.Ordinal))
-            {
-                directory += "\\";
-            }
-
-            return true;
-        }
-
-        private static bool IsWindowsDrivePath(string path)
-        {
-            return path.Length >= 3 &&
-                   char.IsLetter(path[0]) &&
-                   path[1] == ':' &&
-                   (path[2] == '\\' || path[2] == '/');
-        }
-
-        private static bool IsWindowsUncPath(string path)
-        {
-            return path.StartsWith("\\\\", StringComparison.Ordinal) ||
-                   path.StartsWith("//", StringComparison.Ordinal);
-        }
-
-        private static string EnsureTrailingSeparator(string path, bool preferBackslash = false)
-        {
-            if (string.IsNullOrEmpty(path))
-            {
-                return path;
-            }
-
-            if (path.EndsWith(Path.DirectorySeparatorChar) ||
-                path.EndsWith(Path.AltDirectorySeparatorChar) ||
-                path.EndsWith("\\", StringComparison.Ordinal))
-            {
-                return path;
-            }
-
-            var separator = preferBackslash || path.Contains("\\", StringComparison.Ordinal)
-                ? '\\'
-                : Path.DirectorySeparatorChar;
-
-            return path + separator;
-        }
-
-        /// <summary>
-        /// 根据可执行文件名长度计算模糊匹配阈值。
-        /// 短文件名需要更高相似度以避免误匹配。
-        /// </summary>
-        /// <param name="executableName">可执行文件名（可含扩展名）</param>
-        /// <returns>推荐模糊匹配阈值（80-95）</returns>
-        private static int CalculateFuzzyThreshold(string executableName)
-        {
-            if (string.IsNullOrWhiteSpace(executableName))
-            {
-                return ShortNameThreshold; // 最严格阈值
-            }
-
-            // 移除扩展名
-            var nameWithoutExt = Path.GetFileNameWithoutExtension(executableName);
-            var length = nameWithoutExt.Length;
-
-            return length switch
-            {
-                <= 4 => ShortNameThreshold,   // 短名称：非常严格
-                <= 8 => MediumNameThreshold,  // 中名称：较严格
-                _ => LongNameThreshold        // 长名称：标准阈值
-            };
         }
 
         private static string FormatDuration(TimeSpan duration)
@@ -1070,11 +413,6 @@ namespace GameHelper.Core.Services
             return string.Concat(parts);
         }
 
-        private sealed record NameConfigEntry(string ExecutableName, string ExecutableNameUpper, GameConfig Config);
-
         private readonly record struct ActiveProcessEntry(string DataKey, string? NormalizedName, string? NormalizedPath);
     }
 }
-
-
-
