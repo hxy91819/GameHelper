@@ -1,10 +1,13 @@
 ﻿# GameHelper
 
-GameHelper 是一个面向 Windows 玩家的桌面助手，提供：
-- 进程监控（ETW/WMI）
-- 游戏时长统计
-- 游戏配置管理（YAML）
-- WinUI 桌面入口 + CLI 入口
+GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、游戏时长统计和 YAML 配置管理，并同时提供 CLI 与 WinUI 两个入口。
+
+`README.md` 的职责是：
+- 指导用户如何安装、运行和使用项目。
+- 给开发者提供最短路径的本地启动与验证步骤。
+- 指向更详细的设计和规范文档，而不是重复它们。
+
+详细设计与规范见 `docs/index.md`。
 
 ## 快速开始
 
@@ -29,7 +32,12 @@ dotnet run --project .\GameHelper.ConsoleHost -- stats [--game <name>]
 dotnet run --project .\GameHelper.ConsoleHost -- config list
 dotnet run --project .\GameHelper.ConsoleHost -- config add <exe>
 dotnet run --project .\GameHelper.ConsoleHost -- config remove <exe>
+
+# 历史数据迁移
+dotnet run --project .\GameHelper.ConsoleHost -- migrate
 ```
+
+更多 CLI 说明见 `docs/guides/cli.md`。
 
 ### 运行中拖拽添加（已支持）
 - 支持拖拽 `.exe` / `.lnk` / `.url`。
@@ -87,6 +95,7 @@ games:
 - `GameHelper.Core`：核心模型与业务逻辑
 - `GameHelper.Infrastructure`：平台集成与持久化
 - `GameHelper.Tests`：单元/集成测试
+- `docs`：活文档、计划与归档材料
 
 ## 开发与验证
 
@@ -94,6 +103,11 @@ games:
 dotnet build GameHelper.sln
 dotnet test GameHelper.sln
 ```
+
+更完整的架构、规范和计划见：
+- `docs/architecture/index.md`
+- `docs/prd/index.md`
+- `docs/plans/index.md`
 
 ## 许可
 - 开源使用：AGPL-3.0
