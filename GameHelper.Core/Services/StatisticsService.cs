@@ -69,13 +69,26 @@ public sealed class StatisticsService : IStatisticsService
             .OrderByDescending(item => item.StartTime)
             .ToList();
 
+        // Compute aggregates in a single pass to avoid multiple enumerations
+        long totalMinutes = 0;
+        long recentMinutes = 0;
+
+        foreach (var session in orderedSessions)
+        {
+            totalMinutes += session.DurationMinutes;
+            if (session.EndTime >= cutoff)
+            {
+                recentMinutes += session.DurationMinutes;
+            }
+        }
+
         return new GameStatsSummary
         {
             GameName = record.GameName,
             DisplayName = displayName,
-            TotalMinutes = record.Sessions.Sum(item => item.DurationMinutes),
-            RecentMinutes = record.Sessions.Where(item => item.EndTime >= cutoff).Sum(item => item.DurationMinutes),
-            SessionCount = record.Sessions.Count,
+            TotalMinutes = totalMinutes,
+            RecentMinutes = recentMinutes,
+            SessionCount = orderedSessions.Count,
             Sessions = orderedSessions
         };
     }
