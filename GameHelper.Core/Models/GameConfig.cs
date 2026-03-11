@@ -66,5 +66,16 @@ namespace GameHelper.Core.Models
             get => DisplayName;
             set => DisplayName = value;
         }
+
+        public GameConfig Clone() => new()
+        {
+            EntryId = EntryId,
+            DataKey = DataKey,
+            ExecutablePath = ExecutablePath,
+            ExecutableName = ExecutableName,
+            DisplayName = DisplayName,
+            IsEnabled = IsEnabled,
+            HDREnabled = HDREnabled
+        };
     }
 }
