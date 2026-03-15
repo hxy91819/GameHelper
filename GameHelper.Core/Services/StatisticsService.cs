@@ -69,12 +69,26 @@ public sealed class StatisticsService : IStatisticsService
             .OrderByDescending(item => item.StartTime)
             .ToList();
 
+        long totalMinutes = 0;
+        long recentMinutes = 0;
+
+        // Bolt optimization: Single pass loop over sessions
+        // Avoids multiple LINQ allocations and iterations (.Sum() and .Where().Sum())
+        foreach (var session in record.Sessions)
+        {
+            totalMinutes += session.DurationMinutes;
+            if (session.EndTime >= cutoff)
+            {
+                recentMinutes += session.DurationMinutes;
+            }
+        }
+
         return new GameStatsSummary
         {
             GameName = record.GameName,
             DisplayName = displayName,
-            TotalMinutes = record.Sessions.Sum(item => item.DurationMinutes),
-            RecentMinutes = record.Sessions.Where(item => item.EndTime >= cutoff).Sum(item => item.DurationMinutes),
+            TotalMinutes = totalMinutes,
+            RecentMinutes = recentMinutes,
             SessionCount = record.Sessions.Count,
             Sessions = orderedSessions
         };
