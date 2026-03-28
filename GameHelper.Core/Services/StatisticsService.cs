@@ -65,6 +65,19 @@ public sealed class StatisticsService : IStatisticsService
         var gameConfig = configLookup.Resolve(record.GameName);
         var displayName = gameConfig?.DisplayName;
 
+        // Optimization: Single pass calculation for stats
+        long totalMinutes = 0;
+        long recentMinutes = 0;
+
+        foreach (var session in record.Sessions)
+        {
+            totalMinutes += session.DurationMinutes;
+            if (session.EndTime >= cutoff)
+            {
+                recentMinutes += session.DurationMinutes;
+            }
+        }
+
         var orderedSessions = record.Sessions
             .OrderByDescending(item => item.StartTime)
             .ToList();
@@ -73,8 +86,8 @@ public sealed class StatisticsService : IStatisticsService
         {
             GameName = record.GameName,
             DisplayName = displayName,
-            TotalMinutes = record.Sessions.Sum(item => item.DurationMinutes),
-            RecentMinutes = record.Sessions.Where(item => item.EndTime >= cutoff).Sum(item => item.DurationMinutes),
+            TotalMinutes = totalMinutes,
+            RecentMinutes = recentMinutes,
             SessionCount = record.Sessions.Count,
             Sessions = orderedSessions
         };
