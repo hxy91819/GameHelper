@@ -1209,17 +1209,37 @@ namespace GameHelper.ConsoleHost.Interactive
             var now = DateTime.Now;
             var cutoff = now.AddDays(-14);
 
-            var projected = list.Select(g => new
+            // ⚡ Bolt: Use a single-pass loop instead of multiple LINQ passes (.Sum, .Where().Sum)
+            // to calculate TotalMinutes and RecentMinutes. This reduces CPU overhead and memory allocations.
+            var projectedRaw = new List<(string Name, long TotalMinutes, long RecentMinutes, int Sessions)>(list.Count);
+            foreach (var g in list)
             {
-                Name = ResolveDisplayName(g.GameName, configLookup),
-                TotalMinutes = g.Sessions?.Sum(s => s.DurationMinutes) ?? 0,
-                RecentMinutes = g.Sessions?.Where(s => s.EndTime >= cutoff).Sum(s => s.DurationMinutes) ?? 0,
-                Sessions = g.Sessions?.Count ?? 0
-            })
-            .OrderByDescending(x => x.RecentMinutes)
-            .ThenByDescending(x => x.TotalMinutes)
-            .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+                long totalMinutes = 0;
+                long recentMinutes = 0;
+                int sessionsCount = 0;
+
+                if (g.Sessions != null)
+                {
+                    sessionsCount = g.Sessions.Count;
+                    foreach (var s in g.Sessions)
+                    {
+                        totalMinutes += s.DurationMinutes;
+                        if (s.EndTime >= cutoff)
+                        {
+                            recentMinutes += s.DurationMinutes;
+                        }
+                    }
+                }
+
+                projectedRaw.Add((ResolveDisplayName(g.GameName, configLookup), totalMinutes, recentMinutes, sessionsCount));
+            }
+
+            var projected = projectedRaw
+                .Select(x => new { x.Name, x.TotalMinutes, x.RecentMinutes, x.Sessions })
+                .OrderByDescending(x => x.RecentMinutes)
+                .ThenByDescending(x => x.TotalMinutes)
+                .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
             if (projected.Count == 0)
             {
@@ -1245,9 +1265,18 @@ namespace GameHelper.ConsoleHost.Interactive
 
             if (string.IsNullOrWhiteSpace(filter))
             {
-                var totalAll = projected.Sum(p => p.TotalMinutes);
-                var totalRecent = projected.Sum(p => p.RecentMinutes);
-                var totalSessions = projected.Sum(p => p.Sessions);
+                // ⚡ Bolt: Single pass aggregation instead of multiple projected.Sum() calls.
+                long totalAll = 0;
+                long totalRecent = 0;
+                int totalSessions = 0;
+
+                foreach (var p in projected)
+                {
+                    totalAll += p.TotalMinutes;
+                    totalRecent += p.RecentMinutes;
+                    totalSessions += p.Sessions;
+                }
+
                 table.AddEmptyRow();
                 table.AddRow("[bold]TOTAL[/]",
                     $"[bold]{DurationFormatter.Format(totalAll)}[/]",
@@ -1900,9 +1929,23 @@ namespace GameHelper.ConsoleHost.Interactive
 
             _console.Write(table);
 
-            var aggregated = newSessions
-                .GroupBy(r => r.DisplayName)
-                .Select(g => new { g.Key, Minutes = g.Sum(r => r.DurationMinutes), Count = g.Count() })
+            // ⚡ Bolt: Use a single-pass Dictionary aggregation instead of .GroupBy().Select()
+            // to calculate Minutes and Count simultaneously. Reduces allocations.
+            var aggregatedDict = new Dictionary<string, (long Minutes, int Count)>(StringComparer.Ordinal);
+            foreach (var r in newSessions)
+            {
+                if (aggregatedDict.TryGetValue(r.DisplayName, out var current))
+                {
+                    aggregatedDict[r.DisplayName] = (current.Minutes + r.DurationMinutes, current.Count + 1);
+                }
+                else
+                {
+                    aggregatedDict[r.DisplayName] = (r.DurationMinutes, 1);
+                }
+            }
+
+            var aggregated = aggregatedDict
+                .Select(kv => new { Key = kv.Key, kv.Value.Minutes, kv.Value.Count })
                 .OrderByDescending(x => x.Minutes)
                 .ToList();
 

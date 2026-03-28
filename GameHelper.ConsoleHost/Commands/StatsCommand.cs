@@ -54,12 +54,24 @@ public static class StatsCommand
 
         if (string.IsNullOrWhiteSpace(filterGame))
         {
+            // ⚡ Bolt: Single pass aggregation instead of multiple stats.Sum() calls.
+            long totalMinutes = 0;
+            long recentMinutes = 0;
+            long sessionCount = 0;
+
+            foreach (var item in stats)
+            {
+                totalMinutes += item.TotalMinutes;
+                recentMinutes += item.RecentMinutes;
+                sessionCount += item.SessionCount;
+            }
+
             rows.Add(new[]
             {
                 "TOTAL",
-                DurationFormatter.Format(stats.Sum(item => item.TotalMinutes)),
-                DurationFormatter.Format(stats.Sum(item => item.RecentMinutes)),
-                stats.Sum(item => item.SessionCount).ToString()
+                DurationFormatter.Format(totalMinutes),
+                DurationFormatter.Format(recentMinutes),
+                sessionCount.ToString()
             });
         }
 
