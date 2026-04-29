@@ -8,7 +8,7 @@
   - **WMI 监控**: 兼容性最好，适用于所有 Windows 版本
   - **ETW 监控**: 低延迟高性能，需要管理员权限
 - **游戏时间统计**: 记录每个游戏的运行时间
-- **HDR 控制**: 为将来的 HDR 自动切换预留接口（当前为空实现）
+- **HDR 控制**: 检测多显示器 HDR 支持状态，并在游戏会话中通过 Win+Alt+B 系统快捷键自动切换；显示器不支持或被 Windows 强制禁用时跳过
 - **配置管理**: 支持 YAML 配置文件，可添加/移除游戏
 - **交互式命令行**: 默认提供图形化的终端界面，可视化管理监控、配置、统计与工具
 - **自动降级**: ETW 监控失败时自动回退到 WMI 监控
@@ -111,14 +111,14 @@ games:
 - `name`: 匹配进程名（大小写不敏感）
 - `alias`: 显示名称
 - `isEnabled`: 是否启用该游戏的所有自动化功能
-- `hdrEnabled`: 为将来 HDR 控制预留，当前不会实际切换 HDR
+- `hdrEnabled`: 启用后，当该游戏运行时 `WindowsHdrController` 会尝试开启 HDR；当所有标记此项的游戏都退出后会尝试关闭
 
 ### 自动化工作流程
 
 1. **进程检测**: 使用 WMI 或 ETW 监控系统进程启动/退出事件
 2. **游戏识别**: 根据配置文件中的 `name` 字段匹配进程
 3. **状态管理**: 跟踪活跃游戏进程，记录启动/停止时间
-4. **HDR 控制**: 当有游戏运行时调用 HDR 控制器（当前为空实现）
+4. **HDR 控制**: 当有 `hdrEnabled: true` 的游戏运行时，`WindowsHdrController` 通过 Win+Alt+B 注入切换 HDR；显示器不支持或 Windows 报告 ForceDisabled 时跳过
 5. **时间统计**: 将游戏运行时间保存到 CSV 文件
 
 ### 进程监控方式对比
@@ -241,7 +241,7 @@ processMonitorType: ETW  # 默认值，可省略
 games:
   - name: "game.exe"
     isEnabled: true    # 只监控需要的游戏
-    hdrEnabled: false  # 暂时禁用未实现的功能
+    hdrEnabled: false  # 是否在该游戏运行时切换 HDR
 
 # 兼容性配置（无管理员权限）
 processMonitorType: WMI
@@ -261,9 +261,10 @@ games:
   - [ ] 只监听配置列表中的进程
   - [ ] 游戏第一次停止之后，记录fuzzyname，下次可以进行精准进程监听，进一步提升性能
 - [ ] 弱提示，避免魂游这类游戏被误终止
-- [ ] 自动开关HDR
-  - [ ] 检测当前HDR开启状态
-  - [ ] 提前开启HDR，避免部分游戏内部未识别HDR（当前实现太粗糙，遇到核心技术问题，暂缓实现）
+- [x] 自动开关HDR
+  - [x] 检测当前HDR开启状态（基于 Windows DisplayConfig API，多显示器感知）
+  - [x] 游戏启动/结束时自动切换（通过 SendInput 注入 Win+Alt+B，回退至 keybd_event）
+  - [ ] 评估改用 `DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE` SET API，避免依赖前台焦点
 
 ### 游戏库管理与发现
 - [x] 拖动图标到程序上自动添加
@@ -354,5 +355,5 @@ ProcessMonitorFactory
 - **默认使用 ETW 监控**，需要管理员权限才能正常运行
 - 如果 ETW 初始化失败，程序会自动降级到 WMI 监控
 - 如无法获得管理员权限，建议在配置文件中显式设置 `processMonitorType: WMI`
-- HDR 切换当前未实现（NoOp），仅记录会话与统计数据
+- HDR 切换基于 Win+Alt+B 注入，依赖前台焦点与桌面会话；显示器不支持或被 Windows 强制禁用时自动跳过
 - 程序不会收集或上传任何个人数据
