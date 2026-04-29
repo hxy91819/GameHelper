@@ -97,7 +97,7 @@ GameHelper/
 
 ## 6. 技术债务和已知问题
 
-1.  **HDR 功能**: `IHdrController` 的实现 `NoOpHdrController` 是一个空操作。如 `README.md` 所述，实际的 HDR 自动切换功能因技术挑战而暂缓实现。
+1.  **HDR 切换路径**: `WindowsHdrController` 已实现 HDR 状态检测（基于 Windows DisplayConfig API：`GetDisplayConfigBufferSizes` + `QueryDisplayConfig` + `DisplayConfigGetDeviceInfo` with `DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO`，多显示器感知，识别支持/启用/`ForceDisabled` 三态）和切换（通过 `SendInput` 注入 Win+Alt+B，失败时回退至 `keybd_event`）。`NoOpHdrController` 仅作为非 Windows 环境的占位实现。**已知限制**：当前切换路径依赖前台焦点与桌面会话状态，不适用于无人值守服务场景；`DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE`（type 10）的 SET API 已在枚举中声明但尚未启用作为切换路径，是否引入待评估。
 2.  **进程过滤**: 当前的 WMI/ETW 监控会监听所有进程，然后在 `GameAutomationService` 中进行过滤。`README.md` 提到未来可以优化为只监听配置列表中的进程，以提升性能。
 3.  **存档复制**: 自动复制存档（如魂类游戏）的功能仍在计划中，尚未实现。
 4.  **错误处理**: 尽管存在文件容错，但在某些边缘情况下，不正确的配置或损坏的 CSV 文件可能导致未经处理的异常。
