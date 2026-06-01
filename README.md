@@ -101,7 +101,28 @@ speedToggleHotkey: Ctrl+Alt+F10
 说明：
 - CLI 交互式监控启动后，会尝试注册全局热键。
 - 热键默认只对“当前前台窗口对应、且在配置中启用了 `speedEnabled` 的游戏”生效。
-- 当前仓库已实现托管层控制面；Windows 上仍需配合原生 `GameHelper.Speedhack.dll` 完成真实注入验证，详见 `docs/plans/speed.md`。
+- 原生倍速组件源码位于 `native/`，默认运行时加载 `native\\win-x64\\GameHelper.Speedhack.dll`。
+
+## 原生倍速组件（Windows）
+
+项目已内置 `GameHelper.Speedhack.dll` 的本地源码与构建脚本，导出 ABI 如下：
+- `gh_speedhack_attach(int pid)`
+- `gh_speedhack_set_speed(int pid, double multiplier)`
+- `gh_speedhack_detach(int pid)`
+
+本地构建命令：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\native\build-speedhack-win-x64.ps1
+```
+
+构建产物：
+- `native\win-x64\GameHelper.Speedhack.dll`
+
+说明：
+- `GameHelper.ConsoleHost` 会在构建/发布时自动复制该 DLL 到输出目录 `native\win-x64\`。
+- 该组件当前只面向 `win-x64`。
+- 第三方依赖与许可证见 `native/THIRD_PARTY_NOTICES.md`。
 
 ## 项目结构
 - `GameHelper.WinUI`：WinUI 桌面入口
