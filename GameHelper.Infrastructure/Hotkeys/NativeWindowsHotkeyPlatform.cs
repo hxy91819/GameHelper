@@ -62,21 +62,21 @@ public sealed class NativeWindowsHotkeyPlatform : IWindowsHotkeyPlatform
         public POINT pt;
     }
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [DllImport("user32.dll", EntryPoint = "RegisterHotKey", SetLastError = true)]
     private static extern bool RegisterHotKeyNative(nint hWnd, int id, uint fsModifiers, uint vk);
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [DllImport("user32.dll", EntryPoint = "UnregisterHotKey", SetLastError = true)]
     private static extern bool UnregisterHotKeyNative(nint hWnd, int id);
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [DllImport("user32.dll", EntryPoint = "GetMessageW", SetLastError = true)]
     private static extern int GetMessageNative(ref MSG lpMsg, nint hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [DllImport("user32.dll", EntryPoint = "PeekMessageW", SetLastError = true)]
     private static extern bool PeekMessage(out MSG lpMsg, nint hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [DllImport("user32.dll", EntryPoint = "PostThreadMessageW", SetLastError = true)]
     private static extern bool PostThreadMessageNative(uint idThread, uint msg, nuint wParam, nint lParam);
 
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", EntryPoint = "GetCurrentThreadId")]
     private static extern uint GetCurrentThreadIdNative();
 }
