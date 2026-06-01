@@ -362,8 +362,10 @@ FodyWeavers.xsd
 *.sln.iml
 .idea
 # BMAD (local only)
+.agent/*
 .claude/*
 .codebuddy/*
+.codex/*
 .gemini/*
 .github/*
 .windsurf/*
