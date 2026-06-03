@@ -1,0 +1,28 @@
+is_global = true
+
+# CA1801: Review unused parameters - warning
+dotnet_diagnostic.CA1801.severity = warning
+
+# CA1823: Avoid unused private fields - warning
+dotnet_diagnostic.CA1823.severity = warning
+
+# IDE0051: Remove unused private members - warning
+dotnet_diagnostic.IDE0051.severity = warning
+
+# IDE0052: Remove unread private members - warning
+dotnet_diagnostic.IDE0052.severity = warning
+
+# IDE0059: Remove unnecessary value assignment - warning
+dotnet_diagnostic.IDE0059.severity = warning
+
+# IDE0040: Accessibility modifiers required - suggestion (interface members are always public)
+dotnet_diagnostic.IDE0040.severity = suggestion
+
+# CA1822: Mark members as static - suggestion
+dotnet_diagnostic.CA1822.severity = suggestion
+
+# CA2007: Do not directly await a Task - suggestion
+dotnet_diagnostic.CA2007.severity = suggestion
+
+# CA1031: Do not catch general exception types - suggestion
+dotnet_diagnostic.CA1031.severity = suggestion

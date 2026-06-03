@@ -80,12 +80,21 @@ SCHEMA: dict[str, Any] = {
 }
 
 
+UTF8_ENCODING = "utf-8"
+
+
+def info(message: str) -> None:
+    print(message, file=sys.stdout, flush=True)
+
+
 def run(args: list[str], cwd: Path, *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         args,
         cwd=cwd,
         input=input_text,
         text=True,
+        encoding=UTF8_ENCODING,
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -122,6 +131,8 @@ def run_with_heartbeat(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding=UTF8_ENCODING,
+        errors="replace",
     )
     first_communicate = True
     while True:
@@ -134,7 +145,7 @@ def run_with_heartbeat(
         except subprocess.TimeoutExpired:
             first_communicate = False
             elapsed = int(time.monotonic() - started)
-            print(f"review still running: {label} elapsed={elapsed}s pid={proc.pid}", file=sys.stderr, flush=True)
+            info(f"review still running: {label} elapsed={elapsed}s pid={proc.pid}")
 
 
 def run_with_stream(
@@ -154,6 +165,8 @@ def run_with_stream(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding=UTF8_ENCODING,
+        errors="replace",
         bufsize=1,
     )
     events: queue.Queue[tuple[str, str | None]] = queue.Queue()
@@ -191,7 +204,7 @@ def run_with_stream(
             name, line = events.get(timeout=heartbeat_seconds)
         except queue.Empty:
             elapsed = int(time.monotonic() - started)
-            print(f"review still running: {label} elapsed={elapsed}s pid={proc.pid}", file=sys.stderr, flush=True)
+            info(f"review still running: {label} elapsed={elapsed}s pid={proc.pid}")
             continue
         if line is None:
             open_streams -= 1
@@ -226,6 +239,8 @@ def repo_root() -> Path:
     result = subprocess.run(
         [git_bin, "rev-parse", "--show-toplevel"],
         text=True,
+        encoding=UTF8_ENCODING,
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -333,7 +348,9 @@ def first_executable_candidate(path: Path, *, reject_root: Path | None = None) -
     return None
 
 
-def bounded(text: str, limit: int = 180_000) -> str:
+def bounded(text: str | None, limit: int = 180_000) -> str:
+    if text is None:
+        return ""
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n\n[truncated at {limit} characters]\n"
@@ -933,11 +950,10 @@ def validate_report(report: dict[str, Any], repo: Path, changed_paths: set[str],
     if ignored_findings:
         for index, finding, rel, line in ignored_findings:
             title = finding.get("title", "<untitled>")
-            print(
-                f"autoreview ignored out-of-scope finding {index}: {title} ({rel}:{line})",
-                file=sys.stderr,
+            info(
+                f"autoreview ignored out-of-scope finding {index}: {title} ({rel}:{line})"
             )
-            print(bounded_field(str(finding.get("body", "")), 500), file=sys.stderr)
+            info(bounded_field(str(finding.get("body", "")), 500))
         report["findings"] = kept_findings
         if not kept_findings and report["overall_correctness"] == "patch is incorrect":
             note = f"Ignored {len(ignored_findings)} out-of-scope finding(s) outside the reviewed change."
@@ -999,6 +1015,11 @@ def finish_parallel_tests(proc: subprocess.Popen, started: float) -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Bundle-driven AI code review.")
+    parser.error = lambda message: (
+        parser.print_usage(sys.stdout),
+        info(f"{parser.prog}: error: {message}"),
+        sys.exit(2),
+    )[-1]
     parser.add_argument("--mode", choices=["auto", "local", "uncommitted", "branch", "commit"], default="auto")
     parser.add_argument("--base")
     parser.add_argument("--commit", default="HEAD")
@@ -1289,4 +1310,14 @@ class Tee:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        code = main()
+    except SystemExit as exc:
+        if isinstance(exc.code, str) and exc.code:
+            print(exc.code, file=sys.stdout)
+            code = 1
+        elif isinstance(exc.code, int):
+            code = exc.code
+        else:
+            code = 1
+    raise SystemExit(code)
