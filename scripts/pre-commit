@@ -1,0 +1,10 @@
+#!/bin/sh
+# Pre-commit hook: Run lint checks before allowing commit
+# Install: Copy to .git/hooks/pre-commit (or use core.hooksPath)
+
+echo "Running lint checks..."
+powershell -File lint.ps1 -TreatWarningsAsErrors 2>&1
+if [ $? -ne 0 ]; then
+    echo "ERROR: Lint check failed. Fix warnings or suppress in .globalanalyzerconfig."
+    exit 1
+fi

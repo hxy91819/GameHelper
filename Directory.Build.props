@@ -4,5 +4,11 @@
     <FileVersion>0.0.1.0</FileVersion>
     <AssemblyVersion>0.0.1.0</AssemblyVersion>
     <InformationalVersion>0.0.1</InformationalVersion>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="GameHelper.Tests" />
+    <GlobalAnalyzerConfigFiles Include="$(MSBuildThisFileDirectory).globalanalyzerconfig" />
+  </ItemGroup>
 </Project>
