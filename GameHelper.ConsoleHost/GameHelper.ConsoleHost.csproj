@@ -1,5 +1,29 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <PropertyGroup>
+    <!--
+      [DECISION] OutputType=WinExe (not Exe) so the dotnet runtime does NOT
+      auto-allocate a launcher conhost window at startup. The console window
+      that the user sees in the taskbar is created by GameHelper itself via
+      ConsoleWindowHelper.CreateConsole() / AllocConsole — there is only one,
+      and it is the one we Hide() to send GameHelper to the tray. With
+      OutputType=Exe we end up with two conhost windows (launcher + ours)
+      and Hide() only hides the wrong one, leaving the taskbar entry
+      visible. See the "任务栏不会消失" regression that this fixes.
+    -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Remove WinForms global usings to avoid ambiguous references with Spectre.Console -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\GameHelper.Core\GameHelper.Core.csproj" />
     <ProjectReference Include="..\GameHelper.Infrastructure\GameHelper.Infrastructure.csproj" />
@@ -10,12 +34,5 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.8" />
     <PackageReference Include="Spectre.Console" Version="0.47.0" />
   </ItemGroup>
-
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
 
 </Project>

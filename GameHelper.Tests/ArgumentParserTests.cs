@@ -41,5 +41,57 @@ namespace GameHelper.Tests
             Assert.Contains("monitor", result.EffectiveArgs);
             Assert.DoesNotContain(result.EffectiveArgs, value => value.Equals(flag, System.StringComparison.OrdinalIgnoreCase));
         }
+
+        [Fact]
+        public void Parse_WithNoTrayFlag_ShouldDisableTrayAndStripFlag()
+        {
+            var args = new[] { "--no-tray", "interactive" };
+
+            var result = ArgumentParser.Parse(args);
+
+            Assert.True(result.DisableTray);
+            Assert.Contains("interactive", result.EffectiveArgs);
+            Assert.DoesNotContain(result.EffectiveArgs, a => a.Equals("--no-tray", System.StringComparison.OrdinalIgnoreCase));
+        }
+
+        [Fact]
+        public void Parse_WithoutNoTrayFlag_DisableTrayShouldBeFalse()
+        {
+            var args = new[] { "interactive" };
+
+            var result = ArgumentParser.Parse(args);
+
+            Assert.False(result.DisableTray);
+        }
+
+        [Fact]
+        public void Parse_NoTrayFlagIsCaseInsensitive()
+        {
+            var args = new[] { "--NO-TRAY" };
+
+            var result = ArgumentParser.Parse(args);
+
+            Assert.True(result.DisableTray);
+            Assert.Empty(result.EffectiveArgs);
+        }
+
+        [Fact]
+        public void Parse_WithTraySmokeTestFlag_ShouldEnableSmokeTestAndStripFlag()
+        {
+            var args = new[] { "--tray-smoke-test" };
+
+            var result = ArgumentParser.Parse(args);
+
+            Assert.True(result.RunTraySmokeTest);
+            Assert.Empty(result.EffectiveArgs);
+        }
+
+        [Fact]
+        public void Parse_WithoutTraySmokeTestFlag_ShouldDefaultToFalse()
+        {
+            var result = ArgumentParser.Parse(Array.Empty<string>());
+
+            Assert.False(result.RunTraySmokeTest);
+        }
     }
 }

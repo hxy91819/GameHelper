@@ -11,6 +11,9 @@ namespace GameHelper.ConsoleHost.Utilities
         public string? MonitorType { get; set; }
         public bool MonitorDryRun { get; set; }
         public bool UseInteractiveShell { get; set; }
+        public bool DisableTray { get; set; }
+        public bool RunTraySmokeTest { get; set; }
+        public bool RunHideSmokeTest { get; set; }
         public string[] EffectiveArgs { get; set; } = Array.Empty<string>();
     }
 
@@ -93,6 +96,34 @@ namespace GameHelper.ConsoleHost.Utilities
                     {
                         result.UseInteractiveShell = true;
                         list.RemoveAt(iidx);
+                    }
+
+                    // Handle --no-tray (boolean flag, disables system tray)
+                    int trayIdx = list.FindIndex(s =>
+                        string.Equals(s, "--no-tray", StringComparison.OrdinalIgnoreCase));
+                    if (trayIdx >= 0)
+                    {
+                        result.DisableTray = true;
+                        list.RemoveAt(trayIdx);
+                    }
+
+                    // Handle --tray-smoke-test (boolean flag, runs a one-shot tray icon probe and exits)
+                    int smokeIdx = list.FindIndex(s =>
+                        string.Equals(s, "--tray-smoke-test", StringComparison.OrdinalIgnoreCase));
+                    if (smokeIdx >= 0)
+                    {
+                        result.RunTraySmokeTest = true;
+                        list.RemoveAt(smokeIdx);
+                    }
+
+                    // Handle --hide-smoke-test (boolean flag, runs a one-shot probe of the
+                    // "is the console window hidden from taskbar after startup" property)
+                    int hideSmokeIdx = list.FindIndex(s =>
+                        string.Equals(s, "--hide-smoke-test", StringComparison.OrdinalIgnoreCase));
+                    if (hideSmokeIdx >= 0)
+                    {
+                        result.RunHideSmokeTest = true;
+                        list.RemoveAt(hideSmokeIdx);
                     }
 
                     result.EffectiveArgs = list.ToArray();
