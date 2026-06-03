@@ -22,6 +22,23 @@ ConsoleEncoding.EnsureUtf8();
 // Parse command line arguments
 var parsedArgs = ArgumentParser.Parse(args);
 
+// [DECISION] Smoke-test mode is checked BEFORE the single-instance guard so a
+// real running instance does not block the probe, and the probe does not have
+// to share a console with anyone. It is a one-shot self-check that exits with
+// a status code and a single stdout line ("TRAY_OK" or "TRAY_FAIL: <reason>")
+// the integration test can read.
+if (parsedArgs.RunTraySmokeTest)
+{
+    var smokeExit = TrayIconSmokeTest.Run();
+    Environment.Exit(smokeExit);
+}
+
+if (parsedArgs.RunHideSmokeTest)
+{
+    var hideExit = HideSmokeTest.Run();
+    Environment.Exit(hideExit);
+}
+
 if (!ProcessInstanceGuard.TryClaim())
 {
     Console.WriteLine("检测到 GameHelper 已在运行，请勿重复启动。");
@@ -168,15 +185,61 @@ catch (Exception ex)
 }
 
 // Execute the appropriate command
+using var exitCts = new System.Threading.CancellationTokenSource();
+
+TrayIconService? CreateTrayService()
+{
+    if (!OperatingSystem.IsWindows() || parsedArgs.DisableTray)
+        return null;
+
+    // [DECISION] With OutputType=WinExe, Windows does not allocate a console automatically.
+    // AllocConsole creates our own conhost.exe window that we fully own. This avoids the
+    // Windows Terminal hosting problem where GetConsoleWindow() returns the terminal's window.
+    ConsoleWindowHelper.CreateConsole();
+
+    var tray = new TrayIconService(host);
+    tray.ExitRequested += () =>
+    {
+        // [DECISION] Spectre.Console .Prompt() is synchronous and does not accept CancellationToken,
+        // so cooperative cancellation alone cannot interrupt a blocking prompt. We first try
+        // graceful shutdown via exitCts.Cancel() (lets RunAsync exit between loop iterations),
+        // then schedule a 3-second fallback to Environment.Exit(0) as a safety net.
+        // TrayIconService.RequestExit already called Cleanup()+Application.Exit() on the UI
+        // thread before firing this event, so the NotifyIcon is removed before we force-quit.
+        // DO NOT remove Environment.Exit(0): without it the process hangs forever if the user
+        // clicks "Exit" while Spectre.Console is blocking on input.
+        try { exitCts.Cancel(); } catch { }
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3));
+            Environment.Exit(0);
+        });
+    };
+    tray.Initialize();
+    // Hide the console window — SW_HIDE removes it from both screen and taskbar.
+    ConsoleWindowHelper.Hide();
+    return tray;
+}
+
 var interactiveMode = parsedArgs.UseInteractiveShell || parsedArgs.EffectiveArgs.Length == 0;
 if (interactiveMode)
 {
+    using var trayService = CreateTrayService();
+    // [DECISION] When tray is active, CreateTrayService() has already called
+    // AllocConsole to own a dedicated conhost window that we can hide. When
+    // tray is disabled (--no-tray or non-Windows), OutputType=Exe already
+    // gave us a console, so we do NOT call AllocConsole again — doing so
+    // would create a *second* conhost window that the user would have to
+    // dismiss manually, defeating the "no extra black window" goal.
     var shell = new InteractiveShell(host, parsedArgs);
-    await shell.RunAsync();
+    await shell.RunAsync(exitCts.Token);
     return;
 }
 
 var command = parsedArgs.EffectiveArgs[0].ToLowerInvariant();
+// [DECISION] OutputType=WinExe means no automatic console. Non-interactive subcommands
+// still need console output, so allocate one for all subcommand paths.
+ConsoleWindowHelper.CreateConsole();
 switch (command)
 {
     case "monitor":
@@ -205,8 +268,11 @@ switch (command)
         break;
 
     case "interactive":
-        var shell = new InteractiveShell(host, parsedArgs);
-        await shell.RunAsync();
+        {
+            using var traySvc = CreateTrayService();
+            var interactiveShell = new InteractiveShell(host, parsedArgs);
+            await interactiveShell.RunAsync(exitCts.Token);
+        }
         break;
 
     default:

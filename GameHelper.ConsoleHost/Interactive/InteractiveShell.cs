@@ -90,7 +90,7 @@ namespace GameHelper.ConsoleHost.Interactive
             _autoStartMonitor = DetermineAutoStartPreference();
         }
 
-        public async Task RunAsync()
+        public async Task RunAsync(CancellationToken cancellationToken = default)
         {
             ConsoleEncoding.EnsureUtf8();
             try
@@ -106,7 +106,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
             var autoStartPending = _autoStartMonitor;
 
-            while (true)
+            while (!cancellationToken.IsCancellationRequested)
             {
                 MainMenuAction action;
 
