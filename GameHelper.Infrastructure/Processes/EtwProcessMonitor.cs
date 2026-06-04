@@ -94,6 +94,7 @@ namespace GameHelper.Infrastructure.Processes
             catch (Exception ex) when (IsResourceExhausted(ex))
             {
                 _logger?.LogWarning(ex, "ETW session resource exhausted. Cleaning up stale sessions and retrying.");
+                SafeCleanup();
                 CleanupStaleSessions();
                 try
                 {
@@ -199,7 +200,7 @@ namespace GameHelper.Infrastructure.Processes
                     
                     // Try to obtain the real executable file path
                     var realPath = GetRealProcessPath(data.ProcessID) ?? data.PayloadByName("ImageFileName") as string;
-                    if (!string.IsNullOrWhiteSpace(realPath))
+                    if (!string.IsNullOrWhiteSpace(realPath) && _stopEventsEnabled)
                     {
                         _startPathCache[data.ProcessID] = realPath;
                     }
