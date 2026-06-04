@@ -46,12 +46,7 @@ public static class ConfigCommand
 
         foreach (var game in games)
         {
-            var speed = game.SpeedEnabled
-                ? game.SpeedMultiplier.HasValue
-                    ? $"{game.SpeedMultiplier.Value:0.##}x"
-                    : "default"
-                : "off";
-            Console.WriteLine($"{game.DataKey}  Enabled={game.IsEnabled}  HDR={game.HdrEnabled}  Speed={speed}");
+            Console.WriteLine($"{game.DataKey}  Enabled={game.IsEnabled}  HDR={game.HdrEnabled}");
         }
     }
 
@@ -74,8 +69,7 @@ public static class ConfigCommand
         {
             ExecutableName = executableName,
             IsEnabled = true,
-            HdrEnabled = false,
-            SpeedEnabled = false
+            HdrEnabled = false
         });
 
         Console.WriteLine($"Added {executableName}.");

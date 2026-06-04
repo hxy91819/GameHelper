@@ -1,6 +1,5 @@
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
-using GameHelper.Core.Utilities;
 
 namespace GameHelper.Core.Services;
 
@@ -25,8 +24,6 @@ public sealed class SettingsService : ISettingsService
         config.ProcessMonitorType = request.ProcessMonitorType ?? config.ProcessMonitorType ?? ProcessMonitorType.ETW;
         config.AutoStartInteractiveMonitor = request.AutoStartInteractiveMonitor;
         config.LaunchOnSystemStartup = request.LaunchOnSystemStartup;
-        config.DefaultSpeedMultiplier = SpeedDefaults.NormalizeMultiplier(request.DefaultSpeedMultiplier);
-        config.SpeedToggleHotkey = SpeedDefaults.NormalizeHotkey(request.SpeedToggleHotkey);
         _appConfigProvider.SaveAppConfig(config);
         return ToSnapshot(config);
     }
@@ -35,8 +32,6 @@ public sealed class SettingsService : ISettingsService
     {
         ProcessMonitorType = config.ProcessMonitorType ?? ProcessMonitorType.ETW,
         AutoStartInteractiveMonitor = config.AutoStartInteractiveMonitor,
-        LaunchOnSystemStartup = config.LaunchOnSystemStartup,
-        DefaultSpeedMultiplier = SpeedDefaults.NormalizeMultiplier(config.DefaultSpeedMultiplier),
-        SpeedToggleHotkey = SpeedDefaults.NormalizeHotkey(config.SpeedToggleHotkey)
+        LaunchOnSystemStartup = config.LaunchOnSystemStartup
     };
 }

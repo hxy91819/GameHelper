@@ -123,9 +123,7 @@ namespace GameHelper.Infrastructure.Providers
                     return new AppConfig
                     {
                         Games = new List<GameConfig>(),
-                        ProcessMonitorType = ProcessMonitorType.ETW,
-                        DefaultSpeedMultiplier = SpeedDefaults.DefaultSpeedMultiplier,
-                        SpeedToggleHotkey = SpeedDefaults.DefaultHotkey
+                        ProcessMonitorType = ProcessMonitorType.ETW
                     };
                 }
 
@@ -137,8 +135,6 @@ namespace GameHelper.Infrastructure.Providers
                     if (appConfig != null)
                     {
                         appConfig.ProcessMonitorType ??= ProcessMonitorType.ETW;
-                        appConfig.DefaultSpeedMultiplier = SpeedDefaults.NormalizeMultiplier(appConfig.DefaultSpeedMultiplier);
-                        appConfig.SpeedToggleHotkey = SpeedDefaults.NormalizeHotkey(appConfig.SpeedToggleHotkey);
                         return appConfig;
                     }
                 }
@@ -151,9 +147,7 @@ namespace GameHelper.Infrastructure.Providers
                 return new AppConfig
                 {
                     Games = legacyRoot?.Games ?? new List<GameConfig>(),
-                    ProcessMonitorType = ProcessMonitorType.ETW,
-                    DefaultSpeedMultiplier = SpeedDefaults.DefaultSpeedMultiplier,
-                    SpeedToggleHotkey = SpeedDefaults.DefaultHotkey
+                    ProcessMonitorType = ProcessMonitorType.ETW
                 };
             }
             catch (YamlException ex)
@@ -232,11 +226,7 @@ namespace GameHelper.Infrastructure.Providers
                 ExecutablePath = string.IsNullOrWhiteSpace(executablePath) ? null : executablePath,
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
                 IsEnabled = source.IsEnabled,
-                HDREnabled = source.HDREnabled,
-                SpeedEnabled = source.SpeedEnabled,
-                SpeedMultiplier = source.SpeedMultiplier.HasValue
-                    ? SpeedDefaults.NormalizeMultiplier(source.SpeedMultiplier)
-                    : null
+                HDREnabled = source.HDREnabled
             };
         }
 
@@ -266,11 +256,7 @@ namespace GameHelper.Infrastructure.Providers
                 ExecutablePath = string.IsNullOrWhiteSpace(executablePath) ? null : executablePath,
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
                 IsEnabled = source.IsEnabled,
-                HDREnabled = source.HDREnabled,
-                SpeedEnabled = source.SpeedEnabled,
-                SpeedMultiplier = source.SpeedMultiplier.HasValue
-                    ? SpeedDefaults.NormalizeMultiplier(source.SpeedMultiplier)
-                    : null
+                HDREnabled = source.HDREnabled
             };
         }
 
