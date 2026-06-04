@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Security.Principal;
 using GameHelper.Infrastructure.Exceptions;
@@ -94,6 +94,18 @@ namespace GameHelper.Tests
 
             // Act & Assert
             Assert.Throws<ObjectDisposedException>(() => monitor.Start());
+        }
+
+        [Fact]
+        public void SafeCleanup_ClearsPathCache()
+        {
+            var monitor = new EtwProcessMonitor();
+            var cacheField = typeof(EtwProcessMonitor).GetField("_startPathCache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var safeCleanupMethod = typeof(EtwProcessMonitor).GetMethod("SafeCleanup", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var cache = (Dictionary<int, string>)cacheField!.GetValue(monitor)!;
+            cache[123] = @"C:\Games\game.exe";
+            safeCleanupMethod!.Invoke(monitor, null);
+            Assert.Empty(cache);
         }
 
         private static bool IsRunningAsAdministrator()
