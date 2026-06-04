@@ -1,0 +1,40 @@
+{
+  "findings": [
+    {
+      "title": "EtwProcessMonitor path cache returns stale paths on PID reuse when stop events toggle",
+      "body": "The _startPathCache is populated in OnProcessStart only when _stopEventsEnabled is true, and entries are removed only in OnProcessStop. If a process starts while stop events are enabled and exits while they are disabled, its entry leaks. If that PID is later reused by another process while stop events are still disabled, the subsequent OnProcessStop (after re-enabling) will return the stale path from the first process via TryRemove. This corrupts ProcessEventInfo.ExecutablePath consumed by GameAutomationService, breaking path-based matching and potentially releasing the wrong active process entry.",
+      "priority": "P1",
+      "confidence": 0.8,
+      "category": "bug",
+      "code_location": {
+        "file_path": "GameHelper.Infrastructure/Processes/EtwProcessMonitor.cs",
+        "line": 229
+      }
+    },
+    {
+      "title": "MonitorControlService.Stop leaves IsRunning true after services are stopped",
+      "body": "When _monitor.Stop() or _automationService.Stop() throws, the catch block performs best-effort cleanup on both services and rethrows the original exception, but never sets IsRunning = false. This leaves the service in an inconsistent state where the flag claims the monitor is active but the underlying services have been stopped. A subsequent Start() call will incorrectly return early because of the idempotency guard, and UI consumers (e.g., ShellViewModel) will display a stale running status.",
+      "priority": "P2",
+      "confidence": 0.85,
+      "category": "bug",
+      "code_location": {
+        "file_path": "GameHelper.Core/Services/MonitorControlService.cs",
+        "line": 55
+      }
+    },
+    {
+      "title": "Missing test coverage for stale cache entry and PID reuse interaction",
+      "body": "The new _startPathCache logic introduced by the diff lacks a test for the interaction between stop-event toggling, PID reuse, and cache invalidation. A test should verify that when a process starts with stop events enabled, stop events are disabled before the process exits, a second process reuses the same PID while disabled, and stop events are re-enabled before the second process exits, the second stop event does not receive the first process's stale cached path.",
+      "priority": "P2",
+      "confidence": 0.75,
+      "category": "test_gap",
+      "code_location": {
+        "file_path": "GameHelper.Tests/EtwProcessMonitorTests.cs",
+        "line": 1
+      }
+    }
+  ],
+  "overall_correctness": "patch is incorrect",
+  "overall_explanation": "The patch improves exception safety in MonitorControlService and adds ETW session retry logic, but it introduces a correctness bug in EtwProcessMonitor: the _startPathCache can leak entries and return stale paths when _stopEventsEnabled is toggled off and a PID is reused. Additionally, MonitorControlService.Stop() leaves IsRunning == true after catching an exception and performing cleanup, which breaks the service contract and causes UI state divergence. The patch also leaves dead error-handling code in ProcessMonitorFactory that can no longer be reached after the EtwProcessMonitor internal retry was added.",
+  "overall_confidence": 0.85
+}

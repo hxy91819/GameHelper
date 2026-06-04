@@ -124,6 +124,19 @@ namespace GameHelper.Tests
         }
 
         [Fact]
+        public void SetStopEventsEnabled_WhenReEnabled_ClearsPathCache()
+        {
+            var monitor = new EtwProcessMonitor();
+            var cacheField = typeof(EtwProcessMonitor).GetField("_startPathCache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var cache = (ConcurrentDictionary<int, string>)cacheField!.GetValue(monitor)!;
+            cache[123] = @"C:\\Games\\game.exe";
+            monitor.SetStopEventsEnabled(false);
+            Assert.Contains(123, cache.Keys);
+            monitor.SetStopEventsEnabled(true);
+            Assert.Empty(cache);
+        }
+
+        [Fact]
         public void IsResourceExhausted_RecognizesErrorNoSystemResources()
         {
             var ex = new System.Runtime.InteropServices.COMException("test", unchecked((int)0x800705AA));
