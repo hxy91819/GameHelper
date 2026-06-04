@@ -1,359 +1,114 @@
-# GameHelper - 游戏助手
+﻿# GameHelper
 
-一个专为游戏玩家设计的 Console-first 工具，提供基于进程监控的自动化与游玩时长统计。
+GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、游戏时长统计和 YAML 配置管理，并同时提供 CLI 与 WinUI 两个入口。
 
-## 功能特性
+`README.md` 的职责是：
+- 指导用户如何安装、运行和使用项目。
+- 给开发者提供最短路径的本地启动与验证步骤。
+- 指向更详细的设计和规范文档，而不是重复它们。
 
-- **进程监控**: 支持 WMI 和 ETW 两种监控方式自动检测游戏进程的启动和退出
-  - **WMI 监控**: 兼容性最好，适用于所有 Windows 版本
-  - **ETW 监控**: 低延迟高性能，需要管理员权限
-- **游戏时间统计**: 记录每个游戏的运行时间
-- **HDR 控制**: 检测多显示器 HDR 支持状态，并在游戏会话中通过 Win+Alt+B 系统快捷键自动切换；显示器不支持或被 Windows 强制禁用时跳过
-- **配置管理**: 支持 YAML 配置文件，可添加/移除游戏
-- **交互式命令行**: 默认提供图形化的终端界面，可视化管理监控、配置、统计与工具
-- **自动降级**: ETW 监控失败时自动回退到 WMI 监控
-- **拖拽添加**: 拖动游戏快捷方式或exe到程序的快捷方式上，自动添加到配置
+详细设计与规范见 `docs/index.md`。
 
 ## 快速开始
 
-### 系统要求
-- Windows 11 (推荐) 或 Windows 10
-- .NET 8.0 Runtime
-- 管理员权限（用于进程监控）
+### 环境要求
+- Windows 10 (19041+) / Windows 11
+- .NET 8 SDK
+- （仅 WinUI 运行）Windows App SDK 1.6+
 
-### 运行方式（开发/验证）
+### 常用 CLI 命令
+
 ```powershell
-# 体验全新互动命令行（无命令时默认进入）
+# 交互模式（默认）
 dotnet run --project .\GameHelper.ConsoleHost --
 
-# 启动监控（默认使用 ETW，需要管理员权限）
-dotnet run --project .\GameHelper.ConsoleHost -- monitor [--config <path>] [--debug]
+# 启动监控
+dotnet run --project .\GameHelper.ConsoleHost -- monitor [--monitor-type ETW|WMI] [--debug]
 
-# 显式使用 ETW 监控（需要管理员权限，更低延迟）
-dotnet run --project .\GameHelper.ConsoleHost -- monitor --monitor-type ETW [--config <path>] [--debug]
+# 查看统计
+dotnet run --project .\GameHelper.ConsoleHost -- stats [--game <name>]
 
-# 使用 WMI 监控（兼容性最好，无需管理员权限）
-dotnet run --project .\GameHelper.ConsoleHost -- monitor --monitor-type WMI [--config <path>] [--debug]
+# 配置游戏
+dotnet run --project .\GameHelper.ConsoleHost -- config list
+dotnet run --project .\GameHelper.ConsoleHost -- config add <exe>
+dotnet run --project .\GameHelper.ConsoleHost -- config remove <exe>
 
-# Dry-run 演练（跳过实时监控模块，便于跨平台验证）
-dotnet run --project .\GameHelper.ConsoleHost -- monitor --monitor-dry-run [--config <path>] [--debug]
-
-# 统计（支持按游戏名过滤）
-dotnet run --project .\GameHelper.ConsoleHost -- stats [--game <name>] [--config <path>] [--debug]
-
-# 配置管理
-dotnet run --project .\GameHelper.ConsoleHost -- config list [--config <path>] [--debug]
-dotnet run --project .\GameHelper.ConsoleHost -- config add <exe> [--config <path>] [--debug]
-dotnet run --project .\GameHelper.ConsoleHost -- config remove <exe> [--config <path>] [--debug]
-
-# 配置校验 / 格式转换
-dotnet run --project .\GameHelper.ConsoleHost -- validate-config [--config <path>]
-dotnet run --project .\GameHelper.ConsoleHost -- convert-config
+# 历史数据迁移
+dotnet run --project .\GameHelper.ConsoleHost -- migrate
 ```
 
-互动模式会在终端中提供面板、选择列表与可视化表格，帮助你：
+更多 CLI 说明见 `docs/guides/cli.md`。
 
-- 一目了然地查看当前生效的配置文件、监控模式与日志级别。
-- 通过选择和表单快速添加、编辑或删除游戏条目，并控制别名/启用状态/HDR 设置。
-- 查看两周内的游戏时长统计，自动汇总总时长与会话次数。
-- 一键触发配置转换与校验工具，结果将以高亮表格方式呈现。
+### 运行中拖拽添加（已支持）
+- 支持拖拽 `.exe` / `.lnk` / `.url`。
+- 当 CLI 主进程已在运行时，新的拖拽启动请求会自动转发给主进程处理。
+- 配置会立即热重载，对后续新启动的进程生效。
+- 不会破坏“单实例”约束（主进程始终只有一个）。
 
-### 发布自包含可执行
-```powershell
-dotnet clean .\GameHelper.ConsoleHost -c Release
-dotnet publish .\GameHelper.ConsoleHost -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false
-```
-产物：`GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish/`
+## 发布
 
-### GitHub Release 自动化
-
-仓库内置的 GitHub Actions 工作流会在推送形如 `v*` 的标签时自动构建自包含的 Win-x64 可执行文件，并将压缩包上传到 Release 资产中。如果你想发布 `0.0.1` 版本，可以执行：
+### 发布 CLI
 
 ```powershell
-git tag v0.0.1
-git push origin v0.0.1
+# 自包含（目标机器无需预装 .NET Runtime）
+dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release -r win-x64 --self-contained true
+
+# 非自包含（目标机器需安装 .NET 8 Runtime）
+dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release -r win-x64 --self-contained false
 ```
 
-也可以通过 GitHub 页面手动触发 `Release` 工作流，并在输入参数中指定要发布的标签（例如 `v0.0.1`）。
+默认输出目录：
+`GameHelper.ConsoleHost\bin\Release\net8.0-windows\win-x64\publish`
 
-### 发布后启动示例
+### 发布 WinUI
+
 ```powershell
-$pub = ".\GameHelper.ConsoleHost\bin\Release\net8.0-windows\win-x64\publish"
-& "$pub\GameHelper.ConsoleHost.exe" monitor --config "$env:APPDATA\GameHelper\config.yml" --debug
-
-# 或查看统计：
-& "$pub\GameHelper.ConsoleHost.exe" stats --config "$env:APPDATA\GameHelper\config.yml"
+dotnet publish .\GameHelper.WinUI -p:PublishProfile=WinUI-SelfContained
 ```
 
-启动时会输出：
-- Using config: <配置文件路径>
-- Build time: yyyy-MM-dd HH:mm:ss
-- Log level: Information/Debug
+## 配置文件
 
-## 使用说明
+默认路径：`%AppData%\GameHelper\config.yml`
 
-### 配置文件（YAML）
-路径：`%AppData%/GameHelper/config.yml`
-```yaml
-# 全局设置
-processMonitorType: ETW  # 可选: ETW (默认，需管理员权限) 或 WMI (兼容性最好)
-
-# 游戏配置
-games:
-  - name: "witcher3.exe"
-    alias: "巫师3"
-    isEnabled: true
-    hdrEnabled: true
-```
-
-**配置说明**：
-- `processMonitorType`: 进程监控方式，可选 `ETW`（默认，需管理员权限）或 `WMI`（兼容性最好）
-- `name`: 匹配进程名（大小写不敏感）
-- `alias`: 显示名称
-- `isEnabled`: 是否启用该游戏的所有自动化功能
-- `hdrEnabled`: 启用后，当该游戏运行时 `WindowsHdrController` 会尝试开启 HDR；当所有标记此项的游戏都退出后会尝试关闭
-
-### 自动化工作流程
-
-1. **进程检测**: 使用 WMI 或 ETW 监控系统进程启动/退出事件
-2. **游戏识别**: 优先使用配置中的可执行文件路径进行精确匹配 (L1)；当配置仅有可执行文件名时，回退到文件元数据 (`FileVersionInfo.ProductName`) + 模糊匹配 (FuzzySharp)，并应用三层安全边界（系统路径黑名单、长度感知动态阈值、路径相关性验证）以避免误匹配 (L2)
-3. **状态管理**: 跟踪活跃游戏进程，记录启动/停止时间
-4. **HDR 控制**: 当有 `hdrEnabled: true` 的游戏运行时，`WindowsHdrController` 通过 Win+Alt+B 注入切换 HDR；显示器不支持或 Windows 报告 ForceDisabled 时跳过
-5. **时间统计**: 将游戏运行时间保存到 CSV 文件
-
-### 进程监控方式对比
-
-| 特性 | WMI | ETW |
-|------|-----|-----|
-| **延迟** | 1-3 秒 | < 1 秒 |
-| **权限要求** | 普通用户 | 管理员 |
-| **兼容性** | 所有 Windows 版本 | Windows Vista+ |
-| **资源占用** | 中等 | 低 |
-| **推荐场景** | 日常使用 | 对延迟敏感的场景 |
-
-## 技术特性
-
-- **双重监控架构**: 支持 WMI 和 ETW 两种进程监控方式
-- **自动降级机制**: ETW 失败时自动回退到 WMI，确保服务可用性
-- **事件驱动架构**: 使用 Windows 原生事件系统监控进程
-- **资源优化**: 空闲时几乎不消耗系统资源
-- **文件容错**: 配置和数据文件解析失败时自动重建
-- **命令行优先**: 完整的 CLI 界面，支持脚本化和自动化
-
-## 命令行选项
-
-```
-GameHelper Console
-Usage:
-  interactive         启动全新的互动命令行体验（无命令时默认）
-  monitor [--config <path>] [--monitor-type <type>] [--debug]
-  config list [--config <path>] [--debug]
-  config add <exe> [--config <path>] [--debug]
-  config remove <exe> [--config <path>] [--debug]
-  stats [--game <name>] [--config <path>] [--debug]
-  convert-config
-  validate-config
-
-Global options:
-  --config, -c       Override path to config.yml
-  --monitor-type     Process monitor type: ETW (default) or WMI
-                     ETW provides lower latency but requires admin privileges
-                     WMI works without admin privileges but has higher latency
-  --monitor-dry-run  Dry-run monitor flow without starting background services
-  --debug, -v        Enable verbose debug logging
-  --interactive      强制进入互动模式（等价于 interactive 命令）
-```
-
-### 监控类型选择优先级
-
-1. **命令行参数** `--monitor-type` （最高优先级）
-2. **配置文件** `processMonitorType` 设置
-3. **默认值** ETW（最低优先级，需管理员权限）
-
-**注意**：如果 ETW 初始化失败（如非管理员权限），系统会自动降级到 WMI 监控。
-
-### 从旧版本迁移
-
-**如果你从旧版本（默认 WMI）升级到新版本（默认 ETW）**：
-
-1. **无需修改配置**：如果你有管理员权限，新版本会自动使用 ETW，性能更好
-2. **继续使用 WMI**：如果你希望保持使用 WMI（如无管理员权限），在配置文件中添加：
-   ```yaml
-   processMonitorType: WMI
-   ```
-3. **自动降级**：如果你没有管理员权限且未配置 WMI，程序会自动降级到 WMI 并记录警告日志
-
-## 故障排除
-
-### 常见问题
-
-1. **进程检测不到**
-   - 检查游戏名称是否正确配置
-   - 确认游戏进程确实在运行
-   - 查看调试日志 `--debug`
-   - 尝试切换监控方式（WMI ↔ ETW）
-
-2. **ETW 监控问题**
-   - **权限不足**: ETW 需要管理员权限，请以管理员身份运行
-   - **自动降级**: 如果 ETW 失败，程序会自动切换到 WMI
-   - **防火墙/安全软件**: 某些安全软件可能阻止 ETW 访问
-   - **非管理员环境**: 如果无法获得管理员权限，可在配置文件中设置 `processMonitorType: WMI`
-
-3. **配置文件问题**
-   - 使用 `validate-config` 命令检查配置
-   - 确保 YAML 格式正确
-   - 检查 `processMonitorType` 值是否为 `ETW` 或 `WMI`
-
-4. **权限问题**
-   - 确保有写入配置目录的权限
-   - 检查 CSV 文件的写入权限
-
-### 监控方式最佳实践
-
-- **默认推荐**: 使用 ETW 监控（默认），获得最佳性能和最低延迟
-- **管理员权限**: ETW 需要管理员权限，建议以管理员身份运行
-- **非管理员环境**: 如无法获得管理员权限，在配置文件中设置 `processMonitorType: WMI`
-- **开发/测试**: 可使用 WMI 监控，无需管理员权限
-- **服务器部署**: 配置为 Windows 服务并以管理员权限运行
-- **故障恢复**: 利用自动降级机制确保服务可用性（ETW 失败时自动切换到 WMI）
-
-## 性能优化
-
-### 监控方式选择建议
-
-**使用 ETW 的场景**:
-- 需要快速响应游戏启动（< 1秒）
-- 系统资源充足
-- 可以获得管理员权限
-- 对延迟敏感的自动化场景
-
-**使用 WMI 的场景**:
-- 无法获得管理员权限
-- 系统兼容性要求高
-- 对延迟不敏感（1-3秒可接受）
-- 稳定性优先的生产环境
-
-### 配置优化
+示例：
 
 ```yaml
-# 高性能配置（默认）
-processMonitorType: ETW  # 默认值，可省略
-games:
-  - name: "game.exe"
-    isEnabled: true    # 只监控需要的游戏
-    hdrEnabled: false  # 是否在该游戏运行时切换 HDR
+processMonitorType: ETW
 
-# 兼容性配置（无管理员权限）
-processMonitorType: WMI
 games:
-  - name: "game.exe"
+  - entryId: "8c5f5ccf30b648f88f4d2f1f8b4b6c7e"
+    dataKey: "witcher3"
+    executablePath: "D:\\Games\\The Witcher 3\\bin\\x64\\witcher3.exe"
+    executableName: "witcher3.exe"
+    displayName: "巫师3"
     isEnabled: true
     hdrEnabled: false
 ```
 
-## 开发计划
+说明：
+- `entryId`：配置条目的内部唯一标识（自动生成）。
+- `dataKey`：统计主键，写入 `playtime.csv` 的 `game` 字段，必须全局唯一。
 
-### 核心自动化与监控
-- [x] 游戏启动时自动计时
-  - [ ] 优化计时清单页面
-- [ ] 进程监听性能优化
-  - [x] 过滤监听：未启动游戏时不监听
-  - [ ] 只监听配置列表中的进程
-  - [ ] 游戏第一次停止之后，记录fuzzyname，下次可以进行精准进程监听，进一步提升性能
-- [ ] 弱提示，避免魂游这类游戏被误终止
-- [x] 自动开关HDR
-  - [x] 检测当前HDR开启状态（基于 Windows DisplayConfig API，多显示器感知）
-  - [x] 游戏启动/结束时自动切换（通过 SendInput 注入 Win+Alt+B，回退至 keybd_event）
-  - [ ] 评估改用 `DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE` SET API，避免依赖前台焦点
+## 项目结构
+- `GameHelper.WinUI`：WinUI 桌面入口
+- `GameHelper.ConsoleHost`：CLI 入口
+- `GameHelper.Core`：核心模型与业务逻辑
+- `GameHelper.Infrastructure`：平台集成与持久化
+- `GameHelper.Tests`：单元/集成测试
+- `docs`：活文档、计划与归档材料
 
-### 游戏库管理与发现
-- [x] 拖动图标到程序上自动添加
-  - [x] 拖动时自动以快捷方式名替换 alias
-- [x] 支持 Steam URL：steam://rungameid/<appid>
-- [ ] 自动扫描游戏（合并原重复项）
-  - [ ] 支持多平台及“学习版”来源
+## 开发与验证
 
-### 数据与存储
-- [x] 存储格式由 JSON 改为 CSV（支持追加写入，避免全量写）
-- [ ] 本地存储 + 云端同步
-- [ ] 魂游自动复制存档
-
-### 交互与易用性
-- [ ] 支持手柄
-- [ ] 自定义快捷键
-- [ ] 将命令行改为交互式命令行，提升体验
-
-### 界面与显示
-- [ ] 可显示在游戏窗口上方（叠加/OSD）
-- [ ] 套用游戏图标进行显示
-- [ ] 游戏方向深度适配（不同游戏风格）
-
-### 健康与提醒
-- [ ] 番茄钟：提醒活动与用眼休息
-
-### 发布与维护
-- [ ] 自动更新
-
-
-## 贡献
-
-欢迎提交Issue和Pull Request！
-
-### 开发环境
-- Visual Studio 2022 或 VS Code
-- .NET 8.0 SDK
-- Windows 11 开发环境
-
-### 项目结构
-
-- `GameHelper.Core`: 核心业务逻辑和抽象接口
-- `GameHelper.Infrastructure`: 基础设施实现（WMI、ETW、文件操作等）
-- `GameHelper.ConsoleHost`: 控制台应用程序入口
-- `GameHelper.Tests`: 单元测试和集成测试
-
-### 进程监控架构
-
-```
-IProcessMonitor (接口)
-├── WmiProcessMonitor (WMI 实现)
-├── EtwProcessMonitor (ETW 实现)
-└── NoOpProcessMonitor (测试用空实现)
-
-ProcessMonitorFactory
-├── Create() - 创建指定类型的监控器
-├── CreateWithFallback() - 创建带降级的监控器
-└── CreateNoOp() - 创建空监控器
+```powershell
+dotnet build GameHelper.sln
+dotnet test GameHelper.sln
 ```
 
-### 技术栈
+更完整的架构、规范和计划见：
+- `docs/architecture/index.md`
+- `docs/prd/index.md`
+- `docs/plans/index.md`
 
-- **.NET 8**: 现代 C# 开发平台
-- **WMI**: Windows 进程监控（兼容性方案）
-- **ETW**: Event Tracing for Windows（高性能方案）
-- **Microsoft.Diagnostics.Tracing.TraceEvent**: ETW 事件处理
-- **YamlDotNet**: YAML 配置文件解析
-- **xUnit**: 单元测试框架
-- **Microsoft.Extensions.Hosting**: 后台服务框架
-
-## 许可证
-
-本项目采用双重许可证：
-
-- **开源使用**：遵循 AGPL-3.0 许可证，适用于开源项目和非商业用途
-- **商业使用**：需要购买商业许可证，适用于商业产品、SaaS应用或内部商业系统
-
-详细信息请查看 [LICENSE](LICENSE) 文件。如需商业许可证，请联系：bwjava819@gmail.com
-
-## 致谢
-
-- 感谢 Microsoft 提供的 WMI 事件系统和 ETW 框架
-- 感谢 Microsoft.Diagnostics.Tracing.TraceEvent 项目提供的 ETW 支持
-
----
-
-**注意**：
-- **默认使用 ETW 监控**，需要管理员权限才能正常运行
-- 如果 ETW 初始化失败，程序会自动降级到 WMI 监控
-- 如无法获得管理员权限，建议在配置文件中显式设置 `processMonitorType: WMI`
-- HDR 切换基于 Win+Alt+B 注入，依赖前台焦点与桌面会话；显示器不支持或被 Windows 强制禁用时自动跳过
-- 程序不会收集或上传任何个人数据
+## 许可
+- 开源使用：AGPL-3.0
+- 商业使用：见 `LICENSE`

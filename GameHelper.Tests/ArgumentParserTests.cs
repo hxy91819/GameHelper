@@ -41,5 +41,6 @@ namespace GameHelper.Tests
             Assert.Contains("monitor", result.EffectiveArgs);
             Assert.DoesNotContain(result.EffectiveArgs, value => value.Equals(flag, System.StringComparison.OrdinalIgnoreCase));
         }
+
     }
 }

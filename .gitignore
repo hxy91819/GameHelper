@@ -368,9 +368,14 @@ FodyWeavers.xsd
 .codex/*
 .gemini/*
 .github/*
+!.github/workflows/
+!.github/workflows/*.yml
 .windsurf/*
 .vscode/*
 .vscode/settings.json
 .bmad-core/*
 # BMAD (local only)
 
+.codex/
+.windsurf/
+.agent/

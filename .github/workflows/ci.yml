@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - feat/**
+      - fix/**
+      - chore/**
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  core-build-and-test:
+    name: Core/CLI Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore core and cli projects
+        run: |
+          dotnet restore GameHelper.Core/GameHelper.Core.csproj
+          dotnet restore GameHelper.Infrastructure/GameHelper.Infrastructure.csproj
+          dotnet restore GameHelper.ConsoleHost/GameHelper.ConsoleHost.csproj
+          dotnet restore GameHelper.Tests/GameHelper.Tests.csproj
+
+      - name: Build core and cli projects
+        run: |
+          dotnet build GameHelper.Core/GameHelper.Core.csproj --configuration Release --no-restore
+          dotnet build GameHelper.Infrastructure/GameHelper.Infrastructure.csproj --configuration Release --no-restore
+          dotnet build GameHelper.ConsoleHost/GameHelper.ConsoleHost.csproj --configuration Release --no-restore
+          dotnet build GameHelper.Tests/GameHelper.Tests.csproj --configuration Release --no-restore
+
+      - name: Test core and cli logic
+        run: dotnet test GameHelper.Tests/GameHelper.Tests.csproj --configuration Release --no-build --verbosity normal
+
+  windows-desktop-smoke:
+    name: Windows Desktop Smoke
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore WinUI shell
+        run: dotnet restore GameHelper.WinUI/GameHelper.WinUI.csproj
+
+      - name: Build WinUI shell
+        run: dotnet build GameHelper.WinUI/GameHelper.WinUI.csproj --configuration Release --no-restore
+
+      - name: Run desktop smoke-tagged tests (deterministic only)
+        run: dotnet test GameHelper.Tests/GameHelper.Tests.csproj --configuration Release --filter "DesktopSuite=Smoke" --verbosity normal

@@ -6,15 +6,21 @@
 # Start interactive command line
 dotnet run --project .\GameHelper.ConsoleHost --
 
-# 启动监控 (默认 WMI)
+# 启动监控 (默认 ETW，失败会回退到 WMI)
 dotnet run --project .\GameHelper.ConsoleHost -- monitor
 
 # 使用 ETW 监控 (需要管理员权限)
 dotnet run --project .\GameHelper.ConsoleHost -- monitor --monitor-type ETW
+
+# 强制使用 WMI
+dotnet run --project .\GameHelper.ConsoleHost -- monitor --monitor-type WMI
 
 # 查看统计
 dotnet run --project .\GameHelper.ConsoleHost -- stats
 
 # 配置管理
 dotnet run --project .\GameHelper.ConsoleHost -- config list
+
+# 历史数据迁移
+dotnet run --project .\GameHelper.ConsoleHost -- migrate
 ```

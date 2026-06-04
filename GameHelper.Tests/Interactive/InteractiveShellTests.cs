@@ -86,7 +86,7 @@ namespace GameHelper.Tests.Interactive
             _output.WriteLine("[Add Snapshot]\n" + snapshot);
 
             var updated = configProvider.Load();
-            Assert.True(updated.TryGetValue("celeste.exe", out var entry));
+            var entry = Assert.Single(updated.Values, e => string.Equals(e.ExecutableName, "celeste.exe", StringComparison.OrdinalIgnoreCase));
             Assert.Equal("Celeste", entry.Alias);
             Assert.True(entry.IsEnabled);
             Assert.True(entry.HDREnabled);
@@ -469,6 +469,10 @@ namespace GameHelper.Tests.Interactive
             public void Start()
             {
                 StartCalls++;
+            }
+
+            public void ReloadConfig()
+            {
             }
 
             public void Stop()

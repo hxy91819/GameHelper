@@ -74,8 +74,8 @@
 
 1. 公共 API（接口、公开类）添加 XML 注释描述用途和参数含义。
 2. 复杂逻辑前添加简短块注释说明意图；禁止冗余注释如 "// increment i"。
-3. 对外行为变更时，更新 `docs/history/Bug_Fix_Summary_zh.md` 与相关架构/故事文档。
-4. README 或 CLI 使用方式变化需同步 `docs/history/CLI_Manual_zh.md`。
+3. 对外行为变更时，更新相关架构、PRD、指南文档；仅历史性总结材料才进入 `docs/archives/`。
+4. README 或 CLI 使用方式变化需同步 `docs/guides/cli.md`。
 
 ## 9. 代码评审流程
 

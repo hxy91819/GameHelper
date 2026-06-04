@@ -1,0 +1,36 @@
+name: Desktop UI Full Suite
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * *"
+
+jobs:
+  full-desktop-ui:
+    name: Full Desktop UI (Self-hosted Interactive)
+    runs-on:
+      - self-hosted
+      - windows
+      - interactive
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: |
+          dotnet restore GameHelper.WinUI/GameHelper.WinUI.csproj
+          dotnet restore GameHelper.Tests/GameHelper.Tests.csproj
+
+      - name: Build
+        run: |
+          dotnet build GameHelper.WinUI/GameHelper.WinUI.csproj --configuration Release --no-restore
+          dotnet build GameHelper.Tests/GameHelper.Tests.csproj --configuration Release --no-restore
+
+      - name: Run full desktop UI suite
+        run: dotnet test GameHelper.Tests/GameHelper.Tests.csproj --configuration Release --filter "DesktopSuite=Full" --verbosity normal

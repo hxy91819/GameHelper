@@ -143,18 +143,18 @@ namespace GameHelper.ConsoleHost.Commands
         /// <summary>
         /// Detects the configuration format.
         /// </summary>
-        private static ConfigFormat DetectConfigFormat(IReadOnlyDictionary<string, GameConfig> configs)
+        private static ConfigFormat DetectConfigFormat(IReadOnlyCollection<GameConfig> configs)
         {
             if (configs.Count == 0)
             {
                 return ConfigFormat.NewFormat; // Empty is considered new format
             }
 
-            bool hasOldFormat = configs.Values.Any(g =>
+            bool hasOldFormat = configs.Any(g =>
                 (!string.IsNullOrEmpty(g.Name) || !string.IsNullOrEmpty(g.Alias)) &&
                 string.IsNullOrEmpty(g.DataKey));
 
-            bool hasNewFormat = configs.Values.Any(g =>
+            bool hasNewFormat = configs.Any(g =>
                 !string.IsNullOrEmpty(g.DataKey));
 
             if (hasNewFormat && !hasOldFormat)
@@ -170,7 +170,7 @@ namespace GameHelper.ConsoleHost.Commands
         /// Loads configuration directly from YAML file without DataKey validation.
         /// This is needed for migration to read old format configs.
         /// </summary>
-        private static IReadOnlyDictionary<string, GameConfig> LoadConfigDirectly(string configPath)
+        private static IReadOnlyList<GameConfig> LoadConfigDirectly(string configPath)
         {
             var deserializer = new DeserializerBuilder()
                 .WithNamingConvention(CamelCaseNamingConvention.Instance)
@@ -185,20 +185,7 @@ namespace GameHelper.ConsoleHost.Commands
                 var appConfig = deserializer.Deserialize<AppConfig?>(yaml);
                 if (appConfig?.Games != null)
                 {
-                    var result = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var game in appConfig.Games)
-                    {
-                        if (game != null)
-                        {
-                            // Use ExecutableName or Name as key (for old format compatibility)
-                            string key = game.ExecutableName ?? game.Name ?? game.DataKey ?? string.Empty;
-                            if (!string.IsNullOrWhiteSpace(key))
-                            {
-                                result[key] = game;
-                            }
-                        }
-                    }
-                    return result;
+                    return appConfig.Games.Where(g => g is not null).Select(g => g!).ToList();
                 }
             }
             catch
@@ -210,22 +197,10 @@ namespace GameHelper.ConsoleHost.Commands
             var root = deserializer.Deserialize<LegacyRoot?>(yaml);
             if (root?.Games != null)
             {
-                var result = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-                foreach (var game in root.Games)
-                {
-                    if (game != null)
-                    {
-                        string key = game.ExecutableName ?? game.Name ?? game.DataKey ?? string.Empty;
-                        if (!string.IsNullOrWhiteSpace(key))
-                        {
-                            result[key] = game;
-                        }
-                    }
-                }
-                return result;
+                return root.Games.Where(g => g is not null).Select(g => g!).ToList();
             }
 
-            return new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+            return Array.Empty<GameConfig>();
         }
 
         /// <summary>
@@ -243,6 +218,22 @@ namespace GameHelper.ConsoleHost.Commands
         private static string GenerateDataKey(string executableName)
         {
             return DataKeyGenerator.GenerateBaseDataKey(executableName);
+        }
+
+        private static IReadOnlyDictionary<string, GameConfig> NormalizeToEntryMap(IEnumerable<GameConfig> configs)
+        {
+            var result = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+            var usedEntryIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var usedDataKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var config in configs.Where(c => c is not null))
+            {
+                config.EntryId = ConfigIdentity.EnsureUniqueEntryId(config.EntryId, usedEntryIds);
+                config.DataKey = ConfigIdentity.EnsureUniqueDataKey(config.DataKey, usedDataKeys);
+                result[config.EntryId] = config;
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -269,18 +260,18 @@ namespace GameHelper.ConsoleHost.Commands
                 if (format == ConfigFormat.NewFormat)
                 {
                     AnsiConsole.MarkupLine("[green]✓ 配置已是新格式，无需迁移[/]");
-                    return existingConfigs;
+                    return NormalizeToEntryMap(existingConfigs);
                 }
 
                 // Determine which games need migration
                 var gamesToMigrate = format == ConfigFormat.Mixed
-                    ? existingConfigs.Where(kv => string.IsNullOrEmpty(kv.Value.DataKey)).ToList()
+                    ? existingConfigs.Where(game => string.IsNullOrEmpty(game.DataKey)).ToList()
                     : existingConfigs.ToList();
 
                 if (gamesToMigrate.Count == 0)
                 {
                     AnsiConsole.MarkupLine("[green]✓ 所有游戏配置已包含 DataKey[/]");
-                    return existingConfigs;
+                    return NormalizeToEntryMap(existingConfigs);
                 }
 
                 AnsiConsole.MarkupLine($"[yellow]检测到 {gamesToMigrate.Count} 个游戏需要迁移[/]");
@@ -295,30 +286,33 @@ namespace GameHelper.ConsoleHost.Commands
                 table.AddColumn("新字段 (displayName)");
 
                 var migratedConfigs = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+                var usedEntryIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var usedDataKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                foreach (var kv in existingConfigs)
+                foreach (var existing in existingConfigs)
                 {
                     GameConfig config;
                     
-                    if (string.IsNullOrEmpty(kv.Value.DataKey))
+                    if (string.IsNullOrEmpty(existing.DataKey))
                     {
                         // Need migration
-                        string dataKey = GenerateDataKey(kv.Value.Name ?? string.Empty);
+                        string dataKey = ConfigIdentity.EnsureUniqueDataKey(GenerateDataKey(existing.Name ?? string.Empty), usedDataKeys);
                         
                         config = new GameConfig
                         {
+                            EntryId = ConfigIdentity.EnsureUniqueEntryId(Guid.NewGuid().ToString("N"), usedEntryIds),
                             DataKey = dataKey,
-                            ExecutableName = kv.Value.Name,
-                            DisplayName = kv.Value.Alias,
-                            ExecutablePath = kv.Value.ExecutablePath ?? string.Empty,
-                            IsEnabled = kv.Value.IsEnabled,
-                            HDREnabled = kv.Value.HDREnabled
+                            ExecutableName = existing.Name,
+                            DisplayName = existing.Alias,
+                            ExecutablePath = existing.ExecutablePath ?? string.Empty,
+                            IsEnabled = existing.IsEnabled,
+                            HDREnabled = existing.HDREnabled
                         };
 
                         table.AddRow(
                             $"[yellow]#{migratedConfigs.Count + 1}[/]",
-                            kv.Value.Name ?? "[dim]N/A[/]",
-                            kv.Value.Alias ?? "[dim]N/A[/]",
+                            existing.Name ?? "[dim]N/A[/]",
+                            existing.Alias ?? "[dim]N/A[/]",
                             $"[green]{dataKey}[/]",
                             config.ExecutableName ?? "[dim]N/A[/]",
                             config.DisplayName ?? "[dim]N/A[/]"
@@ -327,10 +321,12 @@ namespace GameHelper.ConsoleHost.Commands
                     else
                     {
                         // Already new format, keep as is
-                        config = kv.Value;
+                        config = existing;
+                        config.EntryId = ConfigIdentity.EnsureUniqueEntryId(config.EntryId, usedEntryIds);
+                        config.DataKey = ConfigIdentity.EnsureUniqueDataKey(config.DataKey, usedDataKeys);
                     }
 
-                    migratedConfigs[config.DataKey] = config;
+                    migratedConfigs[config.EntryId] = config;
                 }
 
                 AnsiConsole.Write(table);

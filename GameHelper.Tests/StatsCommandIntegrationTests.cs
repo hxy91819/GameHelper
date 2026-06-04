@@ -164,9 +164,9 @@ namespace GameHelper.Tests
             var configs = provider.Load();
             var games = PlaytimeDataReader.ReadFromCsv(_csvFile);
             
-            // Then: 
-            // YamlConfigProvider returns dictionary keyed by ExecutableName (when present)
-            // So we look up by ExecutableName, but verify DataKey and DisplayName
+            // Then:
+            // YamlConfigProvider returns dictionary keyed by EntryId.
+            // We validate through entry values (DataKey / DisplayName / ExecutableName).
             Assert.Equal(2, configs.Count);
             
             // Verify configs can be found and have correct DisplayName

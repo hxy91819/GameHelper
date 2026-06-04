@@ -104,7 +104,7 @@ namespace GameHelper.Infrastructure.Validators
                     return result;
                 }
 
-                var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var dataKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 int dup = 0;
                 int idx = 0;
                 foreach (var item in seq)
@@ -162,23 +162,23 @@ namespace GameHelper.Infrastructure.Validators
                         }
                     }
 
-                    // duplicate name detection
-                    string? name = null;
-                    if (game.Children.TryGetValue(new YamlScalarNode("name"), out var nameNode) && nameNode is YamlScalarNode nsc)
+                    // duplicate dataKey detection
+                    string? dataKey = null;
+                    if (game.Children.TryGetValue(new YamlScalarNode("dataKey"), out var dataKeyNode) && dataKeyNode is YamlScalarNode dksc)
                     {
-                        name = nsc.Value;
+                        dataKey = dksc.Value;
                     }
-                    if (!string.IsNullOrWhiteSpace(name))
+                    if (!string.IsNullOrWhiteSpace(dataKey))
                     {
-                        if (!names.Add(name))
+                        if (!dataKeys.Add(dataKey))
                         {
                             dup++;
-                            result.Errors.Add($"Duplicate game name: '{name}'.");
+                            result.Errors.Add($"Duplicate dataKey: '{dataKey}'.");
                         }
                     }
                 }
 
-                result.GameCount = names.Count;
+                result.GameCount = seq.Children.Count;
                 result.DuplicateCount = dup;
                 result.IsValid = result.Errors.Count == 0;
                 return result;
