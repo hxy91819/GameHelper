@@ -1,9 +1,10 @@
 games:
-  - dataKey: string!
+  - entryId: string
+    dataKey: string!
     executablePath: string
     executableName: string
-    name: string
     displayName: string
-    alias: string
     isEnabled: bool
     hDREnabled: bool
+    name: string
+    alias: string

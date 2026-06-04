@@ -85,13 +85,13 @@ namespace GameHelper.Tests
             var loaded = provider.Load();
             Assert.Single(loaded);
             
-            // Dictionary key should be ExecutableName if present
-            var game = loaded["DWORIGINS.exe"];
+            var game = Assert.Single(loaded.Values);
             
             // Verify all fields
             Assert.Equal("dworigins", game.DataKey);
             Assert.Equal("DWORIGINS.exe", game.ExecutableName);
             Assert.Equal("三国无双：起源", game.DisplayName);
+            Assert.False(string.IsNullOrWhiteSpace(game.EntryId));
             Assert.True(game.IsEnabled);
             Assert.False(game.HDREnabled);
         }
@@ -113,8 +113,7 @@ namespace GameHelper.Tests
             provider.Save(new Dictionary<string, GameConfig> { ["testgame"] = testConfig });
 
             var loaded = provider.Load();
-            // Dictionary key is ExecutableName when present
-            var game = loaded["TestGame.exe"];
+            var game = Assert.Single(loaded.Values);
 
             Assert.Equal("testgame", game.DataKey);
             Assert.False(game.IsEnabled);

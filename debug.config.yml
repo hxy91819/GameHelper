@@ -1,24 +1,25 @@
-# GameHelper 配置文件
-# 
-# processMonitorType: 进程监控方式
-#   - ETW (默认): 低延迟高性能，需要管理员权限
-#   - WMI: 兼容性最好，无需管理员权限，延迟稍高
-#   如果不指定，默认使用 ETW
-#
-# processMonitorType: ETW  # 可省略，默认就是 ETW
+# GameHelper debug configuration
+processMonitorType: ETW
 
 games:
-- name: Cheat Engine.exe
-  alias: Cheat Engine
-  isEnabled: true
-  hDREnabled: true
-- name: Project_Plague.exe
-  alias: 明末：渊虚之羽
-  isEnabled: true
-  hDREnabled: false
-- name: Tales of Arise.exe
-  alias: 破晓传说
-  isEnabled: true
-  hDREnabled: false
+  - entryId: "5f8e53f0d92f447db108c7f4f7b8b6fa"
+    dataKey: "cheatengine"
+    executableName: "Cheat Engine.exe"
+    displayName: "Cheat Engine"
+    isEnabled: true
+    hDREnabled: true
+  - entryId: "0a8ad6a6d4ec4f44a77ff19f75462798"
+    dataKey: "project_plague"
+    executableName: "Project_Plague.exe"
+    displayName: "Project Plague"
+    isEnabled: true
+    hDREnabled: false
+  - entryId: "dc8c9fbce57b4ed6955fed9ff8dcf4f6"
+    dataKey: "talesofarise"
+    executableName: "Tales of Arise.exe"
+    displayName: "Tales of Arise"
+    isEnabled: true
+    hDREnabled: false
+
 autoStartInteractiveMonitor: false
 launchOnSystemStartup: false

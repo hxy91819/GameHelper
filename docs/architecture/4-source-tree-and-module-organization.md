@@ -4,6 +4,10 @@
 
 ```text
 GameHelper/
+├── GameHelper.WinUI/           # WinUI 3 桌面壳层
+│   ├── ViewModels/             # 桌面端视图模型
+│   ├── Services/               # UI 日志与服务定位辅助
+│   └── MainWindow.xaml         # 主窗口
 ├── GameHelper.ConsoleHost/     # 控制台应用入口和交互式 UI
 │   ├── Commands/               # CLI 命令实现 (stats, config)
 │   ├── Interactive/            # 交互式 Shell 实现
@@ -17,7 +21,7 @@ GameHelper/
 │   ├── Providers/              # 配置提供程序 (YamlConfigProvider)
 │   └── ...                     # 其他平台相关实现
 ├── GameHelper.Tests/           # 单元测试和集成测试
-└── docs/                       # 项目文档
+└── docs/                       # 项目文档（活文档 + archives）
 ```
 
 ## 4.2. 关键模块及其用途
@@ -27,3 +31,4 @@ GameHelper/
   * **配置管理**: `GameHelper.Infrastructure/Providers/YamlConfigProvider.cs`。**(已更新)** 负责从用户目录 (`%AppData%`) 或命令行指定路径加载、解析和保存 YAML 配置。现在必须验证 `DataKey` 的存在性，并能解析包含 `ExecutablePath`（可选）和 `ExecutableName`（可选） 的新 `GameConfig` 模型。
   * **数据存储**: `GameHelper.Core/Services/CsvBackedPlayTimeService.cs`。**(已更新)** 以 CSV 格式持久化游戏时长。现在*必须*使用 `GameConfig.DataKey` 字段与 `playtime.csv` 中的 `GameName` 列进行关联读写。
   * **命令行接口**: `GameHelper.ConsoleHost/Commands/` 和 `Interactive/`。**(已更新)** 处理 CLI 命令和交互式会话。现在必须支持拖放添加游戏，以及处理包含 `DataKey` 和 `ExecutablePath` 的新配置格式。
+  * **桌面壳层**: `GameHelper.WinUI/`。提供 WinUI 3 界面，通过 Core 服务完成设置、游戏列表、监控与统计操作，不直接承载业务规则。

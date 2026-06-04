@@ -18,6 +18,8 @@
 | --- | --- | --- | --- |
 | 依赖注入 & 宿主 | `Microsoft.Extensions.Hosting` | 9.0.8 | 构建通用 Host、注册后台服务。|
 | 控制台 UI | `Spectre.Console` | 0.47.0 | 渲染 CLI、交互式 Shell。|
+| 桌面 UI | `Microsoft.WindowsAppSDK` | 1.6.250205002 | WinUI 3 桌面壳层。|
+| MVVM | `CommunityToolkit.Mvvm` | 8.4.0 | WinUI 视图模型与命令绑定。|
 | 配置解析 | `YamlDotNet` | 13.7.1 | 解析 `config.yml`，兼容旧字段。|
 | 进程监控 (ETW) | `Microsoft.Diagnostics.Tracing.TraceEvent` | 3.1.8 | 低延迟内核事件监控。|
 | 进程监控 (WMI) | `System.Management` | 8.0.0 | 兼容性更高的 WMI 事件订阅。|
@@ -46,7 +48,7 @@
 2. **升级流程**：
    - 本地验证：`dotnet restore && dotnet build && dotnet test`。
    - Windows 11 实机验证：执行 `dotnet run -- monitor`，确认 ETW/WMI 事件与 CSV 写入正常。
-   - 更新文档：同步修改 `Directory.Build.props`、本文件、`docs/history/Bug_Fix_Summary_zh.md`。
+   - 更新文档：同步修改 `Directory.Build.props`、本文件，以及受影响的 PRD / 架构 / 指南文档。
 3. **冲突处理**：优先升级 `TraceEvent` 以解决绑定冲突；如需降级，必须记录于 `docs/architecture/7-technical-debt-and-known-issues.md`。
 
 ## 6. 兼容性检查清单

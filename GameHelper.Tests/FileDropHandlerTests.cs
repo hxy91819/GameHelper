@@ -54,7 +54,8 @@ public sealed class FileDropHandlerTests
             var provider = new YamlConfigProvider(configPath);
             var map = provider.Load();
 
-            Assert.True(map.TryGetValue("NewAdventure.exe", out var config));
+            var config = Assert.Single(map.Values);
+            Assert.False(string.IsNullOrWhiteSpace(config.EntryId));
             Assert.Equal("newadventure", config.DataKey); // DataKey is normalized: lowercase, no .exe
             Assert.Equal("NewAdventure.exe", config.ExecutableName);
             Assert.Equal("NewAdventure", config.DisplayName);
@@ -78,8 +79,9 @@ public sealed class FileDropHandlerTests
 
         var seed = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
         {
-            ["LegacyClassic.exe"] = new GameConfig
+            ["legacy-entry"] = new GameConfig
             {
+                EntryId = "legacy-entry",
                 DataKey = "LegacyClassic", // Existing DataKey without .exe
                 ExecutableName = "LegacyClassic.exe",
                 DisplayName = "旧版经典",
@@ -103,7 +105,7 @@ public sealed class FileDropHandlerTests
             var provider = new YamlConfigProvider(configPath);
             var map = provider.Load();
 
-            Assert.True(map.TryGetValue("LegacyClassic.exe", out var config));
+            var config = Assert.Single(map.Values);
             Assert.Equal("LegacyClassic", config.DataKey); // DataKey should be preserved
             Assert.Equal("LegacyClassic.exe", config.ExecutableName);
             Assert.Equal("LegacyClassic", config.DisplayName);
@@ -153,12 +155,108 @@ public sealed class FileDropHandlerTests
             var provider = new YamlConfigProvider(configPath);
             var map = provider.Load();
 
-            Assert.True(map.TryGetValue("SteamAdventure.exe", out var config));
+            var config = Assert.Single(map.Values);
             Assert.Equal("steamadventure", config.DataKey); // DataKey is normalized: lowercase, no .exe
             Assert.Equal("SteamAdventure.exe", config.ExecutableName);
             Assert.Equal("SteamShortcut", config.DisplayName); // DisplayName from .url filename
             Assert.True(config.IsEnabled);
             Assert.False(config.HDREnabled);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ProcessFilePaths_SameExecutableNameDifferentPath_AddsNewEntry()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var oldDir = Path.Combine(tempDir, "old");
+        var newDir = Path.Combine(tempDir, "new");
+        Directory.CreateDirectory(oldDir);
+        Directory.CreateDirectory(newDir);
+
+        var configPath = Path.Combine(tempDir, "config.yml");
+        var oldExePath = Path.Combine(oldDir, "Game.exe");
+        var newExePath = Path.Combine(newDir, "Game.exe");
+        File.WriteAllText(oldExePath, string.Empty);
+        File.WriteAllText(newExePath, string.Empty);
+
+        var seed = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["entry1"] = new GameConfig
+            {
+                EntryId = "entry1",
+                DataKey = "game",
+                ExecutableName = "Game.exe",
+                ExecutablePath = oldExePath,
+                DisplayName = "Old Game",
+                IsEnabled = true,
+                HDREnabled = false
+            }
+        };
+        new YamlConfigProvider(configPath).Save(seed);
+
+        using var services = new ServiceCollection().BuildServiceProvider();
+
+        try
+        {
+            var summary = FileDropHandler.ProcessFilePaths(new[] { newExePath }, configPath, services);
+
+            Assert.Equal(1, summary.Added);
+            Assert.Equal(0, summary.Updated);
+
+            var loaded = new YamlConfigProvider(configPath).Load().Values.ToList();
+            Assert.Equal(2, loaded.Count);
+            Assert.Contains(loaded, c => string.Equals(c.ExecutablePath, oldExePath, StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(loaded, c => string.Equals(c.ExecutablePath, newExePath, StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(loaded, c => c.DataKey == "game");
+            Assert.Contains(loaded, c => c.DataKey == "game2");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ProcessFilePaths_SamePath_ReusesEntryAndUpdates()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var configPath = Path.Combine(tempDir, "config.yml");
+        var exePath = Path.Combine(tempDir, "Game.exe");
+        File.WriteAllText(exePath, string.Empty);
+
+        var seed = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["entry1"] = new GameConfig
+            {
+                EntryId = "entry1",
+                DataKey = "game",
+                ExecutableName = "Game.exe",
+                ExecutablePath = exePath,
+                DisplayName = "Old Name",
+                IsEnabled = false,
+                HDREnabled = true
+            }
+        };
+        new YamlConfigProvider(configPath).Save(seed);
+
+        using var services = new ServiceCollection().BuildServiceProvider();
+
+        try
+        {
+            var summary = FileDropHandler.ProcessFilePaths(new[] { exePath }, configPath, services);
+
+            Assert.Equal(0, summary.Added);
+            Assert.Equal(1, summary.Updated);
+
+            var config = Assert.Single(new YamlConfigProvider(configPath).Load().Values);
+            Assert.Equal("entry1", config.EntryId);
+            Assert.True(config.IsEnabled);
+            Assert.True(config.HDREnabled); // preserve previous HDR preference
         }
         finally
         {
