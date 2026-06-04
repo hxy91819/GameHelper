@@ -121,5 +121,23 @@ namespace GameHelper.Tests
                 return false;
             }
         }
+
+        [Fact]
+        public void IsResourceExhausted_RecognizesErrorNoSystemResources()
+        {
+            var ex = new System.Runtime.InteropServices.COMException("test", unchecked((int)0x800705AA));
+            var method = typeof(EtwProcessMonitor).GetMethod("IsResourceExhausted", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var result = (bool)method!.Invoke(null, new object[] { ex })!;
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void IsResourceExhausted_ReturnsFalseForOtherExceptions()
+        {
+            var ex = new System.Runtime.InteropServices.COMException("test", unchecked((int)0x80070005)); // Access denied
+            var method = typeof(EtwProcessMonitor).GetMethod("IsResourceExhausted", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var result = (bool)method!.Invoke(null, new object[] { ex })!;
+            Assert.False(result);
+        }
     }
 }
