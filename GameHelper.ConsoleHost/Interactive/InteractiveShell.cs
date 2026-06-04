@@ -250,23 +250,6 @@ namespace GameHelper.ConsoleHost.Interactive
             };
             _console.Write(monitorRule);
 
-            var monitorInfo = new Grid();
-            monitorInfo.AddColumn(new GridColumn().NoWrap());
-            monitorInfo.AddRow(new Markup($"将以 [bold]{Markup.Escape(GetMonitorModeDescription())}[/] 运行监控"));
-            monitorInfo.AddRow(new Markup("开始后可按 [bold]Q[/] 键停止并返回主菜单"));
-            monitorInfo.AddRow(new Markup($"配置文件位置：{Markup.Escape(GetConfigPathDescription())}"));
-            monitorInfo.AddRow(new Markup("后台服务会自动加载启用的游戏列表进行白名单监控"));
-            if (dryRun)
-            {
-                monitorInfo.AddRow(new Markup("[yellow]Dry-run 模式：不会启动后台监控服务。[/]"));
-            }
-
-            _console.Write(new Panel(monitorInfo)
-            {
-                Header = new PanelHeader("执行前确认"),
-                Border = BoxBorder.Rounded
-            });
-
             RenderMonitorHistory(snapshotBefore);
             _console.WriteLine();
 
@@ -1798,7 +1781,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
             foreach (var record in snapshot.Records
                 .OrderByDescending(r => r.End)
-                .Take(3))
+                .Take(5))
             {
                 table.AddRow(
                     Markup.Escape(record.DisplayName),
@@ -1806,7 +1789,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     DurationFormatter.Format(record.DurationMinutes));
             }
 
-            table.Caption("最近 3 条记录");
+            table.Caption("最近 5 条记录");
 
             _console.Write(new Panel(table)
             {
