@@ -1,4 +1,4 @@
-# Agent Instructions for GameHelper
+﻿# Agent Instructions for GameHelper
 
 **Scope:** Applies to the entire repository.
 
@@ -33,6 +33,30 @@
 - Treat `docs/` as the source of truth for project behavior, design, and long-lived engineering standards.
 - If behavior or configuration changes, update the relevant docs under `docs/` and the user-facing summary in `README.md`.
 - Prefer adding detailed conventions to directory docs instead of expanding this file, unless the rule must be obeyed in every task.
+
+## Engineering Conventions
+
+### Service Lifecycle & State Consistency
+- All services implementing `Start()` / `Stop()` must maintain **state symmetry**:
+  - `Start()` succeeds → `IsRunning = true`.
+  - `Stop()` succeeds or best-effort cleanup completes → `IsRunning = false`.
+  - **Do not return from an exception path without updating the state flag**; after catch-block cleanup, synchronize the flag to the actual service state.
+- Start and Stop must be designed as pairs: if `Start()` contains rollback logic (stopping already-started sub-services on failure), `Stop()` must contain symmetric best-effort cleanup logic.
+
+### Resource Management
+- Any type holding an `IDisposable` field must **dispose the old instance before reassigning the field** (or ensure it was already deterministically released).
+- Retry paths must not skip cleanup of the old resource; always call `SafeCleanup()` or equivalent **before** creating the new resource.
+- Use the `SafeCleanup()` pattern: wrap every individual cleanup step in its own `try/catch` so that a single-point failure does not block subsequent cleanup steps.
+
+### Concurrency Safety
+- Any mutable state accessed by **background threads** (ETW callback threads, timer threads, event handlers) must use thread-safe collections (`ConcurrentDictionary`, `ConcurrentQueue`, etc.) or explicit synchronization primitives.
+- **Do not use `ContainsKey` + `Add` combinations in concurrent write paths**; prefer atomic operations such as `TryAdd`, `TryRemove`, or `TryUpdate`.
+- Caches keyed by OS-recycled identifiers (PID, handle) must assume **key reuse**; stale entries must be removed promptly.
+
+### Caching & Feature Toggles
+- When a feature toggle affects a data **write path**, simultaneously review the impact on **read paths and eviction paths**.
+- Cache invalidation must be bound to feature lifecycle: evaluate whether the cache needs to be actively cleared or write-restricted when the feature is disabled.
+- Cache keys derived from recycled OS resources require timely eviction; do not assume the key space is unique for the lifetime of the cache.
 
 ## Testing Expectations
 - Run `dotnet build GameHelper.sln` from the repository root and ensure it completes without compilation errors before submitting any changes.
