@@ -204,15 +204,20 @@ namespace GameHelper.Infrastructure.Processes
 
                 if (IsAllowedProcess(processName))
                 {
-                    _logger?.LogDebug("Process started: {ProcessName} (PID: {ProcessId})", processName, data.ProcessID);
-                    
-                    // Try to obtain the real executable file path
-                    var realPath = GetRealProcessPath(data.ProcessID) ?? data.PayloadByName("ImageFileName") as string;
+                    var imageFileName = data.PayloadByName("ImageFileName") as string;
+                    var livePath = GetRealProcessPath(data.ProcessID);
+                    var realPath = livePath ?? imageFileName;
+                    var cached = false;
                     if (!string.IsNullOrWhiteSpace(realPath) && _stopEventsEnabled)
                     {
                         _startPathCache[data.ProcessID] = realPath;
+                        cached = true;
                     }
-                    
+
+                    _logger?.LogDebug(
+                        "Process started: {ProcessName} (PID: {ProcessId}, ImageFileName={ImageFileName}, LivePath={LivePath}, Cached={Cached})",
+                        processName, data.ProcessID, imageFileName, livePath, cached);
+
                     var info = new ProcessEventInfo(processName, realPath);
                     ProcessStarted?.Invoke(info);
                 }
@@ -236,19 +241,17 @@ namespace GameHelper.Infrastructure.Processes
 
                 if (IsAllowedProcess(processName))
                 {
-                    _logger?.LogDebug("Process stopped: {ProcessName} (PID: {ProcessId})", processName, data.ProcessID);
-                    
-                    // Try to obtain the real executable file path (process may have already exited).
-                    // Use cached path from start event; live query almost always fails for exited processes
-                    if (!_startPathCache.TryRemove(data.ProcessID, out var realPath))
+                    var cacheHit = _startPathCache.TryRemove(data.ProcessID, out var realPath);
+                    var fallbackImageFileName = data.PayloadByName("ImageFileName") as string;
+                    if (!cacheHit)
                     {
-                        realPath = data.PayloadByName("ImageFileName") as string;
+                        realPath = fallbackImageFileName;
                     }
 
+                    _logger?.LogDebug(
+                        "Process stopped: {ProcessName} (PID: {ProcessId}, CacheHit={CacheHit}, CachedPath={CachedPath}, Fallback={Fallback})",
+                        processName, data.ProcessID, cacheHit, realPath, fallbackImageFileName);
 
-
-
-                    
                     var info = new ProcessEventInfo(processName, realPath);
                     ProcessStopped?.Invoke(info);
                 }

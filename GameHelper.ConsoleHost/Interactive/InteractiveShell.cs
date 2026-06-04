@@ -189,6 +189,7 @@ namespace GameHelper.ConsoleHost.Interactive
             infoTable.AddRow("监控模式", GetMonitorModeDescription());
             infoTable.AddRow("版本", BuildInfoHelper.GetVersionDescription());
             infoTable.AddRow("构建日期", BuildInfoHelper.GetBuildTimeDescription());
+            infoTable.AddRow("Commit", BuildInfoHelper.GetCommitId());
             infoTable.Caption("输入序号或使用方向键选择功能，回车确认");
             _console.Write(infoTable);
 
@@ -1899,3 +1900,4 @@ namespace GameHelper.ConsoleHost.Interactive
 
     }
 }
+
