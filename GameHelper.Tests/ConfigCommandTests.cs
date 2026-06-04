@@ -53,7 +53,6 @@ namespace GameHelper.Tests
             Assert.Equal(gameName, cfg.ExecutableName);
             Assert.False(string.IsNullOrWhiteSpace(cfg.EntryId));
             Assert.False(cfg.HDREnabled);
-            Assert.False(cfg.SpeedEnabled);
             Assert.Equal($"Added {gameName}.", _consoleOutput.ToString().Trim());
             _mockConfigProvider.Verify(p => p.Save(It.IsAny<IReadOnlyDictionary<string, GameConfig>>()), Times.Once);
         }
@@ -93,8 +92,8 @@ namespace GameHelper.Tests
             ConfigCommand.Run(_serviceProvider, new[] { "list" });
 
             var output = _consoleOutput.ToString();
-            Assert.Contains("a.exe  Enabled=True  HDR=True  Speed=off", output);
-            Assert.Contains("b.exe  Enabled=False  HDR=False  Speed=off", output);
+            Assert.Contains("a.exe  Enabled=True  HDR=True", output);
+            Assert.Contains("b.exe  Enabled=False  HDR=False", output);
         }
     }
 }

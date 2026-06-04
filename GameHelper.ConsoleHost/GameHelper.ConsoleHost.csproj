@@ -11,13 +11,6 @@
     <PackageReference Include="Spectre.Console" Version="0.47.0" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="..\native\win-x64\GameHelper.Speedhack.dll" Link="native\win-x64\GameHelper.Speedhack.dll" Condition="Exists('..\native\win-x64\GameHelper.Speedhack.dll')">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </None>
-  </ItemGroup>
-
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>

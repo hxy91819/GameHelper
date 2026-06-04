@@ -397,13 +397,12 @@ namespace GameHelper.Tests
             var hdr = new FakeHdr();
             var play = new FakePlayTime();
             var logger = new ListLogger<GameAutomationService>();
-            var matcherLogger = new ListLogger<GameProcessMatcher>();
-            var svc = new GameAutomationService(monitor, cfg, new GameProcessMatcher(matcherLogger), hdr, play, logger);
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
 
             svc.Start();
 
             Assert.Contains(
-                matcherLogger.Entries,
+                logger.Entries,
                 e => e.Level == LogLevel.Warning &&
                      e.Message.Contains("Duplicate executable name detected while building indexes", StringComparison.Ordinal));
         }
@@ -434,19 +433,19 @@ namespace GameHelper.Tests
             var hdr = new FakeHdr();
             var play = new FakePlayTime();
             var logger = new ListLogger<GameAutomationService>();
-            var matcherLogger = new ListLogger<GameProcessMatcher>();
-            var svc = new GameAutomationService(monitor, cfg, new GameProcessMatcher(matcherLogger), hdr, play, logger);
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
 
             svc.Start();
 
             Assert.DoesNotContain(
-                matcherLogger.Entries,
+                logger.Entries,
                 e => e.Level == LogLevel.Warning &&
                      e.Message.Contains("Duplicate executable name detected while building indexes", StringComparison.Ordinal));
             Assert.Contains(
-                matcherLogger.Entries,
+                logger.Entries,
                 e => e.Level == LogLevel.Debug &&
                      e.Message.Contains("Duplicate executable name detected while building indexes", StringComparison.Ordinal));
         }
     }
 }
+

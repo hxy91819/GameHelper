@@ -42,9 +42,7 @@ public sealed class GameCatalogService : IGameCatalogService
             ExecutablePath = request.ExecutablePath,
             DisplayName = request.DisplayName,
             IsEnabled = request.IsEnabled,
-            HDREnabled = request.HdrEnabled,
-            SpeedEnabled = request.SpeedEnabled,
-            SpeedMultiplier = request.SpeedMultiplier
+            HDREnabled = request.HdrEnabled
         };
 
         configs[entryId] = config;
@@ -75,8 +73,6 @@ public sealed class GameCatalogService : IGameCatalogService
         existing.DisplayName = request.DisplayName ?? existing.DisplayName;
         existing.IsEnabled = request.IsEnabled;
         existing.HDREnabled = request.HdrEnabled;
-        existing.SpeedEnabled = request.SpeedEnabled;
-        existing.SpeedMultiplier = request.SpeedMultiplier;
 
         configs[existingPair.Key] = existing;
         _configProvider.Save(configs);
@@ -111,9 +107,7 @@ public sealed class GameCatalogService : IGameCatalogService
         ExecutablePath = config.ExecutablePath,
         DisplayName = config.DisplayName,
         IsEnabled = config.IsEnabled,
-        HdrEnabled = config.HDREnabled,
-        SpeedEnabled = config.SpeedEnabled,
-        SpeedMultiplier = config.SpeedMultiplier
+        HdrEnabled = config.HDREnabled
     };
 
     private static string? NormalizeExecutableName(string? executableName)

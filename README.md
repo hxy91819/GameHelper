@@ -1,6 +1,6 @@
 ﻿# GameHelper
 
-GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、游戏时长统计、YAML 配置管理，以及 CLI 监控会话下的 HDR / 倍速自动化能力，并同时提供 CLI 与 WinUI 两个入口。
+GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、游戏时长统计和 YAML 配置管理，并同时提供 CLI 与 WinUI 两个入口。
 
 `README.md` 的职责是：
 - 指导用户如何安装、运行和使用项目。
@@ -88,41 +88,6 @@ games:
 说明：
 - `entryId`：配置条目的内部唯一标识（自动生成）。
 - `dataKey`：统计主键，写入 `playtime.csv` 的 `game` 字段，必须全局唯一。
-- `speedEnabled`：是否允许该游戏响应监控会话中的全局倍速热键。
-- `speedMultiplier`：该游戏专属倍速倍率；为空时继承全局默认倍率。
-
-全局倍速相关配置：
-
-```yaml
-defaultSpeedMultiplier: 2.0
-speedToggleHotkey: Ctrl+Alt+F10
-```
-
-说明：
-- CLI 交互式监控启动后，会尝试注册全局热键。
-- 热键默认只对“当前前台窗口对应、且在配置中启用了 `speedEnabled` 的游戏”生效。
-- 原生倍速组件源码位于 `native/`，默认运行时加载 `native\\win-x64\\GameHelper.Speedhack.dll`。
-
-## 原生倍速组件（Windows）
-
-项目已内置 `GameHelper.Speedhack.dll` 的本地源码与构建脚本，导出 ABI 如下：
-- `gh_speedhack_attach(int pid)`
-- `gh_speedhack_set_speed(int pid, double multiplier)`
-- `gh_speedhack_detach(int pid)`
-
-本地构建命令：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\native\build-speedhack-win-x64.ps1
-```
-
-构建产物：
-- `native\win-x64\GameHelper.Speedhack.dll`
-
-说明：
-- `GameHelper.ConsoleHost` 会在构建/发布时自动复制该 DLL 到输出目录 `native\win-x64\`。
-- 该组件当前只面向 `win-x64`。
-- 第三方依赖与许可证见 `native/THIRD_PARTY_NOTICES.md`。
 
 ## 项目结构
 - `GameHelper.WinUI`：WinUI 桌面入口
