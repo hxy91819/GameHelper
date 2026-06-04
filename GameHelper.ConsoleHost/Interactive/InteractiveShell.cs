@@ -181,22 +181,6 @@ namespace GameHelper.ConsoleHost.Interactive
                 Justification = Justify.Center
             };
             _console.Write(title);
-
-            var highlight = new Grid();
-            highlight.AddColumn(new GridColumn().NoWrap().PadLeft(0).PadRight(1));
-            highlight.AddColumn(new GridColumn().NoWrap().PadLeft(0).PadRight(0));
-            highlight.AddRow(new Markup("[yellow]💡[/]"), new Markup("[bold yellow]让流程更轻松[/]：实时监控、自动 HDR、游戏时长统计"));
-            highlight.AddRow(new Markup("[yellow]⚙️[/]"), new Markup("[bold yellow]快速管理配置[/]：添加/修改/删除游戏，支持别名与 HDR 设置"));
-            highlight.AddRow(new Markup("[yellow]🧪[/]"), new Markup("[bold yellow]诊断工具[/]：一键转换旧版配置并验证当前 YAML"));
-
-            var panel = new Panel(highlight)
-            {
-                Header = new PanelHeader("功能概览"),
-                Border = BoxBorder.Rounded,
-                BorderStyle = new Style(Color.Grey)
-            };
-            _console.Write(panel);
-
             var infoTable = new Table { Border = TableBorder.Rounded };
             infoTable.AddColumn(new TableColumn("当前上下文").Centered());
             infoTable.AddColumn(new TableColumn("详情"));
