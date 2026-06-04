@@ -42,18 +42,14 @@ namespace GameHelper.ConsoleHost.Utilities
         {
             try
             {
-                string? path = Assembly.GetEntryAssembly()?.Location;
-                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                // Use Process.MainModule instead of Assembly.Location because
+                // Location returns empty string for single-file published apps.
+                string? path = null;
+                try
                 {
-                    try
-                    {
-                        path = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
-                    }
-                    catch
-                    {
-                        path = null;
-                    }
+                    path = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
                 }
+                catch { }
 
                 if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
                 {

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -1446,56 +1445,6 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             return "WMI（默认）";
-        }
-
-        private static string GetVersionDescription()
-        {
-            try
-            {
-                var assembly = Assembly.GetEntryAssembly() ?? typeof(InteractiveShell).Assembly;
-                var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-                if (!string.IsNullOrWhiteSpace(informational))
-                {
-                    var plusIndex = informational.IndexOf('+');
-                    return plusIndex > 0 ? informational[..plusIndex] : informational;
-                }
-
-                return assembly.GetName().Version?.ToString() ?? "unknown";
-            }
-            catch
-            {
-                return "unknown";
-            }
-        }
-
-        private static string GetBuildTimeDescription()
-        {
-            try
-            {
-                string? path = Assembly.GetEntryAssembly()?.Location;
-                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-                {
-                    try
-                    {
-                        path = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
-                    }
-                    catch
-                    {
-                        path = null;
-                    }
-                }
-
-                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-                {
-                    return "unknown";
-                }
-
-                return File.GetLastWriteTime(path).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
-            }
-            catch
-            {
-                return "unknown";
-            }
         }
 
         private T PromptSelection<T>(SelectionPrompt<T> prompt, IReadOnlyList<T> choices, Func<T, string> labelFactory, string? displayTitle)
