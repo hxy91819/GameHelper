@@ -131,7 +131,15 @@ namespace GameHelper.Infrastructure.Processes
         /// <inheritdoc />
         public void SetStopEventsEnabled(bool enabled)
         {
-            _stopEventsEnabled = enabled;
+            if (_stopEventsEnabled != enabled)
+            {
+                _stopEventsEnabled = enabled;
+                if (enabled)
+                {
+                    _startPathCache.Clear();
+                    _logger?.LogDebug("ETW stop events re-enabled; path cache cleared");
+                }
+            }
             _logger?.LogDebug("ETW stop events enabled: {Enabled}", enabled);
         }
 

@@ -81,6 +81,8 @@ public sealed class MonitorControlService : IMonitorControlService
                 // Best-effort cleanup.
             }
 
+            // Services have been stopped (even if with errors); reflect actual state.
+            IsRunning = false;
             throw;
         }
     }
