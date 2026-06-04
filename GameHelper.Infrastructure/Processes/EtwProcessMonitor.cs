@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -32,6 +32,8 @@ namespace GameHelper.Infrastructure.Processes
         private readonly HashSet<string> _allowedProcessNames;
         private readonly ILogger<EtwProcessMonitor>? _logger;
         private readonly string _sessionName;
+
+    private readonly Dictionary<int, string> _startPathCache = new();
 
         /// <inheritdoc />
         public event Action<ProcessEventInfo>? ProcessStarted;
@@ -177,8 +179,12 @@ namespace GameHelper.Infrastructure.Processes
                 {
                     _logger?.LogDebug("Process started: {ProcessName} (PID: {ProcessId})", processName, data.ProcessID);
                     
-                    // 尝试获取真实的可执行文件路径
+                    // Try to obtain the real executable file path
                     var realPath = GetRealProcessPath(data.ProcessID) ?? data.PayloadByName("ImageFileName") as string;
+                    if (!string.IsNullOrWhiteSpace(realPath) && !_startPathCache.ContainsKey(data.ProcessID))
+                    {
+                        _startPathCache[data.ProcessID] = realPath;
+                    }
                     
                     var info = new ProcessEventInfo(processName, realPath);
                     ProcessStarted?.Invoke(info);
@@ -205,8 +211,16 @@ namespace GameHelper.Infrastructure.Processes
                 {
                     _logger?.LogDebug("Process stopped: {ProcessName} (PID: {ProcessId})", processName, data.ProcessID);
                     
-                    // 尝试获取真实的可执行文件路径（进程可能已退出，所以可能失败）
-                    var realPath = GetRealProcessPath(data.ProcessID) ?? data.PayloadByName("ImageFileName") as string;
+                    // Try to obtain the real executable file path (process may have already exited).
+                    // Use cached path from start event; live query almost always fails for exited processes
+                    if (!_startPathCache.TryGetValue(data.ProcessID, out var realPath))
+                    {
+                        realPath = data.PayloadByName("ImageFileName") as string;
+                    }
+                    else
+                    {
+                        _startPathCache.Remove(data.ProcessID);
+                    }
                     
                     var info = new ProcessEventInfo(processName, realPath);
                     ProcessStopped?.Invoke(info);
@@ -267,10 +281,10 @@ namespace GameHelper.Infrastructure.Processes
         }
 
         /// <summary>
-        /// 获取进程的真实可执行文件路径，解决快捷方式启动时路径不正确的问题。
+        /// Gets the real executable path for a process, resolving inaccurate paths from shortcut launches.
         /// </summary>
-        /// <param name="processId">进程 ID</param>
-        /// <returns>真实的可执行文件路径，如果获取失败则返回 null</returns>
+        /// <param name="processId">Process ID</param>
+        /// <returns>The real executable path, or null if retrieval fails.</returns>
         private string? GetRealProcessPath(int processId)
         {
             try
@@ -280,18 +294,18 @@ namespace GameHelper.Infrastructure.Processes
             }
             catch (Exception ex)
             {
-                // 进程可能已经退出，或权限不足
-                _logger?.LogDebug(ex, "无法获取进程 {ProcessId} 的真实路径", processId);
+                // Process may have already exited, or insufficient privileges.
+                _logger?.LogDebug(ex, "Unable to get real path for process {ProcessId}", processId);
                 return null;
             }
         }
 
         /// <summary>
-        /// 使用 Win32 API QueryFullProcessImageName 获取进程的完整映像路径。
-        /// 这个方法比 ETW 的 ImageFileName 更可靠，能正确处理快捷方式启动的情况。
+        /// Uses Win32 API QueryFullProcessImageName to obtain the full image path for a process.
+        /// This method is more reliable than ETW's ImageFileName for correctly handling shortcut-launched processes.
         /// </summary>
-        /// <param name="processHandle">进程句柄</param>
-        /// <returns>完整的可执行文件路径，如果失败则返回 null</returns>
+        /// <param name="processHandle">Process handle</param>
+        /// <returns>The full executable path, or null if retrieval fails.</returns>
         private static string? QueryFullProcessImageName(IntPtr processHandle)
         {
             const uint maxPath = 1024;
@@ -307,13 +321,13 @@ namespace GameHelper.Infrastructure.Processes
         }
 
         /// <summary>
-        /// Win32 API 声明
+        /// Win32 API declarations
         /// </summary>
         private static class NativeMethods
         {
             /// <summary>
-            /// 获取进程的完整映像文件名。
-            /// 参考：https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamea
+            /// Retrieves the full image file name for a process.
+            /// See: https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamea
             /// </summary>
             [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
             [return: MarshalAs(UnmanagedType.Bool)]
@@ -341,6 +355,7 @@ namespace GameHelper.Infrastructure.Processes
         private void SafeCleanup()
         {
             _isRunning = false;
+            _startPathCache.Clear();
 
             // 1) Break the processing loop so the thread exits Process() first
             if (_session != null)
