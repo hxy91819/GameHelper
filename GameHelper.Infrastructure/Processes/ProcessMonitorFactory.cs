@@ -71,6 +71,11 @@ namespace GameHelper.Infrastructure.Processes
                 logger?.LogWarning(ex, "ETW monitor requires administrator privileges, falling back to WMI");
                 return Create(ProcessMonitorType.WMI, allowedProcessNames, logger);
             }
+            catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == unchecked((int)0x800705AA))
+            {
+                logger?.LogInformation("ETW session limit reached (system resource exhaustion), using WMI fallback");
+                return Create(ProcessMonitorType.WMI, allowedProcessNames, logger);
+            }
             catch (Exception ex)
             {
                 logger?.LogWarning(ex, "Failed to create ETW monitor, falling back to WMI");
