@@ -26,46 +26,57 @@ python .agents\skills\autoreview\scripts\autoreview --mode commit --commit HEAD 
 
 **发现：** 未发现可接受/可执行的问题。Codex 确认之前的 3 个修复（MonitorControlService 状态一致性、ETW 缓存线程安全、PID 重用 stale path）均正确。
 
-**运行问题：**
-- Codex CLI 在运行期间产生大量 WARN codex_otel::events::session_telemetry 日志（stderr），模型标签 kimi-k2.6:cloud 被识别为包含非法字符。
-- 这些警告持续了约 3 分钟，严重干扰输出阅读，但未影响最终审查结果。
-
-**决策：** 修复 autoreview/codex CLI 的 telemetry 噪音问题，提升后续使用体验。
-
 ---
 
 ## 第 2 轮：autoreview 技能修复验证
 
 **问题：** autoreview 技能在调用 codex 引擎时，Codex CLI 的 OpenTelemetry SDK 输出大量 telemetry warnings 到 stderr，淹没了审查输出。
 
-**根因：** Codex CLI 的 kimi-k2.6:cloud 模型标签被 OpenTelemetry 视为非法字符，导致每个指标上报都失败并打印 warning。
-
 **修复：**
 1. 修改 .agents/skills/autoreview/scripts/autoreview：
    - 为 un_with_heartbeat 和 un_with_stream 添加 env 参数
    - 在两个 subprocess.Popen 调用中传递 env=env
    - 在 un_codex 调用 un_with_heartbeat 时传入 env={**os.environ, "OTEL_SDK_DISABLED": "true"}
-2. 重新将默认引擎设为 codex（之前 git checkout 恢复脚本时意外回退了）。
+   - 在 CodexStreamDisplay.__call__ 中过滤 stderr 的 telemetry 输出行
+2. 重新将默认引擎设为 codex。
 
-**验证：**
-`powershell
-python .agents\skills\autoreview\scripts\autoreview --mode commit --commit HEAD
-`
-
-**结果：**
-- utoreview clean: no accepted/actionable findings reported
-- overall: patch is correct (0.95)
-- 全程无 telemetry warnings 输出，审查体验正常。
+**验证：** 第 3 轮 autoreview 运行全程无 telemetry warnings 输出，审查体验正常。
 
 ---
 
-## 审查总结
+## 第 3 轮：main 分支全量代码审查
 
-| 轮次 | 范围 | 结果 | 可执行发现 |
-|------|------|------|-----------|
-| 第 1 轮 | HEAD commit | Clean | 0 |
-| 第 2 轮 | autoreview 技能自身修复验证 | Clean | 0 |
+**命令：**
+`powershell
+python .agents\skills\autoreview\scripts\autoreview --mode branch --base origin/main --prompt "Review the ENTIRE GameHelper codebase..."
+`
 
-**代码层面发现：** 无。HEAD 的 3 个 bugfix 均被 codex 确认为正确，未引入回归。
+**结果：** utoreview findings: 3
 
-**工具层面发现：** autoreview 技能的 codex 引擎存在 telemetry 噪音问题，已修复。
+| # | 优先级 | 标题 | 文件 | 决策 | 理由 |
+|---|--------|------|------|------|------|
+| 1 | P1 | EtwProcessMonitor path cache leaks entries when stop events are disabled | EtwProcessMonitor.cs:229 | [FIXED] | 当前 diff 引入。_stopEventsEnabled=false 时 OnProcessStop 提前返回，缓存条目无界累积，导致内存泄漏。 |
+| 2 | P2 | EtwProcessMonitor Start() retry path orphans partial session state | EtwProcessMonitor.cs:91 | [FIXED] | 当前 diff 引入。资源耗尽重试路径中，旧 _session 实例未被 dispose 即被覆盖，导致句柄泄漏。 |
+| 3 | P2 | MonitorControlService.Stop() lacks symmetric monitor rollback | MonitorControlService.cs:55 | [FIXED] | 当前 diff 引入。Stop() 异常时未对称回滚 monitor 状态，导致服务契约不一致。 |
+| - | P3 | ProcessMonitorFactory specific COMException handler is now dead code | ProcessMonitorFactory.cs:85 | [REJECTED] | 这是已有代码的问题，不是当前 diff 引入；autoreview 自身也标记为 out-of-scope。 |
+
+**overall：** patch is incorrect (0.85)
+
+**修复详情：**
+
+1. **Fix P1 - 缓存泄漏：** OnProcessStart 中改为 if (!string.IsNullOrWhiteSpace(realPath) && _stopEventsEnabled)，仅在 stop 事件启用时缓存路径。禁用期间退出的进程不会留下 stale entry。
+2. **Fix P2 - Session orphan：** Start() 的资源耗尽 catch 块中，在 CleanupStaleSessions() 之前调用 SafeCleanup()，确保部分初始化的 _session 被 deterministically dispose。
+3. **Fix P3 - Stop 不对称：** Stop() 的 catch 块中，先尝试 _monitor.Stop()，再尝试 _automationService.Stop()，与 Start() 的回滚逻辑对称。
+
+**构建/测试结果：** dotnet build GameHelper.sln 0 错误；dotnet test GameHelper.sln 217 通过，0 失败。
+
+---
+
+## 第 4 轮：修复验证
+
+**命令：**
+`powershell
+python .agents\skills\autoreview\scripts\autoreview --mode branch --base origin/main --prompt "Review the ENTIRE GameHelper codebase..."
+`
+
+**结果：** （待运行）

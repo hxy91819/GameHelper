@@ -65,6 +65,15 @@ public sealed class MonitorControlService : IMonitorControlService
         {
             try
             {
+                _monitor.Stop();
+            }
+            catch
+            {
+                // Best-effort cleanup.
+            }
+
+            try
+            {
                 _automationService.Stop();
             }
             catch
