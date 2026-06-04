@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Security.Principal;
 using GameHelper.Infrastructure.Exceptions;
@@ -102,7 +103,7 @@ namespace GameHelper.Tests
             var monitor = new EtwProcessMonitor();
             var cacheField = typeof(EtwProcessMonitor).GetField("_startPathCache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             var safeCleanupMethod = typeof(EtwProcessMonitor).GetMethod("SafeCleanup", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var cache = (Dictionary<int, string>)cacheField!.GetValue(monitor)!;
+            var cache = (ConcurrentDictionary<int, string>)cacheField!.GetValue(monitor)!;
             cache[123] = @"C:\Games\game.exe";
             safeCleanupMethod!.Invoke(monitor, null);
             Assert.Empty(cache);
@@ -141,3 +142,4 @@ namespace GameHelper.Tests
         }
     }
 }
+
