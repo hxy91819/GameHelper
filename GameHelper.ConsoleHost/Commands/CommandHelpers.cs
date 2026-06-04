@@ -1,4 +1,5 @@
 using System;
+using GameHelper.ConsoleHost.Utilities;
 
 namespace GameHelper.ConsoleHost.Commands
 {
@@ -37,19 +38,10 @@ namespace GameHelper.ConsoleHost.Commands
         {
             try
             {
-                string? path = System.Reflection.Assembly.GetEntryAssembly()?.Location;
-                if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
+                var buildTime = BuildInfoHelper.GetBuildTimeDescription();
+                if (!string.Equals(buildTime, "unknown", StringComparison.OrdinalIgnoreCase))
                 {
-                    try { path = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName; } catch { }
-                }
-                DateTime? ts = null;
-                if (!string.IsNullOrWhiteSpace(path) && System.IO.File.Exists(path))
-                {
-                    ts = System.IO.File.GetLastWriteTime(path);
-                }
-                if (ts.HasValue)
-                {
-                    Console.WriteLine($"Build time: {ts.Value:yyyy-MM-dd HH:mm:ss}");
+                    Console.WriteLine($"Build time: {buildTime}");
                 }
                 Console.WriteLine($"Log level: {(debug ? "Debug" : "Information")}");
             }

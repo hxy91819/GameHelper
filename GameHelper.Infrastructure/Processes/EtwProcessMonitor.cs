@@ -342,7 +342,20 @@ namespace GameHelper.Infrastructure.Processes
         {
             _isRunning = false;
 
-            // Stop the ETW session
+            // 1) Break the processing loop so the thread exits Process() first
+            if (_session != null)
+            {
+                try
+                {
+                    _session.Source.StopProcessing();
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Error stopping ETW source processing");
+                }
+            }
+
+            // 2) Unsubscribe from events
             if (_session != null)
             {
                 try
@@ -354,7 +367,11 @@ namespace GameHelper.Infrastructure.Processes
                 {
                     _logger?.LogWarning(ex, "Error unsubscribing from ETW events");
                 }
+            }
 
+            // 3) Stop and dispose the session
+            if (_session != null)
+            {
                 try
                 {
                     _session.Stop();
@@ -376,7 +393,7 @@ namespace GameHelper.Infrastructure.Processes
                 _session = null;
             }
 
-            // Wait for processing thread to complete
+            // 4) Wait for the processing thread to finish
             if (_processingThread != null)
             {
                 try

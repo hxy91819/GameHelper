@@ -71,14 +71,12 @@ namespace GameHelper.ConsoleHost.Commands
             var cutoff = now.AddDays(-14);
 
             // project with computed fields
-            // Display priority: DisplayName > DataKey > CSV original value
+            // Display priority: DisplayName > ExecutableName > DataKey > CSV original value
             var projected = games
                 .Select(g => new
                 {
                     Game = g,
-                    Name = cfg.TryGetValue(g.GameName, out var gc) && !string.IsNullOrWhiteSpace(gc.DisplayName)
-                        ? gc.DisplayName!
-                        : (cfg.TryGetValue(g.GameName, out gc) ? gc.DataKey : g.GameName),
+                    Name = GameDisplayNameResolver.ResolveDisplayName(cfg, g.GameName),
                     TotalMinutes = g.Sessions?.Sum(s => s.DurationMinutes) ?? 0,
                     RecentMinutes = g.Sessions?.Where(s => s.EndTime >= cutoff).Sum(s => s.DurationMinutes) ?? 0,
                     SessionCount = g.Sessions?.Count ?? 0
@@ -163,5 +161,6 @@ namespace GameHelper.ConsoleHost.Commands
             }
             Console.WriteLine(sep);
         }
+
     }
 }

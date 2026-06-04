@@ -203,6 +203,8 @@ namespace GameHelper.ConsoleHost.Interactive
             infoTable.AddRow("配置文件", GetConfigPathDescription());
             infoTable.AddRow("日志级别", _arguments.EnableDebug ? "Debug（命令行启用）" : "Information");
             infoTable.AddRow("监控模式", GetMonitorModeDescription());
+            infoTable.AddRow("版本", BuildInfoHelper.GetVersionDescription());
+            infoTable.AddRow("构建日期", BuildInfoHelper.GetBuildTimeDescription());
             infoTable.Caption("输入序号或使用方向键选择功能，回车确认");
             _console.Write(infoTable);
 
@@ -1190,9 +1192,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
             var projected = list.Select(g => new
             {
-                Name = cfg.TryGetValue(g.GameName, out var gc) && !string.IsNullOrWhiteSpace(gc.Alias)
-                    ? gc.Alias!
-                    : g.GameName,
+                Name = GameDisplayNameResolver.ResolveDisplayName(cfg, g.GameName),
                 TotalMinutes = g.Sessions?.Sum(s => s.DurationMinutes) ?? 0,
                 RecentMinutes = g.Sessions?.Where(s => s.EndTime >= cutoff).Sum(s => s.DurationMinutes) ?? 0,
                 Sessions = g.Sessions?.Count ?? 0
@@ -1858,9 +1858,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
             foreach (var item in items)
             {
-                var displayName = configs.TryGetValue(item.GameName, out var cfg) && !string.IsNullOrWhiteSpace(cfg.Alias)
-                    ? cfg.Alias!
-                    : item.GameName;
+                var displayName = GameDisplayNameResolver.ResolveDisplayName(configs, item.GameName);
 
                 foreach (var session in item.Sessions)
                 {
