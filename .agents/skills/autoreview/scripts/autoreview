@@ -540,7 +540,7 @@ def run_codex(args: argparse.Namespace, repo: Path, prompt: str) -> str:
         label="codex",
         stream_output=args.stream_engine_output,
         stream_display=CodexStreamDisplay() if args.stream_engine_output else None,
-        env={**os.environ, "OTEL_SDK_DISABLED": "true"},
+        env={**os.environ, "OTEL_SDK_DISABLED": "true", "OTEL_TRACES_EXPORTER": "none", "OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "none"},
     )
     try:
         output = output_path.read_text()
@@ -686,6 +686,8 @@ class CodexStreamDisplay:
         self.last_visible = time.monotonic()
 
     def __call__(self, name: str, line: str) -> str | None:
+        if name == "stderr" and "codex_otel::events::session_telemetry" in line:
+            return None
         if name != "stdout":
             return line
         try:
@@ -732,6 +734,8 @@ class ClaudeStreamDisplay:
         self.started = False
 
     def __call__(self, name: str, line: str) -> str | None:
+        if name == "stderr" and "codex_otel::events::session_telemetry" in line:
+            return None
         if name != "stdout":
             return line
         try:
