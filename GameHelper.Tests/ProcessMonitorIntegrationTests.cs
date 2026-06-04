@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Security.Principal;
@@ -15,6 +15,7 @@ namespace GameHelper.Tests
     /// Integration tests for process monitors using lightweight test processes.
     /// These tests use cmd.exe with /c echo commands for faster, more reliable testing.
     /// </summary>
+    [Collection("ETW")]
     public class ProcessMonitorIntegrationTests : IDisposable
     {
         private readonly ITestOutputHelper _output;

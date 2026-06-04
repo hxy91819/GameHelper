@@ -90,6 +90,23 @@ namespace GameHelper.Infrastructure.Processes
                 _isRunning = true;
                 _logger?.LogInformation("ETW process monitor started successfully");
             }
+            catch (Exception ex) when (IsResourceExhausted(ex))
+            {
+                _logger?.LogWarning(ex, "ETW session resource exhausted. Cleaning up stale sessions and retrying.");
+                CleanupStaleSessions();
+                try
+                {
+                    InitializeEtwSession();
+                    _isRunning = true;
+                    _logger?.LogInformation("ETW process monitor started successfully after cleanup");
+                }
+                catch (Exception retryEx)
+                {
+                    _logger?.LogError(retryEx, "Failed to start ETW monitor even after cleanup");
+                    SafeCleanup();
+                    throw new EtwMonitorException("Failed to initialize ETW session after cleanup", retryEx);
+                }
+            }
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Failed to start ETW process monitor");
@@ -278,6 +295,56 @@ namespace GameHelper.Infrastructure.Processes
                 name += ".exe";
             }
             return name;
+        }
+
+        /// <summary>
+        /// Checks whether an exception indicates ETW session resource exhaustion (0x800705AA).
+        /// </summary>
+        private static bool IsResourceExhausted(Exception ex)
+        {
+            // 0x800705AA = ERROR_NO_SYSTEM_RESOURCES
+            return ex is COMException comEx
+                && unchecked((uint)comEx.HResult) == 0x800705AA;
+        }
+
+        /// <summary>
+        /// Finds and stops any stale GameHelper ETW sessions left behind by previous
+        /// process crashes or test interruptions.
+        /// </summary>
+        private void CleanupStaleSessions()
+        {
+            try
+            {
+                var staleSessions = TraceEventSession.GetActiveSessionNames()
+                    .Where(name => name.StartsWith("GameHelper-ETW-", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (staleSessions.Count == 0)
+                {
+                    _logger?.LogDebug("No stale GameHelper ETW sessions found");
+                    return;
+                }
+
+                _logger?.LogWarning("Found {Count} stale GameHelper ETW sessions, cleaning up", staleSessions.Count);
+
+                foreach (var name in staleSessions)
+                {
+                    try
+                    {
+                        using var session = new TraceEventSession(name);
+                        session.Stop();
+                        _logger?.LogDebug("Stopped stale ETW session: {SessionName}", name);
+                    }
+                    catch (Exception stopEx)
+                    {
+                        _logger?.LogDebug(stopEx, "Failed to stop stale ETW session: {SessionName}", name);
+                    }
+                }
+            }
+            catch (Exception cleanupEx)
+            {
+                _logger?.LogDebug(cleanupEx, "Error during stale ETW session cleanup");
+            }
         }
 
         /// <summary>

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -13,6 +13,7 @@ using Xunit.Abstractions;
 
 namespace GameHelper.Tests
 {
+    [Collection("ETW")]
     public class EndToEndProcessMonitoringTests : IDisposable
     {
         private readonly ITestOutputHelper _output;
