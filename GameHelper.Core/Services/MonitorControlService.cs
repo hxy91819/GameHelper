@@ -1,4 +1,4 @@
-using GameHelper.Core.Abstractions;
+﻿using GameHelper.Core.Abstractions;
 
 namespace GameHelper.Core.Services;
 
@@ -22,9 +22,30 @@ public sealed class MonitorControlService : IMonitorControlService
             return;
         }
 
-        _automationService.Start();
-        _monitor.Start();
-        IsRunning = true;
+        bool automationStarted = false;
+        try
+        {
+            _automationService.Start();
+            automationStarted = true;
+            _monitor.Start();
+            IsRunning = true;
+        }
+        catch
+        {
+            if (automationStarted)
+            {
+                try
+                {
+                    _automationService.Stop();
+                }
+                catch
+                {
+                    // Best-effort rollback to prevent duplicate event subscriptions.
+                }
+            }
+
+            throw;
+        }
     }
 
     public void Stop()
@@ -34,8 +55,27 @@ public sealed class MonitorControlService : IMonitorControlService
             return;
         }
 
-        _monitor.Stop();
-        _automationService.Stop();
-        IsRunning = false;
+        try
+        {
+            _monitor.Stop();
+            _automationService.Stop();
+        }
+        catch
+        {
+            try
+            {
+                _automationService.Stop();
+            }
+            catch
+            {
+                // Best-effort cleanup.
+            }
+
+            throw;
+        }
+        finally
+        {
+            IsRunning = false;
+        }
     }
 }
