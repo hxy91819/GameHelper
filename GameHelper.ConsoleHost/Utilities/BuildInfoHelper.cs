@@ -1,12 +1,13 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 
 namespace GameHelper.ConsoleHost.Utilities
 {
     /// <summary>
-    /// Provides build-time metadata (version, build date) for the running assembly.
+    /// Provides build-time metadata (version, build date, commit id) for the running assembly.
     /// </summary>
     public static class BuildInfoHelper
     {
@@ -27,6 +28,34 @@ namespace GameHelper.ConsoleHost.Utilities
                 }
 
                 return assembly.GetName().Version?.ToString() ?? "unknown";
+            }
+            catch
+            {
+                return "unknown";
+            }
+        }
+
+        /// <summary>
+        /// Returns the commit SHA embedded in AssemblyInformationalVersionAttribute (after the '+').
+        /// Falls back to "unknown".
+        /// </summary>
+        public static string GetCommitId()
+        {
+            try
+            {
+                var assembly = Assembly.GetEntryAssembly() ?? typeof(BuildInfoHelper).Assembly;
+                var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+                if (string.IsNullOrWhiteSpace(informational))
+                    return "unknown";
+
+                var plusIndex = informational.IndexOf('+');
+                if (plusIndex < 0 || plusIndex + 1 >= informational.Length)
+                    return "unknown";
+
+                var commitId = informational[(plusIndex + 1)..];
+                // Some build systems append metadata after the commit; take the first segment only.
+                var firstSegment = commitId.Split(new[] { '-', '.' }, 2)[0];
+                return string.IsNullOrWhiteSpace(firstSegment) ? "unknown" : firstSegment;
             }
             catch
             {
