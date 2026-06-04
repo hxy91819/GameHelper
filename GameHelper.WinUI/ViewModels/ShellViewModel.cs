@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GameHelper.Core.Abstractions;
@@ -72,9 +72,14 @@ public partial class ShellViewModel : ObservableObject
             _logger.LogError(ex, "Failed to toggle monitor");
             AppendLog($"Monitor error: {ex.Message}", LogLevel.Error, "Monitor");
         }
-
-        OnPropertyChanged(nameof(MonitorButtonText));
-        OnPropertyChanged(nameof(MonitorStatusText));
+        finally
+        {
+            // Synchronize UI state to actual service state so the UI never diverges
+            // from the underlying monitor when an exception occurs.
+            IsMonitorRunning = _monitorControlService.IsRunning;
+            OnPropertyChanged(nameof(MonitorButtonText));
+            OnPropertyChanged(nameof(MonitorStatusText));
+        }
     }
 
     private void OnProcessStarted(ProcessEventInfo info)
