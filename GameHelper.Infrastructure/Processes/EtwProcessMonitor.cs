@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -33,7 +34,7 @@ namespace GameHelper.Infrastructure.Processes
         private readonly ILogger<EtwProcessMonitor>? _logger;
         private readonly string _sessionName;
 
-    private readonly Dictionary<int, string> _startPathCache = new();
+    private readonly ConcurrentDictionary<int, string> _startPathCache = new();
 
         /// <inheritdoc />
         public event Action<ProcessEventInfo>? ProcessStarted;
@@ -198,7 +199,7 @@ namespace GameHelper.Infrastructure.Processes
                     
                     // Try to obtain the real executable file path
                     var realPath = GetRealProcessPath(data.ProcessID) ?? data.PayloadByName("ImageFileName") as string;
-                    if (!string.IsNullOrWhiteSpace(realPath) && !_startPathCache.ContainsKey(data.ProcessID))
+                    if (!string.IsNullOrWhiteSpace(realPath))
                     {
                         _startPathCache[data.ProcessID] = realPath;
                     }
@@ -230,14 +231,14 @@ namespace GameHelper.Infrastructure.Processes
                     
                     // Try to obtain the real executable file path (process may have already exited).
                     // Use cached path from start event; live query almost always fails for exited processes
-                    if (!_startPathCache.TryGetValue(data.ProcessID, out var realPath))
+                    if (!_startPathCache.TryRemove(data.ProcessID, out var realPath))
                     {
                         realPath = data.PayloadByName("ImageFileName") as string;
                     }
-                    else
-                    {
-                        _startPathCache.Remove(data.ProcessID);
-                    }
+
+
+
+
                     
                     var info = new ProcessEventInfo(processName, realPath);
                     ProcessStopped?.Invoke(info);
@@ -495,3 +496,4 @@ namespace GameHelper.Infrastructure.Processes
         }
     }
 }
+

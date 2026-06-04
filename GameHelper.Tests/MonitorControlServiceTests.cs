@@ -52,7 +52,7 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void Stop_WhenMonitorThrows_StopsAutomationAndSetsIsRunningFalse()
+        public void Stop_WhenMonitorThrows_StopsAutomationAndKeepsIsRunningTrue()
         {
             var monitor = new Mock<IProcessMonitor>();
             var automation = new Mock<IGameAutomationService>();
@@ -65,7 +65,7 @@ namespace GameHelper.Tests
 
             Assert.Throws<InvalidOperationException>(() => service.Stop());
 
-            Assert.False(service.IsRunning);
+            Assert.True(service.IsRunning);
             automation.Verify(a => a.Stop(), Times.AtLeastOnce);
         }
 

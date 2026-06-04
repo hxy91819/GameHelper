@@ -59,6 +59,7 @@ public sealed class MonitorControlService : IMonitorControlService
         {
             _monitor.Stop();
             _automationService.Stop();
+            IsRunning = false;
         }
         catch
         {
@@ -72,10 +73,6 @@ public sealed class MonitorControlService : IMonitorControlService
             }
 
             throw;
-        }
-        finally
-        {
-            IsRunning = false;
         }
     }
 }
