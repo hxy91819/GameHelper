@@ -124,7 +124,7 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void SetStopEventsEnabled_WhenReEnabled_ClearsPathCache()
+        public void SetStopEventsEnabled_WhenReEnabled_DoesNotClearActivePathCache()
         {
             var monitor = new EtwProcessMonitor();
             var cacheField = typeof(EtwProcessMonitor).GetField("_startPathCache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
@@ -132,8 +132,10 @@ namespace GameHelper.Tests
             cache[123] = @"C:\\Games\\game.exe";
             monitor.SetStopEventsEnabled(false);
             Assert.Contains(123, cache.Keys);
+            // Re-enabling stop events should NOT clear the cache; active entries are still
+            // valid and stale entries are handled by TryRemove on stop.
             monitor.SetStopEventsEnabled(true);
-            Assert.Empty(cache);
+            Assert.Contains(123, cache.Keys);
         }
 
         [Fact]
