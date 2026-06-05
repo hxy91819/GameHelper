@@ -67,15 +67,7 @@ namespace GameHelper.Core.Services
                 _monitor.ProcessStarted += OnProcessStarted;
                 _monitor.ProcessStopped += OnProcessStopped;
 
-                try
-                {
-                    _stopControl?.SetStopEventsEnabled(false);
-                    _logger.LogDebug("Stop events listening disabled at startup");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Failed to disable stop events at startup");
-                }
+                _logger.LogDebug("IStopEventsControl available: {Available}", _stopControl is not null);
 
                 _logger.LogInformation(
                     "GameAutomationService started: {Total} configs ({PathCount} path, {NameCount} name)",
@@ -120,15 +112,6 @@ namespace GameHelper.Core.Services
                 _dataKeyRefs.Clear();
                 _activeByName.Clear();
                 _activeByPath.Clear();
-
-                try
-                {
-                    _stopControl?.SetStopEventsEnabled(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Failed to disable stop events during shutdown");
-                }
 
                 _logger.LogInformation("GameAutomationService stopped");
             }
@@ -187,15 +170,7 @@ namespace GameHelper.Core.Services
 
                 if (!hadAnyActive && _dataKeyRefs.Count > 0)
                 {
-                    try
-                    {
-                        _stopControl?.SetStopEventsEnabled(true);
-                        _logger.LogDebug("Stop events enabled (first active)");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Failed to enable stop events");
-                    }
+                    _logger.LogDebug("First active process detected; stop events remain enabled");
                 }
             }
         }
@@ -245,15 +220,7 @@ namespace GameHelper.Core.Services
 
                 if (_dataKeyRefs.Count == 0 && hadAnyActive)
                 {
-                    try
-                    {
-                        _stopControl?.SetStopEventsEnabled(false);
-                        _logger.LogDebug("Stop events disabled (none active)");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Failed to disable stop events");
-                    }
+                    _logger.LogDebug("Last active process exited; stop events remain enabled for any running processes started before monitor");
                 }
             }
         }
