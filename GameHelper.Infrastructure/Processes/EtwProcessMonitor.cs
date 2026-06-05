@@ -136,8 +136,7 @@ namespace GameHelper.Infrastructure.Processes
                 _stopEventsEnabled = enabled;
                 if (enabled)
                 {
-                    _startPathCache.Clear();
-                    _logger?.LogDebug("ETW stop events re-enabled; path cache cleared");
+                    _logger?.LogDebug("ETW stop events re-enabled");
                 }
             }
             _logger?.LogDebug("ETW stop events enabled: {Enabled}", enabled);
@@ -230,6 +229,10 @@ namespace GameHelper.Infrastructure.Processes
 
         private void OnProcessStop(TraceEvent data)
         {
+            // Always remove the cached path for this PID to prevent stale entries
+            // from accumulating while stop events are disabled.
+            _startPathCache.TryRemove(data.ProcessID, out _);
+
             if (!_stopEventsEnabled)
                 return;
 
