@@ -27,10 +27,7 @@ namespace GameHelper.Core.Services
         private readonly object _stateLock = new();
 
         private readonly GameMatcher _gameMatcher = new();
-
-        private readonly Dictionary<string, List<ActiveProcessEntry>> _activeByName = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, List<ActiveProcessEntry>> _activeByPath = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, int> _dataKeyRefs = new(StringComparer.OrdinalIgnoreCase);
+        private readonly SessionTracker _sessionTracker = new();
 
         private IReadOnlyDictionary<string, GameConfig> _configs = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
         private IReadOnlyDictionary<string, GameConfig> _configsByDataKey = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
@@ -59,9 +56,7 @@ namespace GameHelper.Core.Services
             {
                 LoadAndBuildIndexes();
 
-                _activeByName.Clear();
-                _activeByPath.Clear();
-                _dataKeyRefs.Clear();
+                _sessionTracker.Clear();
 
                 _monitor.ProcessStarted += OnProcessStarted;
                 _monitor.ProcessStopped += OnProcessStopped;
@@ -104,7 +99,7 @@ namespace GameHelper.Core.Services
                 _monitor.ProcessStarted -= OnProcessStarted;
                 _monitor.ProcessStopped -= OnProcessStopped;
 
-                foreach (var dataKey in _dataKeyRefs.Keys.ToList())
+                foreach (var dataKey in _sessionTracker.ActiveDataKeys)
                 {
                     try
                     {
@@ -116,9 +111,7 @@ namespace GameHelper.Core.Services
                     }
                 }
 
-                _dataKeyRefs.Clear();
-                _activeByName.Clear();
-                _activeByPath.Clear();
+                _sessionTracker.Clear();
 
                 try
                 {
@@ -160,8 +153,8 @@ namespace GameHelper.Core.Services
                     return;
                 }
 
-                var hadAnyActive = _dataKeyRefs.Count > 0;
-                var firstForDataKey = RegisterActive(config.DataKey, normalizedName, normalizedPath);
+                var hadAnyActive = _sessionTracker.ActiveCount > 0;
+                var firstForDataKey = _sessionTracker.Register(config.DataKey, normalizedName, normalizedPath);
 
                 _logger.LogInformation(
                     "Process start: DataKey={DataKey}, Via={Match}, Executable={Executable}, Path={Path}",
@@ -184,7 +177,7 @@ namespace GameHelper.Core.Services
 
                 UpdateHdrState();
 
-                if (!hadAnyActive && _dataKeyRefs.Count > 0)
+                if (!hadAnyActive && _sessionTracker.ActiveCount > 0)
                 {
                     try
                     {
@@ -203,15 +196,15 @@ namespace GameHelper.Core.Services
         {
             lock (_stateLock)
             {
-                var hadAnyActive = _dataKeyRefs.Count > 0;
+                var hadAnyActive = _sessionTracker.ActiveCount > 0;
 
-                if (!TryResolveActive(processInfo, out var entry))
+                if (!_sessionTracker.TryResolve(processInfo, out var entry))
                 {
                     _logger.LogDebug("Stop ignored, no active record for {Executable}", processInfo.ExecutableName);
                     return;
                 }
 
-                var isLastForDataKey = ReleaseActive(entry.DataKey);
+                var isLastForDataKey = _sessionTracker.Release(entry.DataKey);
 
                 _logger.LogInformation(
                     "Process stop: DataKey={DataKey}, Executable={Executable}, Path={Path}",
@@ -242,7 +235,7 @@ namespace GameHelper.Core.Services
 
                 UpdateHdrState();
 
-                if (_dataKeyRefs.Count == 0 && hadAnyActive)
+                if (_sessionTracker.ActiveCount == 0 && hadAnyActive)
                 {
                     try
                     {
@@ -347,121 +340,10 @@ namespace GameHelper.Core.Services
             return _gameMatcher.MatchByMetadata(processInfo, normalizedPath, _nameConfigs, _logger, out label);
         }
 
-        private bool RegisterActive(string dataKey, string? normalizedName, string? normalizedPath)
-        {
-            var entry = new ActiveProcessEntry(dataKey, normalizedName, normalizedPath);
-
-            if (normalizedName is not null)
-            {
-                if (!_activeByName.TryGetValue(normalizedName, out var list))
-                {
-                    list = new List<ActiveProcessEntry>();
-                    _activeByName[normalizedName] = list;
-                }
-
-                list.Add(entry);
-            }
-
-            if (normalizedPath is not null)
-            {
-                if (!_activeByPath.TryGetValue(normalizedPath, out var list))
-                {
-                    list = new List<ActiveProcessEntry>();
-                    _activeByPath[normalizedPath] = list;
-                }
-
-                list.Add(entry);
-            }
-
-            if (!_dataKeyRefs.TryGetValue(dataKey, out var count))
-            {
-                _dataKeyRefs[dataKey] = 1;
-                return true;
-            }
-
-            _dataKeyRefs[dataKey] = count + 1;
-            return false;
-        }
-
-        private bool TryResolveActive(ProcessEventInfo processInfo, out ActiveProcessEntry entry)
-        {
-            var normalizedPath = NormalizePath(processInfo.ExecutablePath);
-            if (normalizedPath is not null &&
-                _activeByPath.TryGetValue(normalizedPath, out var byPath) &&
-                byPath.Count > 0)
-            {
-                entry = byPath[0];
-                RemoveEntry(normalizedPath, entry, byPath, _activeByPath);
-                return true;
-            }
-
-            var normalizedName = NormalizeName(processInfo.ExecutableName);
-            if (normalizedName is not null &&
-                _activeByName.TryGetValue(normalizedName, out var byName) &&
-                byName.Count > 0)
-            {
-                entry = byName[0];
-                RemoveEntry(normalizedName, entry, byName, _activeByName);
-                return true;
-            }
-
-            entry = default;
-            return false;
-        }
-
-        private bool ReleaseActive(string dataKey)
-        {
-            if (!_dataKeyRefs.TryGetValue(dataKey, out var count))
-            {
-                return true;
-            }
-
-            if (count <= 1)
-            {
-                _dataKeyRefs.Remove(dataKey);
-                return true;
-            }
-
-            _dataKeyRefs[dataKey] = count - 1;
-            return false;
-        }
-
-        private void RemoveEntry(
-            string key,
-            ActiveProcessEntry entry,
-            List<ActiveProcessEntry> list,
-            Dictionary<string, List<ActiveProcessEntry>> map)
-        {
-            list.Remove(entry);
-            if (list.Count == 0)
-            {
-                map.Remove(key);
-            }
-
-            if (entry.NormalizedName is not null &&
-                _activeByName.TryGetValue(entry.NormalizedName, out var nameList))
-            {
-                nameList.Remove(entry);
-                if (nameList.Count == 0)
-                {
-                    _activeByName.Remove(entry.NormalizedName);
-                }
-            }
-
-            if (entry.NormalizedPath is not null &&
-                _activeByPath.TryGetValue(entry.NormalizedPath, out var pathList))
-            {
-                pathList.Remove(entry);
-                if (pathList.Count == 0)
-                {
-                    _activeByPath.Remove(entry.NormalizedPath);
-                }
-            }
-        }
 
         private void UpdateHdrState()
         {
-            var shouldEnableHdr = _dataKeyRefs.Keys.Any(dataKey =>
+            var shouldEnableHdr = _sessionTracker.ActiveDataKeys.Any(dataKey =>
                 _configsByDataKey.TryGetValue(dataKey, out var config) && config.HDREnabled);
 
             if (shouldEnableHdr && !_hdr.IsEnabled)
@@ -526,8 +408,6 @@ namespace GameHelper.Core.Services
         {
             return TimeFormatting.FormatDuration(duration);
         }
-
-        private readonly record struct ActiveProcessEntry(string DataKey, string? NormalizedName, string? NormalizedPath);
     }
 }
 
