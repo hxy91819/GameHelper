@@ -94,6 +94,8 @@ namespace GameHelper.ConsoleHost.Utilities
         /// Normalizes a string to be used as a DataKey.
         /// Rules: lowercase, no spaces, no special characters except underscore and hyphen.
         /// </summary>
+        private static readonly Regex NonWordOrHyphen = new Regex(@"[^\w\-]", RegexOptions.Compiled);
+
         private static string NormalizeDataKey(string input)
         {
             if (string.IsNullOrWhiteSpace(input))
@@ -107,7 +109,7 @@ namespace GameHelper.ConsoleHost.Utilities
             // Remove or replace special characters
             // Keep: letters, numbers, underscore, hyphen
             // Replace spaces with empty string
-            normalized = Regex.Replace(normalized, @"[^\w\-]", "");
+            normalized = NonWordOrHyphen.Replace(normalized, "");
             
             // Remove leading/trailing hyphens or underscores
             normalized = normalized.Trim('-', '_');

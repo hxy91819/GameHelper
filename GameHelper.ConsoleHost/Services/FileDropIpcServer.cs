@@ -152,7 +152,37 @@ internal sealed class FileDropIpcServer : IHostedService, IFileDropIpcServer, ID
 
     public void Dispose()
     {
-        _cts?.Cancel();
-        _cts?.Dispose();
+        Task? loopTask;
+        lock (_sync)
+        {
+            if (!_started)
+            {
+                _cts?.Dispose();
+                _cts = null;
+                return;
+            }
+            _started = false;
+            _cts?.Cancel();
+            loopTask = _loopTask;
+        }
+
+        if (loopTask is not null)
+        {
+            try
+            {
+                loopTask.Wait(TimeSpan.FromSeconds(5));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "FileDrop IPC server dispose timed out or errored");
+            }
+        }
+
+        lock (_sync)
+        {
+            _cts?.Dispose();
+            _cts = null;
+            _loopTask = null;
+        }
     }
 }
