@@ -58,6 +58,7 @@ namespace GameHelper.ConsoleHost.Interactive
         private readonly IHost _host;
         private readonly StatisticsUI _statisticsUI;
         private readonly ToolsUI _toolsUI;
+        private readonly SettingsUI _settingsUI;
         private readonly ParsedArguments _arguments;
         private readonly IAnsiConsole _console;
         private readonly PromptUI _promptUI;
@@ -85,6 +86,7 @@ namespace GameHelper.ConsoleHost.Interactive
             _promptUI = new PromptUI(_console, script);
             _statisticsUI = new StatisticsUI(_console, _promptUI, _configProvider);
             _toolsUI = new ToolsUI(_console, _promptUI);
+            _settingsUI = new SettingsUI(_console, _promptUI, _appConfigProvider, _autoStartManager);
             _monitorLoop = monitorLoop ?? ((_, _) => Task.CompletedTask);
             _autoStartMonitor = DetermineAutoStartPreference();
         }
@@ -132,7 +134,7 @@ namespace GameHelper.ConsoleHost.Interactive
                         break;
 
                     case MainMenuAction.Settings:
-                        await HandleSettingsAsync().ConfigureAwait(false);
+                        await _settingsUI.HandleSettingsAsync().ConfigureAwait(false);
                         break;
 
                     case MainMenuAction.Statistics:
