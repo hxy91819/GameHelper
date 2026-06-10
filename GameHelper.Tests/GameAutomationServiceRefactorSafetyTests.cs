@@ -310,5 +310,90 @@ namespace GameHelper.Tests
         }
 
         #endregion
+
+        #region 5. 交叉清理一致性
+
+        [Fact]
+        public void MultipleProcesses_DifferentPaths_StopOne_KeepsOtherActive()
+        {
+            // Arrange: 同一游戏，启动两个不同路径的进程实例
+            var monitor = new FakeMonitor();
+            var cfg = new FakeConfig(new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["cross"] = new()
+                {
+                    DataKey = "cross",
+                    ExecutableName = "game.exe",
+                    ExecutablePath = @"C:\Games\A\game.exe",
+                    IsEnabled = true,
+                    HDREnabled = true
+                }
+            });
+            var hdr = new FakeHdr();
+            var play = new FakePlayTime();
+            var svc = CreateService(monitor, cfg, hdr, play);
+
+            // Act: 启动两个不同路径的进程（主程序 + 子目录中的副本）
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", @"C:\Games\A\game.exe"));
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", @"C:\Games\A\bin\game.exe"));
+
+            // Assert: 只计一次开始
+            Assert.Equal(1, play.StartCalls);
+            Assert.Equal(1, hdr.EnableCalls);
+
+            // Act: 停止第一个
+            monitor.RaiseStop(new ProcessEventInfo("game.exe", @"C:\Games\A\game.exe"));
+
+            // Assert: 还不能停止计时（还有第二个活跃）
+            Assert.Equal(0, play.StopCalls);
+            Assert.Equal(0, hdr.DisableCalls);
+            Assert.True(hdr.IsEnabled);
+
+            // Act: 停止第二个
+            monitor.RaiseStop(new ProcessEventInfo("game.exe", @"C:\Games\A\bin\game.exe"));
+
+            // Assert: 现在才停止
+            Assert.Equal(1, play.StopCalls);
+            Assert.Equal(1, hdr.DisableCalls);
+            Assert.False(hdr.IsEnabled);
+        }
+
+        [Fact]
+        public void MultipleProcesses_SameNameDifferentPaths_StopByNameFallback_CleansBothIndexes()
+        {
+            // Arrange: 同一游戏，启动两个不同路径进程
+            var monitor = new FakeMonitor();
+            var cfg = new FakeConfig(new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["fallback"] = new()
+                {
+                    DataKey = "fallback",
+                    ExecutableName = "game.exe",
+                    ExecutablePath = @"C:\Games\A\game.exe",
+                    IsEnabled = true
+                }
+            });
+            var play = new FakePlayTime();
+            var svc = CreateService(monitor, cfg, new FakeHdr(), play);
+
+            // 启动两个进程
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", @"C:\Games\A\game.exe"));
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", @"C:\Games\A\bin\game.exe"));
+
+            // Act: 停止时传入的路径不在 _activeByPath 中（模拟路径信息缺失）
+            // 此时应降级到 _activeByName 查找
+            monitor.RaiseStop(new ProcessEventInfo("game.exe", null));  // path 为 null
+
+            // Assert: 第一次停止只移除一个
+            Assert.Equal(0, play.StopCalls);  // 还有第二个活跃
+
+            // Act: 再次停止（_activeByName 中只剩一个）
+            monitor.RaiseStop(new ProcessEventInfo("game.exe", null));
+
+            // Assert: 现在全清完了
+            Assert.Equal(1, play.StopCalls);
+        }
+
+        #endregion
     }
 }
