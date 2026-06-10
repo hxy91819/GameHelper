@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -65,6 +65,7 @@ namespace GameHelper.ConsoleHost.Interactive
         private readonly IHost _host;
         private readonly ParsedArguments _arguments;
         private readonly IAnsiConsole _console;
+        private readonly PromptUI _promptUI;
         private readonly IConfigProvider _configProvider;
         private readonly IAppConfigProvider _appConfigProvider;
         private readonly IAutoStartManager _autoStartManager;
@@ -86,6 +87,7 @@ namespace GameHelper.ConsoleHost.Interactive
             _appConfigProvider = host.Services.GetRequiredService<IAppConfigProvider>();
             _autoStartManager = host.Services.GetRequiredService<IAutoStartManager>();
             _script = script;
+            _promptUI = new PromptUI(_console, script);
             _monitorLoop = monitorLoop ?? ((_, _) => Task.CompletedTask);
             _autoStartMonitor = DetermineAutoStartPreference();
         }
@@ -207,7 +209,7 @@ namespace GameHelper.ConsoleHost.Interactive
             prompt.Title(title);
             prompt.AddChoices(choices);
 
-            return PromptSelection(
+            return _promptUI.PromptSelection(
                 prompt,
                 choices,
                     action => action switch
@@ -434,7 +436,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     .AllowEmpty()
                     .DefaultValue(string.Empty);
 
-                var input = Prompt(prompt);
+                var input = _promptUI.Prompt(prompt);
                 if (IsQuitCommand(input))
                 {
                     break;
@@ -465,7 +467,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 prompt.Title(title);
                 prompt.AddChoices(choices);
 
-                var selection = PromptSelection(
+                var selection = _promptUI.PromptSelection(
                     prompt,
                     choices,
                     action => action switch
@@ -517,7 +519,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 prompt.Title(title);
                 prompt.AddChoices(actions);
 
-                var selection = PromptSelection(
+                var selection = _promptUI.PromptSelection(
                     prompt,
                     actions,
                     action => action switch
@@ -670,7 +672,7 @@ namespace GameHelper.ConsoleHost.Interactive
             prompt.Title(title);
             prompt.AddChoices(options);
 
-            var selection = PromptSelection(prompt, options, value => Markup.Escape(value), title);
+            var selection = _promptUI.PromptSelection(prompt, options, value => Markup.Escape(value), title);
             var newValue = string.Equals(selection, enableOption, StringComparison.Ordinal);
 
             if (newValue == current)
@@ -744,7 +746,7 @@ namespace GameHelper.ConsoleHost.Interactive
             prompt.Title(title);
             prompt.AddChoices(options);
 
-            var selection = PromptSelection(prompt, options, value => Markup.Escape(value), title);
+            var selection = _promptUI.PromptSelection(prompt, options, value => Markup.Escape(value), title);
             var newValue = string.Equals(selection, enableOption, StringComparison.Ordinal);
 
             var needsSystemUpdate = !systemState.HasValue || systemState.Value != newValue;
@@ -820,7 +822,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     ? ConsoleValidationResult.Error("输入不能为空。")
                     : ConsoleValidationResult.Success());
 
-            var input = Prompt(inputPrompt);
+            var input = _promptUI.Prompt(inputPrompt);
             input = input.Trim().Trim('"'); // Remove quotes if dragged
 
             string? exePath = null;
@@ -902,7 +904,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     return ConsoleValidationResult.Success();
                 });
 
-            var dataKey = Prompt(dataKeyPrompt);
+            var dataKey = _promptUI.Prompt(dataKeyPrompt);
 
             // Prompt for DisplayName
             var defaultDisplayName = existingConfig != null && !string.IsNullOrWhiteSpace(existingConfig.DisplayName)
@@ -912,7 +914,7 @@ namespace GameHelper.ConsoleHost.Interactive
             var displayNamePrompt = new TextPrompt<string>("输入显示名称（可选，直接回车跳过）")
                 .AllowEmpty()
                 .DefaultValue(defaultDisplayName);
-            var displayName = Prompt(displayNamePrompt);
+            var displayName = _promptUI.Prompt(displayNamePrompt);
 
             // Prompt for automation enable
             var enableTitle = "是否启用自动化？";
@@ -922,7 +924,7 @@ namespace GameHelper.ConsoleHost.Interactive
             var enablePrompt = new SelectionPrompt<string>();
             enablePrompt.Title(enableTitle);
             enablePrompt.AddChoices(enableChoices);
-            var enable = PromptSelection(enablePrompt, enableChoices, value => Markup.Escape(value), enableTitle);
+            var enable = _promptUI.PromptSelection(enablePrompt, enableChoices, value => Markup.Escape(value), enableTitle);
 
             // Prompt for HDR
             var hdrTitle = "在游戏运行时如何控制 HDR？";
@@ -933,7 +935,7 @@ namespace GameHelper.ConsoleHost.Interactive
             var hdrPrompt = new SelectionPrompt<string>();
             hdrPrompt.Title(hdrTitle);
             hdrPrompt.AddChoices(hdrChoices);
-            var hdr = PromptSelection(hdrPrompt, hdrChoices, value => Markup.Escape(value), hdrTitle);
+            var hdr = _promptUI.PromptSelection(hdrPrompt, hdrChoices, value => Markup.Escape(value), hdrTitle);
 
             // Create or update config
             var entryId = string.IsNullOrWhiteSpace(existingEntryId)
@@ -976,7 +978,7 @@ namespace GameHelper.ConsoleHost.Interactive
             prompt.Title(title);
             prompt.AddChoices(choices);
 
-            var selectedDataKey = PromptSelection(prompt, choices, value => Markup.Escape(value), title);
+            var selectedDataKey = _promptUI.PromptSelection(prompt, choices, value => Markup.Escape(value), title);
             var selected = configs.FirstOrDefault(kv => string.Equals(kv.Value.DataKey, selectedDataKey, StringComparison.OrdinalIgnoreCase));
             var entryId = selected.Key;
             var cfg = selected.Value;
@@ -1006,7 +1008,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 "可以拖放 EXE 或 LNK 文件")
                 .AllowEmpty()
                 .DefaultValue(cfg.ExecutablePath ?? string.Empty);
-            var pathInput = Prompt(pathPrompt);
+            var pathInput = _promptUI.Prompt(pathPrompt);
             pathInput = pathInput.Trim().Trim('"');
 
             string? newExecutablePath = cfg.ExecutablePath;
@@ -1053,7 +1055,7 @@ namespace GameHelper.ConsoleHost.Interactive
             var displayNamePrompt = new TextPrompt<string>("更新显示名称（可留空）")
                 .AllowEmpty()
                 .DefaultValue(cfg.DisplayName ?? string.Empty);
-            var displayName = Prompt(displayNamePrompt);
+            var displayName = _promptUI.Prompt(displayNamePrompt);
 
             // Prompt for automation enable
             var enableTitle = "是否启用自动化？";
@@ -1063,7 +1065,7 @@ namespace GameHelper.ConsoleHost.Interactive
             var enablePrompt = new SelectionPrompt<string>();
             enablePrompt.Title(enableTitle);
             enablePrompt.AddChoices(enableChoices);
-            var enable = PromptSelection(enablePrompt, enableChoices, value => Markup.Escape(value), enableTitle);
+            var enable = _promptUI.PromptSelection(enablePrompt, enableChoices, value => Markup.Escape(value), enableTitle);
 
             // Prompt for HDR
             var hdrTitle = "在游戏运行时如何控制 HDR？";
@@ -1073,7 +1075,7 @@ namespace GameHelper.ConsoleHost.Interactive
             var hdrPrompt = new SelectionPrompt<string>();
             hdrPrompt.Title(hdrTitle);
             hdrPrompt.AddChoices(hdrChoices);
-            var hdr = PromptSelection(hdrPrompt, hdrChoices, value => Markup.Escape(value), hdrTitle);
+            var hdr = _promptUI.PromptSelection(hdrPrompt, hdrChoices, value => Markup.Escape(value), hdrTitle);
 
             // Update configuration
             cfg.ExecutablePath = newExecutablePath;
@@ -1121,7 +1123,7 @@ namespace GameHelper.ConsoleHost.Interactive
             prompt.Title(title);
             prompt.AddChoices(choices);
 
-            var selectedDataKey = PromptSelection(prompt, choices, value => Markup.Escape(value), title);
+            var selectedDataKey = _promptUI.PromptSelection(prompt, choices, value => Markup.Escape(value), title);
             var selected = configs.FirstOrDefault(kv => string.Equals(kv.Value.DataKey, selectedDataKey, StringComparison.OrdinalIgnoreCase));
             if (selected.Value is null || string.IsNullOrWhiteSpace(selected.Key))
             {
@@ -1129,7 +1131,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 return;
             }
 
-            var confirm = PromptConfirm($"确定要删除 [bold]{Markup.Escape(selectedDataKey)}[/] 吗？");
+            var confirm = _promptUI.PromptConfirm($"确定要删除 [bold]{Markup.Escape(selectedDataKey)}[/] 吗？");
             if (!confirm)
             {
                 return;
@@ -1150,13 +1152,13 @@ namespace GameHelper.ConsoleHost.Interactive
             _console.Write(statsRule);
 
             var filterPrompt = new TextPrompt<string>("输入要筛选的游戏名称（留空表示全部）") { AllowEmpty = true };
-            var filter = Prompt(filterPrompt);
+            var filter = _promptUI.Prompt(filterPrompt);
             filter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
 
             if (!TryLoadPlaytimeData(out var items, out var source))
             {
                 _console.MarkupLine("[italic grey]尚未生成任何游戏时长数据。[/]");
-                WaitForMenuReturn();
+                _promptUI.WaitForMenuReturn();
                 return;
             }
 
@@ -1167,7 +1169,7 @@ namespace GameHelper.ConsoleHost.Interactive
             if (list.Count == 0)
             {
                 _console.MarkupLine($"[yellow]未找到与 [bold]{Markup.Escape(filter!)}[/] 匹配的记录。[/]");
-                WaitForMenuReturn();
+                _promptUI.WaitForMenuReturn();
                 return;
             }
 
@@ -1191,7 +1193,7 @@ namespace GameHelper.ConsoleHost.Interactive
             if (projected.Count == 0)
             {
                 _console.MarkupLine("[italic grey]没有可展示的数据。[/]");
-                WaitForMenuReturn();
+                _promptUI.WaitForMenuReturn();
                 return;
             }
 
@@ -1228,7 +1230,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 _console.MarkupLine($"[grey]数据来源：{Markup.Escape(source)}[/]");
             }
 
-            WaitForMenuReturn();
+            _promptUI.WaitForMenuReturn();
         }
 
         private void HandleTools()
@@ -1244,7 +1246,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 prompt.Title(title);
                 prompt.AddChoices(choices);
 
-                var choice = PromptSelection(
+                var choice = _promptUI.PromptSelection(
                     prompt,
                     choices,
                     action => action switch
@@ -1415,335 +1417,13 @@ namespace GameHelper.ConsoleHost.Interactive
             return "WMI（默认）";
         }
 
-        private T PromptSelection<T>(SelectionPrompt<T> prompt, IReadOnlyList<T> choices, Func<T, string> labelFactory, string? displayTitle)
-            where T : notnull
-        {
-            if (_script != null && _script.TryDequeue(out T scriptedValue))
-            {
-                return scriptedValue;
-            }
-
-            var entries = choices
-                .Select((choice, index) => new NumberedChoice<T>(index + 1, choice, labelFactory(choice)))
-                .ToList();
-
-            var lookup = entries.ToDictionary(entry => entry.Value, entry => entry, EqualityComparer<T>.Default);
-
-            prompt.UseConverter(value =>
-            {
-                return lookup.TryGetValue(value, out var entry)
-                    ? FormatNumberedLabel(entry)
-                    : labelFactory(value);
-            });
-
-            RenderNumberedChoices(displayTitle, entries);
-
-            if (_script is null && TrySelectByNumber(entries, out var directSelection))
-            {
-                return directSelection;
-            }
-
-            while (true)
-            {
-                var inputPrompt = new TextPrompt<string>("请输入选项序号（直接输入数字或按 Enter 使用方向键）")
-                    .AllowEmpty()
-                    .DefaultValue(string.Empty);
-
-                var input = Prompt(inputPrompt);
-
-                if (string.IsNullOrWhiteSpace(input))
-                {
-                    _console.WriteLine();
-                    return _console.Prompt(prompt);
-                }
-
-                if (int.TryParse(input, NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
-                    && index >= 1 && index <= entries.Count)
-                {
-                    _console.WriteLine();
-                    return entries[index - 1].Value;
-                }
-
-                _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
-            }
-        }
-
-        private void RenderNumberedChoices<T>(string? title, List<NumberedChoice<T>> entries)
-            where T : notnull
-        {
-            if (!string.IsNullOrWhiteSpace(title))
-            {
-                _console.MarkupLine(title!);
-            }
-
-            if (entries.Count > 0)
-            {
-                var grid = new Grid();
-                grid.AddColumn(new GridColumn().NoWrap().PadLeft(0).PadRight(1));
-                grid.AddColumn(new GridColumn().PadLeft(0));
-
-                foreach (var entry in entries)
-                {
-                    grid.AddRow(new Markup($"[grey]{entry.Index}.[/]"), new Markup(entry.Label));
-                }
-
-                _console.Write(grid);
-                _console.WriteLine();
-                _console.MarkupLine("[grey]直接输入序号即可选择；按 Enter 使用方向键。[/]");
-            }
-
-            _console.WriteLine();
-        }
-
-        private static string FormatNumberedLabel<T>(NumberedChoice<T> entry)
-            where T : notnull
-        {
-            return $"[grey]{entry.Index}.[/] {entry.Label}";
-        }
-
-        private sealed record NumberedChoice<T>(int Index, T Value, string Label)
-            where T : notnull;
-
-        private bool TrySelectByNumber<T>(List<NumberedChoice<T>> entries, out T value)
-            where T : notnull
-        {
-            value = default!;
-
-            if (entries.Count == 0 || Console.IsInputRedirected || _script is not null)
-            {
-                return false;
-            }
-
-            var buffer = new StringBuilder();
-            DateTime? deadline = null;
-
-            while (true)
-            {
-                if (buffer.Length > 0 && deadline.HasValue && DateTime.UtcNow >= deadline.Value)
-                {
-                    if (TryResolveSelection(entries, buffer.ToString(), out value))
-                    {
-                        return true;
-                    }
-
-                    buffer.Clear();
-                    deadline = null;
-                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
-                    continue;
-                }
-
-                ConsoleKeyInfo keyInfo;
-                if (buffer.Length == 0)
-                {
-                    if (!TryReadKey(out keyInfo))
-                    {
-                        return false;
-                    }
-                }
-                else
-                {
-                    if (!TryReadKeyIfAvailable(out keyInfo, out var pollingError))
-                    {
-                        if (pollingError)
-                        {
-                            return false;
-                        }
-
-                        Thread.Sleep(DirectNumberPollingMilliseconds);
-                        continue;
-                    }
-                }
-
-                if (keyInfo.Key == ConsoleKey.Enter)
-                {
-                    if (buffer.Length == 0)
-                    {
-                        _console.WriteLine();
-                        return false;
-                    }
-
-                    if (TryResolveSelection(entries, buffer.ToString(), out value))
-                    {
-                        return true;
-                    }
-
-                    buffer.Clear();
-                    deadline = null;
-                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
-                    continue;
-                }
-
-                if (keyInfo.Key == ConsoleKey.Backspace)
-                {
-                    if (buffer.Length > 0)
-                    {
-                        buffer.Remove(buffer.Length - 1, 1);
-                        deadline = buffer.Length == 0
-                            ? null
-                            : CalculateDeadline(buffer.ToString(), entries.Count);
-                    }
-
-                    continue;
-                }
-
-                if (!char.IsDigit(keyInfo.KeyChar))
-                {
-                    if (buffer.Length == 0)
-                    {
-                        continue;
-                    }
-
-                    buffer.Clear();
-                    deadline = null;
-                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
-                    continue;
-                }
-
-                if (buffer.Length == 0 && keyInfo.KeyChar == '0')
-                {
-                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
-                    continue;
-                }
-
-                buffer.Append(keyInfo.KeyChar);
-
-                if (!int.TryParse(buffer.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
-                    || index < 1 || index > entries.Count)
-                {
-                    buffer.Clear();
-                    deadline = null;
-                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
-                    continue;
-                }
-
-                if (HasContinuationPotential(index, entries.Count))
-                {
-                    deadline = DateTime.UtcNow.Add(NumericSelectionIdleTimeout);
-                    continue;
-                }
-
-                if (TryResolveSelection(entries, buffer.ToString(), out value))
-                {
-                    return true;
-                }
-
-                buffer.Clear();
-                deadline = null;
-                _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
-            }
-        }
-
-        private static bool TryReadKey(out ConsoleKeyInfo keyInfo)
-        {
-            keyInfo = default;
-
-            try
-            {
-                keyInfo = Console.ReadKey(intercept: true);
-                return true;
-            }
-            catch (InvalidOperationException)
-            {
-            }
-            catch (IOException)
-            {
-            }
-            catch (PlatformNotSupportedException)
-            {
-            }
-
-            return false;
-        }
-
-        private static bool TryReadKeyIfAvailable(out ConsoleKeyInfo keyInfo, out bool encounteredError)
-        {
-            keyInfo = default;
-            encounteredError = false;
-
-            try
-            {
-                if (!Console.KeyAvailable)
-                {
-                    return false;
-                }
-
-                keyInfo = Console.ReadKey(intercept: true);
-                return true;
-            }
-            catch (InvalidOperationException)
-            {
-            }
-            catch (IOException)
-            {
-            }
-            catch (PlatformNotSupportedException)
-            {
-            }
-
-            encounteredError = true;
-            return false;
-        }
-
-        private bool TryResolveSelection<T>(List<NumberedChoice<T>> entries, string digits, out T value)
-            where T : notnull
-        {
-            if (int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
-                && index >= 1 && index <= entries.Count)
-            {
-                _console.WriteLine();
-                value = entries[index - 1].Value;
-                return true;
-            }
-
-            value = default!;
-            return false;
-        }
-
-        private static DateTime? CalculateDeadline(string digits, int count)
-        {
-            if (!int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var index))
-            {
-                return null;
-            }
-
-            return HasContinuationPotential(index, count)
-                ? DateTime.UtcNow.Add(NumericSelectionIdleTimeout)
-                : null;
-        }
-
-        private static bool HasContinuationPotential(int current, int count)
-        {
-            var candidate = (long)current * 10;
-            return candidate <= count;
-        }
-
-        private T Prompt<T>(IPrompt<T> prompt)
-        {
-            if (_script != null && _script.TryDequeue(out T scriptedValue))
-            {
-                return scriptedValue;
-            }
-
-            return _console.Prompt(prompt);
-        }
-
-        private bool PromptConfirm(string message, bool defaultValue = false)
-        {
-            if (_script != null && _script.TryDequeue(out bool scriptedValue))
-            {
-                return scriptedValue;
-            }
-
-            return _console.Confirm(message, defaultValue);
-        }
-
         private void WaitForMenuReturn()
         {
             _console.WriteLine();
             var prompt = new TextPrompt<string>("[grey]按下 Enter 返回主菜单[/]")
                 .AllowEmpty()
                 .DefaultValue(string.Empty);
-            Prompt(prompt);
+            _promptUI.Prompt(prompt);
         }
 
         private void RenderMonitorHistory(SessionSnapshot snapshot)
