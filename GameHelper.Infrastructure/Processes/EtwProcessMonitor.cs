@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -229,9 +229,9 @@ namespace GameHelper.Infrastructure.Processes
 
         private void OnProcessStop(TraceEvent data)
         {
-            // Always remove the cached path for this PID to prevent stale entries
-            // from accumulating while stop events are disabled.
-            _startPathCache.TryRemove(data.ProcessID, out _);
+            // Remove the cached path for this PID regardless of stop-events being enabled,
+            // so stale entries don't accumulate while stop events are disabled.
+            bool hadCache = _startPathCache.TryRemove(data.ProcessID, out var cachedPath);
 
             if (!_stopEventsEnabled)
                 return;
@@ -244,16 +244,12 @@ namespace GameHelper.Infrastructure.Processes
 
                 if (IsAllowedProcess(processName))
                 {
-                    var cacheHit = _startPathCache.TryRemove(data.ProcessID, out var realPath);
                     var fallbackImageFileName = data.PayloadByName("ImageFileName") as string;
-                    if (!cacheHit)
-                    {
-                        realPath = fallbackImageFileName;
-                    }
+                    var realPath = hadCache ? cachedPath : fallbackImageFileName;
 
                     _logger?.LogDebug(
                         "Process stopped: {ProcessName} (PID: {ProcessId}, CacheHit={CacheHit}, CachedPath={CachedPath}, Fallback={Fallback})",
-                        processName, data.ProcessID, cacheHit, realPath, fallbackImageFileName);
+                        processName, data.ProcessID, hadCache, realPath, fallbackImageFileName);
 
                     var info = new ProcessEventInfo(processName, realPath);
                     ProcessStopped?.Invoke(info);
