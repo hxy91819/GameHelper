@@ -228,7 +228,7 @@ namespace GameHelper.ConsoleHost.Interactive
             }
         }
 
-        private bool? TryReadSystemAutoStartState()
+        internal bool? TryReadSystemAutoStartState()
         {
             try
             {
