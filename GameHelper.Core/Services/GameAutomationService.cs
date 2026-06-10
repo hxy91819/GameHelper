@@ -26,6 +26,8 @@ namespace GameHelper.Core.Services
         private readonly ILogger<GameAutomationService> _logger;
         private readonly object _stateLock = new();
 
+        private readonly GameMatcher _gameMatcher = new();
+
         private readonly Dictionary<string, List<ActiveProcessEntry>> _activeByName = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, List<ActiveProcessEntry>> _activeByPath = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, int> _dataKeyRefs = new(StringComparer.OrdinalIgnoreCase);
@@ -35,10 +37,6 @@ namespace GameHelper.Core.Services
         private IReadOnlyDictionary<string, GameConfig> _configsByPath = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
         private NameConfigEntry[] _nameConfigs = Array.Empty<NameConfigEntry>();
 
-        // 鍔ㄦ€侀槇鍊煎父閲?
-        private const int ShortNameThreshold = 95;   // 2-4 瀛楃
-        private const int MediumNameThreshold = 90;  // 5-8 瀛楃
-        private const int LongNameThreshold = 80;    // 9+ 瀛楃
 
         public GameAutomationService(
             IProcessMonitor monitor,
@@ -341,166 +339,12 @@ namespace GameHelper.Core.Services
 
         private GameConfig? MatchByPath(string? normalizedPath)
         {
-            if (normalizedPath is null)
-            {
-                return null;
-            }
-
-            if (_configsByPath.TryGetValue(normalizedPath, out var config))
-            {
-                _logger.LogInformation("L1 路径匹配成功: {Path} -> {DataKey}", normalizedPath, config.DataKey);
-                return config;
-            }
-
-            return null;
+            return _gameMatcher.MatchByPath(normalizedPath, _configsByPath, _logger);
         }
 
         private GameConfig? MatchByMetadata(ProcessEventInfo processInfo, string? normalizedPath, out string label)
         {
-            label = "名称模糊匹配";
-
-            var exePath = normalizedPath ?? processInfo.ExecutablePath;
-
-            // 黑名单检查：拒绝系统路径
-            if (!string.IsNullOrWhiteSpace(exePath) && IsSystemPath(exePath))
-            {
-                _logger.LogDebug(
-                    "L2 匹配拒绝: 系统路径黑名单 - {ExePath}",
-                    exePath);
-                return null;
-            }
-
-            var searchText = TryGetProductName(exePath);
-            var usedProductName = !string.IsNullOrWhiteSpace(searchText);
-
-            if (!usedProductName)
-            {
-                searchText = NormalizeName(processInfo.ExecutableName);
-            }
-
-            if (string.IsNullOrWhiteSpace(searchText) || _nameConfigs.Length == 0)
-            {
-                return null;
-            }
-
-            var searchUpper = searchText.ToUpperInvariant();
-
-            var bestCandidates = new List<(NameConfigEntry Entry, int Score, int Threshold)>();
-            var bestScore = 0;
-
-            foreach (var entry in _nameConfigs)
-            {
-                var config = entry.Config;
-                if (string.IsNullOrWhiteSpace(config.ExecutableName))
-                {
-                    continue;
-                }
-
-                // 计算动态阈值
-                var threshold = CalculateFuzzyThreshold(config.ExecutableName);
-                var score = Fuzz.Ratio(searchUpper, entry.ExecutableNameUpper);
-
-                _logger.LogDebug(
-                    "L2 模糊匹配尝试: {SearchName} vs {ExecutableName} - Score={Score}, Threshold={Threshold}, NameLength={Length}",
-                    searchText,
-                    config.ExecutableName,
-                    score,
-                    threshold,
-                    Path.GetFileNameWithoutExtension(config.ExecutableName).Length);
-
-                if (score < threshold)
-                {
-                    continue;
-                }
-
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    bestCandidates.Clear();
-                }
-
-                if (score == bestScore)
-                {
-                    bestCandidates.Add((entry, score, threshold));
-                }
-            }
-
-            if (bestCandidates.Count == 0)
-            {
-                _logger.LogDebug("L2 fuzzy match failed: no candidate passed threshold");
-                return null;
-            }
-
-            (NameConfigEntry Entry, int Score, int Threshold) selected;
-
-            if (bestCandidates.Count == 1)
-            {
-                selected = bestCandidates[0];
-            }
-            else if (!string.IsNullOrWhiteSpace(exePath))
-            {
-                var relatedCandidates = bestCandidates
-                    .Where(c => IsPathRelated(exePath, c.Entry.Config.ExecutablePath))
-                    .ToList();
-
-                if (relatedCandidates.Count == 1)
-                {
-                    selected = relatedCandidates[0];
-                }
-                else
-                {
-                    _logger.LogWarning(
-                        "L2 match rejected due to ambiguity. SearchName={SearchName}, CandidateCount={Count}, Path={Path}",
-                        searchText,
-                        bestCandidates.Count,
-                        exePath);
-                    return null;
-                }
-            }
-            else
-            {
-                _logger.LogWarning(
-                    "L2 match rejected due to ambiguity without process path. SearchName={SearchName}, CandidateCount={Count}",
-                    searchText,
-                    bestCandidates.Count);
-                return null;
-            }
-
-            var bestMatch = selected.Entry.Config;
-            var matchedName = selected.Entry.ExecutableName;
-            var requiredThreshold = selected.Threshold;
-
-            // Final path relevance validation for the selected candidate.
-            if (!string.IsNullOrWhiteSpace(exePath) && !IsPathRelated(exePath, bestMatch.ExecutablePath))
-            {
-                _logger.LogWarning(
-                    "L2 匹配拒绝: 路径不相关 - ProcessPath={ProcessPath}, ConfigPath={ConfigPath}, Score={Score}, Threshold={Threshold}",
-                    exePath,
-                    bestMatch.ExecutablePath ?? "(无)",
-                    selected.Score,
-                    requiredThreshold);
-                return null;
-            }
-
-            // 匹配成功
-            var pathValidation = string.IsNullOrWhiteSpace(bestMatch.ExecutablePath)
-                ? "legacy-config (path validation skipped)"
-                : "path-validation passed";
-
-            label = usedProductName
-                ? $"ProductName 模糊匹配 (score {bestScore})"
-                : $"ExecutableName 模糊匹配 (score {bestScore})";
-
-            _logger.LogInformation(
-                "L2 模糊匹配成功: {SearchName} -> {ExecutableName} (score: {Score}, threshold: {Threshold}, DataKey: {DataKey}, {PathValidation})",
-                searchText,
-                matchedName,
-                bestScore,
-                requiredThreshold,
-                bestMatch.DataKey,
-                pathValidation);
-
-            return bestMatch;
+            return _gameMatcher.MatchByMetadata(processInfo, normalizedPath, _nameConfigs, _logger, out label);
         }
 
         private bool RegisterActive(string dataKey, string? normalizedName, string? normalizedPath)
@@ -644,137 +488,17 @@ namespace GameHelper.Core.Services
 
         private string? TryGetProductName(string? executablePath)
         {
-            if (string.IsNullOrWhiteSpace(executablePath))
-            {
-                return null;
-            }
-
-            try
-            {
-                var info = FileVersionInfo.GetVersionInfo(executablePath);
-                return info.ProductName;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "无法获取 ProductName: {Path}", executablePath);
-                return null;
-            }
+            return _gameMatcher.TryGetProductName(executablePath, _logger);
         }
 
-        /// <summary>
-        /// 检查进程路径是否命中系统路径黑名单。
-        /// 系统工具不应被匹配为游戏。
-        /// </summary>
-        /// <param name="processPath">进程完整路径</param>
-        /// <returns>命中系统路径时返回 true</returns>
         private bool IsSystemPath(string processPath)
         {
-            if (string.IsNullOrWhiteSpace(processPath))
-            {
-                return false;
-            }
-
-            // 系统路径黑名单
-            var systemPaths = new[]
-            {
-                @"C:\Windows\System32\",
-                @"C:\Windows\SysWOW64\",
-                @"C:\Windows\"
-            };
-
-            try
-            {
-                if (TryResolveWindowsPath(processPath, out var windowsPath, out var processDir))
-                {
-                    foreach (var systemPath in systemPaths)
-                    {
-                        if (processDir.StartsWith(systemPath, StringComparison.OrdinalIgnoreCase) ||
-                            windowsPath.StartsWith(systemPath, StringComparison.OrdinalIgnoreCase))
-                        {
-                            return true;
-                        }
-                    }
-
-                    return false;
-                }
-
-                var normalizedPath = Path.GetFullPath(processPath);
-
-                foreach (var systemPath in systemPaths)
-                {
-                    if (normalizedPath.StartsWith(systemPath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
-            }
-            catch (Exception ex)
-            {
-                // 路径处理异常时，保守地认为不是系统路径
-                _logger.LogDebug(ex, "系统路径检查失败: {ProcessPath}", processPath);
-                return false;
-            }
+            return _gameMatcher.IsSystemPath(processPath, _logger);
         }
 
-        /// <summary>
-        /// 验证进程路径是否与配置路径相关（位于同一目录树）。
-        /// </summary>
-        /// <param name="processPath">进程完整路径</param>
-        /// <param name="configPath">配置的可执行文件路径（可为空）</param>
-        /// <returns>路径相关或 configPath 为空时返回 true</returns>
         private bool IsPathRelated(string processPath, string? configPath)
         {
-            // 旧配置兼容：未配置路径时跳过验证
-            if (string.IsNullOrWhiteSpace(configPath))
-            {
-                return true;
-            }
-
-            try
-            {
-                var processHasWindowsRoot = TryResolveWindowsPath(processPath, out _, out var processWindowsDir);
-                var configHasWindowsRoot = TryResolveWindowsPath(configPath, out _, out var configWindowsDir);
-
-                if (processHasWindowsRoot || configHasWindowsRoot)
-                {
-                    if (!processHasWindowsRoot || !configHasWindowsRoot)
-                    {
-                        return false;
-                    }
-
-                    processWindowsDir = EnsureTrailingSeparator(processWindowsDir, preferBackslash: true);
-                    configWindowsDir = EnsureTrailingSeparator(configWindowsDir, preferBackslash: true);
-                    return processWindowsDir.StartsWith(configWindowsDir, StringComparison.OrdinalIgnoreCase);
-                }
-
-                // 规范化路径（处理相对路径、大小写）
-                var normalizedProcessPath = Path.GetFullPath(processPath);
-                var normalizedConfigPath = Path.GetFullPath(configPath);
-
-                // 获取目录路径
-                var processDir = Path.GetDirectoryName(normalizedProcessPath);
-                var configDir = Path.GetDirectoryName(normalizedConfigPath);
-
-                if (string.IsNullOrEmpty(processDir) || string.IsNullOrEmpty(configDir))
-                {
-                    return false;
-                }
-
-                // 仅当进程目录位于配置目录或其子目录时才视为相关
-                processDir = EnsureTrailingSeparator(processDir);
-                configDir = EnsureTrailingSeparator(configDir);
-
-                return processDir.StartsWith(configDir, StringComparison.OrdinalIgnoreCase);
-            }
-            catch (Exception ex)
-            {
-                // 路径处理异常时，保守拒绝匹配
-                _logger.LogDebug(ex, "路径验证失败: ProcessPath={ProcessPath}, ConfigPath={ConfigPath}",
-                    processPath, configPath);
-                return false;
-            }
+            return _gameMatcher.IsPathRelated(processPath, configPath, _logger);
         }
 
         private static bool TryResolveWindowsPath(string path, out string normalizedPath, out string directory)
@@ -795,29 +519,13 @@ namespace GameHelper.Core.Services
         /// <returns>推荐模糊匹配阈值（80-95）</returns>
         private static int CalculateFuzzyThreshold(string executableName)
         {
-            if (string.IsNullOrWhiteSpace(executableName))
-            {
-                return ShortNameThreshold; // 最严格阈值
-            }
-
-            // 移除扩展名
-            var nameWithoutExt = Path.GetFileNameWithoutExtension(executableName);
-            var length = nameWithoutExt.Length;
-
-            return length switch
-            {
-                <= 4 => ShortNameThreshold,   // 短名称：非常严格
-                <= 8 => MediumNameThreshold,  // 中名称：较严格
-                _ => LongNameThreshold        // 长名称：标准阈值
-            };
+            return GameMatcher.CalculateFuzzyThreshold(executableName);
         }
 
         private static string FormatDuration(TimeSpan duration)
         {
             return TimeFormatting.FormatDuration(duration);
         }
-
-        private sealed record NameConfigEntry(string ExecutableName, string ExecutableNameUpper, GameConfig Config);
 
         private readonly record struct ActiveProcessEntry(string DataKey, string? NormalizedName, string? NormalizedPath);
     }
