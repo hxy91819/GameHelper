@@ -1,10 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 using FuzzySharp;
 using Microsoft.Extensions.Logging;
 
@@ -633,58 +634,12 @@ namespace GameHelper.Core.Services
 
         private static string? NormalizeName(string? executableName)
         {
-            if (string.IsNullOrWhiteSpace(executableName))
-            {
-                return null;
-            }
-
-            var name = Path.GetFileName(executableName.Trim());
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return null;
-            }
-
-            if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-            {
-                name += ".exe";
-            }
-
-            return name;
+            return PathNormalizer.NormalizeName(executableName);
         }
 
         private static string? NormalizePath(string? executablePath)
         {
-            if (string.IsNullOrWhiteSpace(executablePath))
-            {
-                return null;
-            }
-
-            if (TryResolveWindowsPath(executablePath, out var windowsPath, out _))
-            {
-                if (windowsPath.Length > 3 &&
-                    windowsPath[1] == ':' &&
-                    windowsPath.EndsWith("\\", StringComparison.Ordinal))
-                {
-                    windowsPath = windowsPath.TrimEnd('\\');
-                }
-                else if (windowsPath.StartsWith("\\\\", StringComparison.Ordinal) &&
-                         windowsPath.EndsWith("\\", StringComparison.Ordinal))
-                {
-                    windowsPath = windowsPath.TrimEnd('\\');
-                }
-
-                return windowsPath;
-            }
-
-            try
-            {
-                return Path.GetFullPath(executablePath)
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            }
-            catch
-            {
-                return executablePath.Trim();
-            }
+            return PathNormalizer.NormalizePath(executablePath);
         }
 
         private string? TryGetProductName(string? executablePath)
@@ -824,188 +779,12 @@ namespace GameHelper.Core.Services
 
         private static bool TryResolveWindowsPath(string path, out string normalizedPath, out string directory)
         {
-            normalizedPath = string.Empty;
-            directory = string.Empty;
-
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                return false;
-            }
-
-            var trimmed = path.Trim();
-
-            if (IsWindowsDrivePath(trimmed))
-            {
-                return TryResolveDrivePath(trimmed, out normalizedPath, out directory);
-            }
-
-            if (IsWindowsUncPath(trimmed))
-            {
-                return TryResolveUncPath(trimmed, out normalizedPath, out directory);
-            }
-
-            return false;
-        }
-
-        private static bool TryResolveDrivePath(string path, out string normalizedPath, out string directory)
-        {
-            normalizedPath = string.Empty;
-            directory = string.Empty;
-
-            var segments = path.Substring(2)
-                .Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
-
-            var resolved = new List<string>();
-            foreach (var segment in segments)
-            {
-                if (segment == ".")
-                {
-                    continue;
-                }
-
-                if (segment == "..")
-                {
-                    if (resolved.Count == 0)
-                    {
-                        return false;
-                    }
-
-                    resolved.RemoveAt(resolved.Count - 1);
-                    continue;
-                }
-
-                resolved.Add(segment);
-            }
-
-            var hasTrailingSeparator = path.EndsWith("\\", StringComparison.Ordinal) ||
-                                       path.EndsWith("/", StringComparison.Ordinal);
-
-            var drive = char.ToUpperInvariant(path[0]);
-            normalizedPath = $"{drive}:\\";
-
-            if (resolved.Count > 0)
-            {
-                normalizedPath += string.Join("\\", resolved);
-
-                if (hasTrailingSeparator)
-                {
-                    normalizedPath += "\\";
-                }
-            }
-
-            var directorySegments = new List<string>(resolved);
-            if (!hasTrailingSeparator && directorySegments.Count > 0)
-            {
-                directorySegments.RemoveAt(directorySegments.Count - 1);
-            }
-
-            directory = $"{drive}:\\";
-            if (directorySegments.Count > 0)
-            {
-                directory += string.Join("\\", directorySegments) + "\\";
-            }
-
-            return true;
-        }
-
-        private static bool TryResolveUncPath(string path, out string normalizedPath, out string directory)
-        {
-            normalizedPath = string.Empty;
-            directory = string.Empty;
-
-            var segments = path.Substring(2)
-                .Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
-
-            if (segments.Length < 2)
-            {
-                return false;
-            }
-
-            var resolved = new List<string>
-            {
-                segments[0],
-                segments[1]
-            };
-
-            for (var i = 2; i < segments.Length; i++)
-            {
-                var segment = segments[i];
-
-                if (segment == ".")
-                {
-                    continue;
-                }
-
-                if (segment == "..")
-                {
-                    if (resolved.Count > 2)
-                    {
-                        resolved.RemoveAt(resolved.Count - 1);
-                    }
-
-                    continue;
-                }
-
-                resolved.Add(segment);
-            }
-
-            var hasTrailingSeparator = path.EndsWith("\\", StringComparison.Ordinal) ||
-                                       path.EndsWith("/", StringComparison.Ordinal);
-
-            normalizedPath = "\\\\" + string.Join("\\", resolved);
-            if (hasTrailingSeparator)
-            {
-                normalizedPath += "\\";
-            }
-
-            var directorySegments = resolved;
-            if (!hasTrailingSeparator && resolved.Count > 2)
-            {
-                directorySegments = resolved.Take(resolved.Count - 1).ToList();
-            }
-
-            directory = "\\\\" + string.Join("\\", directorySegments);
-            if (!directory.EndsWith("\\", StringComparison.Ordinal))
-            {
-                directory += "\\";
-            }
-
-            return true;
-        }
-
-        private static bool IsWindowsDrivePath(string path)
-        {
-            return path.Length >= 3 &&
-                   char.IsLetter(path[0]) &&
-                   path[1] == ':' &&
-                   (path[2] == '\\' || path[2] == '/');
-        }
-
-        private static bool IsWindowsUncPath(string path)
-        {
-            return path.StartsWith("\\\\", StringComparison.Ordinal) ||
-                   path.StartsWith("//", StringComparison.Ordinal);
+            return PathNormalizer.TryResolveWindowsPath(path, out normalizedPath, out directory);
         }
 
         private static string EnsureTrailingSeparator(string path, bool preferBackslash = false)
         {
-            if (string.IsNullOrEmpty(path))
-            {
-                return path;
-            }
-
-            if (path.EndsWith(Path.DirectorySeparatorChar) ||
-                path.EndsWith(Path.AltDirectorySeparatorChar) ||
-                path.EndsWith("\\", StringComparison.Ordinal))
-            {
-                return path;
-            }
-
-            var separator = preferBackslash || path.Contains("\\", StringComparison.Ordinal)
-                ? '\\'
-                : Path.DirectorySeparatorChar;
-
-            return path + separator;
+            return PathNormalizer.EnsureTrailingSeparator(path, preferBackslash);
         }
 
         /// <summary>
@@ -1035,39 +814,7 @@ namespace GameHelper.Core.Services
 
         private static string FormatDuration(TimeSpan duration)
         {
-            if (duration < TimeSpan.Zero)
-            {
-                duration = TimeSpan.Zero;
-            }
-
-            if (duration == TimeSpan.Zero)
-            {
-                return "0秒";
-            }
-
-            var parts = new List<string>();
-            if (duration.Days > 0)
-            {
-                parts.Add($"{duration.Days}天");
-            }
-
-            if (duration.Hours > 0)
-            {
-                parts.Add($"{duration.Hours}小时");
-            }
-
-            if (duration.Minutes > 0)
-            {
-                parts.Add($"{duration.Minutes}分钟");
-            }
-
-            var seconds = duration.Seconds;
-            if (seconds > 0 || parts.Count == 0)
-            {
-                parts.Add($"{seconds}秒");
-            }
-
-            return string.Concat(parts);
+            return TimeFormatting.FormatDuration(duration);
         }
 
         private sealed record NameConfigEntry(string ExecutableName, string ExecutableNameUpper, GameConfig Config);
