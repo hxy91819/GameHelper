@@ -1,12 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Utilities;
-using FuzzySharp;
 using Microsoft.Extensions.Logging;
 
 namespace GameHelper.Core.Services
@@ -131,15 +128,15 @@ namespace GameHelper.Core.Services
         {
             lock (_stateLock)
             {
-                var normalizedPath = NormalizePath(processInfo.ExecutablePath);
-                var normalizedName = NormalizeName(processInfo.ExecutableName);
+                var normalizedPath = PathNormalizer.NormalizePath(processInfo.ExecutablePath);
+                var normalizedName = PathNormalizer.NormalizeName(processInfo.ExecutableName);
 
-                var config = MatchByPath(normalizedPath);
+                var config = _gameMatcher.MatchByPath(normalizedPath, _configsByPath, _logger);
                 string matchLabel = "路径匹配";
 
                 if (config is null)
                 {
-                    config = MatchByMetadata(processInfo, normalizedPath, out matchLabel);
+                    config = _gameMatcher.MatchByMetadata(processInfo, normalizedPath, _nameConfigs, _logger, out matchLabel);
                 }
 
                 if (config is null)
@@ -220,7 +217,7 @@ namespace GameHelper.Core.Services
                         var session = _playTime.StopTracking(entry.DataKey);
                         if (session is not null)
                         {
-                            var formatted = FormatDuration(session.Duration);
+                            var formatted = TimeFormatting.FormatDuration(session.Duration);
                             _logger.LogInformation(
                                 "本次游玩时长: {Duration} (开始 {StartTime:t}, 结束 {EndTime:t})",
                                 formatted,
@@ -275,7 +272,7 @@ namespace GameHelper.Core.Services
                         config.DataKey);
                 }
 
-                var normalizedPath = NormalizePath(config.ExecutablePath);
+                var normalizedPath = PathNormalizer.NormalizePath(config.ExecutablePath);
                 if (normalizedPath is not null)
                 {
                     if (pathMap.ContainsKey(normalizedPath))
@@ -290,7 +287,7 @@ namespace GameHelper.Core.Services
                     }
                 }
 
-                var normalizedName = NormalizeName(config.ExecutableName);
+                var normalizedName = PathNormalizer.NormalizeName(config.ExecutableName);
                 if (normalizedName is not null)
                 {
                     if (!nameStats.TryGetValue(normalizedName, out var stat))
@@ -331,71 +328,9 @@ namespace GameHelper.Core.Services
             _nameConfigs = nameEntries.ToArray();
         }
 
-        private GameConfig? MatchByPath(string? normalizedPath)
-        {
-            return _gameMatcher.MatchByPath(normalizedPath, _configsByPath, _logger);
-        }
-
-        private GameConfig? MatchByMetadata(ProcessEventInfo processInfo, string? normalizedPath, out string label)
-        {
-            return _gameMatcher.MatchByMetadata(processInfo, normalizedPath, _nameConfigs, _logger, out label);
-        }
-
-
         private void UpdateHdrState()
         {
             _hdrScheduler.Update(_sessionTracker.ActiveDataKeys, _configsByDataKey, _hdr, _logger);
-        }
-
-        private static string? NormalizeName(string? executableName)
-        {
-            return PathNormalizer.NormalizeName(executableName);
-        }
-
-        private static string? NormalizePath(string? executablePath)
-        {
-            return PathNormalizer.NormalizePath(executablePath);
-        }
-
-        private string? TryGetProductName(string? executablePath)
-        {
-            return _gameMatcher.TryGetProductName(executablePath, _logger);
-        }
-
-        private bool IsSystemPath(string processPath)
-        {
-            return _gameMatcher.IsSystemPath(processPath, _logger);
-        }
-
-        private bool IsPathRelated(string processPath, string? configPath)
-        {
-            return _gameMatcher.IsPathRelated(processPath, configPath, _logger);
-        }
-
-        private static bool TryResolveWindowsPath(string path, out string normalizedPath, out string directory)
-        {
-            return PathNormalizer.TryResolveWindowsPath(path, out normalizedPath, out directory);
-        }
-
-        private static string EnsureTrailingSeparator(string path, bool preferBackslash = false)
-        {
-            return PathNormalizer.EnsureTrailingSeparator(path, preferBackslash);
-        }
-
-        /// <summary>
-        /// 根据可执行文件名长度计算模糊匹配阈值。
-        /// 短文件名需要更高相似度以避免误匹配。
-        /// </summary>
-        /// <param name="executableName">可执行文件名（可含扩展名）</param>
-        /// <returns>推荐模糊匹配阈值（80-95）</returns>
-        private static int CalculateFuzzyThreshold(string executableName)
-        {
-            return GameMatcher.CalculateFuzzyThreshold(executableName);
-        }
-
-        private static string FormatDuration(TimeSpan duration)
-        {
-            return TimeFormatting.FormatDuration(duration);
         }
     }
 }
