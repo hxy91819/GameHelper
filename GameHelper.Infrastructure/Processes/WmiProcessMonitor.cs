@@ -1,5 +1,6 @@
 using System;
 using System.Management;
+using System.Collections.Concurrent;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 
@@ -194,7 +195,7 @@ namespace GameHelper.Infrastructure.Processes
         private readonly ManagementEventWatcher _watcher;
         private bool _started;
         // Keep a short-lived cache of PID -> resolved executable name captured on Start events
-        private readonly System.Collections.Generic.Dictionary<int, string> _pidToName = new();
+        private readonly ConcurrentDictionary<int, string> _pidToName = new();
 
         /// <inheritdoc />
         public event Action<ProcessEventInfo>? ProcessEvent;
@@ -314,7 +315,7 @@ namespace GameHelper.Infrastructure.Processes
                         }
                         else if (className?.IndexOf("Stop", StringComparison.OrdinalIgnoreCase) >= 0)
                         {
-                            _pidToName.Remove(pid);
+                            _pidToName.TryRemove(pid, out _);
                         }
                     }
 
