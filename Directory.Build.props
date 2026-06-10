@@ -10,5 +10,11 @@
   <ItemGroup>
     <InternalsVisibleTo Include="GameHelper.Tests" />
     <GlobalAnalyzerConfigFiles Include="$(MSBuildThisFileDirectory).globalanalyzerconfig" />
+
+    <!-- 线程/并发分析器：检测非线程安全集合在 async/事件回调中的使用、死锁风险、同步等待 Tasks 等 -->
+    <PackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" Version="17.12.19" PrivateAssets="all" IncludeAssets="runtime;build;native;contentfiles;analyzers;buildtransitive" />
+
+    <!-- Sonar 分析器：覆盖正则缓存、并发集合选择、Dispose 模式、性能反模式、代码异味等 -->
+    <PackageReference Include="SonarAnalyzer.CSharp" Version="10.7.0.110445" PrivateAssets="all" IncludeAssets="runtime;build;native;contentfiles;analyzers;buildtransitive" />
   </ItemGroup>
 </Project>
