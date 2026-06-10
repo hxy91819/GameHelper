@@ -1555,29 +1555,6 @@ namespace GameHelper.ConsoleHost.Interactive
             return timestamp.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
         }
 
-        private sealed record SessionSnapshot(HashSet<SessionKey> Keys, List<SessionRecord> Records, string Source);
-
-        private sealed class SessionRecord
-        {
-            public SessionRecord(string gameName, string displayName, DateTime start, DateTime end, long minutes)
-            {
-                Key = new SessionKey(gameName, start, end, minutes);
-                DisplayName = displayName;
-            }
-
-            public SessionKey Key { get; }
-
-            public string DisplayName { get; }
-
-            public DateTime Start => Key.Start;
-
-            public DateTime End => Key.End;
-
-            public long DurationMinutes => Key.DurationMinutes;
-        }
-
-        private readonly record struct SessionKey(string Game, DateTime Start, DateTime End, long DurationMinutes);
-
     }
 }
 
