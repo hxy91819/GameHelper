@@ -22,6 +22,7 @@ namespace GameHelper.Core.Services
         private readonly IStopEventsControl? _stopControl;
         private readonly IConfigProvider _configProvider;
         private readonly IHdrController _hdr;
+        private readonly HdrScheduler _hdrScheduler = new();
         private readonly IPlayTimeService _playTime;
         private readonly ILogger<GameAutomationService> _logger;
         private readonly object _stateLock = new();
@@ -343,19 +344,7 @@ namespace GameHelper.Core.Services
 
         private void UpdateHdrState()
         {
-            var shouldEnableHdr = _sessionTracker.ActiveDataKeys.Any(dataKey =>
-                _configsByDataKey.TryGetValue(dataKey, out var config) && config.HDREnabled);
-
-            if (shouldEnableHdr && !_hdr.IsEnabled)
-            {
-                _logger.LogInformation("Enabling HDR (active HDR-enabled game)");
-                _hdr.Enable();
-            }
-            else if (!shouldEnableHdr && _hdr.IsEnabled)
-            {
-                _logger.LogInformation("Disabling HDR (no HDR-enabled game remaining)");
-                _hdr.Disable();
-            }
+            _hdrScheduler.Update(_sessionTracker.ActiveDataKeys, _configsByDataKey, _hdr, _logger);
         }
 
         private static string? NormalizeName(string? executableName)
