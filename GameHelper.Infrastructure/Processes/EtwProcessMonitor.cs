@@ -240,23 +240,35 @@ namespace GameHelper.Infrastructure.Processes
             try
             {
                 var processName = GetProcessName(data);
+
+                // If the ETW stop event doesn't carry a clear name but we had cached
+                // this PID from a prior start, derive the name from the cached path.
+                if (string.IsNullOrWhiteSpace(processName) && hadCache && !string.IsNullOrWhiteSpace(cachedPath))
+                {
+                    processName = Path.GetFileName(cachedPath);
+                }
+
                 if (string.IsNullOrWhiteSpace(processName))
                     return;
 
-                if (IsAllowedProcess(processName))
+                // If this PID was previously cached (meaning it passed the start filter),
+                // always allow the stop event regardless of whether the stop payload's
+                // name matches the current filter. The process may have changed its
+                // displayed name between start and stop.
+                if (!hadCache && !IsAllowedProcess(processName))
                 {
-                    // Use cached full path when available; otherwise fall back to the
-                    // ImageFileName from the ETW event (may be a bare filename).
-                    var fallbackImageFileName = data.PayloadByName("ImageFileName") as string;
-                    var realPath = hadCache ? cachedPath : fallbackImageFileName;
-
-                    _logger?.LogDebug(
-                        "Process stopped: {ProcessName} (PID: {ProcessId}, CacheHit={CacheHit}, CachedPath={CachedPath}, Fallback={Fallback})",
-                        processName, data.ProcessID, hadCache, realPath, fallbackImageFileName);
-
-                    var info = new ProcessEventInfo(processName, realPath);
-                    ProcessStopped?.Invoke(info);
+                    return;
                 }
+
+                var fallbackImageFileName = data.PayloadByName("ImageFileName") as string;
+                var realPath = hadCache ? cachedPath : fallbackImageFileName;
+
+                _logger?.LogDebug(
+                    "Process stopped: {ProcessName} (PID: {ProcessId}, CacheHit={CacheHit}, CachedPath={CachedPath}, Fallback={Fallback})",
+                    processName, data.ProcessID, hadCache, realPath, fallbackImageFileName);
+
+                var info = new ProcessEventInfo(processName, realPath);
+                ProcessStopped?.Invoke(info);
             }
             catch (Exception ex)
             {
