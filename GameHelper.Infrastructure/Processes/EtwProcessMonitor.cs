@@ -88,6 +88,7 @@ namespace GameHelper.Infrastructure.Processes
             try
             {
                 InitializeEtwSession();
+                PrefillRunningProcesses();
                 _isRunning = true;
                 _logger?.LogInformation("ETW process monitor started successfully");
             }
@@ -244,6 +245,8 @@ namespace GameHelper.Infrastructure.Processes
 
                 if (IsAllowedProcess(processName))
                 {
+                    // Use cached full path when available; otherwise fall back to the
+                    // ImageFileName from the ETW event (may be a bare filename).
                     var fallbackImageFileName = data.PayloadByName("ImageFileName") as string;
                     var realPath = hadCache ? cachedPath : fallbackImageFileName;
 
@@ -428,6 +431,74 @@ namespace GameHelper.Infrastructure.Processes
             catch
             {
                 return false;
+            }
+        }
+
+        private void PrefillRunningProcesses()
+        {
+            try
+            {
+                if (_allowedProcessNames.Count == 0)
+                {
+                    _logger?.LogDebug("No process filter configured, skipping pre-fill scan");
+                    return;
+                }
+
+                var allowedSet = _allowedProcessNames.Select(NormalizeProcessName).ToHashSet();
+                var processes = Process.GetProcesses()
+                    .Select(p =>
+                    {
+                        try
+                        {
+                            return new { p.Id, p.ProcessName, Path = GetRealProcessPath(p.Id) };
+                        }
+                        catch
+                        {
+                            return null;
+                        }
+                    })
+                    .Where(p => p is not null)
+                    .ToList();
+
+                int prefillCount = 0;
+                foreach (var proc in processes)
+                {
+                    var normalizedName = NormalizeProcessName(proc.ProcessName + ".exe");
+                    if (!allowedSet.Contains(normalizedName))
+                    {
+                        continue;
+                    }
+
+                    var fullPath = proc.Path;
+                    if (string.IsNullOrWhiteSpace(fullPath))
+                    {
+                        // Even if we can't get the live path, prefill with the process name
+                        // so that we have at least some record. ETW stop will still fall back.
+                        _logger?.LogWarning(
+                            "Pre-fill unable to resolve full path for running process {ProcessName} (PID: {ProcessId})",
+                            proc.ProcessName, proc.Id);
+                    }
+                    else
+                    {
+                        _startPathCache[proc.Id] = fullPath;
+                        prefillCount++;
+                    }
+                }
+
+                if (prefillCount > 0)
+                {
+                    _logger?.LogInformation(
+                        "Pre-filled {Count} running process entries into ETW path cache",
+                        prefillCount);
+                }
+                else
+                {
+                    _logger?.LogDebug("No matching running processes found to pre-fill");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to pre-fill running process path cache");
             }
         }
 
