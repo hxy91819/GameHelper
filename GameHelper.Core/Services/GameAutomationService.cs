@@ -198,7 +198,7 @@ namespace GameHelper.Core.Services
 
                 if (!_sessionTracker.TryResolve(processInfo, out var entry))
                 {
-                    _logger.LogDebug("Stop ignored, no active record for {Executable}", processInfo.ExecutableName);
+                    _logger.LogWarning("Stop ignored, no active record for {Executable} (Path={Path})", processInfo.ExecutableName, processInfo.ExecutablePath);
                     return;
                 }
 
