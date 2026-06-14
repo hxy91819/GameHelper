@@ -1,10 +1,8 @@
 using System;
-using System.Linq;
 using GameHelper.ConsoleHost.Interactive;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
-using GameHelper.Core.Models;
 using GameHelper.Core.Services;
 using GameHelper.Infrastructure.Controllers;
 using GameHelper.Infrastructure.Processes;
@@ -51,49 +49,37 @@ public static class ConsoleHostBootstrapper
         services.AddSingleton<IProcessMonitor>(sp =>
         {
             var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("GameHelper.ConsoleHost.ProcessMonitor");
-            if (parsedArgs.MonitorDryRun)
+            var monitorMode = parsedArgs.MonitorDryRun
+                ? MonitorModeSelection.Resolve(parsedArgs, null)
+                : MonitorModeSelection.Resolve(
+                    parsedArgs,
+                    sp.GetRequiredService<IAppConfigProvider>().LoadAppConfig().ProcessMonitorType);
+
+            if (monitorMode.IsDryRun)
             {
                 logger.LogInformation("Monitor dry-run enabled; using no-op process monitor.");
                 return ProcessMonitorFactory.CreateNoOp();
             }
 
-            var appConfigProvider = sp.GetRequiredService<IAppConfigProvider>();
-            var appConfig = appConfigProvider.LoadAppConfig();
-
-            var monitorType = ProcessMonitorType.ETW;
-
-            if (!string.IsNullOrWhiteSpace(parsedArgs.MonitorType))
+            switch (monitorMode.Source)
             {
-                if (Enum.TryParse<ProcessMonitorType>(parsedArgs.MonitorType, true, out var cmdLineType))
-                {
-                    monitorType = cmdLineType;
-                    logger.LogInformation("Using monitor type from command line: {MonitorType}", monitorType);
-                }
-                else
-                {
-                    logger.LogWarning("Invalid monitor type '{MonitorType}' specified in command line, using default ETW", parsedArgs.MonitorType);
-                }
+                case MonitorModeSource.CommandLine:
+                    logger.LogInformation("Using monitor type from command line: {MonitorType}", monitorMode.MonitorType);
+                    break;
+                case MonitorModeSource.Config:
+                    logger.LogInformation("Using monitor type from config: {MonitorType}", monitorMode.MonitorType);
+                    break;
+                case MonitorModeSource.InvalidCommandLine:
+                    logger.LogWarning("Invalid monitor type '{MonitorType}' specified in command line, using default ETW", monitorMode.RequestedMonitorType);
+                    break;
+                default:
+                    logger.LogInformation("Using default monitor type: {MonitorType}", monitorMode.MonitorType);
+                    break;
             }
-            else if (appConfig.ProcessMonitorType.HasValue)
-            {
-                monitorType = appConfig.ProcessMonitorType.Value;
-                logger.LogInformation("Using monitor type from config: {MonitorType}", monitorType);
-            }
-            else
-            {
-                logger.LogInformation("Using default monitor type: {MonitorType}", monitorType);
-            }
-
-            var configProvider = sp.GetRequiredService<IConfigProvider>();
-            var gameConfigs = configProvider.Load();
-            _ = gameConfigs
-                .Where(kv => kv.Value?.IsEnabled == true)
-                .Select(kv => kv.Key)
-                .ToArray();
 
             try
             {
-                return ProcessMonitorFactory.CreateWithFallback(monitorType, null, logger);
+                return ProcessMonitorFactory.CreateWithFallback(monitorMode.MonitorType, null, logger);
             }
             catch (Exception ex)
             {
