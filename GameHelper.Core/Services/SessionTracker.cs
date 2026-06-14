@@ -1,14 +1,11 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using GameHelper.Core.Models;
 using GameHelper.Core.Utilities;
 
 namespace GameHelper.Core.Services;
 
 /// <summary>
-/// 追踪活跃的游戏进程实例，维护引用计数和按名称/路径索引。
-/// 线程安全：所有公开方法内部持有锁，调用方无需额外同步。
+/// Tracks active game process instances by normalized name, normalized path, and DataKey reference count.
+/// All public methods synchronize internally; callers do not need additional locking.
 /// </summary>
 internal sealed class SessionTracker
 {
@@ -18,7 +15,7 @@ internal sealed class SessionTracker
     private readonly Dictionary<string, int> _dataKeyRefs = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// 当前活跃会话总数（按 DataKey 去重计数）。
+    /// Number of currently active DataKeys.
     /// </summary>
     public int ActiveCount
     {
@@ -32,22 +29,19 @@ internal sealed class SessionTracker
     }
 
     /// <summary>
-    /// 当前活跃的 DataKey 列表。
+    /// Returns a stable snapshot of the currently active DataKeys.
     /// </summary>
-    public IEnumerable<string> ActiveDataKeys
+    public IReadOnlyList<string> GetActiveDataKeysSnapshot()
     {
-        get
+        lock (_lock)
         {
-            lock (_lock)
-            {
-                return _dataKeyRefs.Keys.ToList(); // 快照，避免枚举期间修改
-            }
+            return _dataKeyRefs.Keys.ToList();
         }
     }
 
     /// <summary>
-    /// 注册一个活跃进程实例。
-    /// 返回 true 表示这是该 DataKey 的第一个活跃实例。
+    /// Registers an active process instance.
+    /// Returns true when this is the first active instance for the DataKey.
     /// </summary>
     public bool Register(string dataKey, string? normalizedName, string? normalizedPath)
     {
@@ -89,8 +83,8 @@ internal sealed class SessionTracker
     }
 
     /// <summary>
-    /// 释放一个 DataKey 的活跃引用。
-    /// 返回 true 表示这是该 DataKey 的最后一个活跃实例。
+    /// Releases one active reference for a DataKey.
+    /// Returns true when this was the last active instance for the DataKey.
     /// </summary>
     public bool Release(string dataKey)
     {
@@ -113,8 +107,7 @@ internal sealed class SessionTracker
     }
 
     /// <summary>
-    /// 尝试根据进程停止事件解析对应的活跃条目。
-    /// 优先按路径查找，降级到按名称查找。
+    /// Resolves an active entry for a process stop event, preferring path over name.
     /// </summary>
     public bool TryResolve(ProcessEventInfo processInfo, out ActiveProcessEntry entry)
     {
@@ -146,7 +139,7 @@ internal sealed class SessionTracker
     }
 
     /// <summary>
-    /// 清空所有活跃状态。用于服务停止时的重置。
+    /// Clears all active tracking state, used when the automation service stops.
     /// </summary>
     public void Clear()
     {
