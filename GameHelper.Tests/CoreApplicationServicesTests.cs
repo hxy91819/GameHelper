@@ -81,6 +81,65 @@ public sealed class CoreApplicationServicesTests
     }
 
     [Fact]
+    public void GameCatalogService_Update_ShouldRepairStorageByEntryId()
+    {
+        var provider = new FakeConfigProvider();
+        var service = new GameCatalogService(provider);
+        provider.Save(new Dictionary<string, GameConfig>
+        {
+            ["legacy-key"] = new()
+            {
+                DataKey = "legacy",
+                ExecutableName = "legacy.exe",
+                DisplayName = "Legacy",
+                IsEnabled = false
+            }
+        });
+
+        _ = service.Update("legacy", new GameEntryUpsertRequest
+        {
+            ExecutableName = "legacy.exe",
+            DisplayName = "Updated",
+            IsEnabled = true
+        });
+
+        var pair = Assert.Single(provider.Load());
+        Assert.False(string.IsNullOrWhiteSpace(pair.Value.EntryId));
+        Assert.Equal(pair.Value.EntryId, pair.Key);
+        Assert.Equal("legacy", pair.Value.DataKey);
+        Assert.Equal("Updated", pair.Value.DisplayName);
+    }
+
+    [Fact]
+    public void GameCatalogService_Delete_ShouldRepairRemainingStorageByEntryId()
+    {
+        var provider = new FakeConfigProvider();
+        var service = new GameCatalogService(provider);
+        provider.Save(new Dictionary<string, GameConfig>
+        {
+            ["delete-key"] = new()
+            {
+                DataKey = "delete-me",
+                ExecutableName = "delete.exe",
+                IsEnabled = true
+            },
+            ["keep-key"] = new()
+            {
+                DataKey = "keep-me",
+                ExecutableName = "keep.exe",
+                IsEnabled = true
+            }
+        });
+
+        Assert.True(service.Delete("delete-me"));
+
+        var pair = Assert.Single(provider.Load());
+        Assert.False(string.IsNullOrWhiteSpace(pair.Value.EntryId));
+        Assert.Equal(pair.Value.EntryId, pair.Key);
+        Assert.Equal("keep-me", pair.Value.DataKey);
+    }
+
+    [Fact]
     public void GameCatalogService_Save_ShouldCreateEntryWithRequestedDataKey()
     {
         var provider = new FakeConfigProvider();
