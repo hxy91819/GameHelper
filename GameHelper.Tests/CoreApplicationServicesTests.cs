@@ -373,6 +373,42 @@ public sealed class CoreApplicationServicesTests
     }
 
     [Fact]
+    public void StatisticsService_GetDetails_ShouldResolveDisplayName()
+    {
+        var provider = new FakeConfigProvider();
+        provider.Save(new Dictionary<string, GameConfig>
+        {
+            ["game.exe"] = new()
+            {
+                DataKey = "game-key",
+                ExecutableName = "game.exe",
+                DisplayName = "Game Display"
+            }
+        });
+
+        var snapshot = new FakePlaytimeSnapshotProvider
+        {
+            Records = new List<GamePlaytimeRecord>
+            {
+                new()
+                {
+                    GameName = "game-key",
+                    Sessions =
+                    {
+                        new PlaySession("game-key", DateTime.Now.AddMinutes(-30), DateTime.Now, TimeSpan.FromMinutes(30), 30)
+                    }
+                }
+            }
+        };
+
+        var service = new StatisticsService(snapshot, provider);
+        var details = service.GetDetails("game-key");
+
+        Assert.NotNull(details);
+        Assert.Equal("Game Display", details.DisplayName);
+    }
+
+    [Fact]
     public void StatisticsService_WhenRecentMinutesTie_ShouldSortByTotalMinutesDescending()
     {
         var provider = new FakeConfigProvider();
