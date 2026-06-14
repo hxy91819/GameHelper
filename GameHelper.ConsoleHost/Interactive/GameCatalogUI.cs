@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 using Spectre.Console;
 using ConsoleValidationResult = Spectre.Console.ValidationResult;
 
