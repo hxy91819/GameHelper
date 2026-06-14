@@ -1,21 +1,20 @@
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace GameHelper.ConsoleHost.Commands;
 
 public static class ConfigCommand
 {
-    public static void Run(IServiceProvider services, string[] args)
+    public static void Run(IGameCatalogService gameCatalogService, string[] args)
     {
+        ArgumentNullException.ThrowIfNull(gameCatalogService);
+
         if (args.Length == 0)
         {
             CommandHelpers.PrintUsage();
             return;
         }
 
-        using var scope = services.CreateScope();
-        var gameCatalogService = scope.ServiceProvider.GetRequiredService<IGameCatalogService>();
         var sub = args[0].ToLowerInvariant();
 
         switch (sub)

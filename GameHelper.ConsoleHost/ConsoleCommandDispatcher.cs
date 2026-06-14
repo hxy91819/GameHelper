@@ -6,6 +6,7 @@ using GameHelper.ConsoleHost.Commands;
 using GameHelper.ConsoleHost.Interactive;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
+using GameHelper.Core.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -33,11 +34,21 @@ public static class ConsoleCommandDispatcher
                 break;
 
             case "config":
-                ConfigCommand.Run(host.Services, parsedArgs.EffectiveArgs.Skip(1).ToArray());
+                using (var scope = host.Services.CreateScope())
+                {
+                    ConfigCommand.Run(
+                        scope.ServiceProvider.GetRequiredService<IGameCatalogService>(),
+                        parsedArgs.EffectiveArgs.Skip(1).ToArray());
+                }
                 break;
 
             case "stats":
-                StatsCommand.Run(host.Services, parsedArgs.EffectiveArgs.Skip(1).ToArray());
+                using (var scope = host.Services.CreateScope())
+                {
+                    StatsCommand.Run(
+                        scope.ServiceProvider.GetRequiredService<IStatisticsService>(),
+                        parsedArgs.EffectiveArgs.Skip(1).ToArray());
+                }
                 break;
 
             case "convert-config":
