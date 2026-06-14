@@ -63,6 +63,11 @@ public sealed class StatsCommandTests
         {
             throw new InvalidOperationException("broken file");
         }
+
+        public SessionActivitySnapshot GetSessionActivitySnapshot()
+        {
+            throw new InvalidOperationException("broken file");
+        }
     }
 
     private sealed class EmptyStatisticsService : IStatisticsService
@@ -70,5 +75,10 @@ public sealed class StatsCommandTests
         public IReadOnlyList<GameStatsSummary> GetOverview() => Array.Empty<GameStatsSummary>();
 
         public GameStatsSummary? GetDetails(string dataKeyOrGameName) => null;
+
+        public SessionActivitySnapshot GetSessionActivitySnapshot() => new(
+            new HashSet<SessionActivityKey>(),
+            Array.Empty<SessionActivityRecord>(),
+            string.Empty);
     }
 }

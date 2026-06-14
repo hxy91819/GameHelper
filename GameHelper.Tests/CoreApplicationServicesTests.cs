@@ -305,6 +305,47 @@ public sealed class CoreApplicationServicesTests
     }
 
     [Fact]
+    public void StatisticsService_GetSessionActivitySnapshot_ShouldResolveDisplayNames()
+    {
+        var provider = new FakeConfigProvider();
+        provider.Save(new Dictionary<string, GameConfig>
+        {
+            ["game.exe"] = new()
+            {
+                DataKey = "game-key",
+                ExecutableName = "game.exe",
+                DisplayName = "Game Display"
+            }
+        });
+
+        var started = new DateTime(2024, 1, 1, 20, 0, 0, DateTimeKind.Unspecified);
+        var snapshot = new FakePlaytimeSnapshotProvider
+        {
+            Snapshot = new PlaytimeSnapshot(
+                new List<GamePlaytimeRecord>
+                {
+                    new()
+                    {
+                        GameName = "game-key",
+                        Sessions =
+                        {
+                            new PlaySession("game-key", started, started.AddMinutes(30), TimeSpan.FromMinutes(30), 30)
+                        }
+                    }
+                },
+                @"C:\GameHelper\playtime.csv")
+        };
+
+        var service = new StatisticsService(snapshot, provider);
+        var activity = service.GetSessionActivitySnapshot();
+
+        var record = Assert.Single(activity.Records);
+        Assert.Equal("Game Display", record.DisplayName);
+        Assert.Equal(@"C:\GameHelper\playtime.csv", activity.Source);
+        Assert.Contains(record.Key, activity.Keys);
+    }
+
+    [Fact]
     public void StatisticsService_WhenRecentMinutesTie_ShouldSortByTotalMinutesDescending()
     {
         var provider = new FakeConfigProvider();
@@ -392,7 +433,11 @@ public sealed class CoreApplicationServicesTests
     {
         public IReadOnlyList<GamePlaytimeRecord> Records { get; set; } = Array.Empty<GamePlaytimeRecord>();
 
+        public PlaytimeSnapshot? Snapshot { get; set; }
+
         public IReadOnlyList<GamePlaytimeRecord> GetPlaytimeRecords() => Records;
+
+        public PlaytimeSnapshot GetSnapshot() => Snapshot ?? new PlaytimeSnapshot(Records, null);
     }
 
     private sealed class FakeProcessMonitor : IProcessMonitor

@@ -7,4 +7,6 @@ public interface IStatisticsService
     IReadOnlyList<GameStatsSummary> GetOverview();
 
     GameStatsSummary? GetDetails(string dataKeyOrGameName);
+
+    SessionActivitySnapshot GetSessionActivitySnapshot();
 }

@@ -158,6 +158,11 @@ public sealed class WinUiViewModelTests
             return Overview.FirstOrDefault(item =>
                 string.Equals(item.GameName, dataKeyOrGameName, StringComparison.OrdinalIgnoreCase));
         }
+
+        public SessionActivitySnapshot GetSessionActivitySnapshot() => new(
+            new HashSet<SessionActivityKey>(),
+            Array.Empty<SessionActivityRecord>(),
+            string.Empty);
     }
 
     private sealed class FakeMonitorControlService : IMonitorControlService

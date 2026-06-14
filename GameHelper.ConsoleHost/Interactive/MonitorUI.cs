@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -8,7 +7,6 @@ using System.Threading.Tasks;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
-using GameHelper.Core.Utilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Spectre.Console;
@@ -23,8 +21,7 @@ namespace GameHelper.ConsoleHost.Interactive
         private readonly IHost _host;
         private readonly IAnsiConsole _console;
         private readonly PromptUI _promptUI;
-        private readonly IConfigProvider _configProvider;
-        private readonly IPlaytimeSnapshotProvider _playtimeSnapshotProvider;
+        private readonly IStatisticsService _statisticsService;
         private readonly InteractiveScript? _script;
         private readonly Func<IHost, CancellationToken, Task> _monitorLoop;
         private readonly bool _dryRun;
@@ -33,8 +30,7 @@ namespace GameHelper.ConsoleHost.Interactive
             IHost host,
             IAnsiConsole console,
             PromptUI promptUI,
-            IConfigProvider configProvider,
-            IPlaytimeSnapshotProvider playtimeSnapshotProvider,
+            IStatisticsService statisticsService,
             InteractiveScript? script,
             Func<IHost, CancellationToken, Task> monitorLoop,
             bool dryRun)
@@ -42,8 +38,7 @@ namespace GameHelper.ConsoleHost.Interactive
             _host = host ?? throw new ArgumentNullException(nameof(host));
             _console = console ?? throw new ArgumentNullException(nameof(console));
             _promptUI = promptUI ?? throw new ArgumentNullException(nameof(promptUI));
-            _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
-            _playtimeSnapshotProvider = playtimeSnapshotProvider ?? throw new ArgumentNullException(nameof(playtimeSnapshotProvider));
+            _statisticsService = statisticsService ?? throw new ArgumentNullException(nameof(statisticsService));
             _script = script;
             _monitorLoop = monitorLoop ?? throw new ArgumentNullException(nameof(monitorLoop));
             _dryRun = dryRun;
@@ -277,7 +272,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 && string.Equals(value.Trim(), "q", StringComparison.OrdinalIgnoreCase);
         }
 
-        private void RenderMonitorHistory(SessionSnapshot snapshot)
+        private void RenderMonitorHistory(SessionActivitySnapshot snapshot)
         {
             if (snapshot.Records.Count == 0)
             {
@@ -314,7 +309,7 @@ namespace GameHelper.ConsoleHost.Interactive
             });
         }
 
-        private void RenderSessionSummary(SessionSnapshot before, SessionSnapshot after)
+        private void RenderSessionSummary(SessionActivitySnapshot before, SessionActivitySnapshot after)
         {
             var newSessions = after.Records
                 .Where(record => !before.Keys.Contains(record.Key))
@@ -363,39 +358,9 @@ namespace GameHelper.ConsoleHost.Interactive
             }
         }
 
-        private SessionSnapshot CaptureSessionSnapshot()
+        private SessionActivitySnapshot CaptureSessionSnapshot()
         {
-            var snapshot = _playtimeSnapshotProvider.GetSnapshot();
-            var source = snapshot.SourcePath ?? string.Empty;
-            if (snapshot.Records.Count == 0)
-            {
-                return new SessionSnapshot(new HashSet<SessionKey>(), new List<SessionRecord>(), source);
-            }
-
-            var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
-            var configLookup = GameConfigLookup.Build(configs);
-            var keys = new HashSet<SessionKey>();
-            var records = new List<SessionRecord>();
-
-            foreach (var item in snapshot.Records)
-            {
-                var displayName = ResolveDisplayName(item.GameName, configLookup);
-
-                foreach (var session in item.Sessions)
-                {
-                    var record = new SessionRecord(item.GameName, displayName, session.StartTime, session.EndTime, session.DurationMinutes);
-                    keys.Add(record.Key);
-                    records.Add(record);
-                }
-            }
-
-            return new SessionSnapshot(keys, records, source);
-        }
-
-        private static string ResolveDisplayName(string key, GameConfigLookup lookup)
-        {
-            var cfg = lookup.Resolve(key);
-            return !string.IsNullOrWhiteSpace(cfg?.DisplayName) ? cfg.DisplayName! : key;
+            return _statisticsService.GetSessionActivitySnapshot();
         }
 
         private static string FormatTimestamp(DateTime timestamp)

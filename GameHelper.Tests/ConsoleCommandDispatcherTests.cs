@@ -133,5 +133,10 @@ public sealed class ConsoleCommandDispatcherTests
             _overview.FirstOrDefault(item =>
                 string.Equals(item.GameName, dataKeyOrGameName, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(item.DisplayName, dataKeyOrGameName, StringComparison.OrdinalIgnoreCase));
+
+        public SessionActivitySnapshot GetSessionActivitySnapshot() => new(
+            new HashSet<SessionActivityKey>(),
+            Array.Empty<SessionActivityRecord>(),
+            string.Empty);
     }
 }

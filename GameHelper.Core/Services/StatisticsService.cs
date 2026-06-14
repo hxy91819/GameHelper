@@ -57,6 +57,42 @@ public sealed class StatisticsService : IStatisticsService
         return match is null ? null : ToSummary(match, configLookup, cutoff);
     }
 
+    public SessionActivitySnapshot GetSessionActivitySnapshot()
+    {
+        var snapshot = _playtimeSnapshotProvider.GetSnapshot();
+        var source = snapshot.SourcePath ?? string.Empty;
+        if (snapshot.Records.Count == 0)
+        {
+            return new SessionActivitySnapshot(
+                new HashSet<SessionActivityKey>(),
+                Array.Empty<SessionActivityRecord>(),
+                source);
+        }
+
+        var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
+        var configLookup = GameConfigLookup.Build(configs);
+        var keys = new HashSet<SessionActivityKey>();
+        var records = new List<SessionActivityRecord>();
+
+        foreach (var item in snapshot.Records)
+        {
+            var displayName = ResolveDisplayName(item.GameName, configLookup);
+            foreach (var session in item.Sessions)
+            {
+                var record = new SessionActivityRecord(
+                    item.GameName,
+                    displayName,
+                    session.StartTime,
+                    session.EndTime,
+                    session.DurationMinutes);
+                keys.Add(record.Key);
+                records.Add(record);
+            }
+        }
+
+        return new SessionActivitySnapshot(keys, records, source);
+    }
+
     private static GameStatsSummary ToSummary(
         GamePlaytimeRecord record,
         GameConfigLookup configLookup,
@@ -78,6 +114,12 @@ public sealed class StatisticsService : IStatisticsService
             SessionCount = record.Sessions.Count,
             Sessions = orderedSessions
         };
+    }
+
+    private static string ResolveDisplayName(string key, GameConfigLookup lookup)
+    {
+        var cfg = lookup.Resolve(key);
+        return !string.IsNullOrWhiteSpace(cfg?.DisplayName) ? cfg.DisplayName! : key;
     }
 
 }
