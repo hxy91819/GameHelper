@@ -202,6 +202,7 @@ namespace GameHelper.Tests.Interactive
                 .AddSingleton<IGameCatalogService, GameCatalogService>()
                 .AddSingleton<IProcessMonitor, FakeProcessMonitor>()
                 .AddSingleton<IGameAutomationService, FakeAutomationService>()
+                .AddSingleton<IMonitorControlService, MonitorControlService>()
                 .AddSingleton<IPlaytimeSnapshotProvider, FilePlaytimeSnapshotProvider>()
                 .AddSingleton<IStatisticsService, StatisticsService>()
                 .BuildServiceProvider();
