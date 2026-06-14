@@ -299,6 +299,28 @@ namespace GameHelper.Tests
         }
 
         [Fact]
+        public void Stop_FlushesEachActiveDataKeyOnce()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new FakeConfig(Dict(("a.exe", true, true), ("b.exe", true, false)));
+            var hdr = new FakeHdr();
+            var play = new FakePlayTime();
+            var logger = NullLogger<GameAutomationService>.Instance;
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+
+            svc.Start();
+            monitor.RaiseStart(new ProcessEventInfo("a.exe", null));
+            monitor.RaiseStart(new ProcessEventInfo("a.exe", null));
+            monitor.RaiseStart(new ProcessEventInfo("b.exe", null));
+
+            svc.Stop();
+
+            Assert.Equal(2, play.StopCalls);
+            Assert.Contains("a.exe", play.Stopped);
+            Assert.Contains("b.exe", play.Stopped);
+        }
+
+        [Fact]
         public void StopEvent_LogsFormattedDurationIncludingSeconds()
         {
             var monitor = new FakeMonitor();

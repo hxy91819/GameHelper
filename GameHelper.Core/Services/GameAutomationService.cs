@@ -94,7 +94,7 @@ namespace GameHelper.Core.Services
                 _monitor.ProcessStarted -= OnProcessStarted;
                 _monitor.ProcessStopped -= OnProcessStopped;
 
-                foreach (var dataKey in _sessionTracker.ActiveDataKeys)
+                foreach (var dataKey in _sessionTracker.GetActiveDataKeysSnapshot())
                 {
                     try
                     {
@@ -252,10 +252,9 @@ namespace GameHelper.Core.Services
 
         private void UpdateHdrState()
         {
-            _hdrScheduler.Update(_sessionTracker.ActiveDataKeys, _configIndex.ByDataKey, _hdr, _logger);
+            _hdrScheduler.Update(_sessionTracker.GetActiveDataKeysSnapshot(), _configIndex.ByDataKey, _hdr, _logger);
         }
     }
 }
-
 
 
