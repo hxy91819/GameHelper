@@ -27,10 +27,7 @@ namespace GameHelper.Core.Services
         private readonly GameMatcher _gameMatcher = new();
         private readonly SessionTracker _sessionTracker = new();
 
-        private IReadOnlyDictionary<string, GameConfig> _configs = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-        private IReadOnlyDictionary<string, GameConfig> _configsByDataKey = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-        private IReadOnlyDictionary<string, GameConfig> _configsByPath = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-        private NameConfigEntry[] _nameConfigs = Array.Empty<NameConfigEntry>();
+        private AutomationConfigIndex _configIndex = AutomationConfigIndex.Empty;
 
 
         public GameAutomationService(
@@ -71,9 +68,9 @@ namespace GameHelper.Core.Services
 
                 _logger.LogInformation(
                     "GameAutomationService started: {Total} configs ({PathCount} path, {NameCount} name)",
-                    _configs.Count,
-                    _configsByPath.Count,
-                    _nameConfigs.Length);
+                    _configIndex.All.Count,
+                    _configIndex.ByPath.Count,
+                    _configIndex.ByName.Length);
             }
         }
 
@@ -84,9 +81,9 @@ namespace GameHelper.Core.Services
                 LoadAndBuildIndexes();
                 _logger.LogInformation(
                     "GameAutomationService config reloaded: {Total} configs ({PathCount} path, {NameCount} name)",
-                    _configs.Count,
-                    _configsByPath.Count,
-                    _nameConfigs.Length);
+                    _configIndex.All.Count,
+                    _configIndex.ByPath.Count,
+                    _configIndex.ByName.Length);
             }
         }
 
@@ -131,12 +128,12 @@ namespace GameHelper.Core.Services
                 var normalizedPath = PathNormalizer.NormalizePath(processInfo.ExecutablePath);
                 var normalizedName = PathNormalizer.NormalizeName(processInfo.ExecutableName);
 
-                var config = _gameMatcher.MatchByPath(normalizedPath, _configsByPath, _logger);
+                var config = _gameMatcher.MatchByPath(normalizedPath, _configIndex.ByPath, _logger);
                 string matchLabel = "路径匹配";
 
                 if (config is null)
                 {
-                    config = _gameMatcher.MatchByMetadata(processInfo, normalizedPath, _nameConfigs, _logger, out matchLabel);
+                    config = _gameMatcher.MatchByMetadata(processInfo, normalizedPath, _configIndex.ByName, _logger, out matchLabel);
                 }
 
                 if (config is null)
@@ -250,87 +247,12 @@ namespace GameHelper.Core.Services
 
         private void LoadAndBuildIndexes()
         {
-            _configs = _configProvider.Load();
-
-            var dataKeyMap = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-
-            var pathMap = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-            var nameStats = new Dictionary<string, (int Count, int MissingPathCount)>(StringComparer.OrdinalIgnoreCase);
-            var nameEntries = new List<NameConfigEntry>();
-
-            foreach (var config in _configs.Values)
-            {
-                if (config is null || !config.IsEnabled)
-                {
-                    continue;
-                }
-
-                if (!string.IsNullOrWhiteSpace(config.DataKey) && !dataKeyMap.TryAdd(config.DataKey, config))
-                {
-                    _logger.LogWarning(
-                        "Duplicate DataKey detected while building indexes: {DataKey}. Keeping the first entry.",
-                        config.DataKey);
-                }
-
-                var normalizedPath = PathNormalizer.NormalizePath(config.ExecutablePath);
-                if (normalizedPath is not null)
-                {
-                    if (pathMap.ContainsKey(normalizedPath))
-                    {
-                        _logger.LogWarning(
-                            "Duplicate executable path detected while building indexes: {Path}. Keeping the first entry.",
-                            normalizedPath);
-                    }
-                    else
-                    {
-                        pathMap[normalizedPath] = config;
-                    }
-                }
-
-                var normalizedName = PathNormalizer.NormalizeName(config.ExecutableName);
-                if (normalizedName is not null)
-                {
-                    if (!nameStats.TryGetValue(normalizedName, out var stat))
-                    {
-                        stat = (0, 0);
-                    }
-                    stat.Count++;
-                    if (normalizedPath is null)
-                    {
-                        stat.MissingPathCount++;
-                    }
-                    nameStats[normalizedName] = stat;
-                    nameEntries.Add(new NameConfigEntry(normalizedName, normalizedName.ToUpperInvariant(), config));
-                }
-            }
-
-            foreach (var (name, stat) in nameStats.Where(kv => kv.Value.Count > 1))
-            {
-                if (stat.MissingPathCount > 0)
-                {
-                    _logger.LogWarning(
-                        "Duplicate executable name detected while building indexes: {Name}. DuplicateCount={Count}, MissingPathCount={MissingPathCount}. Name-only matching may become ambiguous.",
-                        name,
-                        stat.Count,
-                        stat.MissingPathCount);
-                }
-                else
-                {
-                    _logger.LogDebug(
-                        "Duplicate executable name detected while building indexes: {Name}. DuplicateCount={Count}. All entries have ExecutablePath, path-first matching remains deterministic.",
-                        name,
-                        stat.Count);
-                }
-            }
-
-            _configsByDataKey = dataKeyMap;
-            _configsByPath = pathMap;
-            _nameConfigs = nameEntries.ToArray();
+            _configIndex = AutomationConfigIndex.Build(_configProvider.Load(), _logger);
         }
 
         private void UpdateHdrState()
         {
-            _hdrScheduler.Update(_sessionTracker.ActiveDataKeys, _configsByDataKey, _hdr, _logger);
+            _hdrScheduler.Update(_sessionTracker.ActiveDataKeys, _configIndex.ByDataKey, _hdr, _logger);
         }
     }
 }
