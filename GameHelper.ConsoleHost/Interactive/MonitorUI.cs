@@ -5,8 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using GameHelper.ConsoleHost.Models;
-using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
@@ -26,6 +24,7 @@ namespace GameHelper.ConsoleHost.Interactive
         private readonly IAnsiConsole _console;
         private readonly PromptUI _promptUI;
         private readonly IConfigProvider _configProvider;
+        private readonly IPlaytimeSnapshotProvider _playtimeSnapshotProvider;
         private readonly InteractiveScript? _script;
         private readonly Func<IHost, CancellationToken, Task> _monitorLoop;
         private readonly bool _dryRun;
@@ -35,6 +34,7 @@ namespace GameHelper.ConsoleHost.Interactive
             IAnsiConsole console,
             PromptUI promptUI,
             IConfigProvider configProvider,
+            IPlaytimeSnapshotProvider playtimeSnapshotProvider,
             InteractiveScript? script,
             Func<IHost, CancellationToken, Task> monitorLoop,
             bool dryRun)
@@ -43,6 +43,7 @@ namespace GameHelper.ConsoleHost.Interactive
             _console = console ?? throw new ArgumentNullException(nameof(console));
             _promptUI = promptUI ?? throw new ArgumentNullException(nameof(promptUI));
             _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
+            _playtimeSnapshotProvider = playtimeSnapshotProvider ?? throw new ArgumentNullException(nameof(playtimeSnapshotProvider));
             _script = script;
             _monitorLoop = monitorLoop ?? throw new ArgumentNullException(nameof(monitorLoop));
             _dryRun = dryRun;
@@ -364,7 +365,9 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private SessionSnapshot CaptureSessionSnapshot()
         {
-            if (!TryLoadPlaytimeData(out var items, out var source))
+            var snapshot = _playtimeSnapshotProvider.GetSnapshot();
+            var source = snapshot.SourcePath ?? string.Empty;
+            if (snapshot.Records.Count == 0)
             {
                 return new SessionSnapshot(new HashSet<SessionKey>(), new List<SessionRecord>(), source);
             }
@@ -374,7 +377,7 @@ namespace GameHelper.ConsoleHost.Interactive
             var keys = new HashSet<SessionKey>();
             var records = new List<SessionRecord>();
 
-            foreach (var item in items)
+            foreach (var item in snapshot.Records)
             {
                 var displayName = ResolveDisplayName(item.GameName, configLookup);
 
@@ -405,28 +408,5 @@ namespace GameHelper.ConsoleHost.Interactive
             return timestamp.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
         }
 
-        private static bool TryLoadPlaytimeData(out List<GameItem> items, out string source)
-        {
-            string csvFile = AppDataPath.GetPlaytimeCsvPath();
-            string jsonFile = AppDataPath.GetPlaytimeJsonPath();
-
-            if (File.Exists(csvFile))
-            {
-                items = PlaytimeDataReader.ReadFromCsv(csvFile);
-                source = csvFile;
-                return true;
-            }
-
-            if (File.Exists(jsonFile))
-            {
-                items = PlaytimeDataReader.ReadFromJson(jsonFile);
-                source = jsonFile;
-                return true;
-            }
-
-            items = new List<GameItem>();
-            source = string.Empty;
-            return false;
-        }
     }
 }

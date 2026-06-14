@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
-using GameHelper.ConsoleHost.Services;
 using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Providers;
 using Xunit;
@@ -122,7 +121,7 @@ namespace GameHelper.Tests
             File.WriteAllText(_csvFile, csvContent.ToString());
             
             // When: 读取 CSV
-            var games = PlaytimeDataReader.ReadFromCsv(_csvFile);
+            var games = new FilePlaytimeSnapshotProvider(_dir).GetPlaytimeRecords();
             
             // Then: 应按 DataKey 分组
             Assert.Equal(2, games.Count);
@@ -162,7 +161,7 @@ namespace GameHelper.Tests
             
             // When: 读取配置和 CSV
             var configs = provider.Load();
-            var games = PlaytimeDataReader.ReadFromCsv(_csvFile);
+            var games = new FilePlaytimeSnapshotProvider(_dir).GetPlaytimeRecords();
             
             // Then:
             // YamlConfigProvider returns dictionary keyed by EntryId.
@@ -239,7 +238,7 @@ namespace GameHelper.Tests
             File.WriteAllText(_csvFile, csvContent.ToString());
             
             // When: 读取 CSV
-            var games = PlaytimeDataReader.ReadFromCsv(_csvFile);
+            var games = new FilePlaytimeSnapshotProvider(_dir).GetPlaytimeRecords();
             var configs = provider.Load();
             
             // Then: 
