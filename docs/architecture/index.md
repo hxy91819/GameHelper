@@ -34,7 +34,7 @@ GameHelper.ConsoleHost    GameHelper.WinUI
 - **Catalog matching policy**: Core utilities own add/import duplicate detection so shell flows reuse one rule set.
 - **Playtime seam**: `IPlayTimeService` records sessions; `IPlaytimeSnapshotProvider` reads historical records for statistics.
 - **Automation module**: `GameAutomationService` coordinates matching, session tracking, playtime, HDR, and stop-event control.
-- **Shell modules**: CLI commands and WinUI view models should call core services rather than duplicate domain logic.
+- **Shell modules**: CLI commands and WinUI view models should call core services rather than duplicate domain logic; interactive shell composition lives in a dedicated module so routing stays separate from module construction.
 
 ## Persistence Model
 
