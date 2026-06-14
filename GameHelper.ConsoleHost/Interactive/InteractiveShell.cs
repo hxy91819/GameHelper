@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using GameHelper.ConsoleHost.Models;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
+using GameHelper.Core.Models;
 using Microsoft.Extensions.Hosting;
 using Spectre.Console;
 
@@ -198,22 +199,12 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private string GetMonitorModeDescription()
         {
-            if (_arguments.MonitorDryRun)
-            {
-                return "Dry-run（仅演练）";
-            }
-
-            if (!string.IsNullOrWhiteSpace(_arguments.MonitorType))
-            {
-                return $"{_arguments.MonitorType!.ToUpperInvariant()}（命令行指定）";
-            }
-
+            ProcessMonitorType? configuredMonitorType = null;
             try
             {
-                var appConfig = _appConfigProvider.LoadAppConfig();
-                if (appConfig.ProcessMonitorType.HasValue)
+                if (!_arguments.MonitorDryRun)
                 {
-                    return $"{appConfig.ProcessMonitorType.Value}（配置文件）";
+                    configuredMonitorType = _appConfigProvider.LoadAppConfig().ProcessMonitorType;
                 }
             }
             catch
@@ -221,7 +212,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 // Ignore configuration load failures for display purposes.
             }
 
-            return "WMI（默认）";
+            return MonitorModeSelection.Resolve(_arguments, configuredMonitorType).GetDisplayText();
         }
     }
 }
