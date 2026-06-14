@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using GameHelper.Core.Abstractions;
 
 namespace GameHelper.Core.Utilities;
 
@@ -16,18 +15,17 @@ public static class DataKeyGenerator
     /// </summary>
     /// <param name="exePath">Full path to the executable file.</param>
     /// <param name="productName">Optional product name from metadata.</param>
-    /// <param name="configProvider">Config provider to check for existing keys.</param>
+    /// <param name="existingDataKeys">Existing DataKeys to check for uniqueness.</param>
     /// <returns>A unique DataKey string.</returns>
     public static string GenerateUniqueDataKey(
         string exePath,
         string? productName,
-        IConfigProvider configProvider)
+        IEnumerable<string> existingDataKeys)
     {
-        ArgumentNullException.ThrowIfNull(configProvider);
+        ArgumentNullException.ThrowIfNull(existingDataKeys);
 
         var baseKey = GenerateBaseDataKey(exePath, productName);
-        var existingKeys = configProvider.Load().Values.Select(c => c.DataKey);
-        return ConfigIdentity.EnsureUniqueDataKey(baseKey, existingKeys);
+        return ConfigIdentity.EnsureUniqueDataKey(baseKey, existingDataKeys);
     }
 
     /// <summary>
