@@ -4,7 +4,6 @@ using System.IO;
 using GameHelper.ConsoleHost.Commands;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
-using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Xunit;
 
@@ -14,7 +13,6 @@ namespace GameHelper.Tests
     {
         private readonly Mock<IConfigProvider> _mockConfigProvider;
         private readonly IGameCatalogService _gameCatalogService;
-        private readonly IServiceProvider _serviceProvider;
         private readonly StringWriter _consoleOutput;
         private Dictionary<string, GameConfig> _configData;
 
@@ -27,17 +25,6 @@ namespace GameHelper.Tests
                 .Callback<IReadOnlyDictionary<string, GameConfig>>(data => _configData = new Dictionary<string, GameConfig>(data));
             _gameCatalogService = new GameHelper.Core.Services.GameCatalogService(_mockConfigProvider.Object);
 
-            var mockServiceProvider = new Mock<IServiceProvider>();
-            var mockScope = new Mock<IServiceScope>();
-            var mockScopeFactory = new Mock<IServiceScopeFactory>();
-
-            mockScope.Setup(s => s.ServiceProvider).Returns(mockServiceProvider.Object);
-            mockScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
-            mockServiceProvider.Setup(p => p.GetService(typeof(IServiceScopeFactory))).Returns(mockScopeFactory.Object);
-            mockServiceProvider.Setup(p => p.GetService(typeof(IGameCatalogService))).Returns(_gameCatalogService);
-
-            _serviceProvider = mockServiceProvider.Object;
-
             _consoleOutput = new StringWriter();
             Console.SetOut(_consoleOutput);
         }
@@ -46,7 +33,7 @@ namespace GameHelper.Tests
         public void Add_WithValidName_SavesToConfig()
         {
             var gameName = "test.exe";
-            ConfigCommand.Run(_serviceProvider, new[] { "add", gameName });
+            ConfigCommand.Run(_gameCatalogService, new[] { "add", gameName });
 
             var cfg = Assert.Single(_configData.Values);
             Assert.Equal(gameName, cfg.DataKey);
@@ -63,7 +50,7 @@ namespace GameHelper.Tests
         [InlineData(null)]
         public void Add_WithInvalidName_DoesNotSaveAndPrintsError(string? gameName)
         {
-            ConfigCommand.Run(_serviceProvider, new[] { "add", gameName! });
+            ConfigCommand.Run(_gameCatalogService, new[] { "add", gameName! });
 
             Assert.Empty(_configData);
             Assert.Equal("Game name cannot be empty.", _consoleOutput.ToString().Trim());
@@ -76,7 +63,7 @@ namespace GameHelper.Tests
             var gameName = "test.exe";
             _configData[gameName] = new GameConfig { DataKey = gameName, ExecutableName = gameName };
 
-            ConfigCommand.Run(_serviceProvider, new[] { "remove", gameName });
+            ConfigCommand.Run(_gameCatalogService, new[] { "remove", gameName });
 
             Assert.DoesNotContain(gameName, _configData.Keys);
             Assert.Equal($"Removed {gameName}.", _consoleOutput.ToString().Trim());
@@ -89,7 +76,7 @@ namespace GameHelper.Tests
             _configData["a.exe"] = new GameConfig { DataKey = "a.exe", ExecutableName = "a.exe", IsEnabled = true, HDREnabled = true };
             _configData["b.exe"] = new GameConfig { DataKey = "b.exe", ExecutableName = "b.exe", IsEnabled = false, HDREnabled = false };
 
-            ConfigCommand.Run(_serviceProvider, new[] { "list" });
+            ConfigCommand.Run(_gameCatalogService, new[] { "list" });
 
             var output = _consoleOutput.ToString();
             Assert.Contains("a.exe  Enabled=True  HDR=True", output);

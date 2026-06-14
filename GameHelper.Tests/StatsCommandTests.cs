@@ -1,7 +1,6 @@
 using GameHelper.ConsoleHost.Commands;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace GameHelper.Tests;
 
@@ -10,16 +9,14 @@ public sealed class StatsCommandTests
     [Fact]
     public void Run_WhenStatisticsServiceThrows_ShouldPrintFriendlyError()
     {
-        var services = new ServiceCollection()
-            .AddSingleton<IStatisticsService, ThrowingStatisticsService>()
-            .BuildServiceProvider();
+        var statisticsService = new ThrowingStatisticsService();
 
         var writer = new StringWriter();
         var originalOut = Console.Out;
         try
         {
             Console.SetOut(writer);
-            StatsCommand.Run(services, Array.Empty<string>());
+            StatsCommand.Run(statisticsService, Array.Empty<string>());
         }
         finally
         {
@@ -33,16 +30,14 @@ public sealed class StatsCommandTests
     [Fact]
     public void Run_WhenNoStats_ShouldPrintNoDataMessage()
     {
-        var services = new ServiceCollection()
-            .AddSingleton<IStatisticsService>(new EmptyStatisticsService())
-            .BuildServiceProvider();
+        var statisticsService = new EmptyStatisticsService();
 
         var writer = new StringWriter();
         var originalOut = Console.Out;
         try
         {
             Console.SetOut(writer);
-            StatsCommand.Run(services, Array.Empty<string>());
+            StatsCommand.Run(statisticsService, Array.Empty<string>());
         }
         finally
         {

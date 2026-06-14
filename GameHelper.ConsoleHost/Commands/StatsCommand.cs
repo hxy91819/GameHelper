@@ -2,14 +2,15 @@ using System.Text;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace GameHelper.ConsoleHost.Commands;
 
 public static class StatsCommand
 {
-    public static void Run(IServiceProvider services, string[] args)
+    public static void Run(IStatisticsService statisticsService, string[] args)
     {
+        ArgumentNullException.ThrowIfNull(statisticsService);
+
         string? filterGame = null;
         if (args.Length >= 2 && args[0] == "--game")
         {
@@ -18,9 +19,6 @@ public static class StatsCommand
 
         try
         {
-            using var scope = services.CreateScope();
-            var statisticsService = scope.ServiceProvider.GetRequiredService<IStatisticsService>();
-
             var list = string.IsNullOrWhiteSpace(filterGame)
                 ? statisticsService.GetOverview()
                 : statisticsService.GetDetails(filterGame) is { } details
