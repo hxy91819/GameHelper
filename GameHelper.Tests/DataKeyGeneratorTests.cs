@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 using Moq;
 using Xunit;
 
