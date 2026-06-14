@@ -7,16 +7,8 @@ using GameHelper.ConsoleHost.Interactive;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
-using GameHelper.Core.Models;
-using GameHelper.Core.Services;
-using GameHelper.Infrastructure.Controllers;
-using GameHelper.Infrastructure.Processes;
-using GameHelper.Infrastructure.Providers;
-using GameHelper.Infrastructure.Resolvers;
-using GameHelper.Infrastructure.Startup;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 ConsoleEncoding.EnsureUtf8();
 
@@ -51,121 +43,7 @@ if (startupMode == StartupMode.ExitAlreadyRunning)
 }
 
 // Build host with dependency injection
-var host = Host.CreateDefaultBuilder(args)
-    .ConfigureLogging(logging =>
-    {
-        logging.ClearProviders();
-        logging.AddConsole();
-        logging.SetMinimumLevel(parsedArgs.EnableDebug ? LogLevel.Debug : LogLevel.Information);
-    })
-    .ConfigureServices(services =>
-    {
-        // Register core abstractions with infrastructure implementations
-        // Config provider first, as the process monitor will read enabled game names to build a whitelist
-        services.AddSingleton<IConfigProvider>(sp =>
-        {
-            if (!string.IsNullOrWhiteSpace(parsedArgs.ConfigOverride))
-            {
-                return new YamlConfigProvider(parsedArgs.ConfigOverride!);
-            }
-
-            return new YamlConfigProvider();
-        });
-        services.AddSingleton<IAppConfigProvider>(sp => (YamlConfigProvider)sp.GetRequiredService<IConfigProvider>());
-        services.AddSingleton<IProcessMonitor>(sp =>
-        {
-            var logger = sp.GetRequiredService<ILogger<Program>>();
-            if (parsedArgs.MonitorDryRun)
-            {
-                logger.LogInformation("Monitor dry-run enabled; using no-op process monitor.");
-                return ProcessMonitorFactory.CreateNoOp();
-            }
-
-            var appConfigProvider = sp.GetRequiredService<IAppConfigProvider>();
-            var appConfig = appConfigProvider.LoadAppConfig();
-
-            // Determine monitor type: command line > config file > default (ETW)
-            ProcessMonitorType monitorType = ProcessMonitorType.ETW; // default
-
-            if (!string.IsNullOrWhiteSpace(parsedArgs.MonitorType))
-            {
-                if (Enum.TryParse<ProcessMonitorType>(parsedArgs.MonitorType, true, out var cmdLineType))
-                {
-                    monitorType = cmdLineType;
-                    logger.LogInformation("Using monitor type from command line: {MonitorType}", monitorType);
-                }
-                else
-                {
-                    logger.LogWarning("Invalid monitor type '{MonitorType}' specified in command line, using default ETW", parsedArgs.MonitorType);
-                }
-            }
-            else if (appConfig.ProcessMonitorType.HasValue)
-            {
-                monitorType = appConfig.ProcessMonitorType.Value;
-                logger.LogInformation("Using monitor type from config: {MonitorType}", monitorType);
-            }
-            else
-            {
-                logger.LogInformation("Using default monitor type: {MonitorType}", monitorType);
-            }
-
-            // Get enabled games for whitelist (no filtering at monitor level - let GameAutomationService handle it)
-            var configProvider = sp.GetRequiredService<IConfigProvider>();
-            var gameConfigs = configProvider.Load();
-            _ = gameConfigs
-                .Where(kv => kv.Value?.IsEnabled == true)
-                .Select(kv => kv.Key)
-                .ToArray();
-
-            // Create monitor with fallback support
-            try
-            {
-                return ProcessMonitorFactory.CreateWithFallback(monitorType, null, logger);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to create process monitor, falling back to no-op");
-                return ProcessMonitorFactory.CreateNoOp();
-            }
-        });
-
-        if (OperatingSystem.IsWindows())
-        {
-            services.AddSingleton<IHdrController, WindowsHdrController>();
-        }
-        else
-        {
-            services.AddSingleton<IHdrController, NoOpHdrController>();
-        }
-
-        services.AddSingleton<IPlayTimeService, CsvBackedPlayTimeService>();
-        services.AddSingleton<IAutoStartManager>(sp =>
-        {
-            if (OperatingSystem.IsWindows())
-            {
-                return new WindowsAutoStartManager(sp.GetRequiredService<ILogger<WindowsAutoStartManager>>());
-            }
-
-            return new NoOpAutoStartManager();
-        });
-        services.AddSingleton<IGameAutomationService, GameAutomationService>();
-        services.AddSingleton<IMonitorControlService, MonitorControlService>();
-        services.AddSingleton<ISettingsService, SettingsService>();
-        services.AddSingleton<IGameCatalogService, GameCatalogService>();
-        services.AddSingleton<IPlaytimeSnapshotProvider, FilePlaytimeSnapshotProvider>();
-        services.AddSingleton<IStatisticsService, StatisticsService>();
-        // Steam URL resolver for optional .url drag&drop support
-        services.AddSingleton<ISteamGameResolver, SteamGameResolver>();
-
-        services.AddSingleton<IFileDropProcessor, DefaultFileDropProcessor>();
-        services.AddSingleton<IFileDropRequestHandler, FileDropRequestHandler>();
-        services.AddSingleton<FileDropIpcServer>();
-        services.AddSingleton<IFileDropIpcServer>(sp => sp.GetRequiredService<FileDropIpcServer>());
-        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<FileDropIpcServer>());
-
-        services.AddHostedService<Worker>();
-    })
-    .Build();
+var host = ConsoleHostBootstrapper.CreateBuilder(args, parsedArgs).Build();
 
 // Print effective config file path and build info
 try

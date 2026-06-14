@@ -25,12 +25,12 @@ Added in this stage:
 
 - YAML `Save()` preserves global app settings when replacing the game list.
 - `GameAutomationService` is covered with the current CSV-backed playtime adapter, proving matched `DataKey` values are persisted to `playtime.csv`.
+- Console host DI composition is covered through `ConsoleHostBootstrapper`, including config override and monitor dry-run registration.
 - Local Markdown links in `docs/` and `README.md` must remain valid while documents are archived or rewritten.
 
 Still recommended before deeper refactors:
 
 - A non-interactive console-host smoke test for command dispatch, after startup side effects are isolated from registry auto-start updates.
-- A composition-root test once host construction is extracted from top-level `Program.cs`.
 - Documentation structure tests for the final active/archive split after the docs cleanup pass.
 
 ## Documentation Convergence Rules

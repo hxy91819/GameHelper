@@ -30,5 +30,5 @@ For narrow iterations, run the smallest relevant `dotnet test --filter ...` firs
 
 ## Known Gaps
 
-- The top-level console host composition is still hard to test directly because `Program.cs` mixes host creation, command dispatch, single-instance handling, and Windows auto-start side effects.
-- A future refactor should extract host construction and command dispatch into testable modules before adding broad console-host process smoke tests.
+- Console host construction is covered through `ConsoleHostBootstrapper`, but command dispatch still lives in top-level `Program.cs`.
+- A future refactor should extract command dispatch and startup side effects before adding broad console-host process smoke tests.
