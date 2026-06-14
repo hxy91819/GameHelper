@@ -62,10 +62,10 @@ public sealed class GameCatalogService : IGameCatalogService
             throw new ArgumentException("ExecutableName is required.", nameof(request));
         }
 
-        var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
+        var configs = CreateWorkingMapByEntryId(_configProvider.Load());
         var requestedDataKey = string.IsNullOrWhiteSpace(request.DataKey) ? executableName : request.DataKey;
         var dataKey = ConfigIdentity.EnsureUniqueDataKey(requestedDataKey, configs.Values.Select(v => v.DataKey));
-        var entryId = ConfigIdentity.EnsureEntryId(null);
+        var entryId = CreateNewEntryId(configs.Values);
 
         var config = new GameConfig
         {
@@ -94,7 +94,7 @@ public sealed class GameCatalogService : IGameCatalogService
         var configs = CreateWorkingMapByEntryId(_configProvider.Load());
         var existing = ConfigEntryMatcher.FindExistingForAdd(configs.Values, executableName, request.ExecutablePath);
         var entryId = existing is null
-            ? ConfigIdentity.EnsureEntryId(null)
+            ? CreateNewEntryId(configs.Values)
             : ConfigIdentity.EnsureEntryId(existing.EntryId);
         var requestedDataKey = string.IsNullOrWhiteSpace(request.DataKey) ? executableName : request.DataKey;
         var dataKey = ResolveRequestedDataKey(requestedDataKey, configs.Values, entryId);
@@ -152,7 +152,7 @@ public sealed class GameCatalogService : IGameCatalogService
         var dataKey = ConfigIdentity.EnsureUniqueDataKey(
             request.BaseDataKey ?? executableName,
             configs.Values.Select(c => c.DataKey));
-        var entryId = ConfigIdentity.EnsureEntryId(null);
+        var entryId = CreateNewEntryId(configs.Values);
         var config = new GameConfig
         {
             EntryId = entryId,
@@ -270,6 +270,18 @@ public sealed class GameCatalogService : IGameCatalogService
     {
         return configs.FirstOrDefault(config =>
             string.Equals(config.DataKey, dataKey, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string CreateNewEntryId(IEnumerable<GameConfig> configs)
+    {
+        var usedEntryIds = new HashSet<string>(
+            configs
+                .Select(config => config.EntryId)
+                .Where(entryId => !string.IsNullOrWhiteSpace(entryId))
+                .Select(entryId => entryId!.Trim()),
+            StringComparer.OrdinalIgnoreCase);
+
+        return ConfigIdentity.EnsureUniqueEntryId(null, usedEntryIds);
     }
 
     private static string EnsureExistingDataKey(GameConfig existing, IEnumerable<GameConfig> allConfigs, string baseDataKey)

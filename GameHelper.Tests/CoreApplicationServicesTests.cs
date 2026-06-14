@@ -81,6 +81,36 @@ public sealed class CoreApplicationServicesTests
     }
 
     [Fact]
+    public void GameCatalogService_Add_ShouldRepairStorageByEntryId()
+    {
+        var provider = new FakeConfigProvider();
+        var service = new GameCatalogService(provider);
+        provider.Save(new Dictionary<string, GameConfig>
+        {
+            ["legacy-key"] = new()
+            {
+                DataKey = "legacy",
+                ExecutableName = "legacy.exe",
+                IsEnabled = true
+            }
+        });
+
+        var created = service.Add(new GameEntryUpsertRequest
+        {
+            ExecutableName = "new.exe",
+            IsEnabled = true
+        });
+
+        Assert.Equal("new.exe", created.DataKey);
+        Assert.Equal(2, provider.Load().Count);
+        Assert.All(provider.Load(), pair =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(pair.Value.EntryId));
+            Assert.Equal(pair.Value.EntryId, pair.Key);
+        });
+    }
+
+    [Fact]
     public void GameCatalogService_Update_ShouldRepairStorageByEntryId()
     {
         var provider = new FakeConfigProvider();
