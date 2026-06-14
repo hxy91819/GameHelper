@@ -364,13 +364,13 @@ namespace GameHelper.ConsoleHost.Interactive
             _console.MarkupLine($"[green]已保存[/]：{Markup.Escape(executableName)} (DataKey: {Markup.Escape(dataKey)})");
         }
 
-        private async Task EditGameAsync()
+        private Task EditGameAsync()
         {
             var configs = LoadConfigs();
             if (configs.Count == 0)
             {
                 _console.MarkupLine("[italic grey]没有可以修改的游戏。[/]");
-                return;
+                return Task.CompletedTask;
             }
 
             var title = "选择需要修改的游戏";
@@ -392,7 +392,7 @@ namespace GameHelper.ConsoleHost.Interactive
             if (cfg is null || string.IsNullOrWhiteSpace(entryId))
             {
                 _console.MarkupLine("[red]未找到对应的配置。[/]");
-                return;
+                return Task.CompletedTask;
             }
 
             // Display current configuration
@@ -419,6 +419,7 @@ namespace GameHelper.ConsoleHost.Interactive
             pathInput = pathInput.Trim().Trim('"');
 
             string? newExecutablePath = cfg.ExecutablePath;
+            var clearExecutablePath = false;
             if (!string.IsNullOrWhiteSpace(pathInput) && pathInput != cfg.ExecutablePath)
             {
                 if (File.Exists(pathInput))
@@ -450,6 +451,7 @@ namespace GameHelper.ConsoleHost.Interactive
                          string.Equals(pathInput, "remove", StringComparison.OrdinalIgnoreCase))
                 {
                     newExecutablePath = null;
+                    clearExecutablePath = true;
                     _console.MarkupLine("[grey]已清除可执行文件路径。[/]");
                 }
                 else
@@ -490,23 +492,32 @@ namespace GameHelper.ConsoleHost.Interactive
             cfg.IsEnabled = string.Equals(enable, "启用", StringComparison.Ordinal);
             cfg.HDREnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal);
 
-            cfg.EntryId = string.IsNullOrWhiteSpace(cfg.EntryId) ? entryId : cfg.EntryId;
-            configs[entryId] = cfg;
-            await PersistAsync(configs).ConfigureAwait(false);
+            var updated = _gameCatalogService.Update(cfg.DataKey, new GameEntryUpsertRequest
+            {
+                ExecutableName = cfg.ExecutableName,
+                ExecutablePath = cfg.ExecutablePath,
+                ClearExecutablePath = clearExecutablePath,
+                DisplayName = cfg.DisplayName,
+                ClearDisplayName = string.IsNullOrWhiteSpace(displayName),
+                IsEnabled = cfg.IsEnabled,
+                HdrEnabled = cfg.HDREnabled
+            });
             _console.MarkupLine("[green]配置已更新。[/]");
 
             // Display updated configuration
             _console.WriteLine();
             _console.MarkupLine("[yellow]更新后的配置：[/]");
-            _console.MarkupLine($"  DataKey: {Markup.Escape(cfg.DataKey)}");
-            if (!string.IsNullOrWhiteSpace(cfg.ExecutablePath))
+            _console.MarkupLine($"  DataKey: {Markup.Escape(updated.DataKey)}");
+            if (!string.IsNullOrWhiteSpace(updated.ExecutablePath))
             {
-                _console.MarkupLine($"  完整路径: {Markup.Escape(cfg.ExecutablePath)}");
+                _console.MarkupLine($"  完整路径: {Markup.Escape(updated.ExecutablePath)}");
             }
-            if (!string.IsNullOrWhiteSpace(cfg.DisplayName))
+            if (!string.IsNullOrWhiteSpace(updated.DisplayName))
             {
-                _console.MarkupLine($"  显示名称: {Markup.Escape(cfg.DisplayName)}");
+                _console.MarkupLine($"  显示名称: {Markup.Escape(updated.DisplayName)}");
             }
+
+            return Task.CompletedTask;
         }
 
         private async Task RemoveGameAsync()

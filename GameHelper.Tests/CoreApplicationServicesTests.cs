@@ -55,6 +55,32 @@ public sealed class CoreApplicationServicesTests
     }
 
     [Fact]
+    public void GameCatalogService_Update_ShouldClearOptionalFields()
+    {
+        var provider = new FakeConfigProvider();
+        var service = new GameCatalogService(provider);
+
+        _ = service.Add(new GameEntryUpsertRequest
+        {
+            ExecutableName = "clear.exe",
+            ExecutablePath = @"C:\Games\clear.exe",
+            DisplayName = "Clear Me",
+            IsEnabled = true
+        });
+
+        var updated = service.Update("clear.exe", new GameEntryUpsertRequest
+        {
+            ExecutableName = "clear.exe",
+            ClearExecutablePath = true,
+            ClearDisplayName = true,
+            IsEnabled = true
+        });
+
+        Assert.Null(updated.ExecutablePath);
+        Assert.Null(updated.DisplayName);
+    }
+
+    [Fact]
     public void StatisticsService_ShouldAggregateSessions()
     {
         var provider = new FakeConfigProvider();
