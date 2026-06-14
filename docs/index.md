@@ -1,25 +1,20 @@
 # GameHelper Docs
 
-`docs/` 是项目文档的主目录，用来定义项目行为、设计和开发规范。
+`docs/` is the source of truth for current product behaviour, repository design, and long-lived engineering standards. Historical plans, reviews, and implementation notes belong under `docs/archives/`.
 
-## 职责范围
+## Active Documents
 
-- 产品行为与范围：记录系统要做什么、不做什么，以及当前交付状态。
-- 架构与设计：记录当前实现结构、关键约束、依赖关系和运维方式。
-- 开发规范：记录可持续维护的工程约定，而不是一次性提示。
-- 计划与归档：区分未完成方案和已经完成的历史材料。
+- [Architecture](./architecture/index.md): current repository design, module seams, dependency direction, and testing strategy.
+- [CLI Guide](./guides/cli.md): user-facing command-line usage.
+- [PRD](./prd/index.md): product goals and current scope.
+- [Refactor Safety Plan](./refactor-safety.md): decisions and test gaps for the current large refactor.
+- [Plans](./plans/index.md): only active, not-yet-landed proposals.
+- [Archives](./archives/index.md): historical material retained for traceability, not current truth.
 
-## 目录导航
+## Maintenance Rules
 
-- [PRD](./prd/index.md)：产品目标、范围、史诗状态。
-- [Architecture](./architecture/index.md)：架构、技术栈、开发与测试约束。
-- [Guides](./guides/cli.md)：当前有效的 CLI 使用说明。
-- [Plans](./plans/index.md)：未完成、未批准或待排期的方案。
-- [Archives](./archives/index.md)：已完成故事、QA、复盘和历史总结。
-
-## 维护原则
-
-- `docs/` 中的活文档应作为项目行为和设计的单一事实来源。
-- 对用户可见的使用方式变化，需同时更新 `README.md`。
-- 对开发规则的长期约定，优先写入 `docs/architecture/` 下的规范文档，而不是堆进 `AGENTS.md`。
-- 历史过程材料应归档，不应继续混在活文档路径下。
+- Keep active docs short and stable; prefer design intent, ownership, and constraints over class-by-class inventories.
+- Do not duplicate implementation details that are easy to read from code and likely to drift during refactors.
+- Move completed plans, review rounds, sprint notes, and stale TODOs to `docs/archives/`.
+- Update `README.md` and `docs/guides/cli.md` for user-visible CLI or configuration changes.
+- Update `docs/architecture/` for durable changes to module seams, dependency direction, persistence, lifecycle, or testing policy.

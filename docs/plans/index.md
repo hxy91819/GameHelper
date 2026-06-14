@@ -1,13 +1,11 @@
-# 计划目录
+# Plans
 
-本目录保留尚未完成、仍在讨论或等待排期的方案。
+This directory only keeps proposals that are not yet implemented, not yet accepted, or still awaiting scheduling.
 
-## 当前计划
+## Active Plans
 
-- [speed.md](./speed.md)：倍速功能的技术调研与方案草案，尚未进入正式 PRD/架构主线。
+- [speed.md](./speed.md): speed-control research and implementation proposal; not part of the current product baseline.
 
-## 进入归档的条件
+## Archive Policy
 
-- 方案已明确放弃。
-- 方案已正式落地，并且相关结论已经同步到 PRD、架构或用户指南。
-- 文档仅剩阶段性讨论价值，不再需要持续维护。
+Move a plan to `docs/archives/plans/` when it is implemented, rejected, or no longer useful as an active design input.

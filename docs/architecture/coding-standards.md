@@ -93,4 +93,4 @@
 ## 10. 例外管理
 
 - 例外必须在 PR 中列明，并在合并前得到架构组批准。
-- 合并后将例外记录在 `docs/architecture/7-technical-debt-and-known-issues.md`，并标注跟踪工单。
+- 合并后将例外记录在当前架构文档或 `docs/refactor-safety.md`，并标注跟踪工单。
