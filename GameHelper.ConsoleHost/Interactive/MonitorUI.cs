@@ -106,7 +106,7 @@ namespace GameHelper.ConsoleHost.Interactive
             }
             finally
             {
-                monitorCts.Cancel();
+                await monitorCts.CancelAsync().ConfigureAwait(false);
 
                 try
                 {

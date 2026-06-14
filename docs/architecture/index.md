@@ -23,7 +23,7 @@ GameHelper.ConsoleHost    GameHelper.WinUI
 
 - **Configuration**: shells call core catalog/settings services; infrastructure persists `config.yml`.
 - **Monitoring**: `MonitorControlService` starts the process monitor and `GameAutomationService` as a lifecycle pair.
-- **Automation**: process events are matched by path first, metadata second; active game sessions drive playtime tracking and HDR scheduling.
+- **Automation**: process events are matched by path first, metadata second; active game sessions drive playtime tracking and HDR scheduling. HDR scheduling only rolls back HDR changes made by GameHelper itself.
 - **Statistics**: playtime records are read from local files and joined to current config by stable `DataKey`.
 - **File drop**: duplicate app launches forward dropped files to the running console process, which updates config and reloads automation.
 

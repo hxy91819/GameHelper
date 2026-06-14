@@ -65,7 +65,7 @@ games:
     executableName: "witcher3.exe"
     displayName: "巫师3"
     isEnabled: true
-    hdrEnabled: false
+    hDREnabled: false
 ```
 
 字段说明：
@@ -74,6 +74,7 @@ games:
 - `executablePath`：路径精确匹配使用的完整路径。
 - `executableName`：旧配置或回退匹配使用的可执行文件名。
 - `displayName`：界面显示名称。
+- `hDREnabled`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
 
 ## 拖放添加游戏
 

@@ -1,6 +1,6 @@
 # Tech Stack
 
-> 维护者：架构组（Winston） · 最近更新：2025-11-10
+> 维护者：架构组（Winston） · 最近更新：2026-06-14
 
 本文件记录 GameHelper 目前采用的技术栈与关键依赖，供开发、QA、运维快速查阅。任何依赖版本或平台策略的调整，都必须同步更新此文档与 `Directory.Build.props`。
 
@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | .NET 运行时 | **.NET 8.0** (`net8.0-windows`) | 强制目标框架。核心功能依赖 Windows API（WMI/ETW），非 Windows 环境仅支持 `--monitor-dry-run` 模式。|
 | 操作系统 | Windows 11 (64-bit) | 开发、测试、发布默认平台；ETW 监控需管理员权限。|
-| 编译工具链 | `dotnet sdk 8.0.x` | VS 2022、VS Code + C# 扩展兼容。|
+| 编译工具链 | `dotnet sdk 8.0.417` (`global.json`, `latestPatch`) | VS 2022、VS Code + C# 扩展兼容。|
 
 ## 2. Application Framework & Libraries
 

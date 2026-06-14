@@ -49,14 +49,10 @@ internal static class PathNormalizer
 
         if (TryResolveWindowsPath(executablePath, out var windowsPath, out _))
         {
-            if (windowsPath.Length > 3 &&
-                windowsPath[1] == ':' &&
-                windowsPath.EndsWith("\\", StringComparison.Ordinal))
-            {
-                windowsPath = windowsPath.TrimEnd('\\');
-            }
-            else if (windowsPath.StartsWith("\\\\", StringComparison.Ordinal) &&
-                     windowsPath.EndsWith("\\", StringComparison.Ordinal))
+            var canTrimTrailingSeparator =
+                (windowsPath.Length > 3 && windowsPath[1] == ':') ||
+                windowsPath.StartsWith("\\\\", StringComparison.Ordinal);
+            if (canTrimTrailingSeparator && windowsPath.EndsWith("\\", StringComparison.Ordinal))
             {
                 windowsPath = windowsPath.TrimEnd('\\');
             }

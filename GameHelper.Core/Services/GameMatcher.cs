@@ -13,7 +13,7 @@ namespace GameHelper.Core.Services;
 /// <summary>
 /// 根据进程事件信息和配置索引，执行 L1 精确路径匹配和 L2 模糊元数据匹配。
 /// </summary>
-internal sealed class GameMatcher
+internal static class GameMatcher
 {
     private const int ShortNameThreshold = 95;
     private const int MediumNameThreshold = 90;
@@ -22,7 +22,7 @@ internal sealed class GameMatcher
     /// <summary>
     /// L1 精确路径匹配。
     /// </summary>
-    public GameConfig? MatchByPath(
+    public static GameConfig? MatchByPath(
         string? normalizedPath,
         IReadOnlyDictionary<string, GameConfig> configsByPath,
         ILogger logger)
@@ -44,7 +44,7 @@ internal sealed class GameMatcher
     /// <summary>
     /// L2 模糊元数据匹配：基于文件 ProductName 或 ExecutableName 进行模糊匹配。
     /// </summary>
-    public GameConfig? MatchByMetadata(
+    public static GameConfig? MatchByMetadata(
         ProcessEventInfo processInfo,
         string? normalizedPath,
         NameConfigEntry[] candidates,
@@ -221,7 +221,7 @@ internal sealed class GameMatcher
     /// <summary>
     /// 检查进程路径是否命中系统路径黑名单。
     /// </summary>
-    internal bool IsSystemPath(string processPath, ILogger logger)
+    internal static bool IsSystemPath(string processPath, ILogger logger)
     {
         if (string.IsNullOrWhiteSpace(processPath))
         {
@@ -273,7 +273,7 @@ internal sealed class GameMatcher
     /// <summary>
     /// 验证进程路径是否与配置路径相关（位于同一目录树）。
     /// </summary>
-    internal bool IsPathRelated(string processPath, string? configPath, ILogger logger)
+    internal static bool IsPathRelated(string processPath, string? configPath, ILogger logger)
     {
         if (string.IsNullOrWhiteSpace(configPath))
         {
@@ -321,7 +321,7 @@ internal sealed class GameMatcher
         }
     }
 
-    internal string? TryGetProductName(string? executablePath, ILogger logger)
+    internal static string? TryGetProductName(string? executablePath, ILogger logger)
     {
         if (string.IsNullOrWhiteSpace(executablePath))
         {

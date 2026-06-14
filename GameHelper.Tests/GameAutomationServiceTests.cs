@@ -204,7 +204,7 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void GameConfiguredToDisableHdr_TogglesOffIfHdrWasEnabled()
+        public void GameConfiguredWithoutHdr_DoesNotDisablePreExistingHdr()
         {
             var monitor = new FakeMonitor();
             var cfg = new FakeConfig(Dict(("sdr.exe", true, false)));
@@ -218,11 +218,34 @@ namespace GameHelper.Tests
 
             monitor.RaiseStart(new ProcessEventInfo("sdr.exe", null));
 
-            Assert.Equal(1, hdr.DisableCalls);
-            Assert.False(hdr.IsEnabled);
+            Assert.Equal(0, hdr.DisableCalls);
+            Assert.True(hdr.IsEnabled);
 
             monitor.RaiseStop(new ProcessEventInfo("sdr.exe", null));
-            Assert.Equal(1, hdr.DisableCalls);
+            Assert.Equal(0, hdr.DisableCalls);
+            Assert.True(hdr.IsEnabled);
+        }
+
+        [Fact]
+        public void HdrEnabledGame_DoesNotDisableHdrThatWasAlreadyEnabledByUser()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new FakeConfig(Dict(("hdr.exe", true, true)));
+            var hdr = new FakeHdr();
+            hdr.SetState(true); // user already enabled HDR before GameHelper observed the game
+            var play = new FakePlayTime();
+            var logger = NullLogger<GameAutomationService>.Instance;
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+
+            svc.Start();
+
+            monitor.RaiseStart(new ProcessEventInfo("hdr.exe", null));
+            Assert.Equal(0, hdr.EnableCalls);
+            Assert.True(hdr.IsEnabled);
+
+            monitor.RaiseStop(new ProcessEventInfo("hdr.exe", null));
+            Assert.Equal(0, hdr.DisableCalls);
+            Assert.True(hdr.IsEnabled);
         }
 
         [Fact]
@@ -338,6 +361,29 @@ namespace GameHelper.Tests
 
             var entry = Assert.Single(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("游玩时长"));
             Assert.Contains("15秒", entry.Message);
+        }
+
+        [Fact]
+        public void UnmatchedStopEvent_LogsDebugInsteadOfWarning()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new FakeConfig(Dict(("game.exe", true, false)));
+            var hdr = new FakeHdr();
+            var play = new FakePlayTime();
+            var logger = new ListLogger<GameAutomationService>();
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+
+            svc.Start();
+            monitor.RaiseStop(new ProcessEventInfo("chrome.exe", "chrome.exe"));
+
+            Assert.Contains(
+                logger.Entries,
+                e => e.Level == LogLevel.Debug &&
+                     e.Message.Contains("Stop ignored, no active record", StringComparison.Ordinal));
+            Assert.DoesNotContain(
+                logger.Entries,
+                e => e.Level == LogLevel.Warning &&
+                     e.Message.Contains("Stop ignored, no active record", StringComparison.Ordinal));
         }
 
         [Fact]

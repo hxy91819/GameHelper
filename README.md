@@ -13,8 +13,8 @@ GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、
 
 ### 环境要求
 - Windows 10 (19041+) / Windows 11
-- .NET 8 SDK
-- （仅 WinUI 运行）Windows App SDK 1.6+
+- .NET 8 SDK（当前仓库通过 `global.json` 锁定 `8.0.417`，允许 `latestPatch` 滚动）
+- （仅 WinUI 运行）Windows App SDK 1.6+（当前项目引用 `Microsoft.WindowsAppSDK` `1.6.250205002`）
 
 ### 常用 CLI 命令
 
@@ -84,12 +84,13 @@ games:
     executableName: "witcher3.exe"
     displayName: "巫师3"
     isEnabled: true
-    hdrEnabled: false
+    hDREnabled: false
 ```
 
 说明：
 - `entryId`：配置条目的内部唯一标识（自动生成）。
 - `dataKey`：统计主键，写入 `playtime.csv` 的 `game` 字段，必须全局唯一。
+- `hDREnabled`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
 
 ## 项目结构
 - `GameHelper.WinUI`：WinUI 桌面入口

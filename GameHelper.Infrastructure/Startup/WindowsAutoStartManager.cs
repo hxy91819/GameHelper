@@ -84,7 +84,7 @@ namespace GameHelper.Infrastructure.Startup
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to update auto-start registry value");
-                throw;
+                throw new InvalidOperationException("Failed to update auto-start registry value.", ex);
             }
         }
 

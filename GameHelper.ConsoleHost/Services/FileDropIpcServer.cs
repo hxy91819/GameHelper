@@ -57,6 +57,7 @@ internal sealed class FileDropIpcServer : IHostedService, IFileDropIpcServer, ID
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        CancellationTokenSource? cts;
         Task? loopTask;
         lock (_sync)
         {
@@ -66,8 +67,13 @@ internal sealed class FileDropIpcServer : IHostedService, IFileDropIpcServer, ID
             }
 
             _started = false;
-            _cts?.Cancel();
+            cts = _cts;
             loopTask = _loopTask;
+        }
+
+        if (cts is not null)
+        {
+            await cts.CancelAsync().ConfigureAwait(false);
         }
 
         if (loopTask is not null)
@@ -152,6 +158,7 @@ internal sealed class FileDropIpcServer : IHostedService, IFileDropIpcServer, ID
 
     public void Dispose()
     {
+        CancellationTokenSource? cts;
         Task? loopTask;
         lock (_sync)
         {
@@ -162,22 +169,38 @@ internal sealed class FileDropIpcServer : IHostedService, IFileDropIpcServer, ID
                 return;
             }
             _started = false;
-            _cts?.Cancel();
+            cts = _cts;
             loopTask = _loopTask;
         }
 
-        if (loopTask is not null)
+        if (cts is not null)
         {
-            try
-            {
-                loopTask.Wait(TimeSpan.FromSeconds(5));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "FileDrop IPC server dispose timed out or errored");
-            }
+            _ = cts.CancelAsync();
         }
 
+        if (loopTask is null)
+        {
+            DisposeStoppedState();
+            return;
+        }
+
+        _ = loopTask.ContinueWith(
+            task =>
+            {
+                if (task.IsFaulted && task.Exception is not null)
+                {
+                    _logger.LogDebug(task.Exception, "FileDrop IPC server dispose completed with non-fatal error");
+                }
+
+                DisposeStoppedState();
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private void DisposeStoppedState()
+    {
         lock (_sync)
         {
             _cts?.Dispose();

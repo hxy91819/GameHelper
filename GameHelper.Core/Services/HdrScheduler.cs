@@ -11,6 +11,8 @@ namespace GameHelper.Core.Services;
 /// </summary>
 internal sealed class HdrScheduler
 {
+    private bool _enabledByScheduler;
+
     /// <summary>
     /// 评估当前活跃会话，在需要时切换 HDR 状态。
     /// </summary>
@@ -27,11 +29,23 @@ internal sealed class HdrScheduler
         {
             logger.LogInformation("Enabling HDR (active HDR-enabled game)");
             hdr.Enable();
+            _enabledByScheduler = true;
         }
-        else if (!shouldEnableHdr && hdr.IsEnabled)
+
+        if (shouldEnableHdr)
+        {
+            return;
+        }
+
+        if (_enabledByScheduler && hdr.IsEnabled)
         {
             logger.LogInformation("Disabling HDR (no HDR-enabled game remaining)");
             hdr.Disable();
+            _enabledByScheduler = false;
+        }
+        else if (_enabledByScheduler)
+        {
+            _enabledByScheduler = false;
         }
     }
 }

@@ -34,7 +34,7 @@ namespace GameHelper.Infrastructure.Processes
         private readonly ILogger<EtwProcessMonitor>? _logger;
         private readonly string _sessionName;
 
-    private readonly ConcurrentDictionary<int, string> _startPathCache = new();
+        private readonly ConcurrentDictionary<int, string> _startPathCache = new();
 
         /// <inheritdoc />
         public event Action<ProcessEventInfo>? ProcessStarted;
@@ -406,7 +406,7 @@ namespace GameHelper.Infrastructure.Processes
             uint size = maxPath;
             var sb = new StringBuilder((int)size);
 
-            if (NativeMethods.QueryFullProcessImageName(processHandle, 0, sb, ref size))
+            if (NativeMethods.QueryFullProcessImageNameNative(processHandle, 0, sb, ref size))
             {
                 return sb.ToString();
             }
@@ -423,9 +423,9 @@ namespace GameHelper.Infrastructure.Processes
             /// Retrieves the full image file name for a process.
             /// See: https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamea
             /// </summary>
-            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+            [DllImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", SetLastError = true, CharSet = CharSet.Unicode)]
             [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool QueryFullProcessImageName(
+            public static extern bool QueryFullProcessImageNameNative(
                 IntPtr hProcess,
                 uint dwFlags,
                 StringBuilder lpExeName,
@@ -457,20 +457,24 @@ namespace GameHelper.Infrastructure.Processes
                 }
 
                 var allowedSet = _allowedProcessNames.Select(NormalizeProcessName).ToHashSet();
-                var processes = Process.GetProcesses()
-                    .Select(p =>
+                var processes = new List<RunningProcessInfo>();
+                foreach (var process in Process.GetProcesses())
+                {
+                    using (process)
                     {
                         try
                         {
-                            return new { p.Id, p.ProcessName, Path = GetRealProcessPath(p.Id) };
+                            processes.Add(new RunningProcessInfo(
+                                process.Id,
+                                process.ProcessName,
+                                GetRealProcessPath(process.Id)));
                         }
                         catch
                         {
-                            return null;
+                            // Process may exit while being enumerated; skip it.
                         }
-                    })
-                    .Where(p => p is not null)
-                    .ToList();
+                    }
+                }
 
                 int prefillCount = 0;
                 foreach (var proc in processes)
@@ -513,6 +517,8 @@ namespace GameHelper.Infrastructure.Processes
                 _logger?.LogWarning(ex, "Failed to pre-fill running process path cache");
             }
         }
+
+        private readonly record struct RunningProcessInfo(int Id, string ProcessName, string? Path);
 
         private void SafeCleanup()
         {

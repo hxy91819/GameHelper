@@ -19,11 +19,18 @@ public static class StatsCommand
 
         try
         {
-            var list = string.IsNullOrWhiteSpace(filterGame)
-                ? statisticsService.GetOverview()
-                : statisticsService.GetDetails(filterGame) is { } details
-                    ? new List<GameStatsSummary> { details }
-                    : new List<GameStatsSummary>();
+            IReadOnlyList<GameStatsSummary> list;
+            if (string.IsNullOrWhiteSpace(filterGame))
+            {
+                list = statisticsService.GetOverview();
+            }
+            else
+            {
+                var details = statisticsService.GetDetails(filterGame);
+                list = details is null
+                    ? new List<GameStatsSummary>()
+                    : new List<GameStatsSummary> { details };
+            }
 
             if (list.Count == 0)
             {
