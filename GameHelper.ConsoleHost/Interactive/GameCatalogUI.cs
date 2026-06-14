@@ -217,7 +217,7 @@ namespace GameHelper.ConsoleHost.Interactive
             };
         }
 
-        private async Task AddGameAsync()
+        private Task AddGameAsync()
         {
             var configs = LoadConfigs();
 
@@ -249,7 +249,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     if (string.IsNullOrWhiteSpace(exePath))
                     {
                         _console.MarkupLine("[red]无法解析快捷方式目标。[/]");
-                        return;
+                        return Task.CompletedTask;
                     }
                     _console.MarkupLine($"[grey]已解析快捷方式目标：{Markup.Escape(exePath)}[/]");
                 }
@@ -260,7 +260,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 else
                 {
                     _console.MarkupLine("[yellow]不支持的文件类型。请提供 .exe 或 .lnk 文件。[/]");
-                    return;
+                    return Task.CompletedTask;
                 }
 
                 // Extract metadata
@@ -312,6 +312,10 @@ namespace GameHelper.ConsoleHost.Interactive
                 });
 
             var dataKey = _promptUI.Prompt(dataKeyPrompt);
+            if (string.IsNullOrWhiteSpace(dataKey))
+            {
+                dataKey = suggestedDataKey;
+            }
 
             // Prompt for DisplayName
             var defaultDisplayName = existingConfig != null && !string.IsNullOrWhiteSpace(existingConfig.DisplayName)
@@ -344,24 +348,18 @@ namespace GameHelper.ConsoleHost.Interactive
             hdrPrompt.AddChoices(hdrChoices);
             var hdr = _promptUI.PromptSelection(hdrPrompt, hdrChoices, value => Markup.Escape(value), hdrTitle);
 
-            // Create or update config
-            var entryId = string.IsNullOrWhiteSpace(existingEntryId)
-                ? Guid.NewGuid().ToString("N")
-                : existingEntryId;
-
-            configs[entryId] = new GameConfig
+            var saved = _gameCatalogService.Save(new GameEntryUpsertRequest
             {
-                EntryId = entryId,
                 DataKey = dataKey,
                 ExecutablePath = exePath, // Will be null if only name was provided
                 ExecutableName = executableName,
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim(),
                 IsEnabled = string.Equals(enable, "启用", StringComparison.Ordinal),
-                HDREnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal)
-            };
+                HdrEnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal)
+            });
 
-            await PersistAsync(configs).ConfigureAwait(false);
-            _console.MarkupLine($"[green]已保存[/]：{Markup.Escape(executableName)} (DataKey: {Markup.Escape(dataKey)})");
+            _console.MarkupLine($"[green]已保存[/]：{Markup.Escape(saved.ExecutableName ?? executableName)} (DataKey: {Markup.Escape(saved.DataKey)})");
+            return Task.CompletedTask;
         }
 
         private Task EditGameAsync()
@@ -565,9 +563,5 @@ namespace GameHelper.ConsoleHost.Interactive
             return new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
         }
 
-        private async Task PersistAsync(Dictionary<string, GameConfig> configs)
-        {
-            await Task.Run(() => _configProvider.Save(configs)).ConfigureAwait(false);
-        }
     }
 }

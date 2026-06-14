@@ -99,11 +99,11 @@ public sealed class WinUiViewModelTests
 
         public GameEntry Add(GameEntryUpsertRequest request)
         {
-            var key = request.ExecutableName ?? $"game-{_store.Count + 1}.exe";
+            var key = request.DataKey ?? request.ExecutableName ?? $"game-{_store.Count + 1}.exe";
             var entry = new GameEntry
             {
                 DataKey = key,
-                ExecutableName = key,
+                ExecutableName = request.ExecutableName ?? key,
                 DisplayName = request.DisplayName ?? key,
                 IsEnabled = request.IsEnabled,
                 HdrEnabled = request.HdrEnabled
@@ -112,6 +112,8 @@ public sealed class WinUiViewModelTests
             _store[key] = entry;
             return entry;
         }
+
+        public GameEntry Save(GameEntryUpsertRequest request) => Add(request);
 
         public GameEntryImportResult Import(GameEntryImportRequest request) => new()
         {

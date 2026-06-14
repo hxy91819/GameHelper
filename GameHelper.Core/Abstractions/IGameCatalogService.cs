@@ -8,6 +8,8 @@ public interface IGameCatalogService
 
     GameEntry Add(GameEntryUpsertRequest request);
 
+    GameEntry Save(GameEntryUpsertRequest request);
+
     GameEntryImportResult Import(GameEntryImportRequest request);
 
     void RepairStorage();

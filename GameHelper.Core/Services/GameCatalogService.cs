@@ -31,7 +31,8 @@ public sealed class GameCatalogService : IGameCatalogService
         }
 
         var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
-        var dataKey = ConfigIdentity.EnsureUniqueDataKey(executableName, configs.Values.Select(v => v.DataKey));
+        var requestedDataKey = string.IsNullOrWhiteSpace(request.DataKey) ? executableName : request.DataKey;
+        var dataKey = ConfigIdentity.EnsureUniqueDataKey(requestedDataKey, configs.Values.Select(v => v.DataKey));
         var entryId = ConfigIdentity.EnsureEntryId(null);
 
         var config = new GameConfig
@@ -44,6 +45,36 @@ public sealed class GameCatalogService : IGameCatalogService
             IsEnabled = request.IsEnabled,
             HDREnabled = request.HdrEnabled
         };
+
+        configs[entryId] = config;
+        _configProvider.Save(configs);
+        return ToEntry(config);
+    }
+
+    public GameEntry Save(GameEntryUpsertRequest request)
+    {
+        var executableName = NormalizeExecutableName(request.ExecutableName);
+        if (string.IsNullOrWhiteSpace(executableName))
+        {
+            throw new ArgumentException("ExecutableName is required.", nameof(request));
+        }
+
+        var configs = CreateWorkingMapByEntryId(_configProvider.Load());
+        var existing = ConfigEntryMatcher.FindExistingForAdd(configs.Values, executableName, request.ExecutablePath);
+        var entryId = existing is null
+            ? ConfigIdentity.EnsureEntryId(null)
+            : ConfigIdentity.EnsureEntryId(existing.EntryId);
+        var requestedDataKey = string.IsNullOrWhiteSpace(request.DataKey) ? executableName : request.DataKey;
+        var dataKey = ResolveRequestedDataKey(requestedDataKey, configs.Values, entryId);
+
+        var config = existing ?? new GameConfig();
+        config.EntryId = entryId;
+        config.DataKey = dataKey;
+        config.ExecutableName = executableName;
+        config.ExecutablePath = request.ClearExecutablePath ? null : request.ExecutablePath;
+        config.DisplayName = request.ClearDisplayName ? null : request.DisplayName;
+        config.IsEnabled = request.IsEnabled;
+        config.HDREnabled = request.HdrEnabled;
 
         configs[entryId] = config;
         _configProvider.Save(configs);
@@ -198,10 +229,15 @@ public sealed class GameCatalogService : IGameCatalogService
 
     private static Dictionary<string, GameConfig> CreateWorkingMapByEntryId(IReadOnlyDictionary<string, GameConfig> configs)
     {
-        return configs.Values.ToDictionary(
-            config => ConfigIdentity.EnsureEntryId(config.EntryId),
-            config => config,
-            StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+        var usedEntryIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var config in configs.Values)
+        {
+            config.EntryId = ConfigIdentity.EnsureUniqueEntryId(config.EntryId, usedEntryIds);
+            result[config.EntryId] = config;
+        }
+
+        return result;
     }
 
     private static string EnsureExistingDataKey(GameConfig existing, IEnumerable<GameConfig> allConfigs, string baseDataKey)
@@ -216,6 +252,25 @@ public sealed class GameCatalogService : IGameCatalogService
             .Select(c => c.DataKey);
 
         return ConfigIdentity.EnsureUniqueDataKey(baseDataKey, keys);
+    }
+
+    private static string ResolveRequestedDataKey(string? requestedDataKey, IEnumerable<GameConfig> allConfigs, string currentEntryId)
+    {
+        if (string.IsNullOrWhiteSpace(requestedDataKey))
+        {
+            throw new ArgumentException("DataKey is required.", nameof(requestedDataKey));
+        }
+
+        var dataKey = requestedDataKey.Trim();
+        var isUsedByAnotherEntry = allConfigs.Any(config =>
+            string.Equals(config.DataKey, dataKey, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(config.EntryId, currentEntryId, StringComparison.OrdinalIgnoreCase));
+        if (isUsedByAnotherEntry)
+        {
+            throw new InvalidOperationException($"DataKey '{dataKey}' is already used by another game.");
+        }
+
+        return dataKey;
     }
 
 }
