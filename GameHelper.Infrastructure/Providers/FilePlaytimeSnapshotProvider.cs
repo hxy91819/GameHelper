@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
@@ -91,9 +92,9 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
                 if (durationSpan.IsEmpty) continue;
 
                 var gameName = Unescape(gameNameSpan);
-                var startTime = DateTime.Parse(startTimeSpan);
-                var endTime = DateTime.Parse(endTimeSpan);
-                var durationMinutes = long.Parse(durationSpan);
+                var startTime = DateTime.Parse(startTimeSpan, CultureInfo.InvariantCulture);
+                var endTime = DateTime.Parse(endTimeSpan, CultureInfo.InvariantCulture);
+                var durationMinutes = long.Parse(durationSpan, CultureInfo.InvariantCulture);
 
                 if (!map.TryGetValue(gameName, out var record))
                 {

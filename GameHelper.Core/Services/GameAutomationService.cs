@@ -24,7 +24,6 @@ namespace GameHelper.Core.Services
         private readonly ILogger<GameAutomationService> _logger;
         private readonly object _stateLock = new();
 
-        private readonly GameMatcher _gameMatcher = new();
         private readonly SessionTracker _sessionTracker = new();
 
         private AutomationConfigIndex _configIndex = AutomationConfigIndex.Empty;
@@ -128,12 +127,12 @@ namespace GameHelper.Core.Services
                 var normalizedPath = PathNormalizer.NormalizePath(processInfo.ExecutablePath);
                 var normalizedName = PathNormalizer.NormalizeName(processInfo.ExecutableName);
 
-                var config = _gameMatcher.MatchByPath(normalizedPath, _configIndex.ByPath, _logger);
+                var config = GameMatcher.MatchByPath(normalizedPath, _configIndex.ByPath, _logger);
                 string matchLabel = "路径匹配";
 
                 if (config is null)
                 {
-                    config = _gameMatcher.MatchByMetadata(processInfo, normalizedPath, _configIndex.ByName, _logger, out matchLabel);
+                    config = GameMatcher.MatchByMetadata(processInfo, normalizedPath, _configIndex.ByName, _logger, out matchLabel);
                 }
 
                 if (config is null)
@@ -195,7 +194,7 @@ namespace GameHelper.Core.Services
 
                 if (!_sessionTracker.TryResolve(processInfo, out var entry))
                 {
-                    _logger.LogWarning("Stop ignored, no active record for {Executable} (Path={Path})", processInfo.ExecutableName, processInfo.ExecutablePath);
+                    _logger.LogDebug("Stop ignored, no active record for {Executable} (Path={Path})", processInfo.ExecutableName, processInfo.ExecutablePath);
                     return;
                 }
 
@@ -256,5 +255,3 @@ namespace GameHelper.Core.Services
         }
     }
 }
-
-

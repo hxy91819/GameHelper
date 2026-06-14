@@ -127,11 +127,13 @@ namespace GameHelper.ConsoleHost.Interactive
 
             foreach (var cfg in configs.OrderBy(e => e.DataKey, StringComparer.OrdinalIgnoreCase))
             {
-                var pathDisplay = string.IsNullOrWhiteSpace(cfg.ExecutablePath)
-                    ? "-"
-                    : (cfg.ExecutablePath.Length > 30
+                var pathDisplay = "-";
+                if (!string.IsNullOrWhiteSpace(cfg.ExecutablePath))
+                {
+                    pathDisplay = cfg.ExecutablePath.Length > 30
                         ? "..." + cfg.ExecutablePath.Substring(cfg.ExecutablePath.Length - 27)
-                        : cfg.ExecutablePath);
+                        : cfg.ExecutablePath;
+                }
 
                 table.AddRow(
                     Markup.Escape(cfg.DataKey),
@@ -139,7 +141,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     string.IsNullOrWhiteSpace(cfg.DisplayName) ? "-" : Markup.Escape(cfg.DisplayName!),
                     Markup.Escape(pathDisplay),
                     cfg.IsEnabled ? "[green]启用[/]" : "[red]禁用[/]",
-                    cfg.HdrEnabled ? "[green]开启[/]" : "[yellow]保持关闭[/]");
+                    cfg.HdrEnabled ? "[green]自动开启[/]" : "[yellow]不自动开启[/]");
             }
 
             _console.Write(table);
@@ -319,8 +321,8 @@ namespace GameHelper.ConsoleHost.Interactive
             var hdrTitle = "在游戏运行时如何控制 HDR？";
             var defaultHdrEnabled = existingConfig?.HdrEnabled ?? false;
             var hdrChoices = defaultHdrEnabled
-                ? new[] { "自动开启 HDR", "保持关闭" }
-                : new[] { "保持关闭", "自动开启 HDR" };
+                ? new[] { "自动开启 HDR", "不自动开启" }
+                : new[] { "不自动开启", "自动开启 HDR" };
             var hdrPrompt = new SelectionPrompt<string>();
             hdrPrompt.Title(hdrTitle);
             hdrPrompt.AddChoices(hdrChoices);
@@ -453,8 +455,8 @@ namespace GameHelper.ConsoleHost.Interactive
             // Prompt for HDR
             var hdrTitle = "在游戏运行时如何控制 HDR？";
             var hdrChoices = cfg.HdrEnabled
-                ? new[] { "自动开启 HDR", "保持关闭" }
-                : new[] { "保持关闭", "自动开启 HDR" };
+                ? new[] { "自动开启 HDR", "不自动开启" }
+                : new[] { "不自动开启", "自动开启 HDR" };
             var hdrPrompt = new SelectionPrompt<string>();
             hdrPrompt.Title(hdrTitle);
             hdrPrompt.AddChoices(hdrChoices);
