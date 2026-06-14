@@ -264,6 +264,45 @@ public sealed class FileDropHandlerTests
         }
     }
 
+    [Fact]
+    public void ProcessFilePaths_SkippedInput_ShouldStillRepairDuplicateDataKeys()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var configPath = Path.Combine(tempDir, "config.yml");
+        var textPath = Path.Combine(tempDir, "not-a-game.txt");
+        File.WriteAllText(textPath, string.Empty);
+        File.WriteAllText(configPath, """
+games:
+  - entryId: entry1
+    dataKey: duplicate
+    executableName: One.exe
+  - entryId: entry2
+    dataKey: duplicate
+    executableName: Two.exe
+""");
+
+        using var services = new ServiceCollection().BuildServiceProvider();
+
+        try
+        {
+            var summary = FileDropHandler.ProcessFilePaths(new[] { textPath }, configPath, services);
+
+            Assert.Equal(0, summary.Added);
+            Assert.Equal(0, summary.Updated);
+            Assert.Equal(1, summary.Skipped);
+            Assert.Equal(1, summary.DuplicatesRemoved);
+
+            var loaded = new YamlConfigProvider(configPath).Load().Values.ToList();
+            Assert.Equal(2, loaded.Count);
+            Assert.Equal(2, loaded.Select(config => config.DataKey).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     private sealed class StubSteamResolver : ISteamGameResolver
     {
         public string? UrlToReturn { get; set; }

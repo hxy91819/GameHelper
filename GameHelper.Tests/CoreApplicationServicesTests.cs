@@ -81,6 +81,66 @@ public sealed class CoreApplicationServicesTests
     }
 
     [Fact]
+    public void GameCatalogService_Import_ShouldAddUsingBaseDataKey()
+    {
+        var provider = new FakeConfigProvider();
+        var service = new GameCatalogService(provider);
+
+        var result = service.Import(new GameEntryImportRequest
+        {
+            ExecutableName = "Launcher.exe",
+            ExecutablePath = @"C:\Games\Launcher.exe",
+            DisplayName = "Friendly Game",
+            BaseDataKey = "friendly-game",
+            IsEnabled = true
+        });
+
+        Assert.True(result.WasAdded);
+        Assert.Equal("friendly-game", result.Entry.DataKey);
+        Assert.Equal("Launcher.exe", result.Entry.ExecutableName);
+        Assert.Equal(@"C:\Games\Launcher.exe", result.Entry.ExecutablePath);
+        Assert.Equal("Friendly Game", result.Entry.DisplayName);
+        Assert.True(result.Entry.IsEnabled);
+        Assert.False(result.Entry.HdrEnabled);
+    }
+
+    [Fact]
+    public void GameCatalogService_Import_ShouldUpdateExistingAndPreserveHdrChoice()
+    {
+        var provider = new FakeConfigProvider();
+        var service = new GameCatalogService(provider);
+        provider.Save(new Dictionary<string, GameConfig>
+        {
+            ["legacy-entry"] = new()
+            {
+                EntryId = "legacy-entry",
+                DataKey = "legacy",
+                ExecutableName = "Legacy.exe",
+                ExecutablePath = @"C:\Games\Legacy.exe",
+                DisplayName = "Old Name",
+                IsEnabled = false,
+                HDREnabled = true
+            }
+        });
+
+        var result = service.Import(new GameEntryImportRequest
+        {
+            ExecutableName = "Legacy.exe",
+            ExecutablePath = @"C:\Games\Legacy.exe",
+            DisplayName = "New Name",
+            BaseDataKey = "new-key",
+            IsEnabled = true
+        });
+
+        Assert.False(result.WasAdded);
+        Assert.Equal(@"C:\Games\Legacy.exe", result.PreviousExecutablePath);
+        Assert.Equal("legacy", result.Entry.DataKey);
+        Assert.Equal("New Name", result.Entry.DisplayName);
+        Assert.True(result.Entry.IsEnabled);
+        Assert.True(result.Entry.HdrEnabled);
+    }
+
+    [Fact]
     public void StatisticsService_ShouldAggregateSessions()
     {
         var provider = new FakeConfigProvider();
