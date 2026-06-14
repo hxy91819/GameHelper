@@ -4,11 +4,11 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
-using FuzzySharp;
 using GameHelper.ConsoleHost.Models;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Models;
+using GameHelper.Core.Services;
 using GameHelper.Core.Utilities;
 using GameHelper.Infrastructure.Providers;
 using Spectre.Console;
@@ -398,7 +398,7 @@ namespace GameHelper.ConsoleHost.Commands
 
                 // Parse CSV
                 string header = lines[0];
-                var records = new List<(string originalGame, string game, string startTime, string endTime, string duration, bool isNewFormat)>();
+                var records = new List<(string originalGame, string game, string startTime, string endTime, string duration)>();
 
                 for (int i = 1; i < lines.Length; i++)
                 {
@@ -408,11 +408,7 @@ namespace GameHelper.ConsoleHost.Commands
                         string game = parts[0];
                         string originalGame = game;
                         
-                        // Check if already new format (matches any DataKey)
-                        bool isNewFormat = configs.Any(kv =>
-                            kv.Value.DataKey.Equals(game, StringComparison.OrdinalIgnoreCase));
-
-                        records.Add((originalGame, game, parts[1], parts[2], parts[3], isNewFormat));
+                        records.Add((originalGame, game, parts[1], parts[2], parts[3]));
                     }
                 }
 
@@ -422,49 +418,31 @@ namespace GameHelper.ConsoleHost.Commands
                 int migratedCount = 0;
                 var orphanedRecords = new List<string>();
                 var migrationDetails = new List<(string old, string newKey, string method)>();
+                var migrationMatcher = new PlaytimeMigrationMatcher();
 
                 // Process each record
                 for (int i = 0; i < records.Count; i++)
                 {
                     var record = records[i];
 
-                    if (record.isNewFormat)
+                    var match = migrationMatcher.Match(record.game, configs.Values);
+                    if (match.Kind == PlaytimeMigrationMatchKind.AlreadyDataKey)
                     {
                         skippedCount++;
                         continue;
                     }
 
-                    // Try exact match on ExecutableName
-                    var exactMatch = configs.FirstOrDefault(kv =>
-                        !string.IsNullOrEmpty(kv.Value.ExecutableName) &&
-                        kv.Value.ExecutableName.Equals(record.game, StringComparison.OrdinalIgnoreCase));
-
-                    if (exactMatch.Value != null)
+                    if (match.ShouldRewrite && !string.IsNullOrWhiteSpace(match.DataKey))
                     {
-                        records[i] = (record.originalGame, exactMatch.Value.DataKey, record.startTime, record.endTime, record.duration, false);
+                        records[i] = (record.originalGame, match.DataKey, record.startTime, record.endTime, record.duration);
                         migratedCount++;
-                        migrationDetails.Add((record.originalGame, exactMatch.Value.DataKey, "精确匹配"));
+                        migrationDetails.Add((record.originalGame, match.DataKey, FormatMigrationMethod(match)));
                         continue;
                     }
 
-                    // Try fuzzy match
-                    var fuzzyMatches = configs
-                        .Where(kv => !string.IsNullOrEmpty(kv.Value.ExecutableName))
-                        .Select(kv => new
-                        {
-                            Config = kv.Value,
-                            Score = Fuzz.Ratio(record.game, kv.Value.ExecutableName!)
-                        })
-                        .Where(x => x.Score > 80)
-                        .OrderByDescending(x => x.Score)
-                        .ToList();
-
-                    if (fuzzyMatches.Any())
+                    if (match.Kind == PlaytimeMigrationMatchKind.Ambiguous)
                     {
-                        var bestMatch = fuzzyMatches.First();
-                        records[i] = (record.originalGame, bestMatch.Config.DataKey, record.startTime, record.endTime, record.duration, false);
-                        migratedCount++;
-                        migrationDetails.Add((record.originalGame, bestMatch.Config.DataKey, $"模糊匹配 ({bestMatch.Score}%)"));
+                        orphanedRecords.Add($"{record.game} (ambiguous)");
                         continue;
                     }
 
@@ -570,6 +548,16 @@ namespace GameHelper.ConsoleHost.Commands
             {
                 AnsiConsole.MarkupLine($"[red]✗ CSV 迁移失败: {ex.Message}[/]");
             }
+        }
+
+        private static string FormatMigrationMethod(PlaytimeMigrationMatch match)
+        {
+            return match.Kind switch
+            {
+                PlaytimeMigrationMatchKind.ExactExecutableName => "精确匹配",
+                PlaytimeMigrationMatchKind.FuzzyExecutableName => $"模糊匹配 ({match.Score}%)",
+                _ => match.Kind.ToString()
+            };
         }
 
         /// <summary>

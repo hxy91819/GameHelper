@@ -43,6 +43,8 @@ dotnet run --project .\GameHelper.ConsoleHost -- validate-config
 dotnet run --project .\GameHelper.ConsoleHost -- migrate
 ```
 
+`migrate` 会复用 Core 监控匹配阈值迁移旧 `playtime.csv`，只自动改写唯一的精确或模糊匹配；歧义记录会保留给人工处理。
+
 ## 配置文件
 
 - 默认路径：`%AppData%\GameHelper\config.yml`
