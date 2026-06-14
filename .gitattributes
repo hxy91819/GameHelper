@@ -1,0 +1,18 @@
+* text=auto
+
+*.sln text working-tree-encoding=UTF-8 eol=crlf
+*.cs text working-tree-encoding=UTF-8 eol=lf
+*.csproj text working-tree-encoding=UTF-8 eol=lf
+*.props text working-tree-encoding=UTF-8 eol=lf
+*.targets text working-tree-encoding=UTF-8 eol=lf
+*.xaml text working-tree-encoding=UTF-8 eol=lf
+*.xml text working-tree-encoding=UTF-8 eol=lf
+*.md text working-tree-encoding=UTF-8 eol=lf
+*.yml text working-tree-encoding=UTF-8 eol=lf
+*.yaml text working-tree-encoding=UTF-8 eol=lf
+*.json text working-tree-encoding=UTF-8 eol=lf
+*.ps1 text working-tree-encoding=UTF-8 eol=lf
+*.sh text working-tree-encoding=UTF-8 eol=lf
+*.csv text working-tree-encoding=UTF-8 eol=lf
+.editorconfig text working-tree-encoding=UTF-8 eol=lf
+.gitattributes text working-tree-encoding=UTF-8 eol=lf

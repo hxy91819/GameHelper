@@ -54,6 +54,7 @@ dotnet test GameHelper.sln
 ## Supporting Standards
 
 - [Coding Standards](./coding-standards.md)
+- [Encoding](./encoding.md)
 - [Tech Stack](./tech-stack.md)
 - [Dependency Direction Rules](./dependency-direction.md)
 - [WinUI Shell Design](./ui-shell-design.md)
