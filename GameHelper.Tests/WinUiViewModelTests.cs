@@ -113,6 +113,22 @@ public sealed class WinUiViewModelTests
             return entry;
         }
 
+        public GameEntryImportResult Import(GameEntryImportRequest request) => new()
+        {
+            Entry = Add(new GameEntryUpsertRequest
+            {
+                ExecutableName = request.ExecutableName,
+                ExecutablePath = request.ExecutablePath,
+                DisplayName = request.DisplayName,
+                IsEnabled = request.IsEnabled
+            }),
+            WasAdded = true
+        };
+
+        public void RepairStorage()
+        {
+        }
+
         public GameEntry Update(string dataKey, GameEntryUpsertRequest request)
         {
             if (!_store.TryGetValue(dataKey, out var entry))

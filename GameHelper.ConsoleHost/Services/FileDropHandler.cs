@@ -7,6 +7,7 @@ using GameHelper.ConsoleHost.Models;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Services;
 using GameHelper.Core.Utilities;
 using GameHelper.Infrastructure.Providers;
 using GameHelper.Infrastructure.Validators;
@@ -49,18 +50,14 @@ namespace GameHelper.ConsoleHost.Services
             var provider = !string.IsNullOrWhiteSpace(configOverride)
                 ? new YamlConfigProvider(configOverride!)
                 : new YamlConfigProvider();
-
-            // Always rebuild the working map by EntryId to avoid key-shape drift from older callers/tests.
-            var map = provider.Load().Values.ToDictionary(
-                cfg => ConfigIdentity.EnsureEntryId(cfg.EntryId),
-                cfg => cfg,
-                StringComparer.OrdinalIgnoreCase);
+            var gameCatalogService = new GameCatalogService(provider);
 
             var steamResolver = services.GetService<ISteamGameResolver>();
 
             var added = 0;
             var updated = 0;
             var skipped = 0;
+            var duplicateBefore = CountExistingDuplicates(provider);
 
             foreach (var path in paths)
             {
@@ -81,53 +78,38 @@ namespace GameHelper.ConsoleHost.Services
                     var baseDataKey = DataKeyGenerator.GenerateBaseDataKey(exePath, productName);
                     var displayName = ResolveDisplayName(path, exePath);
 
-                    var existing = ConfigEntryMatcher.FindExistingForAdd(map.Values, executableName, exePath);
-                    if (existing is not null)
+                    var result = gameCatalogService.Import(new GameEntryImportRequest
                     {
-                        var oldPath = existing.ExecutablePath;
-                        existing.EntryId = ConfigIdentity.EnsureEntryId(existing.EntryId);
-                        existing.DataKey = EnsureExistingDataKey(existing, map.Values, baseDataKey);
-                        existing.ExecutablePath = exePath;
-                        existing.ExecutableName = executableName;
-                        existing.DisplayName = displayName;
-                        existing.IsEnabled = true;
+                        ExecutableName = executableName,
+                        ExecutablePath = exePath,
+                        DisplayName = displayName,
+                        BaseDataKey = baseDataKey,
+                        IsEnabled = true
+                    });
+                    var entry = result.Entry;
 
-                        map[existing.EntryId] = existing;
-                        updated++;
-
-                        if (!string.IsNullOrWhiteSpace(oldPath) &&
-                            !string.Equals(ConfigEntryMatcher.NormalizePath(oldPath), normalizedExePath, StringComparison.OrdinalIgnoreCase))
-                        {
-                            Console.WriteLine($"Updated: {executableName}  DataKey={existing.DataKey}  Path={exePath} (changed from {oldPath})  DisplayName={existing.DisplayName}  Enabled={existing.IsEnabled}  HDR={existing.HDREnabled}");
-                        }
-                        else if (string.IsNullOrWhiteSpace(oldPath))
-                        {
-                            Console.WriteLine($"Updated: {executableName}  DataKey={existing.DataKey}  Path={exePath} (added)  DisplayName={existing.DisplayName}  Enabled={existing.IsEnabled}  HDR={existing.HDREnabled}");
-                        }
-                        else
-                        {
-                            Console.WriteLine($"Updated: {executableName}  DataKey={existing.DataKey}  Path={exePath}  DisplayName={existing.DisplayName}  Enabled={existing.IsEnabled}  HDR={existing.HDREnabled}");
-                        }
+                    if (result.WasAdded)
+                    {
+                        added++;
+                        Console.WriteLine($"Added:   {entry.ExecutableName}  DataKey={entry.DataKey}  Path={entry.ExecutablePath}  DisplayName={entry.DisplayName}  Enabled={entry.IsEnabled}  HDR={entry.HdrEnabled}");
                     }
                     else
                     {
-                        var dataKey = ConfigIdentity.EnsureUniqueDataKey(baseDataKey, map.Values.Select(c => c.DataKey));
-                        var entryId = Guid.NewGuid().ToString("N");
-
-                        var config = new GameConfig
+                        updated++;
+                        var oldPath = result.PreviousExecutablePath;
+                        if (!string.IsNullOrWhiteSpace(oldPath) &&
+                            !string.Equals(ConfigEntryMatcher.NormalizePath(oldPath), normalizedExePath, StringComparison.OrdinalIgnoreCase))
                         {
-                            EntryId = entryId,
-                            DataKey = dataKey,
-                            ExecutablePath = exePath,
-                            ExecutableName = executableName,
-                            DisplayName = displayName,
-                            IsEnabled = true,
-                            HDREnabled = false
-                        };
-
-                        map[entryId] = config;
-                        added++;
-                        Console.WriteLine($"Added:   {executableName}  DataKey={dataKey}  Path={exePath}  DisplayName={displayName}  Enabled=true  HDR=false");
+                            Console.WriteLine($"Updated: {entry.ExecutableName}  DataKey={entry.DataKey}  Path={entry.ExecutablePath} (changed from {oldPath})  DisplayName={entry.DisplayName}  Enabled={entry.IsEnabled}  HDR={entry.HdrEnabled}");
+                        }
+                        else if (string.IsNullOrWhiteSpace(oldPath))
+                        {
+                            Console.WriteLine($"Updated: {entry.ExecutableName}  DataKey={entry.DataKey}  Path={entry.ExecutablePath} (added)  DisplayName={entry.DisplayName}  Enabled={entry.IsEnabled}  HDR={entry.HdrEnabled}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Updated: {entry.ExecutableName}  DataKey={entry.DataKey}  Path={entry.ExecutablePath}  DisplayName={entry.DisplayName}  Enabled={entry.IsEnabled}  HDR={entry.HdrEnabled}");
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -137,19 +119,7 @@ namespace GameHelper.ConsoleHost.Services
                 }
             }
 
-            // Detect duplicates before save (based on current file) so we can report how many were auto-removed by rewriting
-            var duplicateBefore = 0;
-            try
-            {
-                var validation = YamlConfigValidator.Validate(provider.ConfigPath);
-                duplicateBefore = Math.Max(0, validation.DuplicateCount);
-            }
-            catch
-            {
-                // best effort only
-            }
-
-            provider.Save(map);
+            gameCatalogService.RepairStorage();
             Console.WriteLine($"Done. Added={added}, Updated={updated}, Skipped={skipped}");
 
             return new AddSummary
@@ -223,18 +193,18 @@ namespace GameHelper.ConsoleHost.Services
             return displayName;
         }
 
-        private static string EnsureExistingDataKey(GameConfig existing, IEnumerable<GameConfig> allConfigs, string baseDataKey)
+        private static int CountExistingDuplicates(YamlConfigProvider provider)
         {
-            if (!string.IsNullOrWhiteSpace(existing.DataKey))
+            try
             {
-                return existing.DataKey;
+                var validation = YamlConfigValidator.Validate(provider.ConfigPath);
+                return Math.Max(0, validation.DuplicateCount);
+            }
+            catch
+            {
+                return 0;
             }
 
-            var keys = allConfigs
-                .Where(c => !string.Equals(c.EntryId, existing.EntryId, StringComparison.OrdinalIgnoreCase))
-                .Select(c => c.DataKey);
-
-            return ConfigIdentity.EnsureUniqueDataKey(baseDataKey, keys);
         }
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]

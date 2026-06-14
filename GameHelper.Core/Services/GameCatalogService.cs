@@ -50,6 +50,72 @@ public sealed class GameCatalogService : IGameCatalogService
         return ToEntry(config);
     }
 
+    public GameEntryImportResult Import(GameEntryImportRequest request)
+    {
+        var executableName = NormalizeExecutableName(request.ExecutableName);
+        if (string.IsNullOrWhiteSpace(executableName))
+        {
+            throw new ArgumentException("ExecutableName is required.", nameof(request));
+        }
+
+        var executablePath = NormalizeImportPath(request.ExecutablePath);
+        if (string.IsNullOrWhiteSpace(executablePath))
+        {
+            throw new ArgumentException("ExecutablePath is required.", nameof(request));
+        }
+
+        var configs = CreateWorkingMapByEntryId(_configProvider.Load());
+        var existing = ConfigEntryMatcher.FindExistingForAdd(configs.Values, executableName, executablePath);
+        if (existing is not null)
+        {
+            var previousExecutablePath = existing.ExecutablePath;
+            existing.EntryId = ConfigIdentity.EnsureEntryId(existing.EntryId);
+            existing.DataKey = EnsureExistingDataKey(existing, configs.Values, request.BaseDataKey ?? executableName);
+            existing.ExecutablePath = executablePath;
+            existing.ExecutableName = executableName;
+            existing.DisplayName = request.DisplayName;
+            existing.IsEnabled = request.IsEnabled;
+
+            configs[existing.EntryId] = existing;
+            _configProvider.Save(configs);
+            return new GameEntryImportResult
+            {
+                Entry = ToEntry(existing),
+                WasAdded = false,
+                PreviousExecutablePath = previousExecutablePath
+            };
+        }
+
+        var dataKey = ConfigIdentity.EnsureUniqueDataKey(
+            request.BaseDataKey ?? executableName,
+            configs.Values.Select(c => c.DataKey));
+        var entryId = ConfigIdentity.EnsureEntryId(null);
+        var config = new GameConfig
+        {
+            EntryId = entryId,
+            DataKey = dataKey,
+            ExecutablePath = executablePath,
+            ExecutableName = executableName,
+            DisplayName = request.DisplayName,
+            IsEnabled = request.IsEnabled,
+            HDREnabled = false
+        };
+
+        configs[entryId] = config;
+        _configProvider.Save(configs);
+        return new GameEntryImportResult
+        {
+            Entry = ToEntry(config),
+            WasAdded = true
+        };
+    }
+
+    public void RepairStorage()
+    {
+        var configs = CreateWorkingMapByEntryId(_configProvider.Load());
+        _configProvider.Save(configs);
+    }
+
     public GameEntry Update(string dataKey, GameEntryUpsertRequest request)
     {
         if (string.IsNullOrWhiteSpace(dataKey))
@@ -118,6 +184,38 @@ public sealed class GameCatalogService : IGameCatalogService
         }
 
         return executableName.Trim();
+    }
+
+    private static string? NormalizeImportPath(string? executablePath)
+    {
+        if (string.IsNullOrWhiteSpace(executablePath))
+        {
+            return null;
+        }
+
+        return executablePath.Trim();
+    }
+
+    private static Dictionary<string, GameConfig> CreateWorkingMapByEntryId(IReadOnlyDictionary<string, GameConfig> configs)
+    {
+        return configs.Values.ToDictionary(
+            config => ConfigIdentity.EnsureEntryId(config.EntryId),
+            config => config,
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string EnsureExistingDataKey(GameConfig existing, IEnumerable<GameConfig> allConfigs, string baseDataKey)
+    {
+        if (!string.IsNullOrWhiteSpace(existing.DataKey))
+        {
+            return existing.DataKey;
+        }
+
+        var keys = allConfigs
+            .Where(c => !string.Equals(c.EntryId, existing.EntryId, StringComparison.OrdinalIgnoreCase))
+            .Select(c => c.DataKey);
+
+        return ConfigIdentity.EnsureUniqueDataKey(baseDataKey, keys);
     }
 
 }

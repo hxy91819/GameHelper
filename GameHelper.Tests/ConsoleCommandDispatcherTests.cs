@@ -107,6 +107,10 @@ public sealed class ConsoleCommandDispatcherTests
 
         public GameEntry Add(GameEntryUpsertRequest request) => throw new NotSupportedException();
 
+        public GameEntryImportResult Import(GameEntryImportRequest request) => throw new NotSupportedException();
+
+        public void RepairStorage() => throw new NotSupportedException();
+
         public GameEntry Update(string dataKey, GameEntryUpsertRequest request) => throw new NotSupportedException();
 
         public bool Delete(string dataKey) => throw new NotSupportedException();
