@@ -57,7 +57,7 @@ namespace GameHelper.Infrastructure.Providers
                     return new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
                 }
 
-                RepairDuplicateIdentities(configs);
+                ConfigEntryNormalizer.RepairDuplicateIdentities(configs);
 
                 return configs.ToDictionary(
                     cfg => cfg.EntryId,
@@ -83,12 +83,10 @@ namespace GameHelper.Infrastructure.Providers
             }
 
             var normalized = configs.Values
-                .Select(NormalizeForSave)
-                .Where(c => c is not null)
-                .Select(c => c!)
+                .Select(config => ConfigEntryNormalizer.NormalizeForSave(config))
                 .ToList();
 
-            RepairDuplicateIdentities(normalized);
+            ConfigEntryNormalizer.RepairDuplicateIdentities(normalized);
 
             var payload = new Dictionary<string, object>
             {
@@ -114,7 +112,7 @@ namespace GameHelper.Infrastructure.Providers
                 var result = new List<GameConfig>();
                 foreach (var gameConfig in gameConfigs)
                 {
-                    var normalized = NormalizeLoadedConfig(gameConfig);
+                    var normalized = ConfigEntryNormalizer.NormalizeLoaded(gameConfig, MissingDataKeyAction.Throw);
                     if (normalized is not null)
                     {
                         result.Add(normalized);
@@ -170,75 +168,5 @@ namespace GameHelper.Infrastructure.Providers
             return result;
         }
 
-        private static GameConfig? NormalizeLoadedConfig(GameConfig source)
-        {
-            var executableName = (source.ExecutableName ?? source.Name ?? string.Empty).Trim();
-            var executablePath = (source.ExecutablePath ?? string.Empty).Trim();
-            var displayName = (source.DisplayName ?? source.Alias ?? string.Empty).Trim();
-            var dataKey = (source.DataKey ?? string.Empty).Trim();
-
-            if (string.IsNullOrWhiteSpace(dataKey))
-            {
-                if (!string.IsNullOrWhiteSpace(executableName))
-                {
-                    dataKey = executableName;
-                }
-                else if (!string.IsNullOrWhiteSpace(displayName))
-                {
-                    dataKey = displayName;
-                }
-                else
-                {
-                    throw new InvalidDataException("Configuration entry is missing required DataKey.");
-                }
-            }
-
-            return new GameConfig
-            {
-                EntryId = ConfigIdentity.EnsureEntryId(source.EntryId),
-                DataKey = dataKey,
-                ExecutableName = executableName.Length == 0 ? null : executableName,
-                ExecutablePath = executablePath.Length == 0 ? null : executablePath,
-                DisplayName = displayName.Length == 0 ? null : displayName,
-                IsEnabled = source.IsEnabled,
-                HDREnabled = source.HDREnabled
-            };
-        }
-
-        private static GameConfig? NormalizeForSave(GameConfig source)
-        {
-            var dataKey = (source.DataKey ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(dataKey))
-            {
-                throw new InvalidDataException("Cannot save config entry without DataKey.");
-            }
-
-            var executableName = (source.ExecutableName ?? source.Name ?? string.Empty).Trim();
-            var executablePath = (source.ExecutablePath ?? string.Empty).Trim();
-            var displayName = (source.DisplayName ?? source.Alias ?? string.Empty).Trim();
-
-            return new GameConfig
-            {
-                EntryId = ConfigIdentity.EnsureEntryId(source.EntryId),
-                DataKey = dataKey,
-                ExecutableName = executableName.Length == 0 ? null : executableName,
-                ExecutablePath = executablePath.Length == 0 ? null : executablePath,
-                DisplayName = displayName.Length == 0 ? null : displayName,
-                IsEnabled = source.IsEnabled,
-                HDREnabled = source.HDREnabled
-            };
-        }
-
-        private static void RepairDuplicateIdentities(List<GameConfig> configs)
-        {
-            var usedEntryIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var usedDataKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var config in configs)
-            {
-                config.EntryId = ConfigIdentity.EnsureUniqueEntryId(config.EntryId, usedEntryIds);
-                config.DataKey = ConfigIdentity.EnsureUniqueDataKey(config.DataKey, usedDataKeys);
-            }
-        }
     }
 }
