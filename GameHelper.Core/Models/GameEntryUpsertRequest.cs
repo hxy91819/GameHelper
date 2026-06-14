@@ -6,7 +6,11 @@ public sealed class GameEntryUpsertRequest
 
     public string? ExecutablePath { get; set; }
 
+    public bool ClearExecutablePath { get; set; }
+
     public string? DisplayName { get; set; }
+
+    public bool ClearDisplayName { get; set; }
 
     public bool IsEnabled { get; set; } = true;
 

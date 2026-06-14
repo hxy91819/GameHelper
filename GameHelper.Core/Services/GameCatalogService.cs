@@ -69,8 +69,8 @@ public sealed class GameCatalogService : IGameCatalogService
         var existing = existingPair.Value;
         existing.EntryId = string.IsNullOrWhiteSpace(existing.EntryId) ? existingPair.Key : existing.EntryId;
         existing.ExecutableName = NormalizeExecutableName(request.ExecutableName) ?? existing.ExecutableName;
-        existing.ExecutablePath = request.ExecutablePath ?? existing.ExecutablePath;
-        existing.DisplayName = request.DisplayName ?? existing.DisplayName;
+        existing.ExecutablePath = request.ClearExecutablePath ? null : request.ExecutablePath ?? existing.ExecutablePath;
+        existing.DisplayName = request.ClearDisplayName ? null : request.DisplayName ?? existing.DisplayName;
         existing.IsEnabled = request.IsEnabled;
         existing.HDREnabled = request.HdrEnabled;
 
