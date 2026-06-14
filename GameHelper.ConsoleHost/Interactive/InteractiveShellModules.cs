@@ -84,7 +84,7 @@ internal sealed class InteractiveShellModules
             configProvider,
             appConfigProvider,
             new MonitorUI(host, resolvedConsole, promptUI, statisticsService, monitorControlService, script, resolvedMonitorLoop, arguments.MonitorDryRun),
-            new GameCatalogUI(resolvedConsole, promptUI, configProvider, appConfigProvider, autoStartManager, gameCatalogService),
+            new GameCatalogUI(resolvedConsole, promptUI, appConfigProvider, autoStartManager, gameCatalogService),
             new SettingsUI(resolvedConsole, promptUI, appConfigProvider, autoStartManager),
             new StatisticsUI(resolvedConsole, promptUI, statisticsService),
             new ToolsUI(resolvedConsole, promptUI));

@@ -6,6 +6,12 @@ public interface IGameCatalogService
 {
     IReadOnlyList<GameEntry> GetAll();
 
+    GameEntry? FindExistingForAdd(string executableName, string? executablePath);
+
+    string SuggestDataKey(string executableIdentity, string? productName = null);
+
+    bool IsDataKeyAvailable(string dataKey, string? currentDataKey = null);
+
     GameEntry Add(GameEntryUpsertRequest request);
 
     GameEntry Save(GameEntryUpsertRequest request);

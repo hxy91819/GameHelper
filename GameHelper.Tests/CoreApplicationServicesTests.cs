@@ -166,6 +166,33 @@ public sealed class CoreApplicationServicesTests
     }
 
     [Fact]
+    public void GameCatalogService_QueryHelpers_ShouldUseCatalogStoragePolicy()
+    {
+        var provider = new FakeConfigProvider();
+        var service = new GameCatalogService(provider);
+        provider.Save(new Dictionary<string, GameConfig>
+        {
+            ["entry1"] = new()
+            {
+                EntryId = "entry1",
+                DataKey = "same",
+                ExecutableName = "same.exe",
+                ExecutablePath = @"C:\Games\same.exe",
+                DisplayName = "Same"
+            }
+        });
+
+        var match = service.FindExistingForAdd("same.exe", @"C:\Games\same.exe");
+        var suggested = service.SuggestDataKey(@"C:\Games\same.exe");
+
+        Assert.NotNull(match);
+        Assert.Equal("same", match.DataKey);
+        Assert.Equal("same2", suggested);
+        Assert.False(service.IsDataKeyAvailable("same"));
+        Assert.True(service.IsDataKeyAvailable("same", currentDataKey: "same"));
+    }
+
+    [Fact]
     public void GameCatalogService_Import_ShouldAddUsingBaseDataKey()
     {
         var provider = new FakeConfigProvider();

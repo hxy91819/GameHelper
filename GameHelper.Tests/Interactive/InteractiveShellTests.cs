@@ -95,6 +95,45 @@ namespace GameHelper.Tests.Interactive
         }
 
         [Fact]
+        public async Task RunAsync_AddExistingNameOnlyGame_PreservesDataKeyDefault()
+        {
+            var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
+            {
+                ["entry1"] = new GameConfig
+                {
+                    EntryId = "entry1",
+                    DataKey = "same",
+                    ExecutableName = "same.exe",
+                    DisplayName = "Same",
+                    IsEnabled = true,
+                    HDREnabled = false
+                }
+            },
+            new AppConfig { ProcessMonitorType = ProcessMonitorType.WMI },
+            configPath: "C:/configs/gamehelper.yml");
+
+            await using var host = CreateHost(configProvider);
+            var console = CreateConsole();
+            var script = new InteractiveScript()
+                .Enqueue("Configuration")
+                .Enqueue("Add")
+                .Enqueue("same.exe")
+                .Enqueue(string.Empty)
+                .Enqueue("Same Updated")
+                .Enqueue("启用")
+                .Enqueue("保持关闭")
+                .Enqueue("Back")
+                .Enqueue("Exit");
+
+            var shell = new InteractiveShell(host, new ParsedArguments(), console, script);
+            await shell.RunAsync();
+
+            var entry = Assert.Single(configProvider.Load().Values);
+            Assert.Equal("same", entry.DataKey);
+            Assert.Equal("Same Updated", entry.DisplayName);
+        }
+
+        [Fact]
         public async Task RunAsync_UpdateAutoStartSetting_PersistsChange()
         {
             var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>(),

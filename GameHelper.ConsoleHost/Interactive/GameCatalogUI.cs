@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
-using GameHelper.Core.Utilities;
 using Spectre.Console;
 using ConsoleValidationResult = Spectre.Console.ValidationResult;
 
@@ -28,7 +27,6 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private readonly IAnsiConsole _console;
         private readonly PromptUI _promptUI;
-        private readonly IConfigProvider _configProvider;
         private readonly IAppConfigProvider _appConfigProvider;
         private readonly IAutoStartManager _autoStartManager;
         private readonly IGameCatalogService _gameCatalogService;
@@ -36,14 +34,12 @@ namespace GameHelper.ConsoleHost.Interactive
         public GameCatalogUI(
             IAnsiConsole console,
             PromptUI promptUI,
-            IConfigProvider configProvider,
             IAppConfigProvider appConfigProvider,
             IAutoStartManager autoStartManager,
             IGameCatalogService gameCatalogService)
         {
             _console = console ?? throw new ArgumentNullException(nameof(console));
             _promptUI = promptUI ?? throw new ArgumentNullException(nameof(promptUI));
-            _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
             _appConfigProvider = appConfigProvider ?? throw new ArgumentNullException(nameof(appConfigProvider));
             _autoStartManager = autoStartManager ?? throw new ArgumentNullException(nameof(autoStartManager));
             _gameCatalogService = gameCatalogService ?? throw new ArgumentNullException(nameof(gameCatalogService));
@@ -98,7 +94,6 @@ namespace GameHelper.ConsoleHost.Interactive
         private void RenderConfigTable()
         {
             var configs = _gameCatalogService.GetAll()
-                .Select(ToConfig)
                 .ToList();
             AppConfig? appConfig = null;
             try
@@ -144,7 +139,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     string.IsNullOrWhiteSpace(cfg.DisplayName) ? "-" : Markup.Escape(cfg.DisplayName!),
                     Markup.Escape(pathDisplay),
                     cfg.IsEnabled ? "[green]启用[/]" : "[red]禁用[/]",
-                    cfg.HDREnabled ? "[green]开启[/]" : "[yellow]保持关闭[/]");
+                    cfg.HdrEnabled ? "[green]开启[/]" : "[yellow]保持关闭[/]");
             }
 
             _console.Write(table);
@@ -204,23 +199,8 @@ namespace GameHelper.ConsoleHost.Interactive
             }
         }
 
-        private static GameConfig ToConfig(GameEntry entry)
-        {
-            return new GameConfig
-            {
-                DataKey = entry.DataKey,
-                ExecutableName = entry.ExecutableName,
-                ExecutablePath = entry.ExecutablePath,
-                DisplayName = entry.DisplayName,
-                IsEnabled = entry.IsEnabled,
-                HDREnabled = entry.HdrEnabled
-            };
-        }
-
         private Task AddGameAsync()
         {
-            var configs = LoadConfigs();
-
             // Prompt for input - can be file path or executable name
             var inputPrompt = new TextPrompt<string>(
                 "请输入游戏的可执行文件名或拖放 EXE/LNK 文件\n" +
@@ -235,7 +215,7 @@ namespace GameHelper.ConsoleHost.Interactive
             string? exePath = null;
             string executableName;
             string? productName = null;
-            string? suggestedDataKey;
+            string dataKeyIdentity;
 
             // Check if input is a file path
             if (File.Exists(input))
@@ -266,7 +246,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 // Extract metadata
                 (productName, _) = GameMetadataExtractor.ExtractMetadata(exePath);
                 executableName = Path.GetFileName(exePath);
-                suggestedDataKey = DataKeyGenerator.GenerateUniqueDataKey(exePath, productName, _configProvider);
+                dataKeyIdentity = exePath;
 
                 // Display extracted information
                 _console.MarkupLine("[green]检测到游戏文件：[/]");
@@ -282,12 +262,13 @@ namespace GameHelper.ConsoleHost.Interactive
             {
                 // Treat as executable name only
                 executableName = input;
-                suggestedDataKey = DataKeyGenerator.GenerateBaseDataKey(input);
+                dataKeyIdentity = input;
             }
 
             // Check for existing config by path first, then by unique executable name fallback.
-            var existingConfig = ConfigEntryMatcher.FindExistingForAdd(configs.Values, executableName, exePath);
-            var existingEntryId = existingConfig?.EntryId;
+            var existingConfig = _gameCatalogService.FindExistingForAdd(executableName, exePath);
+            var existingDataKey = existingConfig?.DataKey;
+            var suggestedDataKey = existingDataKey ?? _gameCatalogService.SuggestDataKey(dataKeyIdentity, productName);
 
             // Prompt for DataKey
             var dataKeyPrompt = new TextPrompt<string>(
@@ -301,10 +282,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     {
                         return ConsoleValidationResult.Error("DataKey 不能为空。");
                     }
-                    // Check uniqueness (excluding current entry if updating)
-                    if (configs.Values.Any(c =>
-                        string.Equals(c.DataKey, key, StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(c.EntryId, existingEntryId, StringComparison.OrdinalIgnoreCase)))
+                    if (!_gameCatalogService.IsDataKeyAvailable(key, existingDataKey))
                     {
                         return ConsoleValidationResult.Error($"DataKey '{key}' 已被其他游戏使用。");
                     }
@@ -339,7 +317,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
             // Prompt for HDR
             var hdrTitle = "在游戏运行时如何控制 HDR？";
-            var defaultHdrEnabled = existingConfig?.HDREnabled ?? false;
+            var defaultHdrEnabled = existingConfig?.HdrEnabled ?? false;
             var hdrChoices = defaultHdrEnabled
                 ? new[] { "自动开启 HDR", "保持关闭" }
                 : new[] { "保持关闭", "自动开启 HDR" };
@@ -364,7 +342,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private Task EditGameAsync()
         {
-            var configs = LoadConfigs();
+            var configs = _gameCatalogService.GetAll();
             if (configs.Count == 0)
             {
                 _console.MarkupLine("[italic grey]没有可以修改的游戏。[/]");
@@ -372,7 +350,7 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             var title = "选择需要修改的游戏";
-            var choices = configs.Values
+            var choices = configs
                 .Select(c => c.DataKey)
                 .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -384,10 +362,8 @@ namespace GameHelper.ConsoleHost.Interactive
             prompt.AddChoices(choices);
 
             var selectedDataKey = _promptUI.PromptSelection(prompt, choices, value => Markup.Escape(value), title);
-            var selected = configs.FirstOrDefault(kv => string.Equals(kv.Value.DataKey, selectedDataKey, StringComparison.OrdinalIgnoreCase));
-            var entryId = selected.Key;
-            var cfg = selected.Value;
-            if (cfg is null || string.IsNullOrWhiteSpace(entryId))
+            var cfg = configs.FirstOrDefault(entry => string.Equals(entry.DataKey, selectedDataKey, StringComparison.OrdinalIgnoreCase));
+            if (cfg is null)
             {
                 _console.MarkupLine("[red]未找到对应的配置。[/]");
                 return Task.CompletedTask;
@@ -476,7 +452,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
             // Prompt for HDR
             var hdrTitle = "在游戏运行时如何控制 HDR？";
-            var hdrChoices = cfg.HDREnabled
+            var hdrChoices = cfg.HdrEnabled
                 ? new[] { "自动开启 HDR", "保持关闭" }
                 : new[] { "保持关闭", "自动开启 HDR" };
             var hdrPrompt = new SelectionPrompt<string>();
@@ -488,7 +464,7 @@ namespace GameHelper.ConsoleHost.Interactive
             cfg.ExecutablePath = newExecutablePath;
             cfg.DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim();
             cfg.IsEnabled = string.Equals(enable, "启用", StringComparison.Ordinal);
-            cfg.HDREnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal);
+            cfg.HdrEnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal);
 
             var updated = _gameCatalogService.Update(cfg.DataKey, new GameEntryUpsertRequest
             {
@@ -498,7 +474,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 DisplayName = cfg.DisplayName,
                 ClearDisplayName = string.IsNullOrWhiteSpace(displayName),
                 IsEnabled = cfg.IsEnabled,
-                HdrEnabled = cfg.HDREnabled
+                HdrEnabled = cfg.HdrEnabled
             });
             _console.MarkupLine("[green]配置已更新。[/]");
 
@@ -556,11 +532,6 @@ namespace GameHelper.ConsoleHost.Interactive
 
             _gameCatalogService.Delete(selectedDataKey);
             _console.MarkupLine("[yellow]已移除该游戏。[/]");
-        }
-
-        private Dictionary<string, GameConfig> LoadConfigs()
-        {
-            return new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
         }
 
     }
