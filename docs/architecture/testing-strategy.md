@@ -20,6 +20,7 @@ For narrow iterations, run the smallest relevant `dotnet test --filter ...` firs
 - **Automation behaviour**: matching, active session reference counting, HDR scheduling, and stop-event toggling must remain stable.
 - **Persistence compatibility**: YAML config, `DataKey`, `entryId`, and CSV playtime history must survive roundtrips and migrations.
 - **Shell workflows**: CLI commands, interactive shell flows, and file-drop forwarding should be covered through service-facing tests or smoke tests.
+- **Command dispatch**: non-interactive CLI routing should be covered through `ConsoleCommandDispatcher` tests rather than process-level tests when startup side effects are not under test.
 - **Documentation navigation**: local Markdown links must stay valid while docs are archived or rewritten.
 
 ## Windows-Specific Tests
@@ -30,5 +31,5 @@ For narrow iterations, run the smallest relevant `dotnet test --filter ...` firs
 
 ## Known Gaps
 
-- Console host construction is covered through `ConsoleHostBootstrapper`, but command dispatch still lives in top-level `Program.cs`.
-- A future refactor should extract command dispatch and startup side effects before adding broad console-host process smoke tests.
+- Console host construction is covered through `ConsoleHostBootstrapper`, and non-interactive command routing is covered through `ConsoleCommandDispatcher`.
+- Process-level console smoke tests should wait until `Program.cs` startup side effects are isolated behind testable seams.
