@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using GameHelper.ConsoleHost.Models;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Spectre.Console;
 
@@ -27,7 +26,6 @@ namespace GameHelper.ConsoleHost.Interactive
         }
 
 
-        private readonly IHost _host;
         private readonly StatisticsUI _statisticsUI;
         private readonly ToolsUI _toolsUI;
         private readonly SettingsUI _settingsUI;
@@ -38,32 +36,21 @@ namespace GameHelper.ConsoleHost.Interactive
         private readonly PromptUI _promptUI;
         private readonly IConfigProvider _configProvider;
         private readonly IAppConfigProvider _appConfigProvider;
-        private readonly IAutoStartManager _autoStartManager;
-        private readonly InteractiveScript? _script;
-        private readonly Func<IHost, CancellationToken, Task> _monitorLoop;
         private readonly bool _autoStartMonitor;
 
         public InteractiveShell(IHost host, ParsedArguments arguments, IAnsiConsole? console = null, InteractiveScript? script = null, Func<IHost, CancellationToken, Task>? monitorLoop = null)
         {
-            _host = host ?? throw new ArgumentNullException(nameof(host));
             _arguments = arguments ?? throw new ArgumentNullException(nameof(arguments));
-            ConsoleEncoding.EnsureUtf8();
-            _console = console ?? AnsiConsole.Console;
-            if (console is null)
-            {
-                _console.Profile.Capabilities.Unicode = true;
-            }
-            _configProvider = host.Services.GetRequiredService<IConfigProvider>();
-            _appConfigProvider = host.Services.GetRequiredService<IAppConfigProvider>();
-            _autoStartManager = host.Services.GetRequiredService<IAutoStartManager>();
-            _script = script;
-            _promptUI = new PromptUI(_console, script);
-            _statisticsUI = new StatisticsUI(_console, _promptUI, _configProvider);
-            _toolsUI = new ToolsUI(_console, _promptUI);
-            _settingsUI = new SettingsUI(_console, _promptUI, _appConfigProvider, _autoStartManager);
-            _catalogUI = new GameCatalogUI(_console, _promptUI, _configProvider, _appConfigProvider, _autoStartManager);
-            _monitorLoop = monitorLoop ?? ((_, _) => Task.CompletedTask);
-            _monitorUI = new MonitorUI(_host, _console, _promptUI, _configProvider, _script, _monitorLoop, _arguments.MonitorDryRun);
+            var modules = InteractiveShellModules.Create(host, _arguments, console, script, monitorLoop);
+            _console = modules.Console;
+            _promptUI = modules.PromptUI;
+            _configProvider = modules.ConfigProvider;
+            _appConfigProvider = modules.AppConfigProvider;
+            _monitorUI = modules.MonitorUI;
+            _catalogUI = modules.CatalogUI;
+            _settingsUI = modules.SettingsUI;
+            _statisticsUI = modules.StatisticsUI;
+            _toolsUI = modules.ToolsUI;
             _autoStartMonitor = DetermineAutoStartPreference();
         }
 
