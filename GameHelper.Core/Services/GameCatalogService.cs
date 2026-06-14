@@ -37,9 +37,8 @@ public sealed class GameCatalogService : IGameCatalogService
 
     public string SuggestDataKey(string executableIdentity, string? productName = null)
     {
-        var baseKey = DataKeyGenerator.GenerateBaseDataKey(executableIdentity, productName);
         var existingKeys = _configProvider.Load().Values.Select(config => config.DataKey);
-        return ConfigIdentity.EnsureUniqueDataKey(baseKey, existingKeys);
+        return DataKeyGenerator.GenerateUniqueDataKey(executableIdentity, productName, existingKeys);
     }
 
     public bool IsDataKeyAvailable(string dataKey, string? currentDataKey = null)
