@@ -186,24 +186,20 @@ public sealed class GameCatalogService : IGameCatalogService
             throw new ArgumentException("Data key is required.", nameof(dataKey));
         }
 
-        var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
-        var existingPair = configs.FirstOrDefault(kv =>
-            string.Equals(kv.Value.DataKey, dataKey, StringComparison.OrdinalIgnoreCase));
-
-        if (existingPair.Value is null)
+        var configs = CreateWorkingMapByEntryId(_configProvider.Load());
+        var existing = FindByDataKey(configs.Values, dataKey);
+        if (existing is null)
         {
             throw new KeyNotFoundException($"Game '{dataKey}' not found.");
         }
 
-        var existing = existingPair.Value;
-        existing.EntryId = string.IsNullOrWhiteSpace(existing.EntryId) ? existingPair.Key : existing.EntryId;
         existing.ExecutableName = NormalizeExecutableName(request.ExecutableName) ?? existing.ExecutableName;
         existing.ExecutablePath = request.ClearExecutablePath ? null : request.ExecutablePath ?? existing.ExecutablePath;
         existing.DisplayName = request.ClearDisplayName ? null : request.DisplayName ?? existing.DisplayName;
         existing.IsEnabled = request.IsEnabled;
         existing.HDREnabled = request.HdrEnabled;
 
-        configs[existingPair.Key] = existing;
+        configs[existing.EntryId] = existing;
         _configProvider.Save(configs);
         return ToEntry(existing);
     }
@@ -215,16 +211,14 @@ public sealed class GameCatalogService : IGameCatalogService
             return false;
         }
 
-        var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
-        var existingPair = configs.FirstOrDefault(kv =>
-            string.Equals(kv.Value.DataKey, dataKey, StringComparison.OrdinalIgnoreCase));
-
-        if (existingPair.Value is null)
+        var configs = CreateWorkingMapByEntryId(_configProvider.Load());
+        var existing = FindByDataKey(configs.Values, dataKey);
+        if (existing is null)
         {
             return false;
         }
 
-        configs.Remove(existingPair.Key);
+        configs.Remove(existing.EntryId);
         _configProvider.Save(configs);
         return true;
     }
@@ -270,6 +264,12 @@ public sealed class GameCatalogService : IGameCatalogService
         }
 
         return result;
+    }
+
+    private static GameConfig? FindByDataKey(IEnumerable<GameConfig> configs, string dataKey)
+    {
+        return configs.FirstOrDefault(config =>
+            string.Equals(config.DataKey, dataKey, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string EnsureExistingDataKey(GameConfig existing, IEnumerable<GameConfig> allConfigs, string baseDataKey)
