@@ -1,16 +1,20 @@
-# 文档归档
+# Documentation Archive
 
-本目录存放不再作为当前事实来源的材料，用于追溯实现过程和历史决策。
+This directory stores material that is useful for traceability but is no longer the source of truth for current behaviour or design.
 
-## 目录说明
+## Contents
 
-- `stories/`：已完成的故事卡与实施记录。
-- `qa/`：对应故事的 QA 评审、测试设计和 Gate 记录。
-- `history/`：阶段性总结、历史设计稿、旧结构说明、旧测试报告等。
-- `migration/`：已经完成的迁移与切换标准。
-- `process/`：冲刺提案、缺陷复盘、经验总结、一次性速查材料。
+- `architecture/`: historical architecture snapshots and brownfield detail pages.
+- `history/`: old manuals, work summaries, migration notes, and test reports.
+- `migration/`: completed migration criteria and cutover notes.
+- `plans/`: completed or stale implementation plans.
+- `process/`: sprint proposals, retrospectives, lessons learned, and one-off process material.
+- `prd/`: completed story detail and superseded requirements breakdowns.
+- `qa/`: archived QA assessments and gate records.
+- `review/`: archived automated review rounds and classifications.
+- `stories/`: completed story cards and implementation records.
+- `todo/`: stale branch notes and paused work logs.
 
-## 使用原则
+## Rule
 
-- 归档文档可用于了解背景，但默认不应作为当前需求或架构的唯一依据。
-- 若归档内容与活文档冲突，以 `docs/prd/`、`docs/architecture/`、`docs/guides/` 中的最新文档为准。
+When archived content conflicts with active docs, prefer `README.md`, `docs/index.md`, `docs/architecture/`, `docs/prd/`, and `docs/guides/`.

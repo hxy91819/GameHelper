@@ -1,45 +1,61 @@
-# GameHelper Brownfield Architecture Document
+# GameHelper Architecture
 
-当前架构文档以本目录为唯一维护入口，根目录旧快照已降级为跳转说明。
+GameHelper is a Windows-focused .NET 8 application for game process monitoring, playtime tracking, and configuration-driven automation. The repository has two shells over the same core behaviour: a console host and a WinUI desktop shell.
 
-## Table of Contents
+## System Shape
 
-- [GameHelper Brownfield Architecture Document](#table-of-contents)
-  - [1. Introduction](./1-introduction.md)
-    - [1.1. 文档范围](./1-introduction.md#11-文档范围)
-    - [1.2. 变更日志](./1-introduction.md#12-变更日志)
-  - [Coding Standards](./coding-standards.md)
-  - [Tech Stack](./tech-stack.md)
-  - [2. 基础设施与部署（棕地）](./2-infrastructure-and-deployment-brownfield.md)
-    - [2.1. 关键文件与入口 (Quick Reference)](./2-infrastructure-and-deployment-brownfield.md#21-关键文件与入口-quick-reference)
-    - [2.2. 数据库与数据存储](./2-infrastructure-and-deployment-brownfield.md#22-数据库与数据存储)
-    - [2.3. API 与服务配置](./2-infrastructure-and-deployment-brownfield.md#23-api-与服务配置)
-    - [2.4. 测试基础设施](./2-infrastructure-and-deployment-brownfield.md#24-测试基础设施)
-  - [3. High-Level Architecture](./3-high-level-architecture.md)
-    - [3.1. 技术摘要](./3-high-level-architecture.md#31-技术摘要)
-    - [3.2. 实际技术栈](./3-high-level-architecture.md#32-实际技术栈)
-    - [3.3. 仓库结构](./3-high-level-architecture.md#33-仓库结构)
-    - [3.4. 依赖管理策略与兼容性约束](./3-high-level-architecture.md#34-依赖管理策略与兼容性约束)
-  - [4. Source Tree and Module Organization](./4-source-tree-and-module-organization.md)
-    - [4.1. 项目结构 (实际)](./4-source-tree-and-module-organization.md#41-项目结构-实际)
-    - [4.2. 关键模块及其用途](./4-source-tree-and-module-organization.md#42-关键模块及其用途)
-  - [5. Data Models and Storage](./5-data-models-and-storage.md)
-    - [5.1. Data Models](./5-data-models-and-storage.md#51-data-models)
-    - [5.2. Data Storage](./5-data-models-and-storage.md#52-data-storage)
-  - [6. 功能排序与依赖](./6-feature-dependencies.md)
-    - [6.1. 功能依赖](./6-feature-dependencies.md#61-功能依赖)
-    - [6.2. 技术依赖与发布门槛](./6-feature-dependencies.md#62-技术依赖与发布门槛)
-  - [7. Technical Debt and Known Issues](./7-technical-debt-and-known-issues.md)
-  - [7. 变通方法和注意事项 (Gotchas)](./7-gotchas.md)
-  - [8. Development and Deployment](./8-development-and-deployment.md)
-    - [8.1. Local Development Setup](./8-development-and-deployment.md#81-local-development-setup)
-    - [8.2. Build and Deployment Process](./8-development-and-deployment.md#82-build-and-deployment-process)
-    - [8.3. 回滚与应急预案](./8-development-and-deployment.md#83-回滚与应急预案)
-    - [8.4. CLI 用户旅程（含异常分支）](./8-development-and-deployment.md#84-cli-用户旅程含异常分支)
-  - [9. Testing Status](./9-testing-status.md)
-    - [9.1. Current Test Coverage](./9-testing-status.md#91-current-test-coverage)
-    - [9.2. Running Tests](./9-testing-status.md#92-running-tests)
-    - [9.3. 旧功能回归策略](./9-testing-status.md#93-旧功能回归策略)
-      - [9.3.1. 签字与记录流程](./9-testing-status.md#931-签字与记录流程)
-  - [10. Appendix - Useful Commands](./10-appendix-useful-commands.md)
-  - [WinUI Shell Design](./ui-shell-design.md)
+```text
+GameHelper.ConsoleHost    GameHelper.WinUI
+          |                    |
+          +--------+-----------+
+                   |
+             GameHelper.Core
+                   |
+         GameHelper.Infrastructure
+```
+
+- Shells own presentation, command routing, and desktop-specific user experience.
+- `GameHelper.Core` owns models, contracts, orchestration, matching, settings, statistics, and monitor lifecycle coordination.
+- `GameHelper.Infrastructure` owns concrete adapters for process monitors, YAML/CSV persistence, HDR control, Steam resolution, and Windows startup integration.
+- Dependency direction is enforced by tests and documented in [Dependency Direction Rules](./dependency-direction.md).
+
+## Primary Runtime Flows
+
+- **Configuration**: shells call core catalog/settings services; infrastructure persists `config.yml`.
+- **Monitoring**: `MonitorControlService` starts the process monitor and `GameAutomationService` as a lifecycle pair.
+- **Automation**: process events are matched by path first, metadata second; active game sessions drive playtime tracking and HDR scheduling.
+- **Statistics**: playtime records are read from local files and joined to current config by stable `DataKey`.
+- **File drop**: duplicate app launches forward dropped files to the running console process, which updates config and reloads automation.
+
+## Key Modules And Seams
+
+- **Process monitor seam**: `IProcessMonitor` lets ETW, WMI, and no-op adapters satisfy the same core monitoring interface.
+- **Configuration seam**: `IConfigProvider` and `IAppConfigProvider` isolate YAML/JSON storage from core services.
+- **Playtime seam**: `IPlayTimeService` records sessions; `IPlaytimeSnapshotProvider` reads historical records for statistics.
+- **Automation module**: `GameAutomationService` coordinates matching, session tracking, playtime, HDR, and stop-event control.
+- **Shell modules**: CLI commands and WinUI view models should call core services rather than duplicate domain logic.
+
+## Persistence Model
+
+- `config.yml` is the primary configuration file under `%AppData%\GameHelper\`.
+- `entryId` identifies a configuration row; `dataKey` is the stable statistics key written to playtime records.
+- `playtime.csv` is the current playtime history format; JSON exists only for legacy migration compatibility.
+- Configuration writes must preserve global app settings when replacing the game list.
+
+## Testing Strategy
+
+Use [Testing Strategy](./testing-strategy.md) as the live safety net definition for refactors. At minimum, run:
+
+```powershell
+dotnet build GameHelper.sln
+dotnet test GameHelper.sln
+```
+
+## Supporting Standards
+
+- [Coding Standards](./coding-standards.md)
+- [Tech Stack](./tech-stack.md)
+- [Dependency Direction Rules](./dependency-direction.md)
+- [WinUI Shell Design](./ui-shell-design.md)
+
+Historical brownfield architecture chapters are archived under `docs/archives/architecture/brownfield/`.

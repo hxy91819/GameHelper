@@ -1,10 +1,10 @@
-# 架构入口已迁移
+# Architecture Entry
 
-当前维护中的架构文档位于 `docs/architecture/` 目录。
+The maintained architecture documentation lives under `docs/architecture/`.
 
-- 入口索引：`docs/architecture/index.md`
-- 当前架构总览：`docs/architecture/3-high-level-architecture.md`
-- 源码结构：`docs/architecture/4-source-tree-and-module-organization.md`
-- 开发与部署：`docs/architecture/8-development-and-deployment.md`
+- Current architecture overview: `docs/architecture/index.md`
+- Dependency direction: `docs/architecture/dependency-direction.md`
+- Testing strategy: `docs/architecture/testing-strategy.md`
+- Tech stack: `docs/architecture/tech-stack.md`
 
-此文件仅保留为兼容跳转说明，避免根目录和分目录同时维护两份架构事实来源。
+Historical brownfield detail pages have been moved to `docs/archives/architecture/brownfield/`.

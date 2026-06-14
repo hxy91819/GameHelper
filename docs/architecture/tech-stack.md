@@ -49,7 +49,7 @@
    - 本地验证：`dotnet restore && dotnet build && dotnet test`。
    - Windows 11 实机验证：执行 `dotnet run -- monitor`，确认 ETW/WMI 事件与 CSV 写入正常。
    - 更新文档：同步修改 `Directory.Build.props`、本文件，以及受影响的 PRD / 架构 / 指南文档。
-3. **冲突处理**：优先升级 `TraceEvent` 以解决绑定冲突；如需降级，必须记录于 `docs/architecture/7-technical-debt-and-known-issues.md`。
+3. **冲突处理**：优先升级 `TraceEvent` 以解决绑定冲突；如需降级，必须记录于当前架构文档或 `docs/refactor-safety.md`。
 
 ## 6. 兼容性检查清单
 
