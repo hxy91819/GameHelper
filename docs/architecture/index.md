@@ -15,7 +15,7 @@ GameHelper.ConsoleHost    GameHelper.WinUI
 ```
 
 - Shells own presentation, command routing, and desktop-specific user experience.
-- `GameHelper.Core` owns models, contracts, orchestration, matching, settings, statistics, and monitor lifecycle coordination.
+- `GameHelper.Core` owns models, contracts, orchestration, catalog matching policy, settings, statistics, and monitor lifecycle coordination.
 - `GameHelper.Infrastructure` owns concrete adapters for process monitors, YAML/CSV persistence, HDR control, Steam resolution, and Windows startup integration.
 - Dependency direction is enforced by tests and documented in [Dependency Direction Rules](./dependency-direction.md).
 
@@ -31,6 +31,7 @@ GameHelper.ConsoleHost    GameHelper.WinUI
 
 - **Process monitor seam**: `IProcessMonitor` lets ETW, WMI, and no-op adapters satisfy the same core monitoring interface.
 - **Configuration seam**: `IConfigProvider` and `IAppConfigProvider` isolate YAML/JSON storage from core services.
+- **Catalog matching policy**: Core utilities own add/import duplicate detection so shell flows reuse one rule set.
 - **Playtime seam**: `IPlayTimeService` records sessions; `IPlaytimeSnapshotProvider` reads historical records for statistics.
 - **Automation module**: `GameAutomationService` coordinates matching, session tracking, playtime, HDR, and stop-event control.
 - **Shell modules**: CLI commands and WinUI view models should call core services rather than duplicate domain logic.
