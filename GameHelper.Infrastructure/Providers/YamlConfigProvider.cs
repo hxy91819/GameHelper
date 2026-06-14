@@ -72,9 +72,7 @@ namespace GameHelper.Infrastructure.Providers
                 return result;
             }
 
-            var usedEntryIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var usedDataKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
+            var normalizedGames = new List<GameConfig>();
             foreach (var source in appConfig.Games)
             {
                 if (source is null)
@@ -82,27 +80,23 @@ namespace GameHelper.Infrastructure.Providers
                     continue;
                 }
 
-                var normalized = NormalizeLoadedConfig(source);
+                var normalized = ConfigEntryNormalizer.NormalizeLoaded(source, MissingDataKeyAction.Skip, _logger);
                 if (normalized is null)
                 {
                     continue;
                 }
 
-                var originalEntryId = normalized.EntryId;
-                normalized.EntryId = ConfigIdentity.EnsureUniqueEntryId(normalized.EntryId, usedEntryIds);
-                if (!string.Equals(originalEntryId, normalized.EntryId, StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogWarning("Detected duplicate or missing EntryId '{EntryId}', regenerated to '{NewEntryId}'.", originalEntryId, normalized.EntryId);
-                }
+                normalizedGames.Add(normalized);
+            }
 
-                var originalDataKey = normalized.DataKey;
-                normalized.DataKey = ConfigIdentity.EnsureUniqueDataKey(normalized.DataKey, usedDataKeys);
-                if (!string.Equals(originalDataKey, normalized.DataKey, StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogWarning("Detected duplicate DataKey '{DataKey}', adjusted to '{NewDataKey}'.", originalDataKey, normalized.DataKey);
-                }
+            ConfigEntryNormalizer.RepairDuplicateIdentities(
+                normalizedGames,
+                _logger,
+                " while loading.");
 
-                result[normalized.EntryId] = normalized;
+            foreach (var game in normalizedGames)
+            {
+                result[game.EntryId] = game;
             }
 
             return result;
@@ -161,12 +155,10 @@ namespace GameHelper.Infrastructure.Providers
             var appConfig = LoadAppConfig();
 
             var normalizedGames = configs.Values
-                .Select(NormalizeForSave)
-                .Where(c => c is not null)
-                .Select(c => c!)
+                .Select(config => ConfigEntryNormalizer.NormalizeForSave(config, _logger))
                 .ToList();
 
-            RepairDuplicateIdentities(normalizedGames);
+            ConfigEntryNormalizer.RepairDuplicateIdentities(normalizedGames, _logger, " while saving.");
 
             appConfig.Games = normalizedGames;
             SaveAppConfig(appConfig);
@@ -185,105 +177,6 @@ namespace GameHelper.Infrastructure.Providers
         }
 
         private static string ResolveDefaultPath() => AppDataPath.GetConfigPath();
-
-        private GameConfig? NormalizeLoadedConfig(GameConfig source)
-        {
-            var entryId = ConfigIdentity.EnsureEntryId(source.EntryId);
-            var executableName = (source.ExecutableName ?? source.Name ?? string.Empty).Trim();
-            var executablePath = (source.ExecutablePath ?? string.Empty).Trim();
-            var displayName = (source.DisplayName ?? source.Alias ?? string.Empty).Trim();
-            var dataKey = (source.DataKey ?? string.Empty).Trim();
-
-            if (string.IsNullOrWhiteSpace(dataKey))
-            {
-                if (!string.IsNullOrWhiteSpace(executableName))
-                {
-                    dataKey = executableName;
-                    _logger.LogWarning("Config entry missing DataKey; fallback to ExecutableName='{ExecutableName}'.", executableName);
-                }
-                else if (!string.IsNullOrWhiteSpace(displayName))
-                {
-                    dataKey = displayName;
-                    _logger.LogWarning("Config entry missing DataKey; fallback to DisplayName='{DisplayName}'.", displayName);
-                }
-                else
-                {
-                    _logger.LogWarning("Skip config entry: DataKey/ExecutableName/DisplayName are all missing.");
-                    return null;
-                }
-            }
-
-            if (string.IsNullOrWhiteSpace(executablePath) && !string.IsNullOrWhiteSpace(executableName))
-            {
-                _logger.LogWarning("Config entry '{DataKey}' has no ExecutablePath; fallback matching will use ExecutableName only.", dataKey);
-            }
-
-            return new GameConfig
-            {
-                EntryId = entryId,
-                DataKey = dataKey,
-                ExecutableName = string.IsNullOrWhiteSpace(executableName) ? null : executableName,
-                ExecutablePath = string.IsNullOrWhiteSpace(executablePath) ? null : executablePath,
-                DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
-                IsEnabled = source.IsEnabled,
-                HDREnabled = source.HDREnabled
-            };
-        }
-
-        private GameConfig? NormalizeForSave(GameConfig source)
-        {
-            var entryId = ConfigIdentity.EnsureEntryId(source.EntryId);
-            var dataKey = (source.DataKey ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(dataKey))
-            {
-                throw new InvalidDataException("Cannot save config entry without DataKey.");
-            }
-
-            var executableName = (source.ExecutableName ?? source.Name ?? string.Empty).Trim();
-            var executablePath = (source.ExecutablePath ?? string.Empty).Trim();
-            var displayName = (source.DisplayName ?? source.Alias ?? string.Empty).Trim();
-
-            if (string.IsNullOrWhiteSpace(executablePath) && !string.IsNullOrWhiteSpace(executableName))
-            {
-                _logger.LogWarning("Config entry '{DataKey}' is saved without ExecutablePath; fallback matching will use ExecutableName only.", dataKey);
-            }
-
-            return new GameConfig
-            {
-                EntryId = entryId,
-                DataKey = dataKey,
-                ExecutableName = string.IsNullOrWhiteSpace(executableName) ? null : executableName,
-                ExecutablePath = string.IsNullOrWhiteSpace(executablePath) ? null : executablePath,
-                DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
-                IsEnabled = source.IsEnabled,
-                HDREnabled = source.HDREnabled
-            };
-        }
-
-        private void RepairDuplicateIdentities(List<GameConfig> games)
-        {
-            var usedEntryIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var usedDataKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            for (var i = 0; i < games.Count; i++)
-            {
-                var config = games[i];
-
-                var originalEntryId = config.EntryId;
-                config.EntryId = ConfigIdentity.EnsureUniqueEntryId(config.EntryId, usedEntryIds);
-                if (!string.Equals(originalEntryId, config.EntryId, StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogWarning("Adjusted duplicate EntryId '{EntryId}' to '{NewEntryId}' while saving.", originalEntryId, config.EntryId);
-                }
-
-                var originalDataKey = config.DataKey;
-                config.DataKey = ConfigIdentity.EnsureUniqueDataKey(config.DataKey, usedDataKeys);
-                if (!string.Equals(originalDataKey, config.DataKey, StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogWarning("Adjusted duplicate DataKey '{DataKey}' to '{NewDataKey}' while saving.", originalDataKey, config.DataKey);
-                }
-            }
-        }
 
         private sealed class LegacyRoot
         {
