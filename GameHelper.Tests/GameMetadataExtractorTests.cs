@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using GameHelper.ConsoleHost.Utilities;
+using GameHelper.Core.Utilities;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;

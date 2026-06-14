@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using GameHelper.Core.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace GameHelper.ConsoleHost.Utilities

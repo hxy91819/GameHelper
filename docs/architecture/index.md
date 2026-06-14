@@ -31,7 +31,7 @@ GameHelper.ConsoleHost    GameHelper.WinUI
 
 - **Process monitor seam**: `IProcessMonitor` lets ETW, WMI, and no-op adapters satisfy the same core monitoring interface.
 - **Configuration seam**: `IConfigProvider` and `IAppConfigProvider` isolate YAML/JSON storage from core services.
-- **Catalog matching policy**: Core utilities own add/import duplicate detection so shell flows reuse one rule set.
+- **Catalog identity and matching policy**: Core utilities own `DataKey` generation and add/import duplicate detection so shell flows reuse one rule set.
 - **Playtime seam**: `IPlayTimeService` records sessions; `IPlaytimeSnapshotProvider` reads historical records for statistics.
 - **Automation module**: `GameAutomationService` coordinates matching, session tracking, playtime, HDR, and stop-event control.
 - **Shell modules**: CLI commands and WinUI view models should call core services rather than duplicate domain logic; interactive shell composition lives in a dedicated module so routing stays separate from module construction.
