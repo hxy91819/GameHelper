@@ -6,7 +6,7 @@ All repository source, documentation, and configuration text files must be valid
 
 - `.editorconfig` declares `charset = utf-8` for editor integrations.
 - `.gitattributes` declares `working-tree-encoding=UTF-8` for tracked text formats.
-- `RepositoryEncodingTests` verifies active repository text files decode as UTF-8.
+- `RepositoryEncodingTests` verifies active repository text files decode as UTF-8 and do not contain common UTF-8/GBK mojibake markers.
 
 ## Command-Line Rules
 

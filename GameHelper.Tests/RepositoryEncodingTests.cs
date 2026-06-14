@@ -6,6 +6,21 @@ public sealed class RepositoryEncodingTests
 {
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
+    private static readonly string[] MojibakeMarkers =
+    {
+        "\u95b0\u5d87\u7586", // 配置
+        "\u6d5c\u6391\u59e9", // 互动
+        "\u7039\u70b4\u6902\u9429\u621e\u5e36", // 实时监控
+        "\u5a13\u544a\u5799\u93b0\u590a\u63e9", // 游戏愉快
+        "\u7487\ufe3d\u510f", // 详情
+        "\u93c2\u56e6\u6b22", // 文件
+        "\u93c3\u30e5\u7e54", // 日志
+        "\u9429\u621e\u5e36", // 监控
+        "\u7ee0\uff04\u608a", // 管理
+        "\u934f\u3125\u772c", // 全局
+        "\ufffd",
+    };
+
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".cs",
@@ -46,6 +61,24 @@ public sealed class RepositoryEncodingTests
     }
 
     [Fact]
+    public void RepositoryTextFiles_ShouldNotContainCommonMojibakeMarkers()
+    {
+        var solutionRoot = GetSolutionRoot();
+        var corruptedFiles = EnumerateRepositoryTextFiles(solutionRoot)
+            .Select(file => new
+            {
+                File = file,
+                Content = File.ReadAllText(file, StrictUtf8)
+            })
+            .Where(item => ContainsMojibakeMarker(item.Content))
+            .Select(item => Path.GetRelativePath(solutionRoot, item.File))
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        Assert.Empty(corruptedFiles);
+    }
+
+    [Fact]
     public void EncodingConfiguration_ShouldRequireUtf8()
     {
         var solutionRoot = GetSolutionRoot();
@@ -74,6 +107,11 @@ public sealed class RepositoryEncodingTests
         {
             return false;
         }
+    }
+
+    private static bool ContainsMojibakeMarker(string content)
+    {
+        return MojibakeMarkers.Any(marker => content.Contains(marker, StringComparison.Ordinal));
     }
 
     private static bool IsIgnoredPath(string solutionRoot, string file)
