@@ -2,6 +2,8 @@ namespace GameHelper.Core.Models;
 
 public sealed class GameEntryUpsertRequest
 {
+    public string? DataKey { get; set; }
+
     public string? ExecutableName { get; set; }
 
     public string? ExecutablePath { get; set; }

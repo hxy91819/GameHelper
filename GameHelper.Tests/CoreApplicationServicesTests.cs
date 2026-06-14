@@ -81,6 +81,91 @@ public sealed class CoreApplicationServicesTests
     }
 
     [Fact]
+    public void GameCatalogService_Save_ShouldCreateEntryWithRequestedDataKey()
+    {
+        var provider = new FakeConfigProvider();
+        var service = new GameCatalogService(provider);
+
+        var saved = service.Save(new GameEntryUpsertRequest
+        {
+            DataKey = "custom-key",
+            ExecutableName = "custom.exe",
+            DisplayName = "Custom",
+            IsEnabled = true,
+            HdrEnabled = true
+        });
+
+        Assert.Equal("custom-key", saved.DataKey);
+        Assert.Equal("custom.exe", saved.ExecutableName);
+        Assert.Equal("Custom", saved.DisplayName);
+        Assert.True(saved.HdrEnabled);
+    }
+
+    [Fact]
+    public void GameCatalogService_Save_ShouldUpdateExistingMatchingEntry()
+    {
+        var provider = new FakeConfigProvider();
+        var service = new GameCatalogService(provider);
+        provider.Save(new Dictionary<string, GameConfig>
+        {
+            ["entry1"] = new()
+            {
+                EntryId = "entry1",
+                DataKey = "old-key",
+                ExecutableName = "same.exe",
+                DisplayName = "Old",
+                IsEnabled = false,
+                HDREnabled = false
+            }
+        });
+
+        var saved = service.Save(new GameEntryUpsertRequest
+        {
+            DataKey = "new-key",
+            ExecutableName = "same.exe",
+            DisplayName = "New",
+            IsEnabled = true,
+            HdrEnabled = true
+        });
+
+        Assert.Equal("new-key", saved.DataKey);
+        Assert.Equal("New", saved.DisplayName);
+        Assert.True(saved.IsEnabled);
+        Assert.True(saved.HdrEnabled);
+        Assert.Single(provider.Load());
+    }
+
+    [Fact]
+    public void GameCatalogService_Save_ShouldRepairMissingEntryIdWhenUpdating()
+    {
+        var provider = new FakeConfigProvider();
+        var service = new GameCatalogService(provider);
+        provider.Save(new Dictionary<string, GameConfig>
+        {
+            ["legacy-key"] = new()
+            {
+                DataKey = "legacy",
+                ExecutableName = "legacy.exe",
+                DisplayName = "Legacy",
+                IsEnabled = false
+            }
+        });
+
+        var saved = service.Save(new GameEntryUpsertRequest
+        {
+            DataKey = "legacy",
+            ExecutableName = "legacy.exe",
+            DisplayName = "Updated",
+            IsEnabled = true
+        });
+
+        var config = Assert.Single(provider.Load().Values);
+        Assert.False(string.IsNullOrWhiteSpace(config.EntryId));
+        Assert.Equal(saved.DataKey, config.DataKey);
+        Assert.Equal("Updated", config.DisplayName);
+    }
+
+    [Fact]
     public void GameCatalogService_Import_ShouldAddUsingBaseDataKey()
     {
         var provider = new FakeConfigProvider();
