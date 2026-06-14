@@ -1,6 +1,5 @@
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
-using GameHelper.Core.Utilities;
 
 namespace GameHelper.Core.Services;
 
@@ -23,12 +22,11 @@ public sealed class StatisticsService : IStatisticsService
             return Array.Empty<GameStatsSummary>();
         }
 
-        var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
-        var configLookup = GameConfigLookup.Build(configs);
+        var configIndex = LoadConfigIndex();
         var cutoff = DateTime.Now.AddDays(-14);
 
         return records
-            .Select(record => ToSummary(record, configLookup, cutoff))
+            .Select(record => ToSummary(record, configIndex, cutoff))
             .OrderByDescending(item => item.RecentMinutes)
             .ThenByDescending(item => item.TotalMinutes)
             .ThenBy(item => item.DisplayName ?? item.GameName, StringComparer.OrdinalIgnoreCase)
@@ -48,13 +46,12 @@ public sealed class StatisticsService : IStatisticsService
             return null;
         }
 
-        var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
-        var configLookup = GameConfigLookup.Build(configs);
+        var configIndex = LoadConfigIndex();
         var cutoff = DateTime.Now.AddDays(-14);
         var match = records.FirstOrDefault(record =>
             string.Equals(record.GameName, dataKeyOrGameName, StringComparison.OrdinalIgnoreCase));
 
-        return match is null ? null : ToSummary(match, configLookup, cutoff);
+        return match is null ? null : ToSummary(match, configIndex, cutoff);
     }
 
     public SessionActivitySnapshot GetSessionActivitySnapshot()
@@ -69,14 +66,13 @@ public sealed class StatisticsService : IStatisticsService
                 source);
         }
 
-        var configs = new Dictionary<string, GameConfig>(_configProvider.Load(), StringComparer.OrdinalIgnoreCase);
-        var configLookup = GameConfigLookup.Build(configs);
+        var configIndex = LoadConfigIndex();
         var keys = new HashSet<SessionActivityKey>();
         var records = new List<SessionActivityRecord>();
 
         foreach (var item in snapshot.Records)
         {
-            var displayName = ResolveDisplayName(item.GameName, configLookup);
+            var displayName = configIndex.ResolveDisplayName(item.GameName);
             foreach (var session in item.Sessions)
             {
                 var record = new SessionActivityRecord(
@@ -93,13 +89,17 @@ public sealed class StatisticsService : IStatisticsService
         return new SessionActivitySnapshot(keys, records, source);
     }
 
+    private StatisticsConfigIndex LoadConfigIndex()
+    {
+        return StatisticsConfigIndex.Build(_configProvider.Load());
+    }
+
     private static GameStatsSummary ToSummary(
         GamePlaytimeRecord record,
-        GameConfigLookup configLookup,
+        StatisticsConfigIndex configIndex,
         DateTime cutoff)
     {
-        var gameConfig = configLookup.Resolve(record.GameName);
-        var displayName = gameConfig?.DisplayName;
+        var displayName = configIndex.FindDisplayName(record.GameName);
 
         var orderedSessions = record.Sessions
             .OrderByDescending(item => item.StartTime)
@@ -114,12 +114,6 @@ public sealed class StatisticsService : IStatisticsService
             SessionCount = record.Sessions.Count,
             Sessions = orderedSessions
         };
-    }
-
-    private static string ResolveDisplayName(string key, GameConfigLookup lookup)
-    {
-        var cfg = lookup.Resolve(key);
-        return !string.IsNullOrWhiteSpace(cfg?.DisplayName) ? cfg.DisplayName! : key;
     }
 
 }
