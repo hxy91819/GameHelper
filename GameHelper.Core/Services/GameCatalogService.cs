@@ -22,6 +22,39 @@ public sealed class GameCatalogService : IGameCatalogService
             .ToList();
     }
 
+    public GameEntry? FindExistingForAdd(string executableName, string? executablePath)
+    {
+        var normalizedExecutableName = NormalizeExecutableName(executableName);
+        if (string.IsNullOrWhiteSpace(normalizedExecutableName))
+        {
+            return null;
+        }
+
+        var configs = _configProvider.Load();
+        var existing = ConfigEntryMatcher.FindExistingForAdd(configs.Values, normalizedExecutableName, executablePath);
+        return existing is null ? null : ToEntry(existing);
+    }
+
+    public string SuggestDataKey(string executableIdentity, string? productName = null)
+    {
+        var baseKey = DataKeyGenerator.GenerateBaseDataKey(executableIdentity, productName);
+        var existingKeys = _configProvider.Load().Values.Select(config => config.DataKey);
+        return ConfigIdentity.EnsureUniqueDataKey(baseKey, existingKeys);
+    }
+
+    public bool IsDataKeyAvailable(string dataKey, string? currentDataKey = null)
+    {
+        if (string.IsNullOrWhiteSpace(dataKey))
+        {
+            return false;
+        }
+
+        var requested = dataKey.Trim();
+        return _configProvider.Load().Values.All(config =>
+            !string.Equals(config.DataKey, requested, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(config.DataKey, currentDataKey, StringComparison.OrdinalIgnoreCase));
+    }
+
     public GameEntry Add(GameEntryUpsertRequest request)
     {
         var executableName = NormalizeExecutableName(request.ExecutableName);

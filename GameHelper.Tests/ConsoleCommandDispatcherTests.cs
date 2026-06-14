@@ -105,6 +105,12 @@ public sealed class ConsoleCommandDispatcherTests
 
         public IReadOnlyList<GameEntry> GetAll() => _games;
 
+        public GameEntry? FindExistingForAdd(string executableName, string? executablePath) => null;
+
+        public string SuggestDataKey(string executableIdentity, string? productName = null) => executableIdentity;
+
+        public bool IsDataKeyAvailable(string dataKey, string? currentDataKey = null) => true;
+
         public GameEntry Add(GameEntryUpsertRequest request) => throw new NotSupportedException();
 
         public GameEntry Save(GameEntryUpsertRequest request) => throw new NotSupportedException();
