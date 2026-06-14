@@ -133,6 +133,51 @@ games:
             Assert.Equal("Romantic Escapades", game.DisplayName);
         }
 
+        [Fact]
+        public void Save_WhenAppSettingsExist_PreservesGlobalSettings()
+        {
+            var provider = new YamlConfigProvider(_configPath);
+            provider.SaveAppConfig(new AppConfig
+            {
+                ProcessMonitorType = ProcessMonitorType.WMI,
+                AutoStartInteractiveMonitor = true,
+                LaunchOnSystemStartup = true,
+                Games = new List<GameConfig>
+                {
+                    new()
+                    {
+                        EntryId = "old-entry",
+                        DataKey = "old",
+                        ExecutableName = "old.exe",
+                        IsEnabled = true
+                    }
+                }
+            });
+
+            provider.Save(new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["new-entry"] = new()
+                {
+                    EntryId = "new-entry",
+                    DataKey = "new",
+                    ExecutableName = "new.exe",
+                    DisplayName = "New Game",
+                    IsEnabled = true,
+                    HDREnabled = true
+                }
+            });
+
+            var appConfig = provider.LoadAppConfig();
+            Assert.Equal(ProcessMonitorType.WMI, appConfig.ProcessMonitorType);
+            Assert.True(appConfig.AutoStartInteractiveMonitor);
+            Assert.True(appConfig.LaunchOnSystemStartup);
+
+            var game = Assert.Single(appConfig.Games!);
+            Assert.Equal("new-entry", game.EntryId);
+            Assert.Equal("new", game.DataKey);
+            Assert.Equal("New Game", game.DisplayName);
+        }
+
         public void Dispose()
         {
             try
