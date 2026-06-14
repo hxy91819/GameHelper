@@ -6,6 +6,8 @@ using GameHelper.ConsoleHost.Interactive;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Services;
+using GameHelper.Infrastructure.Providers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Spectre.Console.Testing;
@@ -41,6 +43,8 @@ public sealed class InteractiveShellModulesTests
             .AddSingleton<IConfigProvider>(provider)
             .AddSingleton<IAppConfigProvider>(provider)
             .AddSingleton<IAutoStartManager, FakeAutoStartManager>()
+            .AddSingleton<IPlaytimeSnapshotProvider, FilePlaytimeSnapshotProvider>()
+            .AddSingleton<IStatisticsService, StatisticsService>()
             .BuildServiceProvider();
 
         return new TestHost(services);

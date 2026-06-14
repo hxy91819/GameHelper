@@ -7,21 +7,37 @@ namespace GameHelper.Infrastructure.Providers;
 
 public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
 {
+    private readonly string? _playtimeDirectory;
+
+    public FilePlaytimeSnapshotProvider()
+    {
+    }
+
+    public FilePlaytimeSnapshotProvider(string playtimeDirectory)
+    {
+        _playtimeDirectory = playtimeDirectory ?? throw new ArgumentNullException(nameof(playtimeDirectory));
+    }
+
     public IReadOnlyList<GamePlaytimeRecord> GetPlaytimeRecords()
     {
-        var csvFile = AppDataPath.GetPlaytimeCsvPath();
-        var jsonFile = AppDataPath.GetPlaytimeJsonPath();
+        return GetSnapshot().Records;
+    }
+
+    public PlaytimeSnapshot GetSnapshot()
+    {
+        var csvFile = GetPlaytimeCsvPath();
+        var jsonFile = GetPlaytimeJsonPath();
 
         try
         {
             if (File.Exists(csvFile))
             {
-                return ReadFromCsv(csvFile);
+                return new PlaytimeSnapshot(ReadFromCsv(csvFile), csvFile);
             }
 
             if (File.Exists(jsonFile))
             {
-                return ReadFromJson(jsonFile);
+                return new PlaytimeSnapshot(ReadFromJson(jsonFile), jsonFile);
             }
         }
         catch
@@ -29,7 +45,21 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
             // Keep shell flows resilient to corrupt or unreadable history files.
         }
 
-        return Array.Empty<GamePlaytimeRecord>();
+        return new PlaytimeSnapshot(Array.Empty<GamePlaytimeRecord>(), null);
+    }
+
+    private string GetPlaytimeCsvPath()
+    {
+        return _playtimeDirectory is null
+            ? AppDataPath.GetPlaytimeCsvPath()
+            : Path.Combine(_playtimeDirectory, "playtime.csv");
+    }
+
+    private string GetPlaytimeJsonPath()
+    {
+        return _playtimeDirectory is null
+            ? AppDataPath.GetPlaytimeJsonPath()
+            : Path.Combine(_playtimeDirectory, "playtime.json");
     }
 
     private static IReadOnlyList<GamePlaytimeRecord> ReadFromCsv(string path)

@@ -72,6 +72,8 @@ internal sealed class InteractiveShellModules
         var configProvider = host.Services.GetRequiredService<IConfigProvider>();
         var appConfigProvider = host.Services.GetRequiredService<IAppConfigProvider>();
         var autoStartManager = host.Services.GetRequiredService<IAutoStartManager>();
+        var playtimeSnapshotProvider = host.Services.GetRequiredService<IPlaytimeSnapshotProvider>();
+        var statisticsService = host.Services.GetRequiredService<IStatisticsService>();
         var promptUI = new PromptUI(resolvedConsole, script);
         var resolvedMonitorLoop = monitorLoop ?? ((_, _) => Task.CompletedTask);
 
@@ -80,10 +82,10 @@ internal sealed class InteractiveShellModules
             promptUI,
             configProvider,
             appConfigProvider,
-            new MonitorUI(host, resolvedConsole, promptUI, configProvider, script, resolvedMonitorLoop, arguments.MonitorDryRun),
+            new MonitorUI(host, resolvedConsole, promptUI, configProvider, playtimeSnapshotProvider, script, resolvedMonitorLoop, arguments.MonitorDryRun),
             new GameCatalogUI(resolvedConsole, promptUI, configProvider, appConfigProvider, autoStartManager),
             new SettingsUI(resolvedConsole, promptUI, appConfigProvider, autoStartManager),
-            new StatisticsUI(resolvedConsole, promptUI, configProvider),
+            new StatisticsUI(resolvedConsole, promptUI, statisticsService),
             new ToolsUI(resolvedConsole, promptUI));
     }
 }

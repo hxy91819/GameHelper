@@ -8,6 +8,8 @@ using GameHelper.ConsoleHost.Interactive;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Services;
+using GameHelper.Infrastructure.Providers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Spectre.Console.Testing;
@@ -337,6 +339,8 @@ namespace GameHelper.Tests.Interactive
                 .AddSingleton<IAutoStartManager>(autoStartManager)
                 .AddSingleton<IProcessMonitor, FakeProcessMonitor>()
                 .AddSingleton<IGameAutomationService, FakeAutomationService>()
+                .AddSingleton<IPlaytimeSnapshotProvider, FilePlaytimeSnapshotProvider>()
+                .AddSingleton<IStatisticsService, StatisticsService>()
                 .BuildServiceProvider();
 
             return new AsyncDisposableHost(services);
