@@ -188,6 +188,37 @@ namespace GameHelper.Tests
             Assert.Equal(1, play.StartCalls);
         }
 
+        [Fact]
+        public void L1_DuplicateExecutablePath_KeepsFirstConfig()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new FakeConfig(new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["first"] = new()
+                {
+                    DataKey = "first",
+                    ExecutableName = "game.exe",
+                    ExecutablePath = @"C:\Steam\game.exe",
+                    IsEnabled = true
+                },
+                ["second"] = new()
+                {
+                    DataKey = "second",
+                    ExecutableName = "game.exe",
+                    ExecutablePath = @"C:\Steam\game.exe",
+                    IsEnabled = true
+                }
+            });
+            var play = new FakePlayTime();
+            var svc = CreateService(monitor, cfg, new FakeHdr(), play);
+
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", @"C:\Steam\game.exe"));
+
+            Assert.Equal(1, play.StartCalls);
+            Assert.Contains("first", play.Started);
+            Assert.DoesNotContain("second", play.Started);
+        }
+
         #endregion
 
         #region 3. 歧义消解
