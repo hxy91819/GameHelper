@@ -337,6 +337,7 @@ namespace GameHelper.Tests.Interactive
                 .AddSingleton<IConfigProvider>(configProvider)
                 .AddSingleton<IAppConfigProvider>(configProvider)
                 .AddSingleton<IAutoStartManager>(autoStartManager)
+                .AddSingleton<IGameCatalogService, GameCatalogService>()
                 .AddSingleton<IProcessMonitor, FakeProcessMonitor>()
                 .AddSingleton<IGameAutomationService, FakeAutomationService>()
                 .AddSingleton<IPlaytimeSnapshotProvider, FilePlaytimeSnapshotProvider>()

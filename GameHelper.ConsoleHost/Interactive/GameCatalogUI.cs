@@ -31,19 +31,22 @@ namespace GameHelper.ConsoleHost.Interactive
         private readonly IConfigProvider _configProvider;
         private readonly IAppConfigProvider _appConfigProvider;
         private readonly IAutoStartManager _autoStartManager;
+        private readonly IGameCatalogService _gameCatalogService;
 
         public GameCatalogUI(
             IAnsiConsole console,
             PromptUI promptUI,
             IConfigProvider configProvider,
             IAppConfigProvider appConfigProvider,
-            IAutoStartManager autoStartManager)
+            IAutoStartManager autoStartManager,
+            IGameCatalogService gameCatalogService)
         {
             _console = console ?? throw new ArgumentNullException(nameof(console));
             _promptUI = promptUI ?? throw new ArgumentNullException(nameof(promptUI));
             _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
             _appConfigProvider = appConfigProvider ?? throw new ArgumentNullException(nameof(appConfigProvider));
             _autoStartManager = autoStartManager ?? throw new ArgumentNullException(nameof(autoStartManager));
+            _gameCatalogService = gameCatalogService ?? throw new ArgumentNullException(nameof(gameCatalogService));
         }
 
         public async Task HandleConfigurationAsync()
@@ -94,7 +97,9 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private void RenderConfigTable()
         {
-            var configs = LoadConfigs();
+            var configs = _gameCatalogService.GetAll()
+                .Select(ToConfig)
+                .ToList();
             AppConfig? appConfig = null;
             try
             {
@@ -125,7 +130,7 @@ namespace GameHelper.ConsoleHost.Interactive
             table.AddColumn("自动化");
             table.AddColumn("HDR");
 
-            foreach (var cfg in configs.Values.OrderBy(e => e.DataKey, StringComparer.OrdinalIgnoreCase))
+            foreach (var cfg in configs.OrderBy(e => e.DataKey, StringComparer.OrdinalIgnoreCase))
             {
                 var pathDisplay = string.IsNullOrWhiteSpace(cfg.ExecutablePath)
                     ? "-"
@@ -197,6 +202,19 @@ namespace GameHelper.ConsoleHost.Interactive
                 _console.MarkupLine($"[yellow]无法读取系统自启动状态：{Markup.Escape(ex.Message)}[/]");
                 return null;
             }
+        }
+
+        private static GameConfig ToConfig(GameEntry entry)
+        {
+            return new GameConfig
+            {
+                DataKey = entry.DataKey,
+                ExecutableName = entry.ExecutableName,
+                ExecutablePath = entry.ExecutablePath,
+                DisplayName = entry.DisplayName,
+                IsEnabled = entry.IsEnabled,
+                HDREnabled = entry.HdrEnabled
+            };
         }
 
         private async Task AddGameAsync()
@@ -493,7 +511,9 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private async Task RemoveGameAsync()
         {
-            var configs = LoadConfigs();
+            await Task.CompletedTask.ConfigureAwait(false);
+
+            var configs = _gameCatalogService.GetAll();
             if (configs.Count == 0)
             {
                 _console.MarkupLine("[italic grey]当前没有可删除的游戏。[/]");
@@ -501,7 +521,7 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             var title = "选择要删除的游戏";
-            var choices = configs.Values
+            var choices = configs
                 .Select(c => c.DataKey)
                 .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -513,8 +533,7 @@ namespace GameHelper.ConsoleHost.Interactive
             prompt.AddChoices(choices);
 
             var selectedDataKey = _promptUI.PromptSelection(prompt, choices, value => Markup.Escape(value), title);
-            var selected = configs.FirstOrDefault(kv => string.Equals(kv.Value.DataKey, selectedDataKey, StringComparison.OrdinalIgnoreCase));
-            if (selected.Value is null || string.IsNullOrWhiteSpace(selected.Key))
+            if (!configs.Any(entry => string.Equals(entry.DataKey, selectedDataKey, StringComparison.OrdinalIgnoreCase)))
             {
                 _console.MarkupLine("[red]未找到对应的配置。[/]");
                 return;
@@ -526,8 +545,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 return;
             }
 
-            configs.Remove(selected.Key);
-            await PersistAsync(configs).ConfigureAwait(false);
+            _gameCatalogService.Delete(selectedDataKey);
             _console.MarkupLine("[yellow]已移除该游戏。[/]");
         }
 

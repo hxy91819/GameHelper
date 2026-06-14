@@ -43,6 +43,7 @@ public sealed class InteractiveShellModulesTests
             .AddSingleton<IConfigProvider>(provider)
             .AddSingleton<IAppConfigProvider>(provider)
             .AddSingleton<IAutoStartManager, FakeAutoStartManager>()
+            .AddSingleton<IGameCatalogService, GameCatalogService>()
             .AddSingleton<IPlaytimeSnapshotProvider, FilePlaytimeSnapshotProvider>()
             .AddSingleton<IStatisticsService, StatisticsService>()
             .BuildServiceProvider();
