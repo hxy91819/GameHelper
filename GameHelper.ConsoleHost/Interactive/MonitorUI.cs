@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Spectre.Console;
 
@@ -22,6 +21,7 @@ namespace GameHelper.ConsoleHost.Interactive
         private readonly IAnsiConsole _console;
         private readonly PromptUI _promptUI;
         private readonly IStatisticsService _statisticsService;
+        private readonly IMonitorControlService _monitorControlService;
         private readonly InteractiveScript? _script;
         private readonly Func<IHost, CancellationToken, Task> _monitorLoop;
         private readonly bool _dryRun;
@@ -31,6 +31,7 @@ namespace GameHelper.ConsoleHost.Interactive
             IAnsiConsole console,
             PromptUI promptUI,
             IStatisticsService statisticsService,
+            IMonitorControlService monitorControlService,
             InteractiveScript? script,
             Func<IHost, CancellationToken, Task> monitorLoop,
             bool dryRun)
@@ -39,6 +40,7 @@ namespace GameHelper.ConsoleHost.Interactive
             _console = console ?? throw new ArgumentNullException(nameof(console));
             _promptUI = promptUI ?? throw new ArgumentNullException(nameof(promptUI));
             _statisticsService = statisticsService ?? throw new ArgumentNullException(nameof(statisticsService));
+            _monitorControlService = monitorControlService ?? throw new ArgumentNullException(nameof(monitorControlService));
             _script = script;
             _monitorLoop = monitorLoop ?? throw new ArgumentNullException(nameof(monitorLoop));
             _dryRun = dryRun;
@@ -61,17 +63,8 @@ namespace GameHelper.ConsoleHost.Interactive
             _console.MarkupLine("[bold green]正在启动监控... 按 Q 键可随时返回主菜单。[/]");
             _console.WriteLine();
 
-            IProcessMonitor? monitor = null;
-            IGameAutomationService? automation = null;
-            if (!_dryRun)
-            {
-                monitor = _host.Services.GetRequiredService<IProcessMonitor>();
-                automation = _host.Services.GetRequiredService<IGameAutomationService>();
-            }
-
             using var monitorCts = new CancellationTokenSource();
             Task monitorLoopTask = Task.CompletedTask;
-            var automationStarted = false;
             var monitorStarted = false;
             var started = false;
             var exitSignalled = false;
@@ -82,9 +75,7 @@ namespace GameHelper.ConsoleHost.Interactive
             {
                 if (!_dryRun)
                 {
-                    automation!.Start();
-                    automationStarted = true;
-                    monitor!.Start();
+                    _monitorControlService.Start();
                     monitorStarted = true;
                 }
                 started = true;
@@ -129,23 +120,11 @@ namespace GameHelper.ConsoleHost.Interactive
                     runException ??= ex;
                 }
 
-                if (monitorStarted && monitor is not null)
+                if (monitorStarted)
                 {
                     try
                     {
-                        monitor.Stop();
-                    }
-                    catch (Exception ex)
-                    {
-                        runException ??= ex;
-                    }
-                }
-
-                if (automationStarted && automation is not null)
-                {
-                    try
-                    {
-                        automation.Stop();
+                        _monitorControlService.Stop();
                     }
                     catch (Exception ex)
                     {

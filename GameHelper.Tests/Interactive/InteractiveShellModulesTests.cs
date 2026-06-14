@@ -44,6 +44,7 @@ public sealed class InteractiveShellModulesTests
             .AddSingleton<IAppConfigProvider>(provider)
             .AddSingleton<IAutoStartManager, FakeAutoStartManager>()
             .AddSingleton<IGameCatalogService, GameCatalogService>()
+            .AddSingleton<IMonitorControlService, FakeMonitorControlService>()
             .AddSingleton<IPlaytimeSnapshotProvider, FilePlaytimeSnapshotProvider>()
             .AddSingleton<IStatisticsService, StatisticsService>()
             .BuildServiceProvider();
@@ -91,6 +92,19 @@ public sealed class InteractiveShellModulesTests
         public bool IsEnabled() => false;
 
         public void SetEnabled(bool enabled)
+        {
+        }
+    }
+
+    private sealed class FakeMonitorControlService : IMonitorControlService
+    {
+        public bool IsRunning => false;
+
+        public void Start()
+        {
+        }
+
+        public void Stop()
         {
         }
     }
