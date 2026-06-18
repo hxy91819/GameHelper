@@ -18,6 +18,10 @@ from typing import Any, Callable
 
 
 ENGINES = ("codex", "claude", "droid", "opencode", "kimi")
+DEFAULT_ENGINE = "opencode"
+DEFAULT_MODELS_BY_ENGINE = {
+    "opencode": "ollama-cloud/glm-5.2",
+}
 THINKING_LEVELS_BY_ENGINE = {
     "codex": {"low", "medium", "high", "xhigh"},
     "claude": {"low", "medium", "high", "xhigh", "max"},
@@ -1148,7 +1152,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", choices=["auto", "local", "uncommitted", "branch", "commit"], default="auto")
     parser.add_argument("--base")
     parser.add_argument("--commit", default="HEAD")
-    parser.add_argument("--engine", choices=ENGINES, default=os.environ.get("AUTOREVIEW_ENGINE", "kimi"))
+    parser.add_argument("--engine", choices=ENGINES, default=os.environ.get("AUTOREVIEW_ENGINE", DEFAULT_ENGINE))
     parser.add_argument("--reviewers", help="Comma-separated review panel, e.g. codex,claude or codex:gpt-5:high.")
     parser.add_argument("--panel", action="store_true", help="Run a Codex/Claude review panel unless --engine changes the first reviewer.")
     parser.add_argument("--model", action="append", help="Model for all reviewers or engine=model. Repeatable.")
@@ -1270,7 +1274,7 @@ def reviewer_args(args: argparse.Namespace) -> list[argparse.Namespace]:
         if engine in seen:
             raise SystemExit(f"reviewer specified more than once: {engine}")
         seen.add(engine)
-        model = inline_model or model_by_engine.get(engine) or global_model
+        model = inline_model or model_by_engine.get(engine) or global_model or DEFAULT_MODELS_BY_ENGINE.get(engine)
         thinking = inline_thinking or thinking_by_engine.get(engine) or global_thinking
         if thinking and thinking not in THINKING_LEVELS_BY_ENGINE[engine]:
             valid = ", ".join(sorted(THINKING_LEVELS_BY_ENGINE[engine])) or "none"
