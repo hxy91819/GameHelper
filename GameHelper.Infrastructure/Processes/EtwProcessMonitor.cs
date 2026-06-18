@@ -23,14 +23,16 @@ namespace GameHelper.Infrastructure.Processes
     /// ETW-based process monitor that provides low-latency process lifecycle notifications.
     /// Requires administrator privileges to access kernel ETW providers.
     /// </summary>
-    public sealed class EtwProcessMonitor : IProcessMonitor, IStopEventsControl, IDisposable
+    public sealed class EtwProcessMonitor : IProcessMonitor, IStopEventsControl, IProcessNameFilterControl, IDisposable
     {
         private TraceEventSession? _session;
         private Thread? _processingThread;
         private volatile bool _isRunning;
         private volatile bool _stopEventsEnabled = true;
         private volatile bool _disposed;
+        private readonly object _allowedProcessNamesLock = new();
         private readonly HashSet<string> _allowedProcessNames;
+        private volatile bool _hasProcessNameFilter;
         private readonly ILogger<EtwProcessMonitor>? _logger;
         private readonly string _sessionName;
 
@@ -51,18 +53,10 @@ namespace GameHelper.Infrastructure.Processes
             _logger = logger;
             _sessionName = $"GameHelper-ETW-{Guid.NewGuid():N}";
             
-            // Normalize and store allowed process names
             _allowedProcessNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (allowedProcessNames != null)
             {
-                foreach (var name in allowedProcessNames)
-                {
-                    if (!string.IsNullOrWhiteSpace(name))
-                    {
-                        var normalized = NormalizeProcessName(name);
-                        _allowedProcessNames.Add(normalized);
-                    }
-                }
+                SetAllowedProcessNames(allowedProcessNames);
             }
 
             _logger?.LogDebug("EtwProcessMonitor created with {Count} allowed processes", _allowedProcessNames.Count);
@@ -144,6 +138,32 @@ namespace GameHelper.Infrastructure.Processes
         }
 
         /// <inheritdoc />
+        public void SetAllowedProcessNames(IEnumerable<string> processNames)
+        {
+            ArgumentNullException.ThrowIfNull(processNames);
+
+            int count;
+            lock (_allowedProcessNamesLock)
+            {
+                _allowedProcessNames.Clear();
+                foreach (var name in processNames)
+                {
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        _allowedProcessNames.Add(NormalizeProcessName(name));
+                    }
+                }
+
+                _hasProcessNameFilter = true;
+                count = _allowedProcessNames.Count;
+            }
+
+            _logger?.LogDebug(
+                "ETW process-name filter updated with {Count} allowed processes",
+                count);
+        }
+
+        /// <inheritdoc />
         public void Dispose()
         {
             if (_disposed)
@@ -202,23 +222,22 @@ namespace GameHelper.Infrastructure.Processes
                 if (string.IsNullOrWhiteSpace(processName))
                     return;
 
-                if (IsAllowedProcess(processName))
+                var imageFileName = data.PayloadByName("ImageFileName") as string;
+                if (IsAllowedProcessStart(processName, imageFileName))
                 {
-                    var imageFileName = data.PayloadByName("ImageFileName") as string;
-                    var livePath = GetRealProcessPath(data.ProcessID);
-                    var realPath = livePath ?? imageFileName;
+                    var pathHint = imageFileName;
                     var cached = false;
-                    if (!string.IsNullOrWhiteSpace(realPath) && _stopEventsEnabled)
+                    if (!string.IsNullOrWhiteSpace(pathHint))
                     {
-                        _startPathCache[data.ProcessID] = realPath;
+                        _startPathCache[data.ProcessID] = pathHint;
                         cached = true;
                     }
 
                     _logger?.LogDebug(
-                        "Process started: {ProcessName} (PID: {ProcessId}, ImageFileName={ImageFileName}, LivePath={LivePath}, Cached={Cached})",
-                        processName, data.ProcessID, imageFileName, livePath, cached);
+                        "Process started: {ProcessName} (PID: {ProcessId}, ImageFileName={ImageFileName}, Cached={Cached})",
+                        processName, data.ProcessID, imageFileName, cached);
 
-                    var info = new ProcessEventInfo(processName, realPath);
+                    var info = new ProcessEventInfo(processName, pathHint, data.ProcessID);
                     ProcessStarted?.Invoke(info);
                 }
             }
@@ -267,7 +286,7 @@ namespace GameHelper.Infrastructure.Processes
                     "Process stopped: {ProcessName} (PID: {ProcessId}, CacheHit={CacheHit}, CachedPath={CachedPath}, Fallback={Fallback})",
                     processName, data.ProcessID, hadCache, realPath, fallbackImageFileName);
 
-                var info = new ProcessEventInfo(processName, realPath);
+                var info = new ProcessEventInfo(processName, realPath, data.ProcessID);
                 ProcessStopped?.Invoke(info);
             }
             catch (Exception ex)
@@ -302,12 +321,41 @@ namespace GameHelper.Infrastructure.Processes
 
         private bool IsAllowedProcess(string processName)
         {
-            // If no whitelist is configured, allow all processes
-            if (_allowedProcessNames.Count == 0)
+            if (!_hasProcessNameFilter)
+            {
                 return true;
+            }
 
             var normalized = NormalizeProcessName(processName);
-            return _allowedProcessNames.Contains(normalized);
+            lock (_allowedProcessNamesLock)
+            {
+                return _allowedProcessNames.Contains(normalized);
+            }
+        }
+
+        private bool IsAllowedProcessStart(string processName, string? pathHint)
+        {
+            if (IsAllowedProcess(processName))
+            {
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(pathHint))
+            {
+                return false;
+            }
+
+            try
+            {
+                // The ETW callback must stay cheap: do not open every non-candidate
+                // process here just to recover rare bad name/path payloads.
+                var hintName = Path.GetFileName(pathHint);
+                return !string.IsNullOrWhiteSpace(hintName) && IsAllowedProcess(hintName);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static string NormalizeProcessName(string processName)
@@ -450,13 +498,20 @@ namespace GameHelper.Infrastructure.Processes
         {
             try
             {
-                if (_allowedProcessNames.Count == 0)
+                HashSet<string> allowedSet;
+                lock (_allowedProcessNamesLock)
                 {
-                    _logger?.LogDebug("No process filter configured, skipping pre-fill scan");
+                    allowedSet = _hasProcessNameFilter
+                        ? _allowedProcessNames.ToHashSet(StringComparer.OrdinalIgnoreCase)
+                        : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                }
+
+                if (allowedSet.Count == 0)
+                {
+                    _logger?.LogDebug("No process-name candidates configured, skipping pre-fill scan");
                     return;
                 }
 
-                var allowedSet = _allowedProcessNames.Select(NormalizeProcessName).ToHashSet();
                 var processes = new List<RunningProcessInfo>();
                 foreach (var process in Process.GetProcesses())
                 {
@@ -596,4 +651,3 @@ namespace GameHelper.Infrastructure.Processes
         }
     }
 }
-

@@ -1,6 +1,7 @@
 using GameHelper.Core.Models;
 using GameHelper.Core.Utilities;
 using Microsoft.Extensions.Logging;
+using System.IO;
 
 namespace GameHelper.Core.Services;
 
@@ -10,11 +11,13 @@ internal sealed class AutomationConfigIndex
         IReadOnlyDictionary<string, GameConfig> all,
         IReadOnlyDictionary<string, GameConfig> byDataKey,
         IReadOnlyDictionary<string, GameConfig> byPath,
+        IReadOnlyDictionary<string, GameConfig[]> byExactName,
         NameConfigEntry[] byName)
     {
         All = all;
         ByDataKey = byDataKey;
         ByPath = byPath;
+        ByExactName = byExactName;
         ByName = byName;
     }
 
@@ -22,6 +25,7 @@ internal sealed class AutomationConfigIndex
         new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase),
         new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase),
         new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase),
+        new Dictionary<string, GameConfig[]>(StringComparer.OrdinalIgnoreCase),
         Array.Empty<NameConfigEntry>());
 
     public IReadOnlyDictionary<string, GameConfig> All { get; }
@@ -29,6 +33,8 @@ internal sealed class AutomationConfigIndex
     public IReadOnlyDictionary<string, GameConfig> ByDataKey { get; }
 
     public IReadOnlyDictionary<string, GameConfig> ByPath { get; }
+
+    public IReadOnlyDictionary<string, GameConfig[]> ByExactName { get; }
 
     public NameConfigEntry[] ByName { get; }
 
@@ -39,6 +45,7 @@ internal sealed class AutomationConfigIndex
 
         var dataKeyMap = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
         var pathMap = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+        var exactNameMap = new Dictionary<string, List<GameConfig>>(StringComparer.OrdinalIgnoreCase);
         var nameStats = new Dictionary<string, (int Count, int MissingPathCount)>(StringComparer.OrdinalIgnoreCase);
         var nameEntries = new List<NameConfigEntry>();
 
@@ -65,6 +72,9 @@ internal sealed class AutomationConfigIndex
             }
 
             var normalizedName = PathNormalizer.NormalizeName(config.ExecutableName);
+            AddExactNameCandidate(exactNameMap, normalizedName, config);
+            AddExactNameCandidate(exactNameMap, NormalizeFileNameFromPath(normalizedPath), config);
+
             if (normalizedName is null)
             {
                 continue;
@@ -87,7 +97,51 @@ internal sealed class AutomationConfigIndex
 
         LogDuplicateExecutableNames(nameStats, logger);
 
-        return new AutomationConfigIndex(configs, dataKeyMap, pathMap, nameEntries.ToArray());
+        var exactNameArrays = exactNameMap.ToDictionary(
+            kv => kv.Key,
+            kv => kv.Value.Distinct().ToArray(),
+            StringComparer.OrdinalIgnoreCase);
+
+        return new AutomationConfigIndex(configs, dataKeyMap, pathMap, exactNameArrays, nameEntries.ToArray());
+    }
+
+    private static void AddExactNameCandidate(
+        IDictionary<string, List<GameConfig>> exactNameMap,
+        string? normalizedName,
+        GameConfig config)
+    {
+        if (normalizedName is null)
+        {
+            return;
+        }
+
+        if (!exactNameMap.TryGetValue(normalizedName, out var configs))
+        {
+            configs = new List<GameConfig>();
+            exactNameMap[normalizedName] = configs;
+        }
+
+        if (!configs.Contains(config))
+        {
+            configs.Add(config);
+        }
+    }
+
+    private static string? NormalizeFileNameFromPath(string? normalizedPath)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            return PathNormalizer.NormalizeName(Path.GetFileName(normalizedPath));
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static void LogDuplicateExecutableNames(
@@ -114,4 +168,3 @@ internal sealed class AutomationConfigIndex
         }
     }
 }
-

@@ -6,252 +6,417 @@ using GameHelper.Core.Models;
 using GameHelper.Core.Utilities;
 using Microsoft.Extensions.Logging;
 
-namespace GameHelper.Core.Services
+namespace GameHelper.Core.Services;
+
+/// <summary>
+/// Coordinates process monitoring, playtime tracking, and HDR toggling based on enabled games.
+/// Lifecycle: call <see cref="Start"/> to subscribe to monitor events and load config,
+/// and <see cref="Stop"/> to unsubscribe and flush any active sessions.
+/// </summary>
+public sealed class GameAutomationService : IGameAutomationService
 {
-    /// <summary>
-    /// Coordinates process monitoring, playtime tracking, and HDR toggling based on enabled games.
-    /// Lifecycle: call <see cref="Start"/> to subscribe to monitor events and load config,
-    /// and <see cref="Stop"/> to unsubscribe and flush any active sessions.
-    /// </summary>
-    public sealed class GameAutomationService : IGameAutomationService
+    private readonly IProcessMonitor _monitor;
+    private readonly IStopEventsControl? _stopControl;
+    private readonly IProcessNameFilterControl? _nameFilterControl;
+    private readonly IConfigProvider _configProvider;
+    private readonly IHdrController _hdr;
+    private readonly IProcessPathResolver? _pathResolver;
+    private readonly HdrScheduler _hdrScheduler = new();
+    private readonly IPlayTimeService _playTime;
+    private readonly ILogger<GameAutomationService> _logger;
+    private readonly object _stateLock = new();
+
+    private readonly SessionTracker _sessionTracker = new();
+
+    private AutomationConfigIndex _configIndex = AutomationConfigIndex.Empty;
+
+    public GameAutomationService(
+        IProcessMonitor monitor,
+        IConfigProvider configProvider,
+        IHdrController hdr,
+        IPlayTimeService playTime,
+        ILogger<GameAutomationService> logger,
+        IProcessPathResolver? pathResolver = null)
     {
-        private readonly IProcessMonitor _monitor;
-        private readonly IStopEventsControl? _stopControl;
-        private readonly IConfigProvider _configProvider;
-        private readonly IHdrController _hdr;
-        private readonly HdrScheduler _hdrScheduler = new();
-        private readonly IPlayTimeService _playTime;
-        private readonly ILogger<GameAutomationService> _logger;
-        private readonly object _stateLock = new();
+        _monitor = monitor;
+        _stopControl = monitor as IStopEventsControl;
+        _nameFilterControl = monitor as IProcessNameFilterControl;
+        _configProvider = configProvider;
+        _hdr = hdr;
+        _pathResolver = pathResolver;
+        _playTime = playTime;
+        _logger = logger;
+    }
 
-        private readonly SessionTracker _sessionTracker = new();
-
-        private AutomationConfigIndex _configIndex = AutomationConfigIndex.Empty;
-
-
-        public GameAutomationService(
-            IProcessMonitor monitor,
-            IConfigProvider configProvider,
-            IHdrController hdr,
-            IPlayTimeService playTime,
-            ILogger<GameAutomationService> logger)
+    public void Start()
+    {
+        lock (_stateLock)
         {
-            _monitor = monitor;
-            _stopControl = monitor as IStopEventsControl;
-            _configProvider = configProvider;
-            _hdr = hdr;
-            _playTime = playTime;
-            _logger = logger;
-        }
+            LoadAndBuildIndexes();
+            SyncProcessNameFilter();
 
-        public void Start()
-        {
-            lock (_stateLock)
+            _sessionTracker.Clear();
+
+            _monitor.ProcessStarted += OnProcessStarted;
+            _monitor.ProcessStopped += OnProcessStopped;
+
+            try
             {
-                LoadAndBuildIndexes();
+                _stopControl?.SetStopEventsEnabled(false);
+                _logger.LogDebug("Stop events listening disabled at startup");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to disable stop events at startup");
+            }
 
-                _sessionTracker.Clear();
+            _logger.LogInformation(
+                "GameAutomationService started: {Total} configs ({PathCount} path, {ExactNameCount} exact-name, {NameCount} fuzzy-name)",
+                _configIndex.All.Count,
+                _configIndex.ByPath.Count,
+                _configIndex.ByExactName.Count,
+                _configIndex.ByName.Length);
+        }
+    }
 
-                _monitor.ProcessStarted += OnProcessStarted;
-                _monitor.ProcessStopped += OnProcessStopped;
+    public void ReloadConfig()
+    {
+        lock (_stateLock)
+        {
+            LoadAndBuildIndexes();
+            SyncProcessNameFilter();
+            _logger.LogInformation(
+                "GameAutomationService config reloaded: {Total} configs ({PathCount} path, {ExactNameCount} exact-name, {NameCount} fuzzy-name)",
+                _configIndex.All.Count,
+                _configIndex.ByPath.Count,
+                _configIndex.ByExactName.Count,
+                _configIndex.ByName.Length);
+        }
+    }
 
+    public void Stop()
+    {
+        lock (_stateLock)
+        {
+            _monitor.ProcessStarted -= OnProcessStarted;
+            _monitor.ProcessStopped -= OnProcessStopped;
+
+            foreach (var dataKey in _sessionTracker.GetActiveDataKeysSnapshot())
+            {
                 try
                 {
-                    _stopControl?.SetStopEventsEnabled(false);
-                    _logger.LogDebug("Stop events listening disabled at startup");
+                    _playTime.StopTracking(dataKey);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "Failed to disable stop events at startup");
+                    _logger.LogError(ex, "Failed to flush session for {DataKey}", dataKey);
                 }
-
-                _logger.LogInformation(
-                    "GameAutomationService started: {Total} configs ({PathCount} path, {NameCount} name)",
-                    _configIndex.All.Count,
-                    _configIndex.ByPath.Count,
-                    _configIndex.ByName.Length);
             }
-        }
 
-        public void ReloadConfig()
-        {
-            lock (_stateLock)
+            _sessionTracker.Clear();
+
+            try
             {
-                LoadAndBuildIndexes();
-                _logger.LogInformation(
-                    "GameAutomationService config reloaded: {Total} configs ({PathCount} path, {NameCount} name)",
-                    _configIndex.All.Count,
-                    _configIndex.ByPath.Count,
-                    _configIndex.ByName.Length);
+                _stopControl?.SetStopEventsEnabled(false);
             }
-        }
-
-        public void Stop()
-        {
-            lock (_stateLock)
+            catch (Exception ex)
             {
-                _monitor.ProcessStarted -= OnProcessStarted;
-                _monitor.ProcessStopped -= OnProcessStopped;
+                _logger.LogDebug(ex, "Failed to disable stop events during shutdown");
+            }
 
-                foreach (var dataKey in _sessionTracker.GetActiveDataKeysSnapshot())
-                {
-                    try
-                    {
-                        _playTime.StopTracking(dataKey);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to flush session for {DataKey}", dataKey);
-                    }
-                }
+            _logger.LogInformation("GameAutomationService stopped");
+        }
+    }
 
-                _sessionTracker.Clear();
+    private void OnProcessStarted(ProcessEventInfo processInfo)
+    {
+        lock (_stateLock)
+        {
+            var normalizedName = PathNormalizer.NormalizeName(processInfo.ExecutableName);
+            var config = MatchProcessStart(processInfo, normalizedName, out var normalizedPath, out var matchLabel);
 
+            if (config is null)
+            {
+                _logger.LogDebug(
+                    "No game config matched: {Executable} (Path={Path}, PID={ProcessId})",
+                    processInfo.ExecutableName,
+                    processInfo.ExecutablePath,
+                    processInfo.ProcessId);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(config.DataKey))
+            {
+                _logger.LogWarning("Matched config without DataKey, ignoring: {Executable}", processInfo.ExecutableName);
+                return;
+            }
+
+            var hadAnyActive = _sessionTracker.ActiveCount > 0;
+            var firstForDataKey = _sessionTracker.Register(
+                config.DataKey,
+                normalizedName,
+                normalizedPath,
+                processInfo.ProcessId);
+
+            _logger.LogInformation(
+                "Process start: DataKey={DataKey}, Via={Match}, Executable={Executable}, Path={Path}, PID={ProcessId}",
+                config.DataKey,
+                matchLabel,
+                normalizedName ?? processInfo.ExecutableName ?? "n/a",
+                normalizedPath ?? "n/a",
+                processInfo.ProcessId);
+
+            if (firstForDataKey)
+            {
                 try
                 {
-                    _stopControl?.SetStopEventsEnabled(false);
+                    _playTime.StartTracking(config.DataKey);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "Failed to disable stop events during shutdown");
+                    _logger.LogError(ex, "Failed to start tracking for {DataKey}", config.DataKey);
                 }
-
-                _logger.LogInformation("GameAutomationService stopped");
             }
-        }
 
-        private void OnProcessStarted(ProcessEventInfo processInfo)
-        {
-            lock (_stateLock)
+            SyncProcessNameFilter();
+            UpdateHdrState();
+
+            if (!hadAnyActive && _sessionTracker.ActiveCount > 0)
             {
-                var normalizedPath = PathNormalizer.NormalizePath(processInfo.ExecutablePath);
-                var normalizedName = PathNormalizer.NormalizeName(processInfo.ExecutableName);
-
-                var config = GameMatcher.MatchByPath(normalizedPath, _configIndex.ByPath, _logger);
-                string matchLabel = "路径匹配";
-
-                if (config is null)
+                try
                 {
-                    config = GameMatcher.MatchByMetadata(processInfo, normalizedPath, _configIndex.ByName, _logger, out matchLabel);
+                    _stopControl?.SetStopEventsEnabled(true);
+                    _logger.LogDebug("Stop events enabled (first active)");
                 }
-
-                if (config is null)
+                catch (Exception ex)
                 {
-                    _logger.LogDebug("未匹配到配置: {Executable} (Path={Path})", processInfo.ExecutableName, processInfo.ExecutablePath);
-                    return;
-                }
-
-                if (string.IsNullOrWhiteSpace(config.DataKey))
-                {
-                    _logger.LogWarning("匹配到缺少 DataKey 的配置，忽略: {Executable}", processInfo.ExecutableName);
-                    return;
-                }
-
-                var hadAnyActive = _sessionTracker.ActiveCount > 0;
-                var firstForDataKey = _sessionTracker.Register(config.DataKey, normalizedName, normalizedPath);
-
-                _logger.LogInformation(
-                    "Process start: DataKey={DataKey}, Via={Match}, Executable={Executable}, Path={Path}",
-                    config.DataKey,
-                    matchLabel,
-                    normalizedName ?? processInfo.ExecutableName ?? "n/a",
-                    normalizedPath ?? "n/a");
-
-                if (firstForDataKey)
-                {
-                    try
-                    {
-                        _playTime.StartTracking(config.DataKey);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to start tracking for {DataKey}", config.DataKey);
-                    }
-                }
-
-                UpdateHdrState();
-
-                if (!hadAnyActive && _sessionTracker.ActiveCount > 0)
-                {
-                    try
-                    {
-                        _stopControl?.SetStopEventsEnabled(true);
-                        _logger.LogDebug("Stop events enabled (first active)");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Failed to enable stop events");
-                    }
+                    _logger.LogDebug(ex, "Failed to enable stop events");
                 }
             }
         }
+    }
 
-        private void OnProcessStopped(ProcessEventInfo processInfo)
+    private void OnProcessStopped(ProcessEventInfo processInfo)
+    {
+        lock (_stateLock)
         {
-            lock (_stateLock)
+            var hadAnyActive = _sessionTracker.ActiveCount > 0;
+
+            if (!_sessionTracker.TryResolve(processInfo, out var entry))
             {
-                var hadAnyActive = _sessionTracker.ActiveCount > 0;
+                _logger.LogDebug(
+                    "Stop ignored, no active record for {Executable} (Path={Path}, PID={ProcessId})",
+                    processInfo.ExecutableName,
+                    processInfo.ExecutablePath,
+                    processInfo.ProcessId);
+                return;
+            }
 
-                if (!_sessionTracker.TryResolve(processInfo, out var entry))
+            var isLastForDataKey = _sessionTracker.Release(entry.DataKey);
+            SyncProcessNameFilter();
+
+            _logger.LogInformation(
+                "Process stop: DataKey={DataKey}, Executable={Executable}, Path={Path}, PID={ProcessId}",
+                entry.DataKey,
+                entry.NormalizedName ?? processInfo.ExecutableName ?? "n/a",
+                entry.NormalizedPath ?? processInfo.ExecutablePath ?? "n/a",
+                entry.ProcessId ?? processInfo.ProcessId);
+
+            if (isLastForDataKey)
+            {
+                try
                 {
-                    _logger.LogDebug("Stop ignored, no active record for {Executable} (Path={Path})", processInfo.ExecutableName, processInfo.ExecutablePath);
-                    return;
-                }
-
-                var isLastForDataKey = _sessionTracker.Release(entry.DataKey);
-
-                _logger.LogInformation(
-                    "Process stop: DataKey={DataKey}, Executable={Executable}, Path={Path}",
-                    entry.DataKey,
-                    entry.NormalizedName ?? processInfo.ExecutableName ?? "n/a",
-                    entry.NormalizedPath ?? processInfo.ExecutablePath ?? "n/a");
-
-                if (isLastForDataKey)
-                {
-                    try
+                    var session = _playTime.StopTracking(entry.DataKey);
+                    if (session is not null)
                     {
-                        var session = _playTime.StopTracking(entry.DataKey);
-                        if (session is not null)
-                        {
-                            var formatted = TimeFormatting.FormatDuration(session.Duration);
-                            _logger.LogInformation(
-                                "本次游玩时长: {Duration} (开始 {StartTime:t}, 结束 {EndTime:t})",
-                                formatted,
-                                session.StartTime,
-                                session.EndTime);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to stop tracking for {DataKey}", entry.DataKey);
+                        var formatted = TimeFormatting.FormatDuration(session.Duration);
+                        _logger.LogInformation(
+                            "Session duration: {Duration} (Start {StartTime:t}, End {EndTime:t})",
+                            formatted,
+                            session.StartTime,
+                            session.EndTime);
                     }
                 }
-
-                UpdateHdrState();
-
-                if (_sessionTracker.ActiveCount == 0 && hadAnyActive)
+                catch (Exception ex)
                 {
-                    try
-                    {
-                        _stopControl?.SetStopEventsEnabled(false);
-                        _logger.LogDebug("Stop events disabled (none active)");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Failed to disable stop events");
-                    }
+                    _logger.LogError(ex, "Failed to stop tracking for {DataKey}", entry.DataKey);
+                }
+            }
+
+            UpdateHdrState();
+
+            if (_sessionTracker.ActiveCount == 0 && hadAnyActive)
+            {
+                try
+                {
+                    _stopControl?.SetStopEventsEnabled(false);
+                    _logger.LogDebug("Stop events disabled (none active)");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to disable stop events");
                 }
             }
         }
+    }
 
-        private void LoadAndBuildIndexes()
+    private GameConfig? MatchProcessStart(
+        ProcessEventInfo processInfo,
+        string? normalizedName,
+        out string? normalizedPath,
+        out string matchLabel)
+    {
+        normalizedPath = null;
+        matchLabel = "not matched";
+
+        var pathHint = PathNormalizer.NormalizePath(processInfo.ExecutablePath);
+        var pathHintConfig = GameMatcher.MatchByPath(pathHint, _configIndex.ByPath, _logger);
+        if (pathHintConfig is not null)
         {
-            _configIndex = AutomationConfigIndex.Build(_configProvider.Load(), _logger);
+            normalizedPath = pathHint;
+            matchLabel = "path-hint";
+            return pathHintConfig;
         }
 
-        private void UpdateHdrState()
+        // Only name-gated monitors may resolve PID before the candidate-name gate.
+        // Ungated monitors such as WMI can emit every system process start here.
+        var resolvedPath = _nameFilterControl is not null
+            ? ResolvePathByPid(processInfo.ProcessId)
+            : null;
+        var resolvedPathConfig = GameMatcher.MatchByPath(resolvedPath, _configIndex.ByPath, _logger);
+        if (resolvedPathConfig is not null)
         {
-            _hdrScheduler.Update(_sessionTracker.GetActiveDataKeysSnapshot(), _configIndex.ByDataKey, _hdr, _logger);
+            normalizedPath = resolvedPath;
+            matchLabel = "path-resolved";
+            return resolvedPathConfig;
         }
+
+        if (normalizedName is null ||
+            !_configIndex.ByExactName.TryGetValue(normalizedName, out var exactCandidates) ||
+            exactCandidates.Length == 0)
+        {
+            _logger.LogDebug(
+                "Start ignored before path/metadata lookup: {Executable} is not a configured candidate",
+                processInfo.ExecutableName);
+            return null;
+        }
+
+        normalizedPath = ResolvePathForCandidate(processInfo, exactCandidates, resolvedPath);
+
+        var config = GameMatcher.MatchByPath(normalizedPath, _configIndex.ByPath, _logger);
+        if (config is not null)
+        {
+            matchLabel = "path";
+            return config;
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedPath) && GameMatcher.IsSystemPath(normalizedPath, _logger))
+        {
+            _logger.LogDebug("Start rejected before name fallback: system path {Path}", normalizedPath);
+            return null;
+        }
+
+        if (exactCandidates.Length == 1 &&
+            string.IsNullOrWhiteSpace(exactCandidates[0].ExecutablePath) &&
+            IsExplicitNameMatch(exactCandidates[0], normalizedName))
+        {
+            matchLabel = "executable-name";
+            return exactCandidates[0];
+        }
+
+        var metadataCandidates = GetMetadataCandidates(exactCandidates);
+        if (metadataCandidates.Length > 0)
+        {
+            config = GameMatcher.MatchByMetadata(processInfo, normalizedPath, metadataCandidates, _logger, out matchLabel);
+            if (config is not null)
+            {
+                return config;
+            }
+        }
+
+        if (exactCandidates.Length == 1 &&
+            normalizedPath is null &&
+            IsExplicitNameMatch(exactCandidates[0], normalizedName))
+        {
+            matchLabel = "executable-name (path unavailable)";
+            return exactCandidates[0];
+        }
+
+        return null;
+    }
+
+    private static bool IsExplicitNameMatch(GameConfig config, string? normalizedName)
+    {
+        return normalizedName is not null &&
+            string.Equals(
+                PathNormalizer.NormalizeName(config.ExecutableName),
+                normalizedName,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string? ResolvePathForCandidate(
+        ProcessEventInfo processInfo,
+        IReadOnlyCollection<GameConfig> exactCandidates,
+        string? resolvedPath)
+    {
+        if (resolvedPath is not null)
+        {
+            return resolvedPath;
+        }
+
+        if (processInfo.ProcessId.HasValue &&
+            _pathResolver is not null &&
+            exactCandidates.Any(config => !string.IsNullOrWhiteSpace(config.ExecutablePath)))
+        {
+            return ResolvePathByPid(processInfo.ProcessId);
+        }
+
+        return PathNormalizer.NormalizePath(processInfo.ExecutablePath);
+    }
+
+    private string? ResolvePathByPid(int? processId)
+    {
+        if (!processId.HasValue || _pathResolver is null || _configIndex.ByPath.Count == 0)
+        {
+            return null;
+        }
+
+        return PathNormalizer.NormalizePath(_pathResolver.TryResolveExecutablePath(processId.Value));
+    }
+
+    private NameConfigEntry[] GetMetadataCandidates(IReadOnlyCollection<GameConfig> exactCandidates)
+    {
+        var candidateSet = new HashSet<GameConfig>(exactCandidates);
+        return _configIndex.ByName
+            .Where(entry => candidateSet.Contains(entry.Config))
+            .ToArray();
+    }
+
+    private void LoadAndBuildIndexes()
+    {
+        _configIndex = AutomationConfigIndex.Build(_configProvider.Load(), _logger);
+    }
+
+    private void SyncProcessNameFilter()
+    {
+        try
+        {
+            var allowedNames = _configIndex.ByExactName.Keys
+                .Concat(_sessionTracker.GetActiveNamesSnapshot())
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+
+            // Config reloads can remove a game while its process is still active.
+            // Keep active names in the ETW gate until the matching stop event is observed.
+            _nameFilterControl?.SetAllowedProcessNames(allowedNames);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to update process-name filter");
+        }
+    }
+
+    private void UpdateHdrState()
+    {
+        _hdrScheduler.Update(_sessionTracker.GetActiveDataKeysSnapshot(), _configIndex.ByDataKey, _hdr, _logger);
     }
 }

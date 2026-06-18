@@ -319,7 +319,7 @@ namespace GameHelper.Infrastructure.Processes
                         }
                     }
 
-                    var info = new ProcessEventInfo(resolvedName, resolvedPath);
+                    var info = new ProcessEventInfo(resolvedName, resolvedPath, pid > 0 ? pid : null);
                     ProcessEvent?.Invoke(info);
                 }
             }

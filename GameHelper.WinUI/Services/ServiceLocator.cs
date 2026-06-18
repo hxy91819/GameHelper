@@ -51,6 +51,7 @@ public static class ServiceLocator
                     return ProcessMonitorFactory.CreateWithFallback(preferredMonitor, allowedProcesses, logger);
                 });
                 services.AddSingleton<IHdrController, WindowsHdrController>();
+                services.AddSingleton<IProcessPathResolver, WindowsProcessPathResolver>();
                 services.AddSingleton<IPlayTimeService, CsvBackedPlayTimeService>();
                 services.AddSingleton<IAutoStartManager>(sp =>
                     new WindowsAutoStartManager(sp.GetRequiredService<ILogger<WindowsAutoStartManager>>()));

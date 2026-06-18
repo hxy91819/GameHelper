@@ -10,6 +10,7 @@ namespace GameHelper.Core.Services;
 internal sealed class SessionTracker
 {
     private readonly object _lock = new();
+    private readonly Dictionary<int, ActiveProcessEntry> _activeByProcessId = new();
     private readonly Dictionary<string, List<ActiveProcessEntry>> _activeByName = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<ActiveProcessEntry>> _activeByPath = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _dataKeyRefs = new(StringComparer.OrdinalIgnoreCase);
@@ -40,15 +41,31 @@ internal sealed class SessionTracker
     }
 
     /// <summary>
+    /// Returns executable names that must remain observable until their stop events arrive.
+    /// </summary>
+    public IReadOnlyList<string> GetActiveNamesSnapshot()
+    {
+        lock (_lock)
+        {
+            return _activeByName.Keys.ToList();
+        }
+    }
+
+    /// <summary>
     /// Registers an active process instance.
     /// Returns true when this is the first active instance for the DataKey.
     /// </summary>
-    public bool Register(string dataKey, string? normalizedName, string? normalizedPath)
+    public bool Register(string dataKey, string? normalizedName, string? normalizedPath, int? processId)
     {
-        var entry = new ActiveProcessEntry(dataKey, normalizedName, normalizedPath);
+        var entry = new ActiveProcessEntry(dataKey, normalizedName, normalizedPath, processId);
 
         lock (_lock)
         {
+            if (processId.HasValue)
+            {
+                _activeByProcessId[processId.Value] = entry;
+            }
+
             if (normalizedName is not null)
             {
                 if (!_activeByName.TryGetValue(normalizedName, out var nameList))
@@ -113,13 +130,20 @@ internal sealed class SessionTracker
     {
         lock (_lock)
         {
+            if (processInfo.ProcessId.HasValue &&
+                _activeByProcessId.TryGetValue(processInfo.ProcessId.Value, out entry))
+            {
+                RemoveEntry(entry);
+                return true;
+            }
+
             var normalizedPath = PathNormalizer.NormalizePath(processInfo.ExecutablePath);
             if (normalizedPath is not null &&
                 _activeByPath.TryGetValue(normalizedPath, out var byPath) &&
                 byPath.Count > 0)
             {
                 entry = byPath[0];
-                RemoveEntry(normalizedPath, entry, byPath, _activeByPath);
+                RemoveEntry(entry);
                 return true;
             }
 
@@ -129,7 +153,7 @@ internal sealed class SessionTracker
                 byName.Count > 0)
             {
                 entry = byName[0];
-                RemoveEntry(normalizedName, entry, byName, _activeByName);
+                RemoveEntry(entry);
                 return true;
             }
 
@@ -146,21 +170,17 @@ internal sealed class SessionTracker
         lock (_lock)
         {
             _dataKeyRefs.Clear();
+            _activeByProcessId.Clear();
             _activeByName.Clear();
             _activeByPath.Clear();
         }
     }
 
-    private void RemoveEntry(
-        string key,
-        ActiveProcessEntry entry,
-        List<ActiveProcessEntry> list,
-        Dictionary<string, List<ActiveProcessEntry>> map)
+    private void RemoveEntry(ActiveProcessEntry entry)
     {
-        list.Remove(entry);
-        if (list.Count == 0)
+        if (entry.ProcessId.HasValue)
         {
-            map.Remove(key);
+            _activeByProcessId.Remove(entry.ProcessId.Value);
         }
 
         if (entry.NormalizedName is not null &&
