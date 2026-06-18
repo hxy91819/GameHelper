@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
@@ -22,6 +23,31 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
     public IReadOnlyList<GamePlaytimeRecord> GetPlaytimeRecords()
     {
         return GetSnapshot().Records;
+    }
+
+    public IReadOnlyList<GamePlaytimeOverviewRecord> GetPlaytimeOverview(DateTime recentCutoff)
+    {
+        var csvFile = GetPlaytimeCsvPath();
+        var jsonFile = GetPlaytimeJsonPath();
+
+        try
+        {
+            if (File.Exists(csvFile))
+            {
+                return ReadOverviewFromCsv(csvFile, recentCutoff);
+            }
+
+            if (File.Exists(jsonFile))
+            {
+                return AggregateRecords(ReadFromJson(jsonFile), recentCutoff);
+            }
+        }
+        catch
+        {
+            // Keep shell flows resilient to corrupt or unreadable history files.
+        }
+
+        return Array.Empty<GamePlaytimeOverviewRecord>();
     }
 
     public PlaytimeSnapshot GetSnapshot()
@@ -66,6 +92,66 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
     private static IReadOnlyList<GamePlaytimeRecord> ReadFromCsv(string path)
     {
         var map = new Dictionary<string, GamePlaytimeRecord>(StringComparer.OrdinalIgnoreCase);
+        ReadCsvRows(path, (gameName, startTime, endTime, durationMinutes) =>
+        {
+            if (!map.TryGetValue(gameName, out var record))
+            {
+                record = new GamePlaytimeRecord { GameName = gameName };
+                map[gameName] = record;
+            }
+
+            record.Sessions.Add(new PlaySession(
+                gameName,
+                startTime,
+                endTime,
+                endTime - startTime,
+                durationMinutes));
+        });
+
+        return map.Values.ToList();
+    }
+
+    private static IReadOnlyList<GamePlaytimeOverviewRecord> ReadOverviewFromCsv(string path, DateTime recentCutoff)
+    {
+        var map = new Dictionary<string, PlaytimeOverviewAccumulator>(StringComparer.OrdinalIgnoreCase);
+        ReadCsvRows(path, (gameName, _, endTime, durationMinutes) =>
+        {
+            ref var accumulator = ref CollectionsMarshal.GetValueRefOrAddDefault(map, gameName, out var exists);
+            if (!exists)
+            {
+                accumulator = new PlaytimeOverviewAccumulator(gameName);
+            }
+
+            accumulator.Add(endTime, durationMinutes, recentCutoff);
+        });
+
+        return map.Values
+            .Select(accumulator => accumulator.ToRecord())
+            .ToList();
+    }
+
+    private static IReadOnlyList<GamePlaytimeOverviewRecord> AggregateRecords(
+        IReadOnlyList<GamePlaytimeRecord> records,
+        DateTime recentCutoff)
+    {
+        if (records.Count == 0)
+        {
+            return Array.Empty<GamePlaytimeOverviewRecord>();
+        }
+
+        return records
+            .Select(record => new GamePlaytimeOverviewRecord(
+                record.GameName,
+                record.Sessions.Sum(session => session.DurationMinutes),
+                record.Sessions.Where(session => session.EndTime >= recentCutoff).Sum(session => session.DurationMinutes),
+                record.Sessions.Count))
+            .ToList();
+    }
+
+    private static void ReadCsvRows(
+        string path,
+        Action<string, DateTime, DateTime, long> handleRow)
+    {
         using var reader = new StreamReader(path);
         _ = reader.ReadLine(); // skip header
 
@@ -75,19 +161,15 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
             {
                 var remaining = line.AsSpan();
 
-                // 1. Game Name
                 var gameNameSpan = SplitNextField(ref remaining);
                 if (gameNameSpan.IsEmpty && remaining.IsEmpty) continue;
 
-                // 2. Start Time
                 var startTimeSpan = SplitNextField(ref remaining);
                 if (startTimeSpan.IsEmpty) continue;
 
-                // 3. End Time
                 var endTimeSpan = SplitNextField(ref remaining);
                 if (endTimeSpan.IsEmpty) continue;
 
-                // 4. Duration
                 var durationSpan = SplitNextField(ref remaining);
                 if (durationSpan.IsEmpty) continue;
 
@@ -96,26 +178,13 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
                 var endTime = DateTime.Parse(endTimeSpan, CultureInfo.InvariantCulture);
                 var durationMinutes = long.Parse(durationSpan, CultureInfo.InvariantCulture);
 
-                if (!map.TryGetValue(gameName, out var record))
-                {
-                    record = new GamePlaytimeRecord { GameName = gameName };
-                    map[gameName] = record;
-                }
-
-                record.Sessions.Add(new PlaySession(
-                    gameName,
-                    startTime,
-                    endTime,
-                    endTime - startTime,
-                    durationMinutes));
+                handleRow(gameName, startTime, endTime, durationMinutes);
             }
             catch
             {
                 // Skip malformed rows.
             }
         }
-
-        return map.Values.ToList();
     }
 
     private static IReadOnlyList<GamePlaytimeRecord> ReadFromJson(string path)
@@ -226,5 +295,37 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
         }
 
         return field.ToString();
+    }
+
+    private struct PlaytimeOverviewAccumulator
+    {
+        private readonly string _gameName;
+
+        public PlaytimeOverviewAccumulator(string gameName)
+        {
+            _gameName = gameName;
+        }
+
+        public long TotalMinutes { get; private set; }
+
+        public long RecentMinutes { get; private set; }
+
+        public int SessionCount { get; private set; }
+
+        public void Add(DateTime endTime, long durationMinutes, DateTime recentCutoff)
+        {
+            TotalMinutes += durationMinutes;
+            if (endTime >= recentCutoff)
+            {
+                RecentMinutes += durationMinutes;
+            }
+
+            SessionCount++;
+        }
+
+        public readonly GamePlaytimeOverviewRecord ToRecord()
+        {
+            return new GamePlaytimeOverviewRecord(_gameName, TotalMinutes, RecentMinutes, SessionCount);
+        }
     }
 }

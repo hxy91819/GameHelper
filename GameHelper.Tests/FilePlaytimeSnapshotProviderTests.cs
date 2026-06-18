@@ -102,6 +102,35 @@ public sealed class FilePlaytimeSnapshotProviderTests : IDisposable
         Assert.Equal(45, second.Sessions[0].DurationMinutes);
     }
 
+    [Fact]
+    public void GetPlaytimeOverview_WithCsv_ShouldAggregateWithoutLoadingSessions()
+    {
+        var gameDir = Path.Combine(_tempRoot, "GameHelper");
+        Directory.CreateDirectory(gameDir);
+        var csvPath = Path.Combine(gameDir, "playtime.csv");
+        File.WriteAllText(
+            csvPath,
+            "game,start_time,end_time,duration_minutes\n" +
+            "game-a,2026-01-10T10:00:00,2026-01-10T11:00:00,60\n" +
+            "game-a,2025-12-01T10:00:00,2025-12-01T10:30:00,30\n" +
+            "game-b,2026-01-11T10:00:00,2026-01-11T10:45:00,45\n");
+
+        var provider = new FilePlaytimeSnapshotProvider();
+        var overview = provider.GetPlaytimeOverview(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Unspecified));
+
+        Assert.Equal(2, overview.Count);
+
+        var gameA = overview.Single(item => item.GameName == "game-a");
+        Assert.Equal(90, gameA.TotalMinutes);
+        Assert.Equal(60, gameA.RecentMinutes);
+        Assert.Equal(2, gameA.SessionCount);
+
+        var gameB = overview.Single(item => item.GameName == "game-b");
+        Assert.Equal(45, gameB.TotalMinutes);
+        Assert.Equal(45, gameB.RecentMinutes);
+        Assert.Equal(1, gameB.SessionCount);
+    }
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable("APPDATA", _originalAppData);

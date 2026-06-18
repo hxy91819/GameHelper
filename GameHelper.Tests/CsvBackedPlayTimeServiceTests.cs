@@ -312,6 +312,33 @@ namespace GameHelper.Tests
             Assert.Equal(1, sessionLines.Count(l => l.StartsWith("dark_souls_3,")));
         }
 
+        [Fact]
+        public void ConcurrentStopTracking_ShouldAppendAllSessionsWithSingleHeader()
+        {
+            var svc = new CsvBackedPlayTimeService(_dir);
+            var gameNames = Enumerable.Range(0, 20)
+                .Select(index => $"game-{index}.exe")
+                .ToArray();
+
+            foreach (var gameName in gameNames)
+            {
+                svc.StartTracking(gameName);
+            }
+
+            Parallel.ForEach(gameNames, gameName =>
+            {
+                var session = svc.StopTracking(gameName);
+                Assert.NotNull(session);
+            });
+
+            var lines = File.ReadAllLines(_csvFile);
+            Assert.Equal("game,start_time,end_time,duration_minutes", lines[0]);
+
+            var sessionLines = lines.Skip(1).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
+            Assert.Equal(gameNames.Length, sessionLines.Length);
+            Assert.Equal(gameNames.Length, sessionLines.Select(l => l.Split(',')[0]).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        }
+
         public void Dispose()
         {
             try
