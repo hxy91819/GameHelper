@@ -1,13 +1,13 @@
 ---
 name: autoreview
-description: "Auto Review closeout. Codex review is the default when no engine is set and is the recommended reviewer."
+description: "Auto Review closeout. OpenCode review is the default when no engine is set, using the GLM 5.2 model."
 ---
 
 # Auto Review
 
 Run the bundled structured review helper as a closeout check. This is code review, not Guardian `auto_review` approval routing.
 
-Codex review is the default when no engine is set. Codex usually delivers the best review results and can be selected with `--engine codex`.
+OpenCode review is the default when no engine is set, using the GLM 5.2 model as `ollama-cloud/glm-5.2`. Codex can be selected with `--engine codex`.
 
 Use when:
 
@@ -188,7 +188,7 @@ The helper:
 - accepts `--mode uncommitted` as an alias for `--mode local`
 - otherwise uses current PR base if `gh pr view` works
 - otherwise uses `origin/main` for non-main branches
-- supports `--engine codex`, `claude`, `droid`, `opencode`, and `kimi`; default is `AUTOREVIEW_ENGINE` or `droid`; use `--engine codex` when Codex is available
+- supports `--engine codex`, `claude`, `droid`, `opencode`, and `kimi`; default is `AUTOREVIEW_ENGINE` or `opencode`; default OpenCode model is GLM 5.2 as `ollama-cloud/glm-5.2`
 - resolves bare `git`, `gh`, reviewer, and PowerShell shell commands from absolute `PATH` entries only, never from the reviewed checkout; explicit relative `--*-bin` paths are resolved from the reviewed repository root
 - use `--mode commit --commit <ref>` for already-committed work, especially clean `main` after landing
 - should be left in `--mode auto` or forced to `--mode branch` for PR/branch work; do not force `--mode local` after committing
