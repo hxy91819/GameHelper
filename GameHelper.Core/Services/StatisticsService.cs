@@ -16,17 +16,16 @@ public sealed class StatisticsService : IStatisticsService
 
     public IReadOnlyList<GameStatsSummary> GetOverview()
     {
-        var records = _playtimeSnapshotProvider.GetPlaytimeRecords();
+        var configIndex = LoadConfigIndex();
+        var cutoff = DateTime.Now.AddDays(-14);
+        var records = _playtimeSnapshotProvider.GetPlaytimeOverview(cutoff);
         if (records.Count == 0)
         {
             return Array.Empty<GameStatsSummary>();
         }
 
-        var configIndex = LoadConfigIndex();
-        var cutoff = DateTime.Now.AddDays(-14);
-
         return records
-            .Select(record => ToSummary(record, configIndex, cutoff))
+            .Select(record => ToOverviewSummary(record, configIndex))
             .OrderByDescending(item => item.RecentMinutes)
             .ThenByDescending(item => item.TotalMinutes)
             .ThenBy(item => item.DisplayName ?? item.GameName, StringComparer.OrdinalIgnoreCase)
@@ -116,4 +115,19 @@ public sealed class StatisticsService : IStatisticsService
         };
     }
 
+    private static GameStatsSummary ToOverviewSummary(
+        GamePlaytimeOverviewRecord record,
+        StatisticsConfigIndex configIndex)
+    {
+        var displayName = configIndex.FindDisplayName(record.GameName);
+
+        return new GameStatsSummary
+        {
+            GameName = record.GameName,
+            DisplayName = displayName,
+            TotalMinutes = record.TotalMinutes,
+            RecentMinutes = record.RecentMinutes,
+            SessionCount = record.SessionCount
+        };
+    }
 }

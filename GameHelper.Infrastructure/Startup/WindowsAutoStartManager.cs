@@ -72,11 +72,22 @@ namespace GameHelper.Infrastructure.Startup
 
                 if (enabled)
                 {
+                    var currentValue = key.GetValue(_appName) as string;
+                    if (IsCurrentExecutable(currentValue))
+                    {
+                        return;
+                    }
+
                     key.SetValue(_appName, QuotePath(_executablePath));
                     _logger.LogInformation("已注册开机自启动：{Path}", _executablePath);
                 }
                 else
                 {
+                    if (key.GetValue(_appName) is null)
+                    {
+                        return;
+                    }
+
                     key.DeleteValue(_appName, false);
                     _logger.LogInformation("已取消开机自启动");
                 }
@@ -86,6 +97,18 @@ namespace GameHelper.Infrastructure.Startup
                 _logger.LogError(ex, "Failed to update auto-start registry value");
                 throw new InvalidOperationException("Failed to update auto-start registry value.", ex);
             }
+        }
+
+        private bool IsCurrentExecutable(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            var normalizedValue = NormalizePath(value);
+            var normalizedExecutable = NormalizePath(_executablePath);
+            return string.Equals(normalizedValue, normalizedExecutable, StringComparison.OrdinalIgnoreCase);
         }
 
         private static string ResolveExecutablePath()
