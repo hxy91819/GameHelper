@@ -12,13 +12,18 @@ using CoreGameConfig = GameHelper.Core.Models.GameConfig;
 namespace GameHelper.Tests
 {
     // Fakes
-    file sealed class FakeMonitor : IProcessMonitor
+    file sealed class FakeMonitor : IProcessMonitor, IProcessNameFilterControl
     {
         public event Action<ProcessEventInfo>? ProcessStarted;
         public event Action<ProcessEventInfo>? ProcessStopped;
+        public IReadOnlyList<string> LastAllowedProcessNames { get; private set; } = Array.Empty<string>();
         public void Start() { }
         public void Stop() { }
         public void Dispose() { }
+        public void SetAllowedProcessNames(IEnumerable<string> processNames)
+        {
+            LastAllowedProcessNames = processNames.ToArray();
+        }
         public void RaiseStart(ProcessEventInfo info) => ProcessStarted?.Invoke(info);
         public void RaiseStop(ProcessEventInfo info) => ProcessStopped?.Invoke(info);
     }
@@ -359,7 +364,7 @@ namespace GameHelper.Tests
             monitor.RaiseStart(new ProcessEventInfo("game.exe", null));
             monitor.RaiseStop(new ProcessEventInfo("game.exe", null));
 
-            var entry = Assert.Single(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("游玩时长"));
+            var entry = Assert.Single(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("Session duration"));
             Assert.Contains("15秒", entry.Message);
         }
 
@@ -440,6 +445,30 @@ namespace GameHelper.Tests
         }
 
         [Fact]
+        public void ReloadConfig_ShouldKeepActiveNameInProcessFilter_UntilStop()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new MutableFakeConfig(Dict(("game.exe", true, true)));
+            var hdr = new FakeHdr();
+            var play = new FakePlayTime();
+            var logger = NullLogger<GameAutomationService>.Instance;
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+
+            svc.Start();
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null));
+
+            cfg.Set(new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase));
+            svc.ReloadConfig();
+
+            Assert.Contains("game.exe", monitor.LastAllowedProcessNames, StringComparer.OrdinalIgnoreCase);
+
+            monitor.RaiseStop(new ProcessEventInfo("game.exe", null));
+
+            Assert.Equal(1, play.StopCalls);
+            Assert.DoesNotContain("game.exe", monitor.LastAllowedProcessNames, StringComparer.OrdinalIgnoreCase);
+        }
+
+        [Fact]
         public void Start_DuplicateExecutableNameWithMissingPath_LogsWarning()
         {
             var monitor = new FakeMonitor();
@@ -516,4 +545,3 @@ namespace GameHelper.Tests
         }
     }
 }
-

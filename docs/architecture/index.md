@@ -22,14 +22,14 @@ GameHelper.ConsoleHost    GameHelper.WinUI
 ## Primary Runtime Flows
 
 - **Configuration**: shells call core catalog/settings services; infrastructure persists `config.yml`.
-- **Monitoring**: `MonitorControlService` starts the process monitor and `GameAutomationService` as a lifecycle pair.
-- **Automation**: process events are matched by path first, metadata second; active game sessions drive playtime tracking and HDR scheduling. HDR scheduling only rolls back HDR changes made by GameHelper itself.
+- **Monitoring**: `MonitorControlService` starts the process monitor and `GameAutomationService` as a lifecycle pair. Runtime process filters are derived from enabled game candidates and refreshed on config reload.
+- **Automation**: process events first pass a cheap executable-name candidate gate; full path resolution is lazy and only used for configured candidates that need path matching or disambiguation. Metadata/fuzzy matching is limited to that candidate set. Active game sessions drive playtime tracking and HDR scheduling. HDR scheduling only rolls back HDR changes made by GameHelper itself.
 - **Statistics**: playtime records are read from local files and joined to current config by stable `DataKey`.
 - **File drop**: duplicate app launches forward dropped files to the running console process, which updates config and reloads automation.
 
 ## Key Modules And Seams
 
-- **Process monitor seam**: `IProcessMonitor` lets ETW, WMI, and no-op adapters satisfy the same core monitoring interface.
+- **Process monitor seam**: `IProcessMonitor` lets ETW, WMI, and no-op adapters satisfy the same core monitoring interface. `IProcessNameFilterControl` lets capable monitors receive refreshed candidate names, and `IProcessPathResolver` keeps expensive live path lookup out of monitor event callbacks.
 - **Configuration seam**: `IConfigProvider` and `IAppConfigProvider` isolate YAML/JSON storage from core services.
 - **Catalog identity and matching policy**: Core utilities and catalog services own `DataKey` generation, list/delete flows, and add/import duplicate detection so shell flows reuse one rule set.
 - **Playtime seam**: `IPlayTimeService` records sessions; `IPlaytimeSnapshotProvider` reads historical snapshots for statistics and session summaries.

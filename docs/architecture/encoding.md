@@ -11,5 +11,5 @@ All repository source, documentation, and configuration text files must be valid
 ## Command-Line Rules
 
 - Prefer `apply_patch` for automated edits.
-- In PowerShell, never rely on the process default encoding for text rewrites; use an explicit UTF-8 writer such as `Set-Content -Encoding utf8`.
+- In Windows PowerShell 5.1, never rely on default file encoding for reads or writes. Use `Get-Content -Encoding utf8`, `Set-Content -Encoding utf8`, and `Select-String -Encoding utf8`; otherwise UTF-8 files without a BOM can be decoded through the system ANSI code page and rewritten as mojibake.
 - If console output looks like mojibake, verify file bytes with a strict UTF-8 decoder before rewriting the file.

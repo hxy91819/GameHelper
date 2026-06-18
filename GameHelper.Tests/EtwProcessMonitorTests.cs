@@ -139,6 +139,21 @@ namespace GameHelper.Tests
         }
 
         [Fact]
+        public void IsAllowedProcessStart_WhenPathHintFilenameAllowed_ReturnsTrue()
+        {
+            var monitor = new EtwProcessMonitor(new[] { "game.exe" }, null);
+            var method = typeof(EtwProcessMonitor).GetMethod(
+                "IsAllowedProcessStart",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            var allowedByPath = (bool)method!.Invoke(monitor, new object?[] { "launcher.exe", @"C:\Steam\game.exe" })!;
+            var rejected = (bool)method.Invoke(monitor, new object?[] { "launcher.exe", @"C:\Tools\launcher.exe" })!;
+
+            Assert.True(allowedByPath);
+            Assert.False(rejected);
+        }
+
+        [Fact]
         public void IsResourceExhausted_RecognizesErrorNoSystemResources()
         {
             var ex = new System.Runtime.InteropServices.COMException("test", unchecked((int)0x800705AA));

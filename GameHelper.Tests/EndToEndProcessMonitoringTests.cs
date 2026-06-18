@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
@@ -384,7 +385,7 @@ namespace GameHelper.Tests
                 }
             }
 
-            return string.Equals(normalizedReportedName, TestProcessBaseName, StringComparison.OrdinalIgnoreCase);
+            return TestProcessBaseNames.Contains(normalizedReportedName, StringComparer.OrdinalIgnoreCase);
         }
 
         private string DescribeProcess(Process process)
@@ -414,7 +415,7 @@ namespace GameHelper.Tests
             }
         }
 
-        private const string TestProcessBaseName = "cmd";
+        private static readonly string[] TestProcessBaseNames = ["cmd", "ping"];
 
         private static bool IsRunningAsAdministrator()
         {

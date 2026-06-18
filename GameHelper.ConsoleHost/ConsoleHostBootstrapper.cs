@@ -91,10 +91,12 @@ public static class ConsoleHostBootstrapper
         if (OperatingSystem.IsWindows())
         {
             services.AddSingleton<IHdrController, WindowsHdrController>();
+            services.AddSingleton<IProcessPathResolver, WindowsProcessPathResolver>();
         }
         else
         {
             services.AddSingleton<IHdrController, NoOpHdrController>();
+            services.AddSingleton<IProcessPathResolver, NoOpProcessPathResolver>();
         }
 
         services.AddSingleton<IPlayTimeService, CsvBackedPlayTimeService>();

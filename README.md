@@ -92,6 +92,10 @@ games:
 - `dataKey`：统计主键，写入 `playtime.csv` 的 `game` 字段，必须全局唯一。
 - `hDREnabled`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
 
+监控匹配：
+- GameHelper 只处理启用配置中的候选进程名，候选名来自 `executableName` 和 `executablePath` 的文件名。
+- 完整路径只在候选进程需要路径消歧时解析；非候选进程不会触发路径查询、ProductName 读取或模糊匹配。
+
 ## 项目结构
 - `GameHelper.WinUI`：WinUI 桌面入口
 - `GameHelper.ConsoleHost`：CLI 入口
