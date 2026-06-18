@@ -279,7 +279,7 @@ public sealed class GameAutomationService : IGameAutomationService
         }
 
         // Only name-gated monitors may resolve PID before the candidate-name gate.
-        // Ungated monitors such as WMI can emit every system process start here.
+        // Monitors that do not implement the filter can emit every system process start here.
         var resolvedPath = _nameFilterControl is not null
             ? ResolvePathByPid(processInfo.ProcessId)
             : null;

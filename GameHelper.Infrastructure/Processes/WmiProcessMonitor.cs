@@ -1,6 +1,9 @@
 using System;
 using System.Management;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 
@@ -11,16 +14,21 @@ namespace GameHelper.Infrastructure.Processes
     /// Raises simple string events with the process executable name (e.g., "game.exe").
     /// Internally resolves names via ProcessID against Win32_Process to avoid truncated names.
     /// </summary>
-    public sealed class WmiProcessMonitor : IProcessMonitor, IDisposable, IStopEventsControl
+    public sealed class WmiProcessMonitor : IProcessMonitor, IStopEventsControl, IProcessNameFilterControl
     {
+        private const string StartTraceQuery = "SELECT * FROM Win32_ProcessStartTrace";
+        private const string StopTraceQuery = "SELECT * FROM Win32_ProcessStopTrace";
         private IProcessEventWatcher? _startWatcher;
         private IProcessEventWatcher? _stopWatcher;
+        private WmiProcessEventResolver? _eventResolver;
         private bool _ownsWatchers;
+        private readonly bool _filterExternalWatcherEvents;
         private bool _running;
         private bool _disposed;
-        private readonly string? _startWql; // keep null to use full StartTrace query (see ctor)
-        private readonly string? _stopWql;  // keep null to use full StopTrace query (see ctor)
         private bool _stopEventsEnabled = true; // default to true for backward compatibility
+        private readonly object _allowedProcessNamesLock = new();
+        private readonly HashSet<string> _allowedProcessNames = new(StringComparer.OrdinalIgnoreCase);
+        private volatile bool _hasProcessNameFilter;
 
         /// <inheritdoc />
         public event Action<ProcessEventInfo>? ProcessStarted;
@@ -36,6 +44,19 @@ namespace GameHelper.Infrastructure.Processes
             _startWatcher = startWatcher;
             _stopWatcher = stopWatcher;
             _ownsWatchers = false;
+            _filterExternalWatcherEvents = true;
+        }
+
+        /// <summary>
+        /// Creates a monitor that filters start/stop events to a whitelist of process names.
+        /// If <paramref name="allowedProcessNames"/> is null, falls back to emitting all processes.
+        /// </summary>
+        public WmiProcessMonitor(IEnumerable<string>? allowedProcessNames)
+        {
+            if (allowedProcessNames is not null)
+            {
+                SetAllowedProcessNames(allowedProcessNames);
+            }
         }
 
         /// <summary>
@@ -58,36 +79,33 @@ namespace GameHelper.Infrastructure.Processes
                 else
                 {
                     _stopWatcher.Stop();
+                    _eventResolver?.ClearCache();
                 }
             }
             catch { }
         }
 
-        /// <summary>
-        /// Creates a monitor that filters start/stop events to a whitelist of process names.
-        /// If <paramref name="allowedProcessNames"/> is null or empty, falls back to listening to all processes.
-        /// </summary>
-        public WmiProcessMonitor(System.Collections.Generic.IEnumerable<string>? allowedProcessNames)
+        /// <inheritdoc />
+        public void SetAllowedProcessNames(IEnumerable<string> processNames)
         {
-            if (allowedProcessNames is not null)
+            ArgumentNullException.ThrowIfNull(processNames);
+
+            lock (_allowedProcessNamesLock)
             {
-                var list = new System.Collections.Generic.List<string>();
-                foreach (var n in allowedProcessNames)
+                _allowedProcessNames.Clear();
+                foreach (var name in processNames)
                 {
-                    if (string.IsNullOrWhiteSpace(n)) continue;
-                    // Ensure we only keep a file name (defensive) and quote it for WQL
-                    var name = System.IO.Path.GetFileName(n.Trim());
-                    // WQL string literal uses double quotes; escape embedded quotes if any
-                    name = name.Replace("\"", "\\\"");
-                    list.Add(name);
+                    var normalized = NormalizeProcessName(name);
+                    if (!string.IsNullOrWhiteSpace(normalized))
+                    {
+                        _allowedProcessNames.Add(normalized);
+                    }
                 }
 
-                // Intentionally do NOT apply name whitelist at WQL level anymore.
-                // Reason: Start/Stop may report different names (e.g., launcher vs. target, x86/x64 variants),
-                // causing Start to be missed if filtered. We now listen to all and filter in GameAutomationService.
-                _startWql = null;
-                _stopWql  = null;
+                _hasProcessNameFilter = true;
             }
+
+            _eventResolver?.ClearCache();
         }
 
         /// <summary>
@@ -102,10 +120,11 @@ namespace GameHelper.Infrastructure.Processes
             {
                 if (_startWatcher is null || _stopWatcher is null)
                 {
-                    var startQuery = _startWql ?? "SELECT * FROM Win32_ProcessStartTrace";
-                    var stopQuery  = _stopWql  ?? "SELECT * FROM Win32_ProcessStopTrace";
-                    _startWatcher = new WmiEventWatcher(startQuery);
-                    _stopWatcher  = new WmiEventWatcher(stopQuery);
+                    _eventResolver = new WmiProcessEventResolver(
+                        IsAllowedProcessName,
+                        () => _stopEventsEnabled);
+                    _startWatcher = new WmiEventWatcher(StartTraceQuery, _eventResolver);
+                    _stopWatcher  = new WmiEventWatcher(StopTraceQuery, _eventResolver);
                     _ownsWatchers = true;
                 }
 
@@ -144,6 +163,11 @@ namespace GameHelper.Infrastructure.Processes
                 return;
             }
 
+            if (_filterExternalWatcherEvents && !IsAllowedProcessName(processInfo.ExecutableName))
+            {
+                return;
+            }
+
             ProcessStarted?.Invoke(processInfo);
         }
 
@@ -154,7 +178,52 @@ namespace GameHelper.Infrastructure.Processes
                 return;
             }
 
+            if (_filterExternalWatcherEvents && !IsAllowedProcessName(processInfo.ExecutableName))
+            {
+                return;
+            }
+
             ProcessStopped?.Invoke(processInfo);
+        }
+
+        private bool IsAllowedProcessName(string? processName)
+        {
+            if (!_hasProcessNameFilter)
+            {
+                return true;
+            }
+
+            var normalized = NormalizeProcessName(processName);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                return false;
+            }
+
+            lock (_allowedProcessNamesLock)
+            {
+                return _allowedProcessNames.Contains(normalized);
+            }
+        }
+
+        private static string? NormalizeProcessName(string? processName)
+        {
+            if (string.IsNullOrWhiteSpace(processName))
+            {
+                return null;
+            }
+
+            var name = Path.GetFileName(processName.Trim());
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return null;
+            }
+
+            if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                name += ".exe";
+            }
+
+            return name;
         }
 
         private void SafeTearDown()
@@ -176,6 +245,9 @@ namespace GameHelper.Infrastructure.Processes
                 if (_ownsWatchers && _stopWatcher is IDisposable d2) d2.Dispose();
                 _stopWatcher = null;
             }
+
+            _eventResolver?.ClearCache();
+            _eventResolver = null;
         }
 
         public void Dispose()
@@ -193,9 +265,8 @@ namespace GameHelper.Infrastructure.Processes
     internal sealed class WmiEventWatcher : IProcessEventWatcher, IDisposable
     {
         private readonly ManagementEventWatcher _watcher;
+        private readonly WmiProcessEventResolver _eventResolver;
         private bool _started;
-        // Keep a short-lived cache of PID -> resolved executable name captured on Start events
-        private readonly ConcurrentDictionary<int, string> _pidToName = new();
 
         /// <inheritdoc />
         public event Action<ProcessEventInfo>? ProcessEvent;
@@ -204,7 +275,13 @@ namespace GameHelper.Infrastructure.Processes
         /// Creates a watcher for the specified WQL query (e.g., StartTrace/StopTrace).
         /// </summary>
         public WmiEventWatcher(string wqlQuery)
+            : this(wqlQuery, new WmiProcessEventResolver(_ => true))
         {
+        }
+
+        internal WmiEventWatcher(string wqlQuery, WmiProcessEventResolver eventResolver)
+        {
+            _eventResolver = eventResolver ?? throw new ArgumentNullException(nameof(eventResolver));
             _watcher = new ManagementEventWatcher(new WqlEventQuery(wqlQuery));
             _watcher.EventArrived += OnEventArrived;
         }
@@ -239,13 +316,13 @@ namespace GameHelper.Infrastructure.Processes
                     return;
                 }
 
-                string? resolvedName = null;
-                string? resolvedPath = null;
                 int pid = -1;
                 string? className = null;
+                string? rawProcessName = null;
 
                 // Determine event class name first
                 try { className = newEvent.ClassPath?.ClassName; } catch { }
+                try { rawProcessName = newEvent["ProcessName"]?.ToString(); } catch { }
 
                 // Extract PID if available
                 try
@@ -254,72 +331,15 @@ namespace GameHelper.Infrastructure.Processes
                     if (pidObj is not null)
                     {
                         pid = Convert.ToInt32(pidObj);
-                        // Only perform expensive WMI lookup for Start (or unknown) events to reduce CPU usage
-                        var isStop = className?.IndexOf("Stop", StringComparison.OrdinalIgnoreCase) >= 0;
-                        if (!isStop)
-                        {
-                            using var searcher = new ManagementObjectSearcher($"SELECT Name, ExecutablePath FROM Win32_Process WHERE ProcessId = {pid}");
-                            using var results = searcher.Get();
-                            foreach (ManagementObject proc in results)
-                            {
-                                // Prefer Name; if missing, take filename from ExecutablePath
-                                resolvedName = proc["Name"] as string;
-                                if (string.IsNullOrWhiteSpace(resolvedName))
-                                {
-                                    resolvedPath = proc["ExecutablePath"] as string;
-                                    if (!string.IsNullOrWhiteSpace(resolvedPath))
-                                    {
-                                        try { resolvedName = System.IO.Path.GetFileName(resolvedPath); } catch { }
-                                    }
-                                }
-                                else
-                                {
-                                    resolvedPath = proc["ExecutablePath"] as string;
-                                }
-                                break; // first match
-                            }
-                        }
                     }
                 }
                 catch
                 {
-                    // swallow and fallback to ProcessName
+                    // swallow and fallback to ProcessName without a PID
                 }
 
-                if (string.IsNullOrWhiteSpace(resolvedName))
+                if (_eventResolver.TryCreateProcessEvent(className, pid, rawProcessName, out var info))
                 {
-                    // If this is a Stop event and process is already gone, reuse the cached name from Start
-                    if (pid > 0 && (className?.IndexOf("Stop", StringComparison.OrdinalIgnoreCase) >= 0))
-                    {
-                        if (_pidToName.TryGetValue(pid, out var cached))
-                        {
-                            resolvedName = cached;
-                        }
-                    }
-
-                    // Still null? Fall back to the raw ProcessName provided by the event
-                    if (string.IsNullOrWhiteSpace(resolvedName))
-                    {
-                        resolvedName = newEvent["ProcessName"]?.ToString();
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(resolvedName))
-                {
-                    // Maintain cache lifecycle: add on Start, remove on Stop
-                    if (pid > 0)
-                    {
-                        if (className?.IndexOf("Start", StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            _pidToName[pid] = resolvedName;
-                        }
-                        else if (className?.IndexOf("Stop", StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            _pidToName.TryRemove(pid, out _);
-                        }
-                    }
-
-                    var info = new ProcessEventInfo(resolvedName, resolvedPath, pid > 0 ? pid : null);
                     ProcessEvent?.Invoke(info);
                 }
             }
@@ -336,4 +356,215 @@ namespace GameHelper.Infrastructure.Processes
             _watcher.Dispose();
         }
     }
+
+    internal sealed class WmiProcessEventResolver
+    {
+        private readonly Func<string?, bool> _isAllowedProcessName;
+        private readonly Func<bool> _areStopEventsEnabled;
+        private readonly Func<int, WmiProcessDetails?> _resolveProcessDetails;
+        private readonly ConcurrentDictionary<int, WmiProcessDetails> _pidToDetails = new();
+
+        public WmiProcessEventResolver(Func<string?, bool> isAllowedProcessName)
+            : this(isAllowedProcessName, () => true, ResolveProcessDetails)
+        {
+        }
+
+        public WmiProcessEventResolver(
+            Func<string?, bool> isAllowedProcessName,
+            Func<bool> areStopEventsEnabled)
+            : this(isAllowedProcessName, areStopEventsEnabled, ResolveProcessDetails)
+        {
+        }
+
+        public WmiProcessEventResolver(
+            Func<string?, bool> isAllowedProcessName,
+            Func<int, WmiProcessDetails?> resolveProcessDetails)
+            : this(isAllowedProcessName, () => true, resolveProcessDetails)
+        {
+        }
+
+        public WmiProcessEventResolver(
+            Func<string?, bool> isAllowedProcessName,
+            Func<bool> areStopEventsEnabled,
+            Func<int, WmiProcessDetails?> resolveProcessDetails)
+        {
+            _isAllowedProcessName = isAllowedProcessName ?? throw new ArgumentNullException(nameof(isAllowedProcessName));
+            _areStopEventsEnabled = areStopEventsEnabled ?? throw new ArgumentNullException(nameof(areStopEventsEnabled));
+            _resolveProcessDetails = resolveProcessDetails ?? throw new ArgumentNullException(nameof(resolveProcessDetails));
+        }
+
+        public void ClearCache() => _pidToDetails.Clear();
+
+        public bool TryCreateProcessEvent(
+            string? className,
+            int processId,
+            string? rawProcessName,
+            out ProcessEventInfo processInfo)
+        {
+            var isStop = IsStopEvent(className);
+            if (isStop)
+            {
+                return TryCreateStopEvent(processId, rawProcessName, out processInfo);
+            }
+
+            return TryCreateStartEvent(processId, rawProcessName, out processInfo);
+        }
+
+        private bool TryCreateStartEvent(int processId, string? rawProcessName, out ProcessEventInfo processInfo)
+        {
+            processInfo = default;
+
+            WmiProcessDetails? resolvedDetails = null;
+            var rawNameAllowed = _isAllowedProcessName(rawProcessName);
+            if (!rawNameAllowed && !string.IsNullOrWhiteSpace(rawProcessName))
+            {
+                return false;
+            }
+
+            if (processId > 0)
+            {
+                resolvedDetails = _resolveProcessDetails(processId);
+            }
+
+            var executableName = ResolveExecutableName(resolvedDetails, rawProcessName);
+            if (!rawNameAllowed && !_isAllowedProcessName(executableName))
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(executableName))
+            {
+                return false;
+            }
+
+            var details = new WmiProcessDetails(executableName, resolvedDetails?.ExecutablePath, rawProcessName);
+            if (processId > 0 && _areStopEventsEnabled())
+            {
+                _pidToDetails[processId] = details;
+            }
+
+            processInfo = new ProcessEventInfo(executableName, details.ExecutablePath, processId > 0 ? processId : null);
+            return true;
+        }
+
+        private bool TryCreateStopEvent(int processId, string? rawProcessName, out ProcessEventInfo processInfo)
+        {
+            processInfo = default;
+
+            WmiProcessDetails? cachedDetails = null;
+            if (processId > 0 && _pidToDetails.TryRemove(processId, out var cached))
+            {
+                cachedDetails = cached;
+            }
+
+            if (cachedDetails is not null &&
+                (string.IsNullOrWhiteSpace(rawProcessName) ||
+                 (!MatchesCachedProcessName(cachedDetails.Value, rawProcessName) &&
+                  !_isAllowedProcessName(rawProcessName))))
+            {
+                cachedDetails = null;
+            }
+
+            var executableName = ResolveExecutableName(cachedDetails, rawProcessName);
+            if (string.IsNullOrWhiteSpace(executableName))
+            {
+                return false;
+            }
+
+            if (cachedDetails is null && !_isAllowedProcessName(executableName))
+            {
+                return false;
+            }
+
+            processInfo = new ProcessEventInfo(executableName, cachedDetails?.ExecutablePath, processId > 0 ? processId : null);
+            return true;
+        }
+
+        private static bool IsStopEvent(string? className) =>
+            className?.IndexOf("Stop", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        private static string? ResolveExecutableName(WmiProcessDetails? details, string? rawProcessName)
+        {
+            if (!string.IsNullOrWhiteSpace(details?.Name))
+            {
+                return details.Value.Name;
+            }
+
+            if (!string.IsNullOrWhiteSpace(details?.ExecutablePath))
+            {
+                try
+                {
+                    return Path.GetFileName(details.Value.ExecutablePath);
+                }
+                catch
+                {
+                    // Fall back to the raw WMI event process name below.
+                }
+            }
+
+            return rawProcessName;
+        }
+
+        private static bool MatchesCachedProcessName(WmiProcessDetails details, string rawProcessName)
+        {
+            return NamesEqual(details.EventName, rawProcessName) ||
+                NamesEqual(details.Name, rawProcessName);
+        }
+
+        private static bool NamesEqual(string? left, string? right)
+        {
+            var normalizedLeft = NormalizeName(left);
+            var normalizedRight = NormalizeName(right);
+            return normalizedLeft is not null &&
+                normalizedRight is not null &&
+                string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string? NormalizeName(string? processName)
+        {
+            if (string.IsNullOrWhiteSpace(processName))
+            {
+                return null;
+            }
+
+            var name = Path.GetFileName(processName.Trim());
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return null;
+            }
+
+            if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                name += ".exe";
+            }
+
+            return name;
+        }
+
+        private static WmiProcessDetails? ResolveProcessDetails(int processId)
+        {
+            try
+            {
+                using var searcher = new ManagementObjectSearcher(
+                    $"SELECT Name, ExecutablePath FROM Win32_Process WHERE ProcessId = {processId}");
+                using var results = searcher.Get();
+                var proc = results.Cast<ManagementBaseObject>().FirstOrDefault();
+                if (proc is not null)
+                {
+                    return new WmiProcessDetails(
+                        proc["Name"] as string,
+                        proc["ExecutablePath"] as string,
+                        null);
+                }
+            }
+            catch
+            {
+                // Fall back to the raw ProcessName from the WMI event.
+            }
+
+            return null;
+        }
+    }
+
+    internal readonly record struct WmiProcessDetails(string? Name, string? ExecutablePath, string? EventName = null);
 }

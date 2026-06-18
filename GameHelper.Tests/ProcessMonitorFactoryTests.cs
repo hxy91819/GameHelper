@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Processes;
 using Microsoft.Extensions.Logging;
@@ -56,6 +57,14 @@ namespace GameHelper.Tests
             var etwMonitor = ProcessMonitorFactory.Create(ProcessMonitorType.ETW, allowedProcesses);
 
             Assert.NotNull(etwMonitor);
+        }
+
+        [WindowsOnlyFact]
+        public void Create_WithWmiType_ShouldExposeProcessNameFilterControl()
+        {
+            var monitor = ProcessMonitorFactory.Create(ProcessMonitorType.WMI, new[] { "game.exe" });
+
+            Assert.IsAssignableFrom<IProcessNameFilterControl>(monitor);
         }
 
         [WindowsOnlyFact]
