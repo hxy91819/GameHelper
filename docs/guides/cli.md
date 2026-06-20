@@ -35,7 +35,7 @@ dotnet run --project .\GameHelper.ConsoleHost -- stats --game <dataKey>
 
 # 配置管理
 dotnet run --project .\GameHelper.ConsoleHost -- config list
-dotnet run --project .\GameHelper.ConsoleHost -- config add <exe>
+dotnet run --project .\GameHelper.ConsoleHost -- config add <exe|path-to-exe>
 dotnet run --project .\GameHelper.ConsoleHost -- config remove <entryId|dataKey>
 
 # 配置迁移与校验
@@ -76,6 +76,8 @@ games:
 - `executableName`：旧配置或回退匹配使用的可执行文件名。
 - `displayName`：界面显示名称。
 - `hDREnabled`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
+
+`config add` 可接收可执行文件名或 `.exe` 路径。传入路径时会保存完整 `executablePath`，并从路径提取 `executableName` 与默认 `displayName`；传入文件名时保持旧行为，仅保存候选进程名。
 
 ## 拖放添加游戏
 

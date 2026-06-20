@@ -12,7 +12,7 @@ namespace GameHelper.ConsoleHost.Commands
             Console.WriteLine("  interactive         启动全新的互动命令行体验（无命令时默认）");
             Console.WriteLine("  monitor [--config <path>] [--monitor-type <type>] [--debug]");
             Console.WriteLine("  config list [--config <path>] [--debug]");
-            Console.WriteLine("  config add <exe> [--config <path>] [--debug]");
+            Console.WriteLine("  config add <exe|path-to-exe> [--config <path>] [--debug]");
             Console.WriteLine("  config remove <dataKey> [--config <path>] [--debug]");
             Console.WriteLine("  stats [--game <name>] [--config <path>] [--debug]");
             Console.WriteLine("  migrate [--config <path>] [--csv <path>] [--dry-run] [--force]");
@@ -21,8 +21,8 @@ namespace GameHelper.ConsoleHost.Commands
             Console.WriteLine();
             Console.WriteLine("Global options:");
             Console.WriteLine("  --config, -c       Override path to config.yml");
-            Console.WriteLine("  --monitor-type     Process monitor type: WMI (default) or ETW");
-            Console.WriteLine("                     ETW provides lower latency but requires admin privileges");
+            Console.WriteLine("  --monitor-type     Process monitor type: ETW (default) or WMI");
+            Console.WriteLine("                     ETW provides lower latency but may require admin privileges");
             Console.WriteLine("  --monitor-dry-run  Dry-run monitor flow without starting background services");
             Console.WriteLine("  --debug, -v        Enable verbose debug logging");
             Console.WriteLine("  --interactive      强制进入互动模式（等价于 interactive 命令）");
