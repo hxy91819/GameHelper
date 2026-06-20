@@ -140,6 +140,50 @@ games:
     }
 
     [Fact]
+    public void Save_WithDisplayNameContainingColon_WritesParsableYaml()
+    {
+        var provider = new YamlConfigProvider(_configPath);
+        var input = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["granblue"] = new()
+            {
+                DataKey = "granblue",
+                ExecutableName = "granblue.exe",
+                DisplayName = "Granblue Fantasy: Relink",
+                IsEnabled = true,
+                HdrEnabled = false
+            }
+        };
+
+        provider.Save(input);
+
+        var yaml = File.ReadAllText(_configPath);
+        Assert.Contains("Granblue Fantasy: Relink", yaml);
+
+        var game = Assert.Single(provider.Load().Values);
+        Assert.Equal("Granblue Fantasy: Relink", game.DisplayName);
+    }
+
+    [Fact]
+    public void LoadAppConfig_WhenYamlContainsUnquotedColon_IncludesLocationAndHint()
+    {
+        File.WriteAllText(_configPath, """
+monitor: ETW
+games:
+  - dataKey: granblue
+    executable: granblue.exe
+    displayName: Granblue Fantasy: Relink
+""");
+        var provider = new YamlConfigProvider(_configPath);
+
+        var ex = Assert.Throws<InvalidDataException>(() => provider.LoadAppConfig());
+
+        Assert.Contains(_configPath, ex.Message);
+        Assert.Contains("line", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("quote string values", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Save_WhenAppSettingsExist_PreservesGlobalSettings()
     {
         var provider = new YamlConfigProvider(_configPath);

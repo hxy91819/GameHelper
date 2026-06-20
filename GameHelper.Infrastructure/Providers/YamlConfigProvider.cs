@@ -127,7 +127,7 @@ namespace GameHelper.Infrastructure.Providers
             }
             catch (YamlException ex)
             {
-                throw new InvalidDataException("Failed to deserialize config file. Please check its format.", ex);
+                throw CreateInvalidConfigException(ex);
             }
         }
 
@@ -158,6 +158,17 @@ namespace GameHelper.Infrastructure.Providers
         }
 
         private static string ResolveDefaultPath() => AppDataPath.GetConfigPath();
+
+        private InvalidDataException CreateInvalidConfigException(YamlException ex)
+        {
+            var location = ex.Start.Line > 0
+                ? $" at line {ex.Start.Line}, column {ex.Start.Column}"
+                : string.Empty;
+
+            return new InvalidDataException(
+                $"Failed to parse config file '{_configFilePath}'{location}. Check YAML syntax; quote string values that contain ': ' (for example displayName: \"Granblue Fantasy: Relink\").",
+                ex);
+        }
 
         private static AppConfig ToAppConfig(StoredAppConfig? storedConfig)
         {
