@@ -5,10 +5,17 @@ namespace GameHelper.ConsoleHost.Utilities
 {
     internal static class ProcessInstanceGuard
     {
+        private const string DisableSingleInstanceEnvironmentVariable = "GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE";
+
         private static Mutex? _mutex;
 
         public static bool TryClaim()
         {
+            if (IsSingleInstanceDisabledByEnvironment())
+            {
+                return true;
+            }
+
             if (_mutex != null)
             {
                 return true;
@@ -41,6 +48,13 @@ namespace GameHelper.ConsoleHost.Utilities
                 // Fail open on unexpected errors to avoid blocking startup completely.
                 return true;
             }
+        }
+
+        internal static bool IsSingleInstanceDisabledByEnvironment()
+        {
+            var value = Environment.GetEnvironmentVariable(DisableSingleInstanceEnvironmentVariable);
+            return string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
         }
 
         private static void Release()

@@ -52,6 +52,10 @@ jobs:
           -p:PublishTrimmed=false
           -p:IncludeNativeLibrariesForSelfExtract=true
 
+      - name: Smoke ConsoleHost publish
+        shell: pwsh
+        run: ./scripts/publish-console-smoke.ps1 -SelfContained $true -SkipPublish
+
       - name: Prepare artifacts
         shell: pwsh
         run: |

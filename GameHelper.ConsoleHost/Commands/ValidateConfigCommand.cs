@@ -6,12 +6,13 @@ namespace GameHelper.ConsoleHost.Commands
 {
     public static class ValidateConfigCommand
     {
-        public static void Run()
+        public static void Run(string? configPath = null)
         {
             try
             {
-                var provider = new YamlConfigProvider();
-                string path = provider.ConfigPath;
+                string path = string.IsNullOrWhiteSpace(configPath)
+                    ? new YamlConfigProvider().ConfigPath
+                    : configPath;
                 var result = YamlConfigValidator.Validate(path);
 
                 Console.WriteLine($"Validating: {path}");
