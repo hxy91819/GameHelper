@@ -139,12 +139,12 @@ namespace GameHelper.Tests
             var dict = new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase);
             foreach (var (name, enabled, hdrEnabled) in items)
             {
-                dict[name] = new CoreGameConfig 
-                { 
-                    DataKey = name, 
-                    ExecutableName = name, 
-                    IsEnabled = enabled, 
-                    HDREnabled = hdrEnabled 
+                dict[name] = new CoreGameConfig
+                {
+                    DataKey = name,
+                    ExecutableName = name,
+                    IsEnabled = enabled,
+                    HdrEnabled = hdrEnabled
                 };
             }
             return dict;
@@ -413,7 +413,7 @@ namespace GameHelper.Tests
                     ExecutableName = "new.exe",
                     ExecutablePath = @"C:\Games\new.exe",
                     IsEnabled = true,
-                    HDREnabled = true
+                    HdrEnabled = true
                 }
             });
 

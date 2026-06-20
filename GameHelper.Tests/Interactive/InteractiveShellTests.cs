@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -33,8 +33,8 @@ namespace GameHelper.Tests.Interactive
         {
             var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
             {
-                ["eldenring.exe"] = new GameConfig { Name = "eldenring.exe", Alias = "Elden Ring", IsEnabled = true, HDREnabled = true },
-                ["hades.exe"] = new GameConfig { Name = "hades.exe", Alias = "Hades", IsEnabled = false, HDREnabled = false }
+                ["eldenring.exe"] = new GameConfig { DataKey = "eldenring.exe", Executable = "eldenring.exe", DisplayName = "Elden Ring", IsEnabled = true, HdrEnabled = true },
+                ["hades.exe"] = new GameConfig { DataKey = "hades.exe", Executable = "hades.exe", DisplayName = "Hades", IsEnabled = false, HdrEnabled = false }
             },
             new AppConfig { ProcessMonitorType = ProcessMonitorType.ETW },
             configPath: "C:/configs/gamehelper.yml");
@@ -63,7 +63,7 @@ namespace GameHelper.Tests.Interactive
         {
             var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
             {
-                ["witcher3.exe"] = new GameConfig { Name = "witcher3.exe", Alias = "Witcher 3", IsEnabled = true, HDREnabled = true }
+                ["witcher3.exe"] = new GameConfig { DataKey = "witcher3.exe", Executable = "witcher3.exe", DisplayName = "Witcher 3", IsEnabled = true, HdrEnabled = true }
             },
             new AppConfig { ProcessMonitorType = ProcessMonitorType.WMI },
             configPath: "C:/configs/gamehelper.yml");
@@ -89,9 +89,9 @@ namespace GameHelper.Tests.Interactive
 
             var updated = configProvider.Load();
             var entry = Assert.Single(updated.Values, e => string.Equals(e.ExecutableName, "celeste.exe", StringComparison.OrdinalIgnoreCase));
-            Assert.Equal("Celeste", entry.Alias);
+            Assert.Equal("Celeste", entry.DisplayName);
             Assert.True(entry.IsEnabled);
-            Assert.True(entry.HDREnabled);
+            Assert.True(entry.HdrEnabled);
         }
 
         [Fact]
@@ -105,7 +105,7 @@ namespace GameHelper.Tests.Interactive
                     ExecutableName = "same.exe",
                     DisplayName = "Same",
                     IsEnabled = true,
-                    HDREnabled = false
+                    HdrEnabled = false
                 }
             },
             new AppConfig { ProcessMonitorType = ProcessMonitorType.WMI },
@@ -217,8 +217,8 @@ namespace GameHelper.Tests.Interactive
 
             var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
             {
-                ["GameOne"] = new GameConfig { Name = "GameOne", Alias = "冒险一号", IsEnabled = true, HDREnabled = true },
-                ["GameTwo"] = new GameConfig { Name = "GameTwo", Alias = "试炼二号", IsEnabled = true, HDREnabled = false }
+                ["GameOne"] = new GameConfig { DataKey = "GameOne", Executable = "GameOne", DisplayName = "冒险一号", IsEnabled = true, HdrEnabled = true },
+                ["GameTwo"] = new GameConfig { DataKey = "GameTwo", Executable = "GameTwo", DisplayName = "试炼二号", IsEnabled = true, HdrEnabled = false }
             },
             new AppConfig { ProcessMonitorType = ProcessMonitorType.ETW },
             configPath: scope.ConfigPath);
@@ -250,7 +250,7 @@ namespace GameHelper.Tests.Interactive
 
             var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
             {
-                ["eldenring.exe"] = new GameConfig { Name = "eldenring.exe", Alias = "艾尔登法环", IsEnabled = true, HDREnabled = true }
+                ["eldenring.exe"] = new GameConfig { DataKey = "eldenring.exe", Executable = "eldenring.exe", DisplayName = "艾尔登法环", IsEnabled = true, HdrEnabled = true }
             },
             new AppConfig { ProcessMonitorType = ProcessMonitorType.WMI },
             configPath: scope.ConfigPath);
@@ -291,7 +291,7 @@ namespace GameHelper.Tests.Interactive
 
             var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
             {
-                ["horizon.exe"] = new GameConfig { Name = "horizon.exe", Alias = "地平线", IsEnabled = true, HDREnabled = true }
+                ["horizon.exe"] = new GameConfig { DataKey = "horizon.exe", Executable = "horizon.exe", DisplayName = "地平线", IsEnabled = true, HdrEnabled = true }
             },
             new AppConfig { ProcessMonitorType = ProcessMonitorType.ETW },
             configPath: scope.ConfigPath);
@@ -333,7 +333,7 @@ namespace GameHelper.Tests.Interactive
 
             var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
             {
-                ["auto.exe"] = new GameConfig { Name = "auto.exe", Alias = "Auto Game", IsEnabled = true, HDREnabled = true }
+                ["auto.exe"] = new GameConfig { DataKey = "auto.exe", Executable = "auto.exe", DisplayName = "Auto Game", IsEnabled = true, HdrEnabled = true }
             },
             new AppConfig { ProcessMonitorType = ProcessMonitorType.ETW, AutoStartInteractiveMonitor = true },
             configPath: scope.ConfigPath);
@@ -451,10 +451,11 @@ namespace GameHelper.Tests.Interactive
                     {
                         Games = _configs.Values.Select(v => new GameConfig
                         {
-                            Name = v.Name,
-                            Alias = v.Alias,
+                            DataKey = v.DataKey,
+                            Executable = v.Executable,
+                            DisplayName = v.DisplayName,
                             IsEnabled = v.IsEnabled,
-                            HDREnabled = v.HDREnabled
+                            HdrEnabled = v.HdrEnabled
                         }).ToList(),
                         ProcessMonitorType = _appConfig.ProcessMonitorType,
                         AutoStartInteractiveMonitor = _appConfig.AutoStartInteractiveMonitor,

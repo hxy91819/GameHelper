@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -31,7 +31,7 @@ namespace GameHelper.Tests.Interactive
         {
             var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
             {
-                ["entry1"] = new GameConfig { DataKey = "delete-me", Name = "delete.exe", Alias = "Delete Me", IsEnabled = true }
+                ["entry1"] = new GameConfig { DataKey = "delete-me", Executable = "delete.exe", DisplayName = "Delete Me", IsEnabled = true }
             },
             new AppConfig { ProcessMonitorType = ProcessMonitorType.ETW },
             configPath: "C:/configs/gamehelper.yml");
@@ -62,7 +62,7 @@ namespace GameHelper.Tests.Interactive
         {
             var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
             {
-                ["entry1"] = new GameConfig { DataKey = "keep-me", Name = "keep.exe", Alias = "Keep Me", IsEnabled = true }
+                ["entry1"] = new GameConfig { DataKey = "keep-me", Executable = "keep.exe", DisplayName = "Keep Me", IsEnabled = true }
             },
             new AppConfig { ProcessMonitorType = ProcessMonitorType.ETW },
             configPath: "C:/configs/gamehelper.yml");
@@ -96,8 +96,8 @@ namespace GameHelper.Tests.Interactive
 
             var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
             {
-                ["GameOne"] = new GameConfig { Name = "GameOne", Alias = "冒险一号", IsEnabled = true },
-                ["GameTwo"] = new GameConfig { Name = "GameTwo", Alias = "试炼二号", IsEnabled = true }
+                ["GameOne"] = new GameConfig { DataKey = "GameOne", Executable = "GameOne", DisplayName = "冒险一号", IsEnabled = true },
+                ["GameTwo"] = new GameConfig { DataKey = "GameTwo", Executable = "GameTwo", DisplayName = "试炼二号", IsEnabled = true }
             },
             new AppConfig { ProcessMonitorType = ProcessMonitorType.ETW },
             configPath: scope.ConfigPath);
@@ -130,7 +130,7 @@ namespace GameHelper.Tests.Interactive
 
             var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
             {
-                ["GameOne"] = new GameConfig { Name = "GameOne", Alias = "冒险一号", IsEnabled = true },
+                ["GameOne"] = new GameConfig { DataKey = "GameOne", Executable = "GameOne", DisplayName = "冒险一号", IsEnabled = true },
             },
             new AppConfig { ProcessMonitorType = ProcessMonitorType.ETW },
             configPath: scope.ConfigPath);
@@ -160,7 +160,7 @@ namespace GameHelper.Tests.Interactive
         {
             var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
             {
-                ["horizon.exe"] = new GameConfig { Name = "horizon.exe", Alias = "地平线", IsEnabled = true, HDREnabled = true }
+                ["horizon.exe"] = new GameConfig { DataKey = "horizon.exe", Executable = "horizon.exe", DisplayName = "地平线", IsEnabled = true, HdrEnabled = true }
             },
             new AppConfig { ProcessMonitorType = ProcessMonitorType.ETW },
             configPath: "C:/configs/gamehelper.yml");
@@ -251,7 +251,7 @@ namespace GameHelper.Tests.Interactive
                 {
                     return new AppConfig
                     {
-                        Games = _configs.Values.Select(v => new GameConfig { Name = v.Name, Alias = v.Alias, IsEnabled = v.IsEnabled, HDREnabled = v.HDREnabled }).ToList(),
+                        Games = _configs.Values.Select(v => new GameConfig { DataKey = v.DataKey, Executable = v.Executable, DisplayName = v.DisplayName, IsEnabled = v.IsEnabled, HdrEnabled = v.HdrEnabled }).ToList(),
                         ProcessMonitorType = _appConfig.ProcessMonitorType,
                         AutoStartInteractiveMonitor = _appConfig.AutoStartInteractiveMonitor,
                         LaunchOnSystemStartup = _appConfig.LaunchOnSystemStartup

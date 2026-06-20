@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
 namespace GameHelper.Core.Models
@@ -95,27 +95,6 @@ namespace GameHelper.Core.Models
                     Executable = value.Trim();
                 }
             }
-        }
-
-        [JsonIgnore]
-        public bool HDREnabled
-        {
-            get => HdrEnabled;
-            set => HdrEnabled = value;
-        }
-
-        [JsonIgnore]
-        public string Name
-        {
-            get => ExecutableName ?? string.Empty;
-            set => ExecutableName = value;
-        }
-
-        [JsonIgnore]
-        public string? Alias
-        {
-            get => DisplayName;
-            set => DisplayName = value;
         }
 
         private static string? NormalizeExecutable(string? executable) =>

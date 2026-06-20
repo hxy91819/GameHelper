@@ -44,7 +44,7 @@ public static class ServiceLocator
                     var appConfig = appConfigProvider.LoadAppConfig();
                     var preferredMonitor = appConfig.ProcessMonitorType ?? ProcessMonitorType.ETW;
                     var allowedProcesses = appConfig.Games?
-                        .Select(game => game.ExecutableName ?? game.Name ?? game.DataKey)
+                        .Select(game => game.ExecutableName ?? game.DataKey)
                         .Where(name => !string.IsNullOrWhiteSpace(name))
                         .ToArray();
 

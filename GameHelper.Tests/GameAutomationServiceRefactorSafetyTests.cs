@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
@@ -100,7 +100,7 @@ namespace GameHelper.Tests
                     ExecutableName = "game.exe",
                     ExecutablePath = @"C:\Games\game.exe",
                     IsEnabled = true,
-                    HDREnabled = true
+                    HdrEnabled = true
                 }
             });
             var hdr = new FakeHdr();
@@ -143,7 +143,7 @@ namespace GameHelper.Tests
                     ExecutableName = "something-else.exe",
                     ExecutablePath = @"C:\Steam\game.exe",
                     IsEnabled = true,
-                    HDREnabled = false
+                    HdrEnabled = false
                 }
             });
             var hdr = new FakeHdr();
@@ -168,7 +168,7 @@ namespace GameHelper.Tests
                     ExecutableName = "game.exe",
                     ExecutablePath = @"C:\Steam\game.exe",
                     IsEnabled = true,
-                    HDREnabled = false
+                    HdrEnabled = false
                 }
             });
             var play = new FakePlayTime();
@@ -192,7 +192,7 @@ namespace GameHelper.Tests
                     ExecutableName = "game.exe",
                     ExecutablePath = @"C:\Steam\game.exe",
                     IsEnabled = true,
-                    HDREnabled = false
+                    HdrEnabled = false
                 }
             });
             var resolver = new FakePathResolver();
@@ -217,7 +217,7 @@ namespace GameHelper.Tests
                     DataKey = "path-only",
                     ExecutablePath = @"C:\Steam\game.exe",
                     IsEnabled = true,
-                    HDREnabled = false
+                    HdrEnabled = false
                 }
             });
             var play = new FakePlayTime();
@@ -244,7 +244,7 @@ namespace GameHelper.Tests
                     ExecutableName = "game.exe",
                     ExecutablePath = configPath,
                     IsEnabled = true,
-                    HDREnabled = false
+                    HdrEnabled = false
                 }
             });
             var play = new FakePlayTime();
@@ -407,7 +407,7 @@ namespace GameHelper.Tests
                     ExecutableName = "game.exe",
                     ExecutablePath = @"C:\Games\A\game.exe",
                     IsEnabled = true,
-                    HDREnabled = true
+                    HdrEnabled = true
                 }
             });
             var hdr = new FakeHdr();

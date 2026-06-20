@@ -1,4 +1,4 @@
-using GameHelper.Core.Abstractions;
+﻿using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Services;
 
@@ -200,7 +200,7 @@ public sealed class CoreApplicationServicesTests
                 ExecutableName = "same.exe",
                 DisplayName = "Old",
                 IsEnabled = false,
-                HDREnabled = false
+                HdrEnabled = false
             }
         });
 
@@ -313,7 +313,7 @@ public sealed class CoreApplicationServicesTests
                 ExecutablePath = @"C:\Games\Legacy.exe",
                 DisplayName = "Old Name",
                 IsEnabled = false,
-                HDREnabled = true
+                HdrEnabled = true
             }
         });
 

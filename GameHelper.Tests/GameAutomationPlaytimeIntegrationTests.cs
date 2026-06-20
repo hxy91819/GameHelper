@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -59,7 +59,7 @@ namespace GameHelper.Tests
             var hdr = new FakeHdr();
             var cfg = new FakeConfig(new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
             {
-                ["demo.exe"] = new GameConfig { DataKey = "demo.exe", ExecutableName = "demo.exe", IsEnabled = true, HDREnabled = true }
+                ["demo.exe"] = new GameConfig { DataKey = "demo.exe", ExecutableName = "demo.exe", IsEnabled = true, HdrEnabled = true }
             });
             var play = new FileBackedPlayTimeService(_dir);
             var svc = new GameAutomationService(monitor, cfg, hdr, play, NullLogger<GameAutomationService>.Instance);
@@ -84,7 +84,7 @@ namespace GameHelper.Tests
             var hdr = new FakeHdr();
             var cfg = new FakeConfig(new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
             {
-                ["flush.exe"] = new GameConfig { DataKey = "flush.exe", ExecutableName = "flush.exe", IsEnabled = true, HDREnabled = true }
+                ["flush.exe"] = new GameConfig { DataKey = "flush.exe", ExecutableName = "flush.exe", IsEnabled = true, HdrEnabled = true }
             });
             var play = new FileBackedPlayTimeService(_dir);
             var svc = new GameAutomationService(monitor, cfg, hdr, play, NullLogger<GameAutomationService>.Instance);
@@ -115,7 +115,7 @@ namespace GameHelper.Tests
                     ExecutableName = "sample.exe",
                     ExecutablePath = @"C:\Games\Sample\sample.exe",
                     IsEnabled = true,
-                    HDREnabled = true
+                    HdrEnabled = true
                 }
             });
             var play = new CsvBackedPlayTimeService(_dir);
