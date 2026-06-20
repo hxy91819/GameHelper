@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using GameHelper.ConsoleHost;
 using GameHelper.ConsoleHost.Commands;
@@ -63,6 +64,10 @@ try
             autoStartManager.SetEnabled(appConfig.LaunchOnSystemStartup);
         }
     }
+    catch (InvalidDataException)
+    {
+        // The selected command will report actionable config errors if it needs the file.
+    }
     catch (Exception ex)
     {
         Console.WriteLine($"Failed to apply auto-start preference: {ex.Message}");
@@ -89,7 +94,15 @@ catch (Exception ex)
 }
 
 // Execute the appropriate command
-await ConsoleCommandDispatcher.DispatchAsync(host, parsedArgs, CancellationToken.None).ConfigureAwait(false);
+try
+{
+    await ConsoleCommandDispatcher.DispatchAsync(host, parsedArgs, CancellationToken.None).ConfigureAwait(false);
+}
+catch (InvalidDataException ex)
+{
+    Console.WriteLine($"Configuration error: {ex.Message}");
+    Environment.Exit(1);
+}
 
 static string FormatDropResponse(DropAddResponse response)
 {
@@ -100,4 +113,3 @@ static string FormatDropResponse(DropAddResponse response)
 
     return $"已完成添加/更新\nAdded={response.Added}, Updated={response.Updated}, Skipped={response.Skipped}\n重复清理: {response.DuplicatesRemoved}\n配置: {response.ConfigPath}";
 }
-

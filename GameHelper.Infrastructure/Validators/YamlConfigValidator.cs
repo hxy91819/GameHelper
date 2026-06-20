@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
 namespace GameHelper.Infrastructure.Validators
@@ -183,12 +184,27 @@ namespace GameHelper.Infrastructure.Validators
                 result.IsValid = result.Errors.Count == 0;
                 return result;
             }
+            catch (YamlException ex)
+            {
+                result.Errors.Add(FormatYamlException(ex));
+                result.IsValid = false;
+                return result;
+            }
             catch (Exception ex)
             {
                 result.Errors.Add($"Exception: {ex.Message}");
                 result.IsValid = false;
                 return result;
             }
+        }
+
+        private static string FormatYamlException(YamlException ex)
+        {
+            var location = ex.Start.Line > 0
+                ? $" at line {ex.Start.Line}, column {ex.Start.Column}"
+                : string.Empty;
+
+            return $"Invalid YAML{location}: {ex.Message}. Quote string values that contain ': ' when editing config.yml manually.";
         }
 
         private static bool IsBoolString(string s)
