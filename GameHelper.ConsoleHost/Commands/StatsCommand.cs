@@ -11,11 +11,14 @@ public static class StatsCommand
     {
         ArgumentNullException.ThrowIfNull(statisticsService);
 
-        string? filterGame = null;
-        if (args.Length >= 2 && args[0] == "--game")
+        var parseResult = ParseArgs(args);
+        if (!parseResult.IsValid)
         {
-            filterGame = args[1];
+            Console.WriteLine(parseResult.ErrorMessage);
+            return;
         }
+
+        var filterGame = parseResult.FilterGame;
 
         try
         {
@@ -45,6 +48,31 @@ public static class StatsCommand
             Console.WriteLine($"Failed to read stats: {ex.Message}");
         }
 
+    }
+
+    private static StatsArgs ParseArgs(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            return StatsArgs.Valid(null);
+        }
+
+        if (!string.Equals(args[0], "--game", StringComparison.OrdinalIgnoreCase))
+        {
+            return StatsArgs.Invalid("Unknown stats option. Usage: stats [--game <name>]");
+        }
+
+        if (args.Length < 2 || string.IsNullOrWhiteSpace(args[1]))
+        {
+            return StatsArgs.Invalid("Missing value after --game.");
+        }
+
+        if (args.Length > 2)
+        {
+            return StatsArgs.Invalid("Too many arguments for stats. Usage: stats [--game <name>]");
+        }
+
+        return StatsArgs.Valid(args[1].Trim());
     }
 
     private static void DisplayStats(IReadOnlyList<GameStatsSummary> stats, string? filterGame)
@@ -125,5 +153,25 @@ public static class StatsCommand
         }
 
         Console.WriteLine(separator);
+    }
+
+    private sealed class StatsArgs
+    {
+        private StatsArgs(bool isValid, string? filterGame, string? errorMessage)
+        {
+            IsValid = isValid;
+            FilterGame = filterGame;
+            ErrorMessage = errorMessage;
+        }
+
+        public bool IsValid { get; }
+
+        public string? FilterGame { get; }
+
+        public string? ErrorMessage { get; }
+
+        public static StatsArgs Valid(string? filterGame) => new(true, filterGame, null);
+
+        public static StatsArgs Invalid(string errorMessage) => new(false, null, errorMessage);
     }
 }
