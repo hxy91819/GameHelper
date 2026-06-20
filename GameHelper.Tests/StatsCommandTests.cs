@@ -32,19 +32,57 @@ public sealed class StatsCommandTests
     {
         var statisticsService = new EmptyStatisticsService();
 
+        var output = CaptureOutput(() => StatsCommand.Run(statisticsService, Array.Empty<string>()));
+
+        Assert.Contains("No playtime data yet.", output);
+    }
+
+    [Fact]
+    public void Run_WithGameOptionIgnoringCase_ShouldPrintMatchingDetails()
+    {
+        var statisticsService = new RecordingStatisticsService(new GameStatsSummary
+        {
+            GameName = "sample",
+            DisplayName = "Sample Game",
+            TotalMinutes = 90,
+            RecentMinutes = 30,
+            SessionCount = 3
+        });
+
+        var output = CaptureOutput(() => StatsCommand.Run(statisticsService, new[] { "--GAME", "sample" }));
+
+        Assert.Equal("sample", statisticsService.LastDetailsArgument);
+        Assert.Equal(0, statisticsService.OverviewCalls);
+        Assert.Contains("Sample Game", output);
+        Assert.DoesNotContain("TOTAL", output);
+    }
+
+    [Fact]
+    public void Run_WithMissingGameOptionValue_ShouldPrintErrorWithoutReadingStats()
+    {
+        var statisticsService = new RecordingStatisticsService(null);
+
+        var output = CaptureOutput(() => StatsCommand.Run(statisticsService, new[] { "--game" }));
+
+        Assert.Contains("Missing value after --game.", output);
+        Assert.Equal(0, statisticsService.OverviewCalls);
+        Assert.Null(statisticsService.LastDetailsArgument);
+    }
+
+    private static string CaptureOutput(Action action)
+    {
         var writer = new StringWriter();
         var originalOut = Console.Out;
         try
         {
             Console.SetOut(writer);
-            StatsCommand.Run(statisticsService, Array.Empty<string>());
+            action();
+            return writer.ToString();
         }
         finally
         {
             Console.SetOut(originalOut);
         }
-
-        Assert.Contains("No playtime data yet.", writer.ToString());
     }
 
     private sealed class ThrowingStatisticsService : IStatisticsService
@@ -70,6 +108,37 @@ public sealed class StatsCommandTests
         public IReadOnlyList<GameStatsSummary> GetOverview() => Array.Empty<GameStatsSummary>();
 
         public GameStatsSummary? GetDetails(string dataKeyOrGameName) => null;
+
+        public SessionActivitySnapshot GetSessionActivitySnapshot() => new(
+            new HashSet<SessionActivityKey>(),
+            Array.Empty<SessionActivityRecord>(),
+            string.Empty);
+    }
+
+    private sealed class RecordingStatisticsService : IStatisticsService
+    {
+        private readonly GameStatsSummary? _details;
+
+        public RecordingStatisticsService(GameStatsSummary? details)
+        {
+            _details = details;
+        }
+
+        public int OverviewCalls { get; private set; }
+
+        public string? LastDetailsArgument { get; private set; }
+
+        public IReadOnlyList<GameStatsSummary> GetOverview()
+        {
+            OverviewCalls++;
+            return Array.Empty<GameStatsSummary>();
+        }
+
+        public GameStatsSummary? GetDetails(string dataKeyOrGameName)
+        {
+            LastDetailsArgument = dataKeyOrGameName;
+            return _details;
+        }
 
         public SessionActivitySnapshot GetSessionActivitySnapshot() => new(
             new HashSet<SessionActivityKey>(),
