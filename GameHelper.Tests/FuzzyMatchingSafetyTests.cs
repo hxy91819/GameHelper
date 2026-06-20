@@ -472,17 +472,16 @@ namespace GameHelper.Tests
 
         #endregion
 
-        #region AC7: 旧配置兼容性测试
+        #region AC7: Name-only matching safety tests
 
         [Fact]
-        public void LegacyConfig_WithoutExecutablePath_SkipsPathValidation()
+        public void NameOnlyConfig_WithoutExecutablePath_SkipsPathValidation()
         {
-            // Arrange: 旧配置（仅有 ExecutableName，无 ExecutablePath）
+            // Arrange: name-only config without an executable path
             var config = new GameConfig
             {
-                DataKey = "OldGame.exe",
-                ExecutableName = "OldGame.exe",
-                ExecutablePath = null,  // 旧配置没有路径
+                DataKey = "oldgame",
+                Executable = "OldGame.exe",
                 IsEnabled = true
             };
 
@@ -499,18 +498,17 @@ namespace GameHelper.Tests
             monitor.RaiseStart(new ProcessEventInfo("OldGame.exe", @"D:\AnyPath\OldGame.exe"));
 
             // Assert: 应该成功匹配（跳过路径验证）
-            Assert.Contains(playTime.Started, s => string.Equals(s, "OldGame.exe", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(playTime.Started, s => string.Equals(s, "oldgame", StringComparison.OrdinalIgnoreCase));
         }
 
         [Fact]
-        public void LegacyConfig_StillBlockedBySystemPath()
+        public void NameOnlyConfig_StillBlockedBySystemPath()
         {
-            // Arrange: 旧配置
+            // Arrange: name-only config
             var config = new GameConfig
             {
-                DataKey = "cmd.exe",
-                ExecutableName = "cmd.exe",
-                ExecutablePath = null,
+                DataKey = "cmd",
+                Executable = "cmd.exe",
                 IsEnabled = true
             };
 
@@ -531,14 +529,13 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void LegacyConfig_StillSubjectToDynamicThreshold()
+        public void NameOnlyConfig_StillSubjectToDynamicThreshold()
         {
-            // Arrange: 旧配置，短名称
+            // Arrange: name-only config with a short executable name
             var config = new GameConfig
             {
-                DataKey = "AB.exe",
-                ExecutableName = "AB.exe",
-                ExecutablePath = null,
+                DataKey = "ab",
+                Executable = "AB.exe",
                 IsEnabled = true
             };
 

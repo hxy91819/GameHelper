@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -74,7 +74,7 @@ namespace GameHelper.Tests
                     ExecutableName = "DWORIGINS.exe",
                     DisplayName = "三国无双：起源",
                     IsEnabled = true,
-                    HDREnabled = false
+                    HdrEnabled = false
                 }
             };
 
@@ -105,7 +105,7 @@ namespace GameHelper.Tests
                 ExecutableName = "TestGame.exe",
                 DisplayName = "Test Game",
                 IsEnabled = false,
-                HDREnabled = true
+                HdrEnabled = true
             };
 
             var provider = new YamlConfigProvider(configPath);

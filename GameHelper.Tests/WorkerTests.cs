@@ -1,10 +1,8 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using GameHelper.ConsoleHost;
 using GameHelper.Core.Abstractions;
-using GameHelper.Core.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -20,30 +18,14 @@ namespace GameHelper.Tests
         public void Stop() => StopCalls++;
     }
 
-    file sealed class FakeConfigProvider : IConfigProvider
-    {
-        private readonly Dictionary<string, GameConfig> _configs = new();
-
-        public IReadOnlyDictionary<string, GameConfig> Load() => _configs;
-        public void Save(IReadOnlyDictionary<string, GameConfig> configs)
-        {
-            _configs.Clear();
-            foreach (var kv in configs)
-            {
-                _configs[kv.Key] = kv.Value;
-            }
-        }
-    }
-
     public class WorkerTests
     {
         [Fact]
         public async Task Execute_StartsAndStops_Monitor()
         {
             var monitorControlService = new FakeMonitorControlService();
-            var configProvider = new FakeConfigProvider();
             var logger = NullLogger<Worker>.Instance;
-            var worker = new Worker(logger, monitorControlService, configProvider);
+            var worker = new Worker(logger, monitorControlService);
 
             using var cts = new CancellationTokenSource();
 

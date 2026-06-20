@@ -18,24 +18,11 @@ using YamlDotNet.Serialization.NamingConventions;
 namespace GameHelper.ConsoleHost.Commands
 {
     /// <summary>
-    /// Provides migration functionality for legacy configuration and CSV data formats.
-    /// Migrates legacy playtime records to stable dataKey values and rewrites config files to the compact YAML shape.
+    /// Provides migration functionality for CSV playtime data.
+    /// Migrates playtime records to stable dataKey values using the current compact YAML configuration.
     /// </summary>
     public static class MigrateCommand
     {
-        /// <summary>
-        /// Configuration format detection result.
-        /// </summary>
-        private enum ConfigFormat
-        {
-            /// <summary>Uses name/alias fields, missing dataKey.</summary>
-            OldFormat,
-            /// <summary>Uses dataKey with executable/displayName.</summary>
-            NewFormat,
-            /// <summary>Mix of old and new formats.</summary>
-            Mixed
-        }
-
         /// <summary>
         /// Executes the migration command.
         /// </summary>
@@ -87,23 +74,23 @@ namespace GameHelper.ConsoleHost.Commands
             AnsiConsole.MarkupLine($"[blue]CSV 文件: {csvPath}[/]");
             AnsiConsole.WriteLine();
 
-            // Step 1: Migrate configuration
+            // Step 1: Load current configuration
             IReadOnlyDictionary<string, GameConfig>? migratedConfig = null;
             bool configMigrated = false;
 
             if (File.Exists(configPath))
             {
-                migratedConfig = MigrateConfiguration(configPath, dryRun, force, out configMigrated);
+                migratedConfig = MigrateConfiguration(configPath, out configMigrated);
                 if (migratedConfig == null)
                 {
-                    AnsiConsole.MarkupLine("[red]✗ 配置迁移失败[/]");
+                    AnsiConsole.MarkupLine("[red]✗ 配置读取失败[/]");
                     return;
                 }
             }
             else
             {
                 AnsiConsole.MarkupLine($"[yellow]⚠ 配置文件不存在: {configPath}[/]");
-                AnsiConsole.MarkupLine("[yellow]跳过配置迁移[/]");
+                AnsiConsole.MarkupLine("[yellow]跳过配置读取[/]");
             }
 
             // Step 2: Ask if user wants to migrate CSV
@@ -141,224 +128,26 @@ namespace GameHelper.ConsoleHost.Commands
         }
 
         /// <summary>
-        /// Detects the configuration format.
-        /// </summary>
-        private static ConfigFormat DetectConfigFormat(IReadOnlyCollection<GameConfig> configs)
-        {
-            if (configs.Count == 0)
-            {
-                return ConfigFormat.NewFormat; // Empty is considered new format
-            }
-
-            bool hasOldFormat = configs.Any(g =>
-                (!string.IsNullOrEmpty(g.Name) || !string.IsNullOrEmpty(g.Alias)) &&
-                string.IsNullOrEmpty(g.DataKey));
-
-            bool hasNewFormat = configs.Any(g =>
-                !string.IsNullOrEmpty(g.DataKey));
-
-            if (hasNewFormat && !hasOldFormat)
-                return ConfigFormat.NewFormat;
-
-            if (hasOldFormat && !hasNewFormat)
-                return ConfigFormat.OldFormat;
-
-            return ConfigFormat.Mixed;
-        }
-
-        /// <summary>
-        /// Loads configuration directly from YAML file without DataKey validation.
-        /// This is needed for migration to read old format configs.
-        /// </summary>
-        private static IReadOnlyList<GameConfig> LoadConfigDirectly(string configPath)
-        {
-            var deserializer = new DeserializerBuilder()
-                .WithNamingConvention(CamelCaseNamingConvention.Instance)
-                .IgnoreUnmatchedProperties()
-                .Build();
-
-            var yaml = File.ReadAllText(configPath);
-            
-            // Try new AppConfig format first
-            try
-            {
-                var appConfig = deserializer.Deserialize<AppConfig?>(yaml);
-                if (appConfig?.Games != null)
-                {
-                    return appConfig.Games.Where(g => g is not null).Select(g => g!).ToList();
-                }
-            }
-            catch
-            {
-                // Fall through to legacy format
-            }
-
-            // Try legacy Root format
-            var root = deserializer.Deserialize<LegacyRoot?>(yaml);
-            if (root?.Games != null)
-            {
-                return root.Games.Where(g => g is not null).Select(g => g!).ToList();
-            }
-
-            return Array.Empty<GameConfig>();
-        }
-
-        /// <summary>
-        /// Legacy root format for backward compatibility.
-        /// </summary>
-        private sealed class LegacyRoot
-        {
-            public List<GameConfig>? Games { get; set; }
-        }
-
-        /// <summary>
-        /// Generates a DataKey from an executable name.
-        /// Uses centralized DataKeyGenerator for consistency.
-        /// </summary>
-        private static string GenerateDataKey(string executableName)
-        {
-            return DataKeyGenerator.GenerateBaseDataKey(executableName);
-        }
-
-        private static IReadOnlyDictionary<string, GameConfig> NormalizeToEntryMap(IEnumerable<GameConfig> configs)
-        {
-            var result = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-            var usedDataKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var config in configs.Where(c => c is not null))
-            {
-                config.DataKey = ConfigIdentity.EnsureUniqueDataKey(config.DataKey, usedDataKeys);
-                result[config.DataKey] = config;
-            }
-
-            return result;
-        }
-
-        /// <summary>
-        /// Migrates configuration from old format to new format.
+        /// Loads the current compact YAML configuration for CSV migration.
         /// </summary>
         private static IReadOnlyDictionary<string, GameConfig>? MigrateConfiguration(
             string configPath,
-            bool dryRun,
-            bool force,
             out bool migrated)
         {
             migrated = false;
 
-            AnsiConsole.MarkupLine("[cyan]═══ 配置文件迁移 ═══[/]");
+            AnsiConsole.MarkupLine("[cyan]═══ 配置文件检查 ═══[/]");
 
             try
             {
-                // Load existing configuration directly from YAML to bypass DataKey validation
-                var existingConfigs = LoadConfigDirectly(configPath);
-
-                // Detect format
-                var format = DetectConfigFormat(existingConfigs);
-
-                if (format == ConfigFormat.NewFormat)
-                {
-                    AnsiConsole.MarkupLine("[green]✓ 配置已是新格式，无需迁移[/]");
-                    return NormalizeToEntryMap(existingConfigs);
-                }
-
-                // Determine which games need migration
-                var gamesToMigrate = format == ConfigFormat.Mixed
-                    ? existingConfigs.Where(game => string.IsNullOrEmpty(game.DataKey)).ToList()
-                    : existingConfigs.ToList();
-
-                if (gamesToMigrate.Count == 0)
-                {
-                    AnsiConsole.MarkupLine("[green]✓ 所有游戏配置已包含 DataKey[/]");
-                    return NormalizeToEntryMap(existingConfigs);
-                }
-
-                AnsiConsole.MarkupLine($"[yellow]检测到 {gamesToMigrate.Count} 个游戏需要迁移[/]");
-
-                // Show preview table
-                var table = new Table();
-                table.AddColumn("游戏");
-                table.AddColumn("旧字段 (name)");
-                table.AddColumn("旧字段 (alias)");
-                table.AddColumn("新字段 (dataKey)");
-                table.AddColumn("新字段 (executable)");
-                table.AddColumn("新字段 (displayName)");
-
-                var migratedConfigs = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-                var usedDataKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                foreach (var existing in existingConfigs)
-                {
-                    GameConfig config;
-                    
-                    if (string.IsNullOrEmpty(existing.DataKey))
-                    {
-                        // Need migration
-                        string dataKey = ConfigIdentity.EnsureUniqueDataKey(GenerateDataKey(existing.Name ?? string.Empty), usedDataKeys);
-                        
-                        config = new GameConfig
-                        {
-                            DataKey = dataKey,
-                            ExecutableName = existing.Name,
-                            DisplayName = existing.Alias,
-                            ExecutablePath = existing.ExecutablePath ?? string.Empty,
-                            IsEnabled = existing.IsEnabled,
-                            HdrEnabled = existing.HdrEnabled
-                        };
-
-                        table.AddRow(
-                            $"[yellow]#{migratedConfigs.Count + 1}[/]",
-                            existing.Name ?? "[dim]N/A[/]",
-                            existing.Alias ?? "[dim]N/A[/]",
-                            $"[green]{dataKey}[/]",
-                            config.ExecutableName ?? "[dim]N/A[/]",
-                            config.DisplayName ?? "[dim]N/A[/]"
-                        );
-                    }
-                    else
-                    {
-                        // Already new format, keep as is
-                        config = existing;
-                        config.DataKey = ConfigIdentity.EnsureUniqueDataKey(config.DataKey, usedDataKeys);
-                    }
-
-                    migratedConfigs[config.DataKey] = config;
-                }
-
-                AnsiConsole.Write(table);
-
-                if (dryRun)
-                {
-                    AnsiConsole.MarkupLine("[yellow]预览模式：配置文件不会被修改[/]");
-                    return migratedConfigs;
-                }
-
-                // Confirm migration
-                if (!force)
-                {
-                    if (!AnsiConsole.Confirm($"确认迁移 {gamesToMigrate.Count} 个游戏配置?", true))
-                    {
-                        AnsiConsole.MarkupLine("[yellow]配置迁移已取消[/]");
-                        return null;
-                    }
-                }
-
-                // Backup original file
-                string timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
-                string backupPath = $"{configPath}.backup.{timestamp}";
-                File.Copy(configPath, backupPath);
-                AnsiConsole.MarkupLine($"[green]✓ 已备份配置文件: {Path.GetFileName(backupPath)}[/]");
-
-                // Save migrated configuration using YamlConfigProvider
                 var provider = new YamlConfigProvider(configPath);
-                provider.Save(migratedConfigs);
-                AnsiConsole.MarkupLine($"[green]✓ 成功迁移 {gamesToMigrate.Count} 个游戏配置[/]");
-
-                migrated = true;
-                return migratedConfigs;
+                var configs = provider.Load();
+                AnsiConsole.MarkupLine($"[green]✓ 已读取 {configs.Count} 个游戏配置[/]");
+                return configs;
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[red]✗ 配置迁移失败: {ex.Message}[/]");
+                AnsiConsole.MarkupLine($"[red]✗ 配置读取失败: {ex.Message}[/]");
                 return null;
             }
         }

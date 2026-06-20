@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
@@ -23,7 +23,7 @@ internal sealed class HdrScheduler
         ILogger logger)
     {
         var shouldEnableHdr = activeDataKeys.Any(dataKey =>
-            configsByDataKey.TryGetValue(dataKey, out var config) && config.HDREnabled);
+            configsByDataKey.TryGetValue(dataKey, out var config) && config.HdrEnabled);
 
         if (shouldEnableHdr && !hdr.IsEnabled)
         {
