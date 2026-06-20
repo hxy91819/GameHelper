@@ -47,7 +47,8 @@ public static class ConfigCommand
 
         foreach (var game in games)
         {
-            Console.WriteLine($"{game.DataKey}  Enabled={game.IsEnabled}  HDR={game.HdrEnabled}");
+            var displayName = string.IsNullOrWhiteSpace(game.DisplayName) ? "-" : game.DisplayName;
+            Console.WriteLine($"{game.DataKey}  DisplayName={displayName}  Enabled={game.IsEnabled}  HDR={game.HdrEnabled}");
         }
     }
 

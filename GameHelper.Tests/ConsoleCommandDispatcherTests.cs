@@ -16,7 +16,7 @@ public sealed class ConsoleCommandDispatcherTests
         {
             services.AddSingleton<IGameCatalogService>(new FakeGameCatalogService(new[]
             {
-                new GameEntry { DataKey = "sample", ExecutableName = "sample.exe", IsEnabled = true, HdrEnabled = true }
+                new GameEntry { DataKey = "sample", ExecutableName = "sample.exe", DisplayName = "Sample Game", IsEnabled = true, HdrEnabled = true }
             }));
         });
 
@@ -25,7 +25,7 @@ public sealed class ConsoleCommandDispatcherTests
             EffectiveArgs = new[] { "config", "list" }
         }));
 
-        Assert.Contains("sample  Enabled=True  HDR=True", output);
+        Assert.Contains("sample  DisplayName=Sample Game  Enabled=True  HDR=True", output);
     }
 
     [Fact]

@@ -102,14 +102,14 @@ namespace GameHelper.Tests
         [Fact]
         public void List_WithGames_PrintsGames()
         {
-            _configData["a.exe"] = new GameConfig { DataKey = "a.exe", ExecutableName = "a.exe", IsEnabled = true, HdrEnabled = true };
+            _configData["a.exe"] = new GameConfig { DataKey = "a.exe", ExecutableName = "a.exe", DisplayName = "Game A", IsEnabled = true, HdrEnabled = true };
             _configData["b.exe"] = new GameConfig { DataKey = "b.exe", ExecutableName = "b.exe", IsEnabled = false, HdrEnabled = false };
 
             ConfigCommand.Run(_gameCatalogService, new[] { "list" });
 
             var output = _consoleOutput.ToString();
-            Assert.Contains("a.exe  Enabled=True  HDR=True", output);
-            Assert.Contains("b.exe  Enabled=False  HDR=False", output);
+            Assert.Contains("a.exe  DisplayName=Game A  Enabled=True  HDR=True", output);
+            Assert.Contains("b.exe  DisplayName=-  Enabled=False  HDR=False", output);
         }
     }
 }
