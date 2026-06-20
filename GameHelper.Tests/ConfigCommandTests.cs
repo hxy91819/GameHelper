@@ -44,6 +44,34 @@ namespace GameHelper.Tests
             _mockConfigProvider.Verify(p => p.Save(It.IsAny<IReadOnlyDictionary<string, GameConfig>>()), Times.Once);
         }
 
+        [Fact]
+        public void Add_WithExecutablePath_SavesPathAndExecutableName()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            var exePath = Path.Combine(tempDir, "PathGame.exe");
+            File.WriteAllText(exePath, string.Empty);
+
+            try
+            {
+                ConfigCommand.Run(_gameCatalogService, new[] { "add", exePath });
+
+                var cfg = Assert.Single(_configData.Values);
+                Assert.Equal("pathgame", cfg.DataKey);
+                Assert.Equal("PathGame.exe", cfg.ExecutableName);
+                Assert.Equal(exePath, cfg.ExecutablePath);
+                Assert.Equal("PathGame", cfg.DisplayName);
+                Assert.True(cfg.IsEnabled);
+                Assert.False(cfg.HDREnabled);
+                Assert.Contains("Added PathGame.exe.", _consoleOutput.ToString());
+                _mockConfigProvider.Verify(p => p.Save(It.IsAny<IReadOnlyDictionary<string, GameConfig>>()), Times.Once);
+            }
+            finally
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+
         [Theory]
         [InlineData("")]
         [InlineData(" ")]

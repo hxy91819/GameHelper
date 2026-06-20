@@ -30,7 +30,7 @@ dotnet run --project .\GameHelper.ConsoleHost -- stats [--game <name>]
 
 # 配置游戏
 dotnet run --project .\GameHelper.ConsoleHost -- config list
-dotnet run --project .\GameHelper.ConsoleHost -- config add <exe>
+dotnet run --project .\GameHelper.ConsoleHost -- config add <exe|path-to-exe>
 dotnet run --project .\GameHelper.ConsoleHost -- config remove <exe>
 
 # 历史数据迁移
@@ -91,6 +91,8 @@ games:
 - `entryId`：配置条目的内部唯一标识（自动生成）。
 - `dataKey`：统计主键，写入 `playtime.csv` 的 `game` 字段，必须全局唯一。
 - `hDREnabled`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
+
+CLI `config add` 可接收可执行文件名或 `.exe` 路径。传入路径时会保存 `executablePath`，并从路径提取 `executableName` 与默认显示名。
 
 监控匹配：
 - GameHelper 只处理启用配置中的候选进程名，候选名来自 `executableName` 和 `executablePath` 的文件名；ETW 与 WMI 降级路径都使用这道候选名门控。

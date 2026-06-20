@@ -1,5 +1,7 @@
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
+using GameHelper.ConsoleHost.Utilities;
 
 namespace GameHelper.ConsoleHost.Commands;
 
@@ -57,13 +59,25 @@ public static class ConfigCommand
             return;
         }
 
-        var executableName = args[1];
-        if (string.IsNullOrWhiteSpace(executableName))
+        var executableInput = args[1];
+        if (string.IsNullOrWhiteSpace(executableInput))
         {
             Console.WriteLine("Game name cannot be empty.");
             return;
         }
 
+        var pathImportRequest = TryCreatePathImportRequest(executableInput);
+        if (pathImportRequest is not null)
+        {
+            var result = gameCatalogService.Import(pathImportRequest);
+            var entry = result.Entry;
+            Console.WriteLine(result.WasAdded
+                ? $"Added {entry.ExecutableName}. DataKey={entry.DataKey} Path={entry.ExecutablePath}"
+                : $"Updated {entry.ExecutableName}. DataKey={entry.DataKey} Path={entry.ExecutablePath}");
+            return;
+        }
+
+        var executableName = executableInput.Trim();
         gameCatalogService.Add(new GameEntryUpsertRequest
         {
             ExecutableName = executableName,
@@ -72,6 +86,43 @@ public static class ConfigCommand
         });
 
         Console.WriteLine($"Added {executableName}.");
+    }
+
+    private static GameEntryImportRequest? TryCreatePathImportRequest(string executableInput)
+    {
+        var executablePath = executableInput.Trim();
+        if (!executablePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+            !LooksLikePath(executablePath))
+        {
+            return null;
+        }
+
+        var executableName = Path.GetFileName(executablePath);
+        if (string.IsNullOrWhiteSpace(executableName))
+        {
+            return null;
+        }
+
+        var displayName = Path.GetFileNameWithoutExtension(executableName);
+        var (productName, _) = File.Exists(executablePath)
+            ? GameMetadataExtractor.ExtractMetadata(executablePath)
+            : (null, null);
+
+        return new GameEntryImportRequest
+        {
+            ExecutableName = executableName,
+            ExecutablePath = executablePath,
+            DisplayName = displayName,
+            BaseDataKey = DataKeyGenerator.GenerateBaseDataKey(executablePath, productName),
+            IsEnabled = true
+        };
+    }
+
+    private static bool LooksLikePath(string value)
+    {
+        return Path.IsPathFullyQualified(value) ||
+               value.Contains(Path.DirectorySeparatorChar) ||
+               value.Contains(Path.AltDirectorySeparatorChar);
     }
 
     private static void RemoveGame(string[] args, IGameCatalogService gameCatalogService)
