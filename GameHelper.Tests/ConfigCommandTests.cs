@@ -38,8 +38,8 @@ namespace GameHelper.Tests
             var cfg = Assert.Single(_configData.Values);
             Assert.Equal(gameName, cfg.DataKey);
             Assert.Equal(gameName, cfg.ExecutableName);
-            Assert.False(string.IsNullOrWhiteSpace(cfg.EntryId));
-            Assert.False(cfg.HDREnabled);
+            Assert.Equal(gameName, cfg.Executable);
+            Assert.False(cfg.HdrEnabled);
             Assert.Equal($"Added {gameName}.", _consoleOutput.ToString().Trim());
             _mockConfigProvider.Verify(p => p.Save(It.IsAny<IReadOnlyDictionary<string, GameConfig>>()), Times.Once);
         }
@@ -60,9 +60,10 @@ namespace GameHelper.Tests
                 Assert.Equal("pathgame", cfg.DataKey);
                 Assert.Equal("PathGame.exe", cfg.ExecutableName);
                 Assert.Equal(exePath, cfg.ExecutablePath);
+                Assert.Equal(exePath, cfg.Executable);
                 Assert.Equal("PathGame", cfg.DisplayName);
                 Assert.True(cfg.IsEnabled);
-                Assert.False(cfg.HDREnabled);
+                Assert.False(cfg.HdrEnabled);
                 Assert.Contains("Added PathGame.exe.", _consoleOutput.ToString());
                 _mockConfigProvider.Verify(p => p.Save(It.IsAny<IReadOnlyDictionary<string, GameConfig>>()), Times.Once);
             }
@@ -101,8 +102,8 @@ namespace GameHelper.Tests
         [Fact]
         public void List_WithGames_PrintsGames()
         {
-            _configData["a.exe"] = new GameConfig { DataKey = "a.exe", ExecutableName = "a.exe", IsEnabled = true, HDREnabled = true };
-            _configData["b.exe"] = new GameConfig { DataKey = "b.exe", ExecutableName = "b.exe", IsEnabled = false, HDREnabled = false };
+            _configData["a.exe"] = new GameConfig { DataKey = "a.exe", ExecutableName = "a.exe", IsEnabled = true, HdrEnabled = true };
+            _configData["b.exe"] = new GameConfig { DataKey = "b.exe", ExecutableName = "b.exe", IsEnabled = false, HdrEnabled = false };
 
             ConfigCommand.Run(_gameCatalogService, new[] { "list" });
 

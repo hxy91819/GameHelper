@@ -17,40 +17,33 @@ internal static class ConfigEntryNormalizer
         MissingDataKeyAction missingDataKeyAction,
         ILogger? logger = null)
     {
-        var executableName = (source.ExecutableName ?? source.Name ?? string.Empty).Trim();
-        var executablePath = (source.ExecutablePath ?? string.Empty).Trim();
-        var displayName = (source.DisplayName ?? source.Alias ?? string.Empty).Trim();
+        var executable = (source.Executable ?? string.Empty).Trim();
+        var displayName = (source.DisplayName ?? string.Empty).Trim();
         var dataKey = (source.DataKey ?? string.Empty).Trim();
 
         if (string.IsNullOrWhiteSpace(dataKey))
         {
-            if (!string.IsNullOrWhiteSpace(executableName))
-            {
-                dataKey = executableName;
-                logger?.LogWarning("Config entry missing DataKey; fallback to ExecutableName='{ExecutableName}'.", executableName);
-            }
-            else if (!string.IsNullOrWhiteSpace(displayName))
-            {
-                dataKey = displayName;
-                logger?.LogWarning("Config entry missing DataKey; fallback to DisplayName='{DisplayName}'.", displayName);
-            }
-            else if (missingDataKeyAction == MissingDataKeyAction.Throw)
+            if (missingDataKeyAction == MissingDataKeyAction.Throw)
             {
                 throw new InvalidDataException("Configuration entry is missing required DataKey.");
             }
-            else
-            {
-                logger?.LogWarning("Skip config entry: DataKey/ExecutableName/DisplayName are all missing.");
-                return null;
-            }
+
+            logger?.LogWarning("Skip config entry: DataKey is missing.");
+            return null;
         }
 
-        if (string.IsNullOrWhiteSpace(executablePath) && !string.IsNullOrWhiteSpace(executableName))
+        if (string.IsNullOrWhiteSpace(executable))
         {
-            logger?.LogWarning("Config entry '{DataKey}' has no ExecutablePath; fallback matching will use ExecutableName only.", dataKey);
+            if (missingDataKeyAction == MissingDataKeyAction.Throw)
+            {
+                throw new InvalidDataException($"Configuration entry '{dataKey}' is missing required Executable.");
+            }
+
+            logger?.LogWarning("Skip config entry '{DataKey}': Executable is missing.", dataKey);
+            return null;
         }
 
-        return CreateNormalized(source, ConfigIdentity.EnsureEntryId(source.EntryId), dataKey, executableName, executablePath, displayName);
+        return CreateNormalized(source, dataKey, executable, displayName);
     }
 
     public static GameConfig NormalizeForSave(GameConfig source, ILogger? logger = null)
@@ -61,32 +54,22 @@ internal static class ConfigEntryNormalizer
             throw new InvalidDataException("Cannot save config entry without DataKey.");
         }
 
-        var executableName = (source.ExecutableName ?? source.Name ?? string.Empty).Trim();
-        var executablePath = (source.ExecutablePath ?? string.Empty).Trim();
-        var displayName = (source.DisplayName ?? source.Alias ?? string.Empty).Trim();
-
-        if (string.IsNullOrWhiteSpace(executablePath) && !string.IsNullOrWhiteSpace(executableName))
+        var executable = (source.Executable ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(executable))
         {
-            logger?.LogWarning("Config entry '{DataKey}' is saved without ExecutablePath; fallback matching will use ExecutableName only.", dataKey);
+            throw new InvalidDataException($"Cannot save config entry '{dataKey}' without Executable.");
         }
 
-        return CreateNormalized(source, ConfigIdentity.EnsureEntryId(source.EntryId), dataKey, executableName, executablePath, displayName);
+        var displayName = (source.DisplayName ?? string.Empty).Trim();
+        return CreateNormalized(source, dataKey, executable, displayName);
     }
 
-    public static void RepairDuplicateIdentities(IReadOnlyList<GameConfig> configs, ILogger? logger = null, string? logContext = null)
+    public static void RepairDuplicateDataKeys(IReadOnlyList<GameConfig> configs, ILogger? logger = null, string? logContext = null)
     {
-        var usedEntryIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var usedDataKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var config in configs)
         {
-            var originalEntryId = config.EntryId;
-            config.EntryId = ConfigIdentity.EnsureUniqueEntryId(config.EntryId, usedEntryIds);
-            if (logger is not null && !string.Equals(originalEntryId, config.EntryId, StringComparison.OrdinalIgnoreCase))
-            {
-                logger.LogWarning("Adjusted duplicate EntryId '{EntryId}' to '{NewEntryId}'{Context}.", originalEntryId, config.EntryId, logContext ?? string.Empty);
-            }
-
             var originalDataKey = config.DataKey;
             config.DataKey = ConfigIdentity.EnsureUniqueDataKey(config.DataKey, usedDataKeys);
             if (logger is not null && !string.Equals(originalDataKey, config.DataKey, StringComparison.OrdinalIgnoreCase))
@@ -98,21 +81,17 @@ internal static class ConfigEntryNormalizer
 
     private static GameConfig CreateNormalized(
         GameConfig source,
-        string entryId,
         string dataKey,
-        string executableName,
-        string executablePath,
+        string executable,
         string displayName)
     {
         return new GameConfig
         {
-            EntryId = entryId,
             DataKey = dataKey,
-            ExecutableName = string.IsNullOrWhiteSpace(executableName) ? null : executableName,
-            ExecutablePath = string.IsNullOrWhiteSpace(executablePath) ? null : executablePath,
+            Executable = executable,
             DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
             IsEnabled = source.IsEnabled,
-            HDREnabled = source.HDREnabled
+            HdrEnabled = source.HdrEnabled
         };
     }
 }

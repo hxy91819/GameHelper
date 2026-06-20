@@ -19,7 +19,7 @@ public sealed class ConsoleHostBootstrapperTests : IDisposable
         _tempDir = Path.Combine(Path.GetTempPath(), "GameHelperTests_Bootstrapper", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
         _configPath = Path.Combine(_tempDir, "config.yml");
-        File.WriteAllText(_configPath, "processMonitorType: WMI\ngames: []\n");
+        File.WriteAllText(_configPath, "monitor: WMI\ngames: []\n");
     }
 
     [Fact]

@@ -18,7 +18,7 @@ For narrow iterations, run the smallest relevant `dotnet test --filter ...` firs
 - **Lifecycle symmetry**: services that start and stop external resources must leave state flags consistent after success, failure, and cleanup paths.
 - **Process monitoring**: ETW/WMI/no-op adapters must preserve event semantics expected by core automation.
 - **Automation behaviour**: matching, active session reference counting, HDR scheduling, and stop-event toggling must remain stable.
-- **Persistence compatibility**: YAML config, `DataKey`, `entryId`, and CSV playtime history must survive roundtrips and migrations.
+- **Persistence compatibility**: YAML config, `DataKey`, compact game entries, and CSV playtime history must survive roundtrips and migrations.
 - **Shell workflows**: CLI commands, interactive shell flows, and file-drop forwarding should be covered through service-facing tests or smoke tests.
 - **Command dispatch**: non-interactive CLI routing should be covered through `ConsoleCommandDispatcher` tests rather than process-level tests when startup side effects are not under test.
 - **Documentation navigation**: local Markdown links must stay valid while docs are archived or rewritten.

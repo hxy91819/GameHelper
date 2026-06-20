@@ -1,16 +1,16 @@
 # Test configuration with ETW monitor
-processMonitorType: ETW
-
+monitor: ETW
+startup:
+  autoStartMonitor: false
+  launchOnStartup: false
 games:
-  - entryId: "2e97d8a3d1d44d07b74bc7d58612e58d"
-    dataKey: "notepad"
-    executableName: "notepad.exe"
-    displayName: "Notepad"
-    isEnabled: true
-    hDREnabled: false
-  - entryId: "3761243362694761b0f0dfd4d5f77aa1"
-    dataKey: "cmd"
-    executableName: "cmd.exe"
-    displayName: "Command Prompt"
-    isEnabled: true
-    hDREnabled: false
+  - dataKey: notepad
+    executable: notepad.exe
+    displayName: Notepad
+    enabled: true
+    hdr: false
+  - dataKey: cmd
+    executable: cmd.exe
+    displayName: Command Prompt
+    enabled: true
+    hdr: false

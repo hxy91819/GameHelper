@@ -101,7 +101,6 @@ namespace GameHelper.Tests.Interactive
             {
                 ["entry1"] = new GameConfig
                 {
-                    EntryId = "entry1",
                     DataKey = "same",
                     ExecutableName = "same.exe",
                     DisplayName = "Same",

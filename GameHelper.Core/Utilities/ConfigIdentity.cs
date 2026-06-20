@@ -9,27 +9,6 @@ namespace GameHelper.Core.Utilities
     /// </summary>
     public static class ConfigIdentity
     {
-        public static string EnsureEntryId(string? entryId)
-        {
-            if (!string.IsNullOrWhiteSpace(entryId))
-            {
-                return entryId.Trim();
-            }
-
-            return Guid.NewGuid().ToString("N");
-        }
-
-        public static string EnsureUniqueEntryId(string? entryId, ISet<string> usedEntryIds)
-        {
-            var candidate = EnsureEntryId(entryId);
-            while (!usedEntryIds.Add(candidate))
-            {
-                candidate = Guid.NewGuid().ToString("N");
-            }
-
-            return candidate;
-        }
-
         public static string EnsureUniqueDataKey(string? dataKey, ISet<string> usedDataKeys, string fallbackBase = "game")
         {
             var baseKey = string.IsNullOrWhiteSpace(dataKey) ? fallbackBase : dataKey.Trim();

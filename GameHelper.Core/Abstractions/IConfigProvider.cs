@@ -5,12 +5,12 @@ namespace GameHelper.Core.Abstractions
 {
     /// <summary>
     /// Loads and saves game configuration entries used by the automation service.
-    /// Keys are internal entry identifiers (EntryId).
+    /// Keys are stable DataKey values.
     /// </summary>
     public interface IConfigProvider
     {
         /// <summary>
-        /// Loads configuration from the backing store and returns a dictionary keyed by <see cref="GameConfig.EntryId"/>.
+        /// Loads configuration from the backing store and returns a dictionary keyed by <see cref="GameConfig.DataKey"/>.
         /// </summary>
         IReadOnlyDictionary<string, GameConfig> Load();
 

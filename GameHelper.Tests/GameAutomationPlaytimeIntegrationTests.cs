@@ -111,7 +111,6 @@ namespace GameHelper.Tests
             {
                 ["sample-entry"] = new GameConfig
                 {
-                    EntryId = "sample-entry",
                     DataKey = "sample_data_key",
                     ExecutableName = "sample.exe",
                     ExecutablePath = @"C:\Games\Sample\sample.exe",

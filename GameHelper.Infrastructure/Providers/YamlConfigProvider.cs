@@ -15,7 +15,6 @@ namespace GameHelper.Infrastructure.Providers
 {
     /// <summary>
     /// YAML-based config provider stored at %AppData%/GameHelper/config.yml.
-    /// Supports both legacy game-only configuration and AppConfig format with global settings.
     /// </summary>
     public sealed class YamlConfigProvider : IConfigProvider, IConfigPathProvider, IAppConfigProvider
     {
@@ -89,14 +88,14 @@ namespace GameHelper.Infrastructure.Providers
                 normalizedGames.Add(normalized);
             }
 
-            ConfigEntryNormalizer.RepairDuplicateIdentities(
+            ConfigEntryNormalizer.RepairDuplicateDataKeys(
                 normalizedGames,
                 _logger,
                 " while loading.");
 
             foreach (var game in normalizedGames)
             {
-                result[game.EntryId] = game;
+                result[game.DataKey] = game;
             }
 
             return result;
@@ -123,26 +122,8 @@ namespace GameHelper.Infrastructure.Providers
 
                 var yaml = File.ReadAllText(_configFilePath);
 
-                try
-                {
-                    var appConfig = Deserializer.Deserialize<AppConfig?>(yaml);
-                    if (appConfig != null)
-                    {
-                        appConfig.ProcessMonitorType ??= ProcessMonitorType.ETW;
-                        return appConfig;
-                    }
-                }
-                catch
-                {
-                    // fall through to legacy root parsing
-                }
-
-                var legacyRoot = Deserializer.Deserialize<LegacyRoot?>(yaml);
-                return new AppConfig
-                {
-                    Games = legacyRoot?.Games ?? new List<GameConfig>(),
-                    ProcessMonitorType = ProcessMonitorType.ETW
-                };
+                var storedConfig = Deserializer.Deserialize<StoredAppConfig?>(yaml);
+                return ToAppConfig(storedConfig);
             }
             catch (YamlException ex)
             {
@@ -158,7 +139,7 @@ namespace GameHelper.Infrastructure.Providers
                 .Select(config => ConfigEntryNormalizer.NormalizeForSave(config, _logger))
                 .ToList();
 
-            ConfigEntryNormalizer.RepairDuplicateIdentities(normalizedGames, _logger, " while saving.");
+            ConfigEntryNormalizer.RepairDuplicateDataKeys(normalizedGames, _logger, " while saving.");
 
             appConfig.Games = normalizedGames;
             SaveAppConfig(appConfig);
@@ -172,15 +153,93 @@ namespace GameHelper.Infrastructure.Providers
                 Directory.CreateDirectory(dir);
             }
 
-            var yaml = Serializer.Serialize(appConfig);
+            var yaml = Serializer.Serialize(ToStoredAppConfig(appConfig));
             File.WriteAllText(_configFilePath, yaml);
         }
 
         private static string ResolveDefaultPath() => AppDataPath.GetConfigPath();
 
-        private sealed class LegacyRoot
+        private static AppConfig ToAppConfig(StoredAppConfig? storedConfig)
         {
-            public List<GameConfig>? Games { get; set; }
+            if (storedConfig is null)
+            {
+                return new AppConfig
+                {
+                    Games = new List<GameConfig>(),
+                    ProcessMonitorType = ProcessMonitorType.ETW
+                };
+            }
+
+            return new AppConfig
+            {
+                ProcessMonitorType = storedConfig.Monitor ?? ProcessMonitorType.ETW,
+                AutoStartInteractiveMonitor = storedConfig.Startup?.AutoStartMonitor ?? false,
+                LaunchOnSystemStartup = storedConfig.Startup?.LaunchOnStartup ?? false,
+                Games = storedConfig.Games?
+                    .Select(ToGameConfig)
+                    .ToList() ?? new List<GameConfig>()
+            };
+        }
+
+        private static GameConfig ToGameConfig(StoredGameConfig storedGameConfig) => new()
+        {
+            DataKey = storedGameConfig.DataKey ?? string.Empty,
+            Executable = storedGameConfig.Executable,
+            DisplayName = storedGameConfig.DisplayName,
+            IsEnabled = storedGameConfig.Enabled ?? true,
+            HdrEnabled = storedGameConfig.Hdr ?? false
+        };
+
+        private static StoredAppConfig ToStoredAppConfig(AppConfig appConfig) => new()
+        {
+            Monitor = appConfig.ProcessMonitorType ?? ProcessMonitorType.ETW,
+            Startup = new StoredStartupConfig
+            {
+                AutoStartMonitor = appConfig.AutoStartInteractiveMonitor,
+                LaunchOnStartup = appConfig.LaunchOnSystemStartup
+            },
+            Games = appConfig.Games?
+                .Select(ToStoredGameConfig)
+                .OrderBy(game => game.DataKey, StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? new List<StoredGameConfig>()
+        };
+
+        private static StoredGameConfig ToStoredGameConfig(GameConfig gameConfig) => new()
+        {
+            DataKey = gameConfig.DataKey,
+            Executable = gameConfig.Executable,
+            DisplayName = gameConfig.DisplayName,
+            Enabled = gameConfig.IsEnabled,
+            Hdr = gameConfig.HdrEnabled
+        };
+
+        private sealed class StoredAppConfig
+        {
+            public ProcessMonitorType? Monitor { get; set; }
+
+            public StoredStartupConfig? Startup { get; set; }
+
+            public List<StoredGameConfig>? Games { get; set; }
+        }
+
+        private sealed class StoredStartupConfig
+        {
+            public bool AutoStartMonitor { get; set; }
+
+            public bool LaunchOnStartup { get; set; }
+        }
+
+        private sealed class StoredGameConfig
+        {
+            public string? DataKey { get; set; }
+
+            public string? Executable { get; set; }
+
+            public string? DisplayName { get; set; }
+
+            public bool? Enabled { get; set; }
+
+            public bool? Hdr { get; set; }
         }
     }
 }

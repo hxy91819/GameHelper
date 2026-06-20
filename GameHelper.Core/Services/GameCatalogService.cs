@@ -62,23 +62,21 @@ public sealed class GameCatalogService : IGameCatalogService
             throw new ArgumentException("ExecutableName is required.", nameof(request));
         }
 
-        var configs = CreateWorkingMapByEntryId(_configProvider.Load());
+        var configs = CreateWorkingMapByDataKey(_configProvider.Load());
         var requestedDataKey = string.IsNullOrWhiteSpace(request.DataKey) ? executableName : request.DataKey;
         var dataKey = ConfigIdentity.EnsureUniqueDataKey(requestedDataKey, configs.Values.Select(v => v.DataKey));
-        var entryId = CreateNewEntryId(configs.Values);
 
         var config = new GameConfig
         {
-            EntryId = entryId,
             DataKey = dataKey,
             ExecutableName = executableName,
             ExecutablePath = request.ExecutablePath,
             DisplayName = request.DisplayName,
             IsEnabled = request.IsEnabled,
-            HDREnabled = request.HdrEnabled
+            HdrEnabled = request.HdrEnabled
         };
 
-        configs[entryId] = config;
+        configs[dataKey] = config;
         _configProvider.Save(configs);
         return ToEntry(config);
     }
@@ -91,24 +89,27 @@ public sealed class GameCatalogService : IGameCatalogService
             throw new ArgumentException("ExecutableName is required.", nameof(request));
         }
 
-        var configs = CreateWorkingMapByEntryId(_configProvider.Load());
+        var configs = CreateWorkingMapByDataKey(_configProvider.Load());
         var existing = ConfigEntryMatcher.FindExistingForAdd(configs.Values, executableName, request.ExecutablePath);
-        var entryId = existing is null
-            ? CreateNewEntryId(configs.Values)
-            : ConfigIdentity.EnsureEntryId(existing.EntryId);
+        var existingDataKey = existing?.DataKey;
         var requestedDataKey = string.IsNullOrWhiteSpace(request.DataKey) ? executableName : request.DataKey;
-        var dataKey = ResolveRequestedDataKey(requestedDataKey, configs.Values, entryId);
+        var dataKey = ResolveRequestedDataKey(requestedDataKey, configs.Values, existingDataKey);
 
         var config = existing ?? new GameConfig();
-        config.EntryId = entryId;
         config.DataKey = dataKey;
         config.ExecutableName = executableName;
         config.ExecutablePath = request.ClearExecutablePath ? null : request.ExecutablePath;
         config.DisplayName = request.ClearDisplayName ? null : request.DisplayName;
         config.IsEnabled = request.IsEnabled;
-        config.HDREnabled = request.HdrEnabled;
+        config.HdrEnabled = request.HdrEnabled;
 
-        configs[entryId] = config;
+        if (!string.IsNullOrWhiteSpace(existingDataKey) &&
+            !string.Equals(existingDataKey, dataKey, StringComparison.OrdinalIgnoreCase))
+        {
+            configs.Remove(existingDataKey);
+        }
+
+        configs[dataKey] = config;
         _configProvider.Save(configs);
         return ToEntry(config);
     }
@@ -127,19 +128,18 @@ public sealed class GameCatalogService : IGameCatalogService
             throw new ArgumentException("ExecutablePath is required.", nameof(request));
         }
 
-        var configs = CreateWorkingMapByEntryId(_configProvider.Load());
+        var configs = CreateWorkingMapByDataKey(_configProvider.Load());
         var existing = ConfigEntryMatcher.FindExistingForAdd(configs.Values, executableName, executablePath);
         if (existing is not null)
         {
             var previousExecutablePath = existing.ExecutablePath;
-            existing.EntryId = ConfigIdentity.EnsureEntryId(existing.EntryId);
             existing.DataKey = EnsureExistingDataKey(existing, configs.Values, request.BaseDataKey ?? executableName);
             existing.ExecutablePath = executablePath;
             existing.ExecutableName = executableName;
             existing.DisplayName = request.DisplayName;
             existing.IsEnabled = request.IsEnabled;
 
-            configs[existing.EntryId] = existing;
+            configs[existing.DataKey] = existing;
             _configProvider.Save(configs);
             return new GameEntryImportResult
             {
@@ -152,19 +152,17 @@ public sealed class GameCatalogService : IGameCatalogService
         var dataKey = ConfigIdentity.EnsureUniqueDataKey(
             request.BaseDataKey ?? executableName,
             configs.Values.Select(c => c.DataKey));
-        var entryId = CreateNewEntryId(configs.Values);
         var config = new GameConfig
         {
-            EntryId = entryId,
             DataKey = dataKey,
             ExecutablePath = executablePath,
             ExecutableName = executableName,
             DisplayName = request.DisplayName,
             IsEnabled = request.IsEnabled,
-            HDREnabled = false
+            HdrEnabled = false
         };
 
-        configs[entryId] = config;
+        configs[dataKey] = config;
         _configProvider.Save(configs);
         return new GameEntryImportResult
         {
@@ -175,7 +173,7 @@ public sealed class GameCatalogService : IGameCatalogService
 
     public void RepairStorage()
     {
-        var configs = CreateWorkingMapByEntryId(_configProvider.Load());
+        var configs = CreateWorkingMapByDataKey(_configProvider.Load());
         _configProvider.Save(configs);
     }
 
@@ -186,7 +184,7 @@ public sealed class GameCatalogService : IGameCatalogService
             throw new ArgumentException("Data key is required.", nameof(dataKey));
         }
 
-        var configs = CreateWorkingMapByEntryId(_configProvider.Load());
+        var configs = CreateWorkingMapByDataKey(_configProvider.Load());
         var existing = FindByDataKey(configs.Values, dataKey);
         if (existing is null)
         {
@@ -197,9 +195,9 @@ public sealed class GameCatalogService : IGameCatalogService
         existing.ExecutablePath = request.ClearExecutablePath ? null : request.ExecutablePath ?? existing.ExecutablePath;
         existing.DisplayName = request.ClearDisplayName ? null : request.DisplayName ?? existing.DisplayName;
         existing.IsEnabled = request.IsEnabled;
-        existing.HDREnabled = request.HdrEnabled;
+        existing.HdrEnabled = request.HdrEnabled;
 
-        configs[existing.EntryId] = existing;
+        configs[existing.DataKey] = existing;
         _configProvider.Save(configs);
         return ToEntry(existing);
     }
@@ -211,14 +209,14 @@ public sealed class GameCatalogService : IGameCatalogService
             return false;
         }
 
-        var configs = CreateWorkingMapByEntryId(_configProvider.Load());
+        var configs = CreateWorkingMapByDataKey(_configProvider.Load());
         var existing = FindByDataKey(configs.Values, dataKey);
         if (existing is null)
         {
             return false;
         }
 
-        configs.Remove(existing.EntryId);
+        configs.Remove(existing.DataKey);
         _configProvider.Save(configs);
         return true;
     }
@@ -230,7 +228,7 @@ public sealed class GameCatalogService : IGameCatalogService
         ExecutablePath = config.ExecutablePath,
         DisplayName = config.DisplayName,
         IsEnabled = config.IsEnabled,
-        HdrEnabled = config.HDREnabled
+        HdrEnabled = config.HdrEnabled
     };
 
     private static string? NormalizeExecutableName(string? executableName)
@@ -253,14 +251,14 @@ public sealed class GameCatalogService : IGameCatalogService
         return executablePath.Trim();
     }
 
-    private static Dictionary<string, GameConfig> CreateWorkingMapByEntryId(IReadOnlyDictionary<string, GameConfig> configs)
+    private static Dictionary<string, GameConfig> CreateWorkingMapByDataKey(IReadOnlyDictionary<string, GameConfig> configs)
     {
         var result = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-        var usedEntryIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var usedDataKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var config in configs.Values)
         {
-            config.EntryId = ConfigIdentity.EnsureUniqueEntryId(config.EntryId, usedEntryIds);
-            result[config.EntryId] = config;
+            config.DataKey = ConfigIdentity.EnsureUniqueDataKey(config.DataKey, usedDataKeys);
+            result[config.DataKey] = config;
         }
 
         return result;
@@ -272,18 +270,6 @@ public sealed class GameCatalogService : IGameCatalogService
             string.Equals(config.DataKey, dataKey, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string CreateNewEntryId(IEnumerable<GameConfig> configs)
-    {
-        var usedEntryIds = new HashSet<string>(
-            configs
-                .Select(config => config.EntryId)
-                .Where(entryId => !string.IsNullOrWhiteSpace(entryId))
-                .Select(entryId => entryId!.Trim()),
-            StringComparer.OrdinalIgnoreCase);
-
-        return ConfigIdentity.EnsureUniqueEntryId(null, usedEntryIds);
-    }
-
     private static string EnsureExistingDataKey(GameConfig existing, IEnumerable<GameConfig> allConfigs, string baseDataKey)
     {
         if (!string.IsNullOrWhiteSpace(existing.DataKey))
@@ -292,13 +278,13 @@ public sealed class GameCatalogService : IGameCatalogService
         }
 
         var keys = allConfigs
-            .Where(c => !string.Equals(c.EntryId, existing.EntryId, StringComparison.OrdinalIgnoreCase))
+            .Where(c => !string.Equals(c.DataKey, existing.DataKey, StringComparison.OrdinalIgnoreCase))
             .Select(c => c.DataKey);
 
         return ConfigIdentity.EnsureUniqueDataKey(baseDataKey, keys);
     }
 
-    private static string ResolveRequestedDataKey(string? requestedDataKey, IEnumerable<GameConfig> allConfigs, string currentEntryId)
+    private static string ResolveRequestedDataKey(string? requestedDataKey, IEnumerable<GameConfig> allConfigs, string? currentDataKey)
     {
         if (string.IsNullOrWhiteSpace(requestedDataKey))
         {
@@ -308,7 +294,7 @@ public sealed class GameCatalogService : IGameCatalogService
         var dataKey = requestedDataKey.Trim();
         var isUsedByAnotherEntry = allConfigs.Any(config =>
             string.Equals(config.DataKey, dataKey, StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(config.EntryId, currentEntryId, StringComparison.OrdinalIgnoreCase));
+            !string.Equals(config.DataKey, currentDataKey, StringComparison.OrdinalIgnoreCase));
         if (isUsedByAnotherEntry)
         {
             throw new InvalidOperationException($"DataKey '{dataKey}' is already used by another game.");

@@ -1,10 +1,10 @@
+monitor: ETW
+startup:
+  autoStartMonitor: bool
+  launchOnStartup: bool
 games:
-  - entryId: string
-    dataKey: string!
-    executablePath: string
-    executableName: string
+  - dataKey: string!
+    executable: string!
     displayName: string
-    isEnabled: bool
-    hDREnabled: bool
-    name: string
-    alias: string
+    enabled: bool
+    hdr: bool
