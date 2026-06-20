@@ -31,7 +31,7 @@ dotnet run --project .\GameHelper.ConsoleHost -- stats [--game <name>]
 # 配置游戏
 dotnet run --project .\GameHelper.ConsoleHost -- config list
 dotnet run --project .\GameHelper.ConsoleHost -- config add <exe|path-to-exe>
-dotnet run --project .\GameHelper.ConsoleHost -- config remove <exe>
+dotnet run --project .\GameHelper.ConsoleHost -- config remove <dataKey>
 
 # 历史数据迁移
 dotnet run --project .\GameHelper.ConsoleHost -- migrate
