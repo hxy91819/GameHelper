@@ -36,7 +36,7 @@ dotnet run --project .\GameHelper.ConsoleHost -- stats --game <dataKey>
 # 配置管理
 dotnet run --project .\GameHelper.ConsoleHost -- config list
 dotnet run --project .\GameHelper.ConsoleHost -- config add <exe|path-to-exe>
-dotnet run --project .\GameHelper.ConsoleHost -- config remove <entryId|dataKey>
+dotnet run --project .\GameHelper.ConsoleHost -- config remove <dataKey>
 
 # 配置迁移与校验
 dotnet run --project .\GameHelper.ConsoleHost -- convert-config
