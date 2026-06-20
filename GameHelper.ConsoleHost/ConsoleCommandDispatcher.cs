@@ -56,7 +56,7 @@ public static class ConsoleCommandDispatcher
                 break;
 
             case "validate-config":
-                ValidateConfigCommand.Run();
+                ValidateConfigCommand.Run(parsedArgs.ConfigOverride);
                 break;
 
             case "migrate":

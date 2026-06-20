@@ -13,6 +13,14 @@ dotnet test GameHelper.sln
 
 For narrow iterations, run the smallest relevant `dotnet test --filter ...` first, then finish with the full solution test command before committing.
 
+For ConsoleHost publish or startup-path changes, also run:
+
+```powershell
+.\scripts\publish-console-smoke.ps1
+```
+
+CI runs the same script on Windows to publish ConsoleHost and execute the published `GameHelper.ConsoleHost.exe` against a temporary YAML config.
+
 ## Coverage Priorities
 
 - **Lifecycle symmetry**: services that start and stop external resources must leave state flags consistent after success, failure, and cleanup paths.
@@ -21,6 +29,7 @@ For narrow iterations, run the smallest relevant `dotnet test --filter ...` firs
 - **Persistence compatibility**: YAML config, `DataKey`, compact game entries, and CSV playtime history must survive roundtrips and migrations.
 - **Shell workflows**: CLI commands, interactive shell flows, and file-drop forwarding should be covered through service-facing tests or smoke tests.
 - **Command dispatch**: non-interactive CLI routing should be covered through `ConsoleCommandDispatcher` tests rather than process-level tests when startup side effects are not under test.
+- **Published console artifact**: `scripts/publish-console-smoke.ps1` covers the process-level path for the published executable, embedded YAML validator resources, and config values requiring YAML quoting.
 - **Documentation navigation**: local Markdown links must stay valid while docs are archived or rewritten.
 
 ## Windows-Specific Tests
@@ -32,4 +41,4 @@ For narrow iterations, run the smallest relevant `dotnet test --filter ...` firs
 ## Known Gaps
 
 - Console host construction is covered through `ConsoleHostBootstrapper`, and non-interactive command routing is covered through `ConsoleCommandDispatcher`.
-- Process-level console smoke tests should wait until `Program.cs` startup side effects are isolated behind testable seams.
+- Console process-level smoke coverage is intentionally narrow: it exercises published `validate-config` and `config list` only, avoiding long-running monitor and interactive shell flows.

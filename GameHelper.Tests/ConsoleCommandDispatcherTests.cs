@@ -71,6 +71,47 @@ public sealed class ConsoleCommandDispatcherTests
         Assert.Contains("Usage:", output);
     }
 
+    [Fact]
+    public async Task DispatchAsync_ValidateConfig_UsesConfigOverride()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "GameHelperTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var configPath = Path.Combine(tempDir, "config.yml");
+        try
+        {
+            await File.WriteAllTextAsync(configPath, """
+monitor: ETW
+startup:
+  autoStartMonitor: false
+  launchOnStartup: false
+games:
+  - dataKey: smoke_granblue
+    executable: smoke.exe
+    displayName: "Granblue Fantasy: Relink"
+    enabled: true
+    hdr: false
+""");
+
+            using var host = CreateHost(_ => { });
+
+            var output = await CaptureConsoleAsync(() => ConsoleCommandDispatcher.DispatchAsync(host, new ParsedArguments
+            {
+                EffectiveArgs = new[] { "validate-config" },
+                ConfigOverride = configPath
+            }));
+
+            Assert.Contains($"Validating: {configPath}", output);
+            Assert.Contains("Config is valid.", output);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
     private static IHost CreateHost(Action<IServiceCollection> configureServices)
     {
         return Host.CreateDefaultBuilder(Array.Empty<string>())

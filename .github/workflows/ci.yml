@@ -49,6 +49,22 @@ jobs:
       - name: Test core and cli logic
         run: dotnet test GameHelper.Tests/GameHelper.Tests.csproj --configuration Release --no-build --verbosity normal
 
+  console-publish-smoke:
+    name: Console Publish Smoke
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish and smoke test ConsoleHost
+        shell: pwsh
+        run: ./scripts/publish-console-smoke.ps1
+
   windows-desktop-smoke:
     name: Windows Desktop Smoke
     runs-on: windows-latest

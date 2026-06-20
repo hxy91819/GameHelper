@@ -64,6 +64,14 @@ dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release
 默认输出目录：
 `GameHelper.ConsoleHost\bin\Release\net8.0-windows\win-x64\publish`
 
+发布后 smoke 验证：
+
+```powershell
+.\scripts\publish-console-smoke.ps1
+```
+
+该脚本会发布 ConsoleHost，并用临时 YAML 配置运行发布目录中的 `validate-config` 和 `config list`，用于提前发现发布产物缺文件、嵌入资源异常或配置解析失败。
+
 ### 发布 WinUI
 
 ```powershell
@@ -116,6 +124,7 @@ CLI `config add` 可接收可执行文件名或 `.exe` 路径。传入路径时�
 ```powershell
 dotnet build GameHelper.sln
 dotnet test GameHelper.sln
+.\scripts\publish-console-smoke.ps1
 ```
 
 更完整的架构、规范和计划见：
