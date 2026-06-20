@@ -476,7 +476,6 @@ namespace GameHelper.Tests
             {
                 ["entry1"] = new()
                 {
-                    EntryId = "entry1",
                     DataKey = "game1",
                     ExecutableName = "Game.exe",
                     ExecutablePath = @"D:\Games\A\Game.exe",
@@ -484,7 +483,6 @@ namespace GameHelper.Tests
                 },
                 ["entry2"] = new()
                 {
-                    EntryId = "entry2",
                     DataKey = "game2",
                     ExecutableName = "Game.exe",
                     ExecutablePath = null,
@@ -512,7 +510,6 @@ namespace GameHelper.Tests
             {
                 ["entry1"] = new()
                 {
-                    EntryId = "entry1",
                     DataKey = "game1",
                     ExecutableName = "Game.exe",
                     ExecutablePath = @"D:\Games\A\Game.exe",
@@ -520,7 +517,6 @@ namespace GameHelper.Tests
                 },
                 ["entry2"] = new()
                 {
-                    EntryId = "entry2",
                     DataKey = "game2",
                     ExecutableName = "Game.exe",
                     ExecutablePath = @"D:\Games\B\Game.exe",

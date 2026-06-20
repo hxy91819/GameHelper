@@ -1,25 +1,21 @@
 # GameHelper debug configuration
-processMonitorType: ETW
-
+monitor: ETW
+startup:
+  autoStartMonitor: false
+  launchOnStartup: false
 games:
-  - entryId: "5f8e53f0d92f447db108c7f4f7b8b6fa"
-    dataKey: "cheatengine"
-    executableName: "Cheat Engine.exe"
-    displayName: "Cheat Engine"
-    isEnabled: true
-    hDREnabled: true
-  - entryId: "0a8ad6a6d4ec4f44a77ff19f75462798"
-    dataKey: "project_plague"
-    executableName: "Project_Plague.exe"
-    displayName: "Project Plague"
-    isEnabled: true
-    hDREnabled: false
-  - entryId: "dc8c9fbce57b4ed6955fed9ff8dcf4f6"
-    dataKey: "talesofarise"
-    executableName: "Tales of Arise.exe"
-    displayName: "Tales of Arise"
-    isEnabled: true
-    hDREnabled: false
-
-autoStartInteractiveMonitor: false
-launchOnSystemStartup: false
+  - dataKey: cheatengine
+    executable: Cheat Engine.exe
+    displayName: Cheat Engine
+    enabled: true
+    hdr: true
+  - dataKey: project_plague
+    executable: Project_Plague.exe
+    displayName: Project Plague
+    enabled: true
+    hdr: false
+  - dataKey: talesofarise
+    executable: Tales of Arise.exe
+    displayName: Tales of Arise
+    enabled: true
+    hdr: false

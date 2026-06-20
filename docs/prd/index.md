@@ -9,7 +9,8 @@ GameHelper helps Windows players track game playtime and manage game-specific au
 The maintained baseline is:
 
 - Configuration-driven game catalog stored in `config.yml`.
-- Stable `DataKey` for playtime records and statistics joins.
+- Stable `DataKey` as the single game identity for config, playtime records, and statistics joins.
+- Compact game entries with one `executable` value instead of separate stored path/name fields.
 - Process monitoring through ETW by default, with WMI/no-op alternatives where appropriate.
 - Path-first game matching with metadata/name fallback for legacy configs.
 - CSV-backed playtime history and statistics display.

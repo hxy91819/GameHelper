@@ -164,7 +164,7 @@ namespace GameHelper.Tests
             var games = new FilePlaytimeSnapshotProvider(_dir).GetPlaytimeRecords();
             
             // Then:
-            // YamlConfigProvider returns dictionary keyed by EntryId.
+            // YamlConfigProvider returns dictionary keyed by DataKey.
             // We validate through entry values (DataKey / DisplayName / ExecutableName).
             Assert.Equal(2, configs.Count);
             

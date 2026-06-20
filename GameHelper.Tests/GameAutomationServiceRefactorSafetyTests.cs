@@ -207,7 +207,7 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void L1_PathOnlyConfig_DoesNotFallbackToFilename_WhenPathUnavailable()
+        public void ExecutablePathConfig_DerivesFilenameFallback_WhenPathUnavailable()
         {
             var monitor = new FakeMonitor();
             var cfg = new FakeConfig(new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase)
@@ -225,7 +225,8 @@ namespace GameHelper.Tests
 
             monitor.RaiseStart(new ProcessEventInfo("game.exe", null));
 
-            Assert.Equal(0, play.StartCalls);
+            Assert.Equal(1, play.StartCalls);
+            Assert.Contains(play.Started, s => string.Equals(s, "path-only", StringComparison.OrdinalIgnoreCase));
         }
 
         [Theory]

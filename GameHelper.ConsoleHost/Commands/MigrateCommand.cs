@@ -19,7 +19,7 @@ namespace GameHelper.ConsoleHost.Commands
 {
     /// <summary>
     /// Provides migration functionality for legacy configuration and CSV data formats.
-    /// Migrates from name/alias format to dataKey/executableName/displayName format.
+    /// Migrates legacy playtime records to stable dataKey values and rewrites config files to the compact YAML shape.
     /// </summary>
     public static class MigrateCommand
     {
@@ -30,7 +30,7 @@ namespace GameHelper.ConsoleHost.Commands
         {
             /// <summary>Uses name/alias fields, missing dataKey.</summary>
             OldFormat,
-            /// <summary>Uses dataKey field with executableName/displayName.</summary>
+            /// <summary>Uses dataKey with executable/displayName.</summary>
             NewFormat,
             /// <summary>Mix of old and new formats.</summary>
             Mixed
@@ -223,14 +223,12 @@ namespace GameHelper.ConsoleHost.Commands
         private static IReadOnlyDictionary<string, GameConfig> NormalizeToEntryMap(IEnumerable<GameConfig> configs)
         {
             var result = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-            var usedEntryIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var usedDataKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var config in configs.Where(c => c is not null))
             {
-                config.EntryId = ConfigIdentity.EnsureUniqueEntryId(config.EntryId, usedEntryIds);
                 config.DataKey = ConfigIdentity.EnsureUniqueDataKey(config.DataKey, usedDataKeys);
-                result[config.EntryId] = config;
+                result[config.DataKey] = config;
             }
 
             return result;
@@ -282,11 +280,10 @@ namespace GameHelper.ConsoleHost.Commands
                 table.AddColumn("旧字段 (name)");
                 table.AddColumn("旧字段 (alias)");
                 table.AddColumn("新字段 (dataKey)");
-                table.AddColumn("新字段 (executableName)");
+                table.AddColumn("新字段 (executable)");
                 table.AddColumn("新字段 (displayName)");
 
                 var migratedConfigs = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-                var usedEntryIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var usedDataKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var existing in existingConfigs)
@@ -300,13 +297,12 @@ namespace GameHelper.ConsoleHost.Commands
                         
                         config = new GameConfig
                         {
-                            EntryId = ConfigIdentity.EnsureUniqueEntryId(Guid.NewGuid().ToString("N"), usedEntryIds),
                             DataKey = dataKey,
                             ExecutableName = existing.Name,
                             DisplayName = existing.Alias,
                             ExecutablePath = existing.ExecutablePath ?? string.Empty,
                             IsEnabled = existing.IsEnabled,
-                            HDREnabled = existing.HDREnabled
+                            HdrEnabled = existing.HdrEnabled
                         };
 
                         table.AddRow(
@@ -322,11 +318,10 @@ namespace GameHelper.ConsoleHost.Commands
                     {
                         // Already new format, keep as is
                         config = existing;
-                        config.EntryId = ConfigIdentity.EnsureUniqueEntryId(config.EntryId, usedEntryIds);
                         config.DataKey = ConfigIdentity.EnsureUniqueDataKey(config.DataKey, usedDataKeys);
                     }
 
-                    migratedConfigs[config.EntryId] = config;
+                    migratedConfigs[config.DataKey] = config;
                 }
 
                 AnsiConsole.Write(table);

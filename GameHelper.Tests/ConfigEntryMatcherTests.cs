@@ -10,7 +10,6 @@ public sealed class ConfigEntryMatcherTests
     {
         var existing = new GameConfig
         {
-            EntryId = "entry-a",
             DataKey = "game-a",
             ExecutableName = "game.exe",
             ExecutablePath = Path.Combine("C:", "Games", "Game", "game.exe")
@@ -20,7 +19,6 @@ public sealed class ConfigEntryMatcherTests
             existing,
             new GameConfig
             {
-                EntryId = "entry-b",
                 DataKey = "game-b",
                 ExecutableName = "game.exe",
                 ExecutablePath = Path.Combine("D:", "Games", "Game", "game.exe")
@@ -37,7 +35,6 @@ public sealed class ConfigEntryMatcherTests
     {
         var existing = new GameConfig
         {
-            EntryId = "entry-a",
             DataKey = "game-a",
             ExecutableName = "game.exe"
         };
@@ -52,8 +49,8 @@ public sealed class ConfigEntryMatcherTests
     {
         var configs = new[]
         {
-            new GameConfig { EntryId = "entry-a", DataKey = "game-a", ExecutableName = "game.exe" },
-            new GameConfig { EntryId = "entry-b", DataKey = "game-b", ExecutableName = "game.exe" }
+            new GameConfig { DataKey = "game-a", ExecutableName = "game.exe" },
+            new GameConfig { DataKey = "game-b", ExecutableName = "game.exe" }
         };
 
         var match = ConfigEntryMatcher.FindExistingForAdd(configs, "game.exe", null);

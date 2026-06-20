@@ -21,7 +21,7 @@ GameHelper.ConsoleHost    GameHelper.WinUI
 
 ## Primary Runtime Flows
 
-- **Configuration**: shells call core catalog/settings services; infrastructure persists `config.yml`.
+- **Configuration**: shells call core catalog/settings services; infrastructure persists the compact `config.yml` shape (`monitor`, `startup`, and `games`).
 - **Monitoring**: `MonitorControlService` starts the process monitor and `GameAutomationService` as a lifecycle pair. Runtime process filters are derived from enabled game candidates and refreshed on config reload. ETW and WMI both keep expensive event enrichment behind this candidate-name gate.
 - **Automation**: process events first pass a cheap executable-name candidate gate; full path resolution is lazy and only used for configured candidates that need path matching or disambiguation. WMI process detail lookup follows the same rule and is not performed for non-candidate start events. Metadata/fuzzy matching is limited to that candidate set. Active game sessions drive playtime tracking and HDR scheduling. HDR scheduling only rolls back HDR changes made by GameHelper itself.
 - **Statistics**: playtime records are read from local files and joined to current config by stable `DataKey`.
@@ -39,7 +39,8 @@ GameHelper.ConsoleHost    GameHelper.WinUI
 ## Persistence Model
 
 - `config.yml` is the primary configuration file under `%AppData%\GameHelper\`.
-- `entryId` identifies a configuration row; `dataKey` is the stable statistics key written to playtime records.
+- `dataKey` is the single stable game identity in configuration and the statistics key written to playtime records.
+- Each game stores one `executable` value. It can be a full path for path-first matching or a process file name for name-only matching; runtime modules derive `ExecutablePath` and `ExecutableName` from that one value.
 - `playtime.csv` is the current playtime history format; JSON exists only for legacy migration compatibility.
 - Configuration writes must preserve global app settings when replacing the game list.
 

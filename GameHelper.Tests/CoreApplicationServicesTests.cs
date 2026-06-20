@@ -81,7 +81,7 @@ public sealed class CoreApplicationServicesTests
     }
 
     [Fact]
-    public void GameCatalogService_Add_ShouldRepairStorageByEntryId()
+    public void GameCatalogService_Add_ShouldUseDataKeyAsStorageKey()
     {
         var provider = new FakeConfigProvider();
         var service = new GameCatalogService(provider);
@@ -105,13 +105,12 @@ public sealed class CoreApplicationServicesTests
         Assert.Equal(2, provider.Load().Count);
         Assert.All(provider.Load(), pair =>
         {
-            Assert.False(string.IsNullOrWhiteSpace(pair.Value.EntryId));
-            Assert.Equal(pair.Value.EntryId, pair.Key);
+            Assert.Equal(pair.Value.DataKey, pair.Key);
         });
     }
 
     [Fact]
-    public void GameCatalogService_Update_ShouldRepairStorageByEntryId()
+    public void GameCatalogService_Update_ShouldUseDataKeyAsStorageKey()
     {
         var provider = new FakeConfigProvider();
         var service = new GameCatalogService(provider);
@@ -134,14 +133,13 @@ public sealed class CoreApplicationServicesTests
         });
 
         var pair = Assert.Single(provider.Load());
-        Assert.False(string.IsNullOrWhiteSpace(pair.Value.EntryId));
-        Assert.Equal(pair.Value.EntryId, pair.Key);
+        Assert.Equal(pair.Value.DataKey, pair.Key);
         Assert.Equal("legacy", pair.Value.DataKey);
         Assert.Equal("Updated", pair.Value.DisplayName);
     }
 
     [Fact]
-    public void GameCatalogService_Delete_ShouldRepairRemainingStorageByEntryId()
+    public void GameCatalogService_Delete_ShouldKeepRemainingDataKeyStorage()
     {
         var provider = new FakeConfigProvider();
         var service = new GameCatalogService(provider);
@@ -164,8 +162,7 @@ public sealed class CoreApplicationServicesTests
         Assert.True(service.Delete("delete-me"));
 
         var pair = Assert.Single(provider.Load());
-        Assert.False(string.IsNullOrWhiteSpace(pair.Value.EntryId));
-        Assert.Equal(pair.Value.EntryId, pair.Key);
+        Assert.Equal(pair.Value.DataKey, pair.Key);
         Assert.Equal("keep-me", pair.Value.DataKey);
     }
 
@@ -199,7 +196,6 @@ public sealed class CoreApplicationServicesTests
         {
             ["entry1"] = new()
             {
-                EntryId = "entry1",
                 DataKey = "old-key",
                 ExecutableName = "same.exe",
                 DisplayName = "Old",
@@ -225,7 +221,7 @@ public sealed class CoreApplicationServicesTests
     }
 
     [Fact]
-    public void GameCatalogService_Save_ShouldRepairMissingEntryIdWhenUpdating()
+    public void GameCatalogService_Save_ShouldKeepDataKeyWhenUpdating()
     {
         var provider = new FakeConfigProvider();
         var service = new GameCatalogService(provider);
@@ -249,7 +245,6 @@ public sealed class CoreApplicationServicesTests
         });
 
         var config = Assert.Single(provider.Load().Values);
-        Assert.False(string.IsNullOrWhiteSpace(config.EntryId));
         Assert.Equal(saved.DataKey, config.DataKey);
         Assert.Equal("Updated", config.DisplayName);
     }
@@ -263,7 +258,6 @@ public sealed class CoreApplicationServicesTests
         {
             ["entry1"] = new()
             {
-                EntryId = "entry1",
                 DataKey = "same",
                 ExecutableName = "same.exe",
                 ExecutablePath = @"C:\Games\same.exe",
@@ -314,7 +308,6 @@ public sealed class CoreApplicationServicesTests
         {
             ["legacy-entry"] = new()
             {
-                EntryId = "legacy-entry",
                 DataKey = "legacy",
                 ExecutableName = "Legacy.exe",
                 ExecutablePath = @"C:\Games\Legacy.exe",

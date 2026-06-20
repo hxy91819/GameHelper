@@ -75,27 +75,30 @@ dotnet publish .\GameHelper.WinUI -p:PublishProfile=WinUI-SelfContained
 示例：
 
 ```yaml
-processMonitorType: ETW
-
+monitor: ETW
+startup:
+  autoStartMonitor: false
+  launchOnStartup: false
 games:
-  - entryId: "8c5f5ccf30b648f88f4d2f1f8b4b6c7e"
-    dataKey: "witcher3"
-    executablePath: "D:\\Games\\The Witcher 3\\bin\\x64\\witcher3.exe"
-    executableName: "witcher3.exe"
-    displayName: "巫师3"
-    isEnabled: true
-    hDREnabled: false
+  - dataKey: witcher3
+    executable: "D:\\Games\\The Witcher 3\\bin\\x64\\witcher3.exe"
+    displayName: 巫师3
+    enabled: true
+    hdr: false
 ```
 
 说明：
-- `entryId`：配置条目的内部唯一标识（自动生成）。
 - `dataKey`：统计主键，写入 `playtime.csv` 的 `game` 字段，必须全局唯一。
-- `hDREnabled`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
+- `executable`：可执行文件路径或进程文件名；路径会用于精确匹配，文件名会自动从路径派生。
+- `enabled`：是否参与监控、时长统计和自动化。
+- `hdr`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
+- `startup.autoStartMonitor`：交互模式启动后是否自动进入实时监控。
+- `startup.launchOnStartup`：是否随系统启动 GameHelper。
 
-CLI `config add` 可接收可执行文件名或 `.exe` 路径。传入路径时会保存 `executablePath`，并从路径提取 `executableName` 与默认显示名。
+CLI `config add` 可接收可执行文件名或 `.exe` 路径。传入路径时会保存到 `executable`，运行时从中派生路径与候选进程名。
 
 监控匹配：
-- GameHelper 只处理启用配置中的候选进程名，候选名来自 `executableName` 和 `executablePath` 的文件名；ETW 与 WMI 降级路径都使用这道候选名门控。
+- GameHelper 只处理启用配置中的候选进程名，候选名来自 `executable` 的文件名；ETW 与 WMI 降级路径都使用这道候选名门控。
 - 完整路径只在候选进程需要路径消歧时解析；非候选进程不会触发路径查询、WMI 详情查询、ProductName 读取或模糊匹配。
 
 ## 项目结构

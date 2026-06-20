@@ -31,7 +31,7 @@ namespace GameHelper.Tests.Interactive
         {
             var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
             {
-                ["entry1"] = new GameConfig { EntryId = "entry1", DataKey = "delete-me", Name = "delete.exe", Alias = "Delete Me", IsEnabled = true }
+                ["entry1"] = new GameConfig { DataKey = "delete-me", Name = "delete.exe", Alias = "Delete Me", IsEnabled = true }
             },
             new AppConfig { ProcessMonitorType = ProcessMonitorType.ETW },
             configPath: "C:/configs/gamehelper.yml");
@@ -62,7 +62,7 @@ namespace GameHelper.Tests.Interactive
         {
             var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
             {
-                ["entry1"] = new GameConfig { EntryId = "entry1", DataKey = "keep-me", Name = "keep.exe", Alias = "Keep Me", IsEnabled = true }
+                ["entry1"] = new GameConfig { DataKey = "keep-me", Name = "keep.exe", Alias = "Keep Me", IsEnabled = true }
             },
             new AppConfig { ProcessMonitorType = ProcessMonitorType.ETW },
             configPath: "C:/configs/gamehelper.yml");

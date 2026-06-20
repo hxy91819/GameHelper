@@ -11,7 +11,6 @@ namespace GameHelper.Infrastructure.Providers
 {
     /// <summary>
     /// JSON-based config provider stored at %AppData%/GameHelper/config.json.
-    /// Compatible with legacy format where games is an array of strings.
     /// </summary>
     public sealed class JsonConfigProvider : IConfigProvider, IConfigPathProvider
     {
@@ -51,16 +50,16 @@ namespace GameHelper.Infrastructure.Providers
                     return new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
                 }
 
-                var configs = TryLoadStructuredConfig(gamesNode) ?? TryLoadLegacyNames(gamesNode);
+                var configs = TryLoadStructuredConfig(gamesNode) ?? new List<GameConfig>();
                 if (configs.Count == 0)
                 {
                     return new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
                 }
 
-                ConfigEntryNormalizer.RepairDuplicateIdentities(configs);
+                ConfigEntryNormalizer.RepairDuplicateDataKeys(configs);
 
                 return configs.ToDictionary(
-                    cfg => cfg.EntryId,
+                    cfg => cfg.DataKey,
                     cfg => cfg,
                     StringComparer.OrdinalIgnoreCase);
             }
@@ -86,7 +85,7 @@ namespace GameHelper.Infrastructure.Providers
                 .Select(config => ConfigEntryNormalizer.NormalizeForSave(config))
                 .ToList();
 
-            ConfigEntryNormalizer.RepairDuplicateIdentities(normalized);
+            ConfigEntryNormalizer.RepairDuplicateDataKeys(normalized);
 
             var payload = new Dictionary<string, object>
             {
@@ -129,43 +128,6 @@ namespace GameHelper.Infrastructure.Providers
             {
                 return null;
             }
-        }
-
-        private static List<GameConfig> TryLoadLegacyNames(object gamesNode)
-        {
-            var result = new List<GameConfig>();
-            try
-            {
-                var names = JsonSerializer.Deserialize<string[]>(gamesNode.ToString() ?? string.Empty);
-                if (names is null)
-                {
-                    return result;
-                }
-
-                foreach (var name in names)
-                {
-                    if (string.IsNullOrWhiteSpace(name))
-                    {
-                        continue;
-                    }
-
-                    var trimmed = name.Trim();
-                    result.Add(new GameConfig
-                    {
-                        EntryId = Guid.NewGuid().ToString("N"),
-                        DataKey = trimmed,
-                        ExecutableName = trimmed,
-                        IsEnabled = true,
-                        HDREnabled = false
-                    });
-                }
-            }
-            catch
-            {
-                // ignore malformed legacy content
-            }
-
-            return result;
         }
 
     }

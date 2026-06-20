@@ -50,34 +50,34 @@ dotnet run --project .\GameHelper.ConsoleHost -- migrate
 
 - 默认路径：`%AppData%\GameHelper\config.yml`
 - 当前默认监听方式：`ETW`
-- 仍可显式配置 `processMonitorType: WMI`
+- 仍可显式配置 `monitor: WMI`
 
 示例：
 
 ```yaml
-processMonitorType: ETW
-autoStartInteractiveMonitor: false
-launchOnSystemStartup: false
-
+monitor: ETW
+startup:
+  autoStartMonitor: false
+  launchOnStartup: false
 games:
-  - entryId: "8c5f5ccf30b648f88f4d2f1f8b4b6c7e"
-    dataKey: "witcher3"
-    executablePath: "D:\\Games\\The Witcher 3\\bin\\x64\\witcher3.exe"
-    executableName: "witcher3.exe"
-    displayName: "巫师3"
-    isEnabled: true
-    hDREnabled: false
+  - dataKey: witcher3
+    executable: "D:\\Games\\The Witcher 3\\bin\\x64\\witcher3.exe"
+    displayName: 巫师3
+    enabled: true
+    hdr: false
 ```
 
 字段说明：
 
 - `dataKey`：统计与历史数据的稳定标识。
-- `executablePath`：路径精确匹配使用的完整路径。
-- `executableName`：旧配置或回退匹配使用的可执行文件名。
+- `executable`：可执行文件路径或进程文件名；路径会用于精确匹配，文件名会自动从路径派生。
 - `displayName`：界面显示名称。
-- `hDREnabled`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
+- `enabled`：是否参与监控、时长统计和自动化。
+- `hdr`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
+- `startup.autoStartMonitor`：交互模式启动后是否自动进入实时监控。
+- `startup.launchOnStartup`：是否随系统启动 GameHelper。
 
-`config add` 可接收可执行文件名或 `.exe` 路径。传入路径时会保存完整 `executablePath`，并从路径提取 `executableName` 与默认 `displayName`；传入文件名时保持旧行为，仅保存候选进程名。
+`config add` 可接收可执行文件名或 `.exe` 路径，并统一保存到 `executable`；运行时会从该字段派生路径匹配与候选进程名。
 
 ## 拖放添加游戏
 

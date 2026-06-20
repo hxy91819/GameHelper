@@ -1,196 +1,200 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Providers;
-using Xunit;
 
-namespace GameHelper.Tests
+namespace GameHelper.Tests;
+
+public class YamlConfigProviderTests : IDisposable
 {
-    public class YamlConfigProviderTests : IDisposable
+    private readonly string _tempDir;
+    private readonly string _configPath;
+
+    public YamlConfigProviderTests()
     {
-        private readonly string _tempDir;
-        private readonly string _configPath;
+        _tempDir = Path.Combine(Path.GetTempPath(), "GameHelperTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_tempDir);
+        _configPath = Path.Combine(_tempDir, "config.yml");
+    }
 
-        public YamlConfigProviderTests()
-        {
-            _tempDir = Path.Combine(Path.GetTempPath(), "GameHelperTests", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
-            _configPath = Path.Combine(_tempDir, "config.yml");
-        }
+    [Fact]
+    public void LoadAppConfig_WhenFileMissing_ReturnsEmpty()
+    {
+        var provider = new YamlConfigProvider(_configPath);
 
-        [Fact]
-        public void LoadAppConfig_WhenFileMissing_ReturnsEmpty()
-        {
-            var provider = new YamlConfigProvider(_configPath);
-            var config = provider.LoadAppConfig();
-            Assert.NotNull(config);
-            Assert.NotNull(config.Games);
-            Assert.Empty(config.Games);
-            Assert.Equal(ProcessMonitorType.ETW, config.ProcessMonitorType);
-        }
+        var config = provider.LoadAppConfig();
 
-        [Fact]
-        public void Save_Then_Load_Roundtrip_PreservesEntriesAndAddsEntryId()
+        Assert.NotNull(config.Games);
+        Assert.Empty(config.Games);
+        Assert.Equal(ProcessMonitorType.ETW, config.ProcessMonitorType);
+    }
+
+    [Fact]
+    public void Save_Then_Load_Roundtrip_UsesDataKeyAsStorageKey()
+    {
+        var provider = new YamlConfigProvider(_configPath);
+        var input = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
         {
-            var provider = new YamlConfigProvider(_configPath);
-            var input = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
+            ["ignored-old-key"] = new()
             {
-                ["cyberpunk2077.exe"] = new GameConfig
-                {
-                    DataKey = "cyberpunk2077",
-                    ExecutableName = "cyberpunk2077.exe",
-                    DisplayName = "Cyberpunk 2077",
-                    IsEnabled = true,
-                    HDREnabled = true
-                },
-                ["rdr2.exe"] = new GameConfig
-                {
-                    DataKey = "rdr2",
-                    ExecutableName = "rdr2.exe",
-                    DisplayName = "Red Dead Redemption 2",
-                    IsEnabled = false,
-                    HDREnabled = false
-                }
-            };
-
-            provider.Save(input);
-            Assert.True(File.Exists(_configPath));
-
-            var output = provider.Load();
-            Assert.Equal(2, output.Count);
-            Assert.All(output, kv =>
+                DataKey = "cyberpunk2077",
+                ExecutableName = "cyberpunk2077.exe",
+                DisplayName = "Cyberpunk 2077",
+                IsEnabled = true,
+                HdrEnabled = true
+            },
+            ["another-old-key"] = new()
             {
-                Assert.False(string.IsNullOrWhiteSpace(kv.Key));
-                Assert.Equal(kv.Key, kv.Value.EntryId, ignoreCase: true);
-            });
+                DataKey = "rdr2",
+                ExecutableName = "rdr2.exe",
+                DisplayName = "Red Dead Redemption 2",
+                IsEnabled = false,
+                HdrEnabled = false
+            }
+        };
 
-            var cp = Assert.Single(output.Values, v => v.DataKey == "cyberpunk2077");
-            Assert.Equal("Cyberpunk 2077", cp.DisplayName);
-            Assert.True(cp.IsEnabled);
-            Assert.True(cp.HDREnabled);
-        }
+        provider.Save(input);
 
-        [Fact]
-        public void Load_WhenGameMissingDataKeyAndExecutableName_UsesDisplayName()
-        {
-            var yaml = "games:\n  - displayName: Broken Entry\n";
-            File.WriteAllText(_configPath, yaml);
-            var provider = new YamlConfigProvider(_configPath);
+        var output = provider.Load();
+        Assert.Equal(2, output.Count);
+        Assert.Contains("cyberpunk2077", output.Keys);
+        Assert.Contains("rdr2", output.Keys);
 
-            var output = provider.Load();
-            var entry = Assert.Single(output.Values);
-            Assert.Equal("Broken Entry", entry.DataKey);
-            Assert.Equal("Broken Entry", entry.DisplayName);
-            Assert.False(string.IsNullOrWhiteSpace(entry.EntryId));
-        }
+        var cp = output["cyberpunk2077"];
+        Assert.Equal("cyberpunk2077.exe", cp.Executable);
+        Assert.Equal("cyberpunk2077.exe", cp.ExecutableName);
+        Assert.Equal("Cyberpunk 2077", cp.DisplayName);
+        Assert.True(cp.IsEnabled);
+        Assert.True(cp.HdrEnabled);
+    }
 
-        [Fact]
-        public void Load_WhenDuplicateDataKey_RepairsWithSuffix()
-        {
-            var yaml = """
+    [Fact]
+    public void Load_WhenGameMissingDataKey_SkipsEntry()
+    {
+        File.WriteAllText(_configPath, """
+monitor: ETW
+games:
+  - executable: broken.exe
+    displayName: Broken Entry
+""");
+        var provider = new YamlConfigProvider(_configPath);
+
+        var output = provider.Load();
+
+        Assert.Empty(output);
+    }
+
+    [Fact]
+    public void Load_WhenDuplicateDataKey_RepairsWithSuffix()
+    {
+        File.WriteAllText(_configPath, """
+monitor: ETW
 games:
   - dataKey: game
-    executableName: a.exe
+    executable: a.exe
   - dataKey: game
-    executableName: b.exe
-""";
-            File.WriteAllText(_configPath, yaml);
-            var provider = new YamlConfigProvider(_configPath);
+    executable: b.exe
+""");
+        var provider = new YamlConfigProvider(_configPath);
 
-            var output = provider.Load();
-            Assert.Equal(2, output.Count);
-            Assert.Contains(output.Values, v => v.DataKey == "game");
-            Assert.Contains(output.Values, v => v.DataKey == "game2");
-        }
+        var output = provider.Load();
 
-        [Fact]
-        public void Save_WithExecutablePath_FormatsYamlCorrectly()
+        Assert.Equal(2, output.Count);
+        Assert.Contains(output.Values, v => v.DataKey == "game");
+        Assert.Contains(output.Values, v => v.DataKey == "game2");
+    }
+
+    [Fact]
+    public void Save_WithExecutablePath_WritesCompactYamlShape()
+    {
+        var provider = new YamlConfigProvider(_configPath);
+        var input = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
         {
-            var provider = new YamlConfigProvider(_configPath);
-            var input = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
+            ["re"] = new()
             {
-                ["entry"] = new GameConfig
-                {
-                    EntryId = "entry",
-                    DataKey = "re",
-                    ExecutablePath = @"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe",
-                    ExecutableName = "RE.exe",
-                    DisplayName = "Romantic Escapades",
-                    IsEnabled = true,
-                    HDREnabled = false
-                }
-            };
+                DataKey = "re",
+                ExecutablePath = @"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe",
+                DisplayName = "Romantic Escapades",
+                IsEnabled = true,
+                HdrEnabled = false
+            }
+        };
 
-            provider.Save(input);
-            Assert.True(File.Exists(_configPath));
+        provider.Save(input);
 
-            var output = provider.Load();
-            var game = Assert.Single(output.Values);
-            Assert.Equal("re", game.DataKey);
-            Assert.Equal(@"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe", game.ExecutablePath);
-            Assert.Equal("RE.exe", game.ExecutableName);
-            Assert.Equal("Romantic Escapades", game.DisplayName);
-        }
+        var yaml = File.ReadAllText(_configPath);
+        Assert.Contains("monitor: ETW", yaml);
+        Assert.Contains("startup:", yaml);
+        Assert.Contains("dataKey: re", yaml);
+        Assert.Contains(@"executable: D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe", yaml);
+        Assert.Contains("displayName: Romantic Escapades", yaml);
+        Assert.Contains("enabled: true", yaml);
+        Assert.Contains("hdr: false", yaml);
+        Assert.DoesNotContain("entryId", yaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("executableName", yaml, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("executablePath", yaml, StringComparison.OrdinalIgnoreCase);
 
-        [Fact]
-        public void Save_WhenAppSettingsExist_PreservesGlobalSettings()
+        var game = Assert.Single(provider.Load().Values);
+        Assert.Equal("re", game.DataKey);
+        Assert.Equal(@"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe", game.ExecutablePath);
+        Assert.Equal("RE.exe", game.ExecutableName);
+        Assert.Equal("Romantic Escapades", game.DisplayName);
+    }
+
+    [Fact]
+    public void Save_WhenAppSettingsExist_PreservesGlobalSettings()
+    {
+        var provider = new YamlConfigProvider(_configPath);
+        provider.SaveAppConfig(new AppConfig
         {
-            var provider = new YamlConfigProvider(_configPath);
-            provider.SaveAppConfig(new AppConfig
+            ProcessMonitorType = ProcessMonitorType.WMI,
+            AutoStartInteractiveMonitor = true,
+            LaunchOnSystemStartup = true,
+            Games = new List<GameConfig>
             {
-                ProcessMonitorType = ProcessMonitorType.WMI,
-                AutoStartInteractiveMonitor = true,
-                LaunchOnSystemStartup = true,
-                Games = new List<GameConfig>
+                new()
                 {
-                    new()
-                    {
-                        EntryId = "old-entry",
-                        DataKey = "old",
-                        ExecutableName = "old.exe",
-                        IsEnabled = true
-                    }
-                }
-            });
-
-            provider.Save(new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["new-entry"] = new()
-                {
-                    EntryId = "new-entry",
-                    DataKey = "new",
-                    ExecutableName = "new.exe",
-                    DisplayName = "New Game",
-                    IsEnabled = true,
-                    HDREnabled = true
-                }
-            });
-
-            var appConfig = provider.LoadAppConfig();
-            Assert.Equal(ProcessMonitorType.WMI, appConfig.ProcessMonitorType);
-            Assert.True(appConfig.AutoStartInteractiveMonitor);
-            Assert.True(appConfig.LaunchOnSystemStartup);
-
-            var game = Assert.Single(appConfig.Games!);
-            Assert.Equal("new-entry", game.EntryId);
-            Assert.Equal("new", game.DataKey);
-            Assert.Equal("New Game", game.DisplayName);
-        }
-
-        public void Dispose()
-        {
-            try
-            {
-                if (Directory.Exists(_tempDir))
-                {
-                    Directory.Delete(_tempDir, recursive: true);
+                    DataKey = "old",
+                    ExecutableName = "old.exe",
+                    IsEnabled = true
                 }
             }
-            catch
+        });
+
+        provider.Save(new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["new"] = new()
             {
-                // best-effort cleanup
+                DataKey = "new",
+                ExecutableName = "new.exe",
+                DisplayName = "New Game",
+                IsEnabled = true,
+                HdrEnabled = true
             }
+        });
+
+        var appConfig = provider.LoadAppConfig();
+        Assert.Equal(ProcessMonitorType.WMI, appConfig.ProcessMonitorType);
+        Assert.True(appConfig.AutoStartInteractiveMonitor);
+        Assert.True(appConfig.LaunchOnSystemStartup);
+
+        var game = Assert.Single(appConfig.Games!);
+        Assert.Equal("new", game.DataKey);
+        Assert.Equal("new.exe", game.Executable);
+        Assert.Equal("New Game", game.DisplayName);
+        Assert.True(game.HdrEnabled);
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            if (Directory.Exists(_tempDir))
+            {
+                Directory.Delete(_tempDir, recursive: true);
+            }
+        }
+        catch
+        {
+            // best-effort cleanup
         }
     }
 }

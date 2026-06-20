@@ -55,12 +55,12 @@ public sealed class FileDropHandlerTests
             var map = provider.Load();
 
             var config = Assert.Single(map.Values);
-            Assert.False(string.IsNullOrWhiteSpace(config.EntryId));
             Assert.Equal("newadventure", config.DataKey); // DataKey is normalized: lowercase, no .exe
+            Assert.Equal(exePath, config.Executable);
             Assert.Equal("NewAdventure.exe", config.ExecutableName);
             Assert.Equal("NewAdventure", config.DisplayName);
             Assert.True(config.IsEnabled);
-            Assert.False(config.HDREnabled);
+            Assert.False(config.HdrEnabled);
         }
         finally
         {
@@ -81,12 +81,11 @@ public sealed class FileDropHandlerTests
         {
             ["legacy-entry"] = new GameConfig
             {
-                EntryId = "legacy-entry",
                 DataKey = "LegacyClassic", // Existing DataKey without .exe
                 ExecutableName = "LegacyClassic.exe",
                 DisplayName = "旧版经典",
                 IsEnabled = false,
-                HDREnabled = false
+                HdrEnabled = false
             }
         };
         var seedProvider = new YamlConfigProvider(configPath);
@@ -110,7 +109,7 @@ public sealed class FileDropHandlerTests
             Assert.Equal("LegacyClassic.exe", config.ExecutableName);
             Assert.Equal("LegacyClassic", config.DisplayName);
             Assert.True(config.IsEnabled); // Updated to enabled
-            Assert.False(config.HDREnabled); // HDR preserved
+            Assert.False(config.HdrEnabled); // HDR preserved
         }
         finally
         {
@@ -160,7 +159,7 @@ public sealed class FileDropHandlerTests
             Assert.Equal("SteamAdventure.exe", config.ExecutableName);
             Assert.Equal("SteamShortcut", config.DisplayName); // DisplayName from .url filename
             Assert.True(config.IsEnabled);
-            Assert.False(config.HDREnabled);
+            Assert.False(config.HdrEnabled);
         }
         finally
         {
@@ -187,13 +186,11 @@ public sealed class FileDropHandlerTests
         {
             ["entry1"] = new GameConfig
             {
-                EntryId = "entry1",
                 DataKey = "game",
-                ExecutableName = "Game.exe",
                 ExecutablePath = oldExePath,
                 DisplayName = "Old Game",
                 IsEnabled = true,
-                HDREnabled = false
+                HdrEnabled = false
             }
         };
         new YamlConfigProvider(configPath).Save(seed);
@@ -233,13 +230,11 @@ public sealed class FileDropHandlerTests
         {
             ["entry1"] = new GameConfig
             {
-                EntryId = "entry1",
                 DataKey = "game",
-                ExecutableName = "Game.exe",
                 ExecutablePath = exePath,
                 DisplayName = "Old Name",
                 IsEnabled = false,
-                HDREnabled = true
+                HdrEnabled = true
             }
         };
         new YamlConfigProvider(configPath).Save(seed);
@@ -254,9 +249,9 @@ public sealed class FileDropHandlerTests
             Assert.Equal(1, summary.Updated);
 
             var config = Assert.Single(new YamlConfigProvider(configPath).Load().Values);
-            Assert.Equal("entry1", config.EntryId);
+            Assert.Equal("game", config.DataKey);
             Assert.True(config.IsEnabled);
-            Assert.True(config.HDREnabled); // preserve previous HDR preference
+            Assert.True(config.HdrEnabled); // preserve previous HDR preference
         }
         finally
         {
@@ -273,13 +268,12 @@ public sealed class FileDropHandlerTests
         var textPath = Path.Combine(tempDir, "not-a-game.txt");
         File.WriteAllText(textPath, string.Empty);
         File.WriteAllText(configPath, """
+monitor: ETW
 games:
-  - entryId: entry1
-    dataKey: duplicate
-    executableName: One.exe
-  - entryId: entry2
-    dataKey: duplicate
-    executableName: Two.exe
+  - dataKey: duplicate
+    executable: One.exe
+  - dataKey: duplicate
+    executable: Two.exe
 """);
 
         using var services = new ServiceCollection().BuildServiceProvider();

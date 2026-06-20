@@ -91,9 +91,8 @@ namespace GameHelper.Tests
             Assert.Equal("dworigins", game.DataKey);
             Assert.Equal("DWORIGINS.exe", game.ExecutableName);
             Assert.Equal("三国无双：起源", game.DisplayName);
-            Assert.False(string.IsNullOrWhiteSpace(game.EntryId));
             Assert.True(game.IsEnabled);
-            Assert.False(game.HDREnabled);
+            Assert.False(game.HdrEnabled);
         }
 
         [Fact]
@@ -117,7 +116,7 @@ namespace GameHelper.Tests
 
             Assert.Equal("testgame", game.DataKey);
             Assert.False(game.IsEnabled);
-            Assert.True(game.HDREnabled);
+            Assert.True(game.HdrEnabled);
         }
 
         [Fact]
