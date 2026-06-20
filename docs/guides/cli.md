@@ -46,6 +46,8 @@ dotnet run --project .\GameHelper.ConsoleHost -- migrate
 
 `migrate` 会复用 Core 监控匹配阈值迁移旧 `playtime.csv`，只自动改写唯一的精确或模糊匹配；歧义记录会保留给人工处理。
 
+`config list` 会输出每个条目的 `dataKey`、`displayName`、启用状态和 HDR 设置，便于核对本地配置。
+
 ## 配置文件
 
 - 默认路径：`%AppData%\GameHelper\config.yml`

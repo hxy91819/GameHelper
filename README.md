@@ -39,6 +39,8 @@ dotnet run --project .\GameHelper.ConsoleHost -- migrate
 
 `migrate` 会按当前 Core 匹配规则把旧 `playtime.csv` 中的游戏名映射到 `dataKey`；歧义匹配不会自动改写。
 
+`config list` 会同时显示 `dataKey` 和 `displayName`，方便核对配置显示名。
+
 更多 CLI 说明见 `docs/guides/cli.md`。
 
 ### 运行中拖拽添加（已支持）
