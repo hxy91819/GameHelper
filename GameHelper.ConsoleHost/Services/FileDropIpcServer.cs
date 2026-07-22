@@ -20,7 +20,7 @@ internal sealed class FileDropIpcServer : IHostedService, IFileDropIpcServer, ID
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    private readonly IFileDropRequestHandler _handler;
+    private readonly FileDropIntake _handler;
     private readonly ILogger<FileDropIpcServer> _logger;
     private readonly object _sync = new();
 
@@ -28,7 +28,7 @@ internal sealed class FileDropIpcServer : IHostedService, IFileDropIpcServer, ID
     private Task? _loopTask;
     private bool _started;
 
-    public FileDropIpcServer(IFileDropRequestHandler handler, ILogger<FileDropIpcServer> logger)
+    public FileDropIpcServer(FileDropIntake handler, ILogger<FileDropIpcServer> logger)
     {
         _handler = handler;
         _logger = logger;

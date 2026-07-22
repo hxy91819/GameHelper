@@ -33,8 +33,8 @@ public sealed class ConsoleHostBootstrapperTests : IDisposable
             MonitorDryRun = true
         });
 
-        AssertRegistered<IConfigProvider>(services);
-        AssertRegistered<IAppConfigProvider>(services);
+        AssertRegistered<IGameConfiguration>(services);
+        AssertRegistered<IConfigPathProvider>(services);
         AssertRegistered<IProcessMonitor>(services);
         AssertRegistered<IHdrController>(services);
         AssertRegistered<IPlayTimeService>(services);
@@ -43,7 +43,7 @@ public sealed class ConsoleHostBootstrapperTests : IDisposable
         AssertRegistered<ISettingsService>(services);
         AssertRegistered<IGameCatalogService>(services);
         AssertRegistered<IStatisticsService>(services);
-        AssertRegistered<IFileDropRequestHandler>(services);
+        AssertRegistered<FileDropIntake>(services);
         AssertRegistered<IFileDropIpcServer>(services);
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IHostedService));
     }
@@ -57,12 +57,10 @@ public sealed class ConsoleHostBootstrapperTests : IDisposable
             MonitorDryRun = true
         }).Build();
 
-        var configProvider = host.Services.GetRequiredService<IConfigProvider>();
-        var appConfigProvider = host.Services.GetRequiredService<IAppConfigProvider>();
+        var configProvider = host.Services.GetRequiredService<IGameConfiguration>();
         var pathProvider = Assert.IsAssignableFrom<IConfigPathProvider>(configProvider);
         var monitor = host.Services.GetRequiredService<IProcessMonitor>();
 
-        Assert.Same(configProvider, appConfigProvider);
         Assert.Equal(_configPath, pathProvider.ConfigPath);
         Assert.IsType<NoOpProcessMonitor>(monitor);
     }

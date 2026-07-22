@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using GameHelper.ConsoleHost.Utilities;
+using GameHelper.Core.Models;
 using GameHelper.Core.Utilities;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -90,7 +91,7 @@ namespace GameHelper.Tests
             var productName = "My Awesome Game";
 
             // Act
-            var result = DataKeyGenerator.GenerateBaseDataKey(exePath, productName);
+            var result = DataKeyGenerator.GenerateBaseDataKey(ExecutableIdentity.Parse(exePath), productName);
 
             // Assert
             Assert.Equal("myawesomegame", result); // Normalized: lowercase, no spaces
@@ -103,7 +104,7 @@ namespace GameHelper.Tests
             var exePath = @"C:\Games\MyGame\game.exe";
 
             // Act
-            var result = DataKeyGenerator.GenerateBaseDataKey(exePath, null);
+            var result = DataKeyGenerator.GenerateBaseDataKey(ExecutableIdentity.Parse(exePath), null);
 
             // Assert
             Assert.Equal("game", result);
@@ -116,7 +117,7 @@ namespace GameHelper.Tests
             var exePath = @"C:\Games\MyGame\game.exe";
 
             // Act
-            var result = DataKeyGenerator.GenerateBaseDataKey(exePath, "   ");
+            var result = DataKeyGenerator.GenerateBaseDataKey(ExecutableIdentity.Parse(exePath), "   ");
 
             // Assert
             Assert.Equal("game", result);
@@ -129,7 +130,7 @@ namespace GameHelper.Tests
             var exePath = @"C:\Program Files (x86)\Steam\steamapps\common\MyGame\bin\x64\game.exe";
 
             // Act
-            var result = DataKeyGenerator.GenerateBaseDataKey(exePath, null);
+            var result = DataKeyGenerator.GenerateBaseDataKey(ExecutableIdentity.Parse(exePath), null);
 
             // Assert
             Assert.Equal("game", result);

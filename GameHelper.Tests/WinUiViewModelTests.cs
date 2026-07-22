@@ -95,62 +95,53 @@ public sealed class WinUiViewModelTests
     {
         private readonly Dictionary<string, GameEntry> _store = new(StringComparer.OrdinalIgnoreCase);
 
-        public IReadOnlyList<GameEntry> GetAll() => _store.Values.ToList();
+        public IReadOnlyList<GameEntry> List() => _store.Values.ToList();
 
-        public GameEntry? FindExistingForAdd(string executableName, string? executablePath) => null;
-
-        public string SuggestDataKey(string executableIdentity, string? productName = null) => executableIdentity;
-
-        public bool IsDataKeyAvailable(string dataKey, string? currentDataKey = null) => true;
-
-        public GameEntry Add(GameEntryUpsertRequest request)
+        public GameCatalogIntakePreview PreviewIntake(GameCatalogIntakeRequest request) => new()
         {
-            var key = request.DataKey ?? request.ExecutableName ?? $"game-{_store.Count + 1}.exe";
+            Executable = request.Executable,
+            SuggestedDataKey = request.DataKey ?? request.Executable.Name,
+            IsRequestedDataKeyAvailable = true
+        };
+
+        public GameCatalogIntakeResult Intake(GameCatalogIntakeRequest request)
+        {
+            var key = request.DataKey ?? request.Executable.Name;
             var entry = new GameEntry
             {
                 DataKey = key,
-                ExecutableName = request.ExecutableName ?? key,
+                Executable = request.Executable,
                 DisplayName = request.DisplayName ?? key,
                 IsEnabled = request.IsEnabled,
-                HdrEnabled = request.HdrEnabled
+                HdrEnabled = request.HdrEnabled ?? false
             };
 
             _store[key] = entry;
-            return entry;
+            return new GameCatalogIntakeResult { Entry = entry, WasAdded = true };
         }
 
-        public GameEntry Save(GameEntryUpsertRequest request) => Add(request);
+        public IReadOnlyList<GameCatalogIntakeResult> BatchIntake(IEnumerable<GameCatalogIntakeRequest> requests) =>
+            requests.Select(Intake).ToList();
 
-        public GameEntryImportResult Import(GameEntryImportRequest request) => new()
-        {
-            Entry = Add(new GameEntryUpsertRequest
-            {
-                ExecutableName = request.ExecutableName,
-                ExecutablePath = request.ExecutablePath,
-                DisplayName = request.DisplayName,
-                IsEnabled = request.IsEnabled
-            }),
-            WasAdded = true
-        };
-
-        public void RepairStorage()
-        {
-        }
-
-        public GameEntry Update(string dataKey, GameEntryUpsertRequest request)
+        public GameEntry Update(string dataKey, GameCatalogUpdateRequest request)
         {
             if (!_store.TryGetValue(dataKey, out var entry))
             {
                 throw new KeyNotFoundException();
             }
 
-            entry.DisplayName = request.DisplayName ?? entry.DisplayName;
-            entry.IsEnabled = request.IsEnabled;
-            entry.HdrEnabled = request.HdrEnabled;
-            return entry;
+            var updated = entry with
+            {
+                Executable = request.Executable ?? entry.Executable,
+                DisplayName = request.ClearDisplayName ? null : request.DisplayName ?? entry.DisplayName,
+                IsEnabled = request.IsEnabled ?? entry.IsEnabled,
+                HdrEnabled = request.HdrEnabled ?? entry.HdrEnabled
+            };
+            _store[dataKey] = updated;
+            return updated;
         }
 
-        public bool Delete(string dataKey) => _store.Remove(dataKey);
+        public bool Remove(string dataKey) => _store.Remove(dataKey);
     }
 
     private sealed class FakeStatisticsService : IStatisticsService

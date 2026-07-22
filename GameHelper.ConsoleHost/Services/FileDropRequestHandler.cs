@@ -1,100 +1,152 @@
-using System;
 using System.Diagnostics;
-using System.Threading;
-using System.Threading.Tasks;
-using GameHelper.ConsoleHost.Models;
 using GameHelper.Core.Abstractions;
+using GameHelper.Core.Models;
+using GameHelper.ConsoleHost.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace GameHelper.ConsoleHost.Services;
 
-internal interface IFileDropRequestHandler
-{
-    Task<DropAddResponse> HandleAsync(DropAddRequest request, CancellationToken cancellationToken);
-}
-
-internal interface IFileDropProcessor
-{
-    bool LooksLikeFilePaths(string[] paths);
-
-    AddSummary ProcessFilePaths(string[] paths, string? configOverride, IServiceProvider services);
-}
-
-internal sealed class DefaultFileDropProcessor : IFileDropProcessor
-{
-    public bool LooksLikeFilePaths(string[] paths) => FileDropHandler.LooksLikeFilePaths(paths);
-
-    public AddSummary ProcessFilePaths(string[] paths, string? configOverride, IServiceProvider services) =>
-        FileDropHandler.ProcessFilePaths(paths, configOverride, services);
-}
-
-internal sealed class FileDropRequestHandler : IFileDropRequestHandler
+/// <summary>
+/// Owns the complete File-drop Intake workflow from validation through Catalog commit and automation reload.
+/// </summary>
+internal sealed class FileDropIntake
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly IServiceProvider _services;
-    private readonly IFileDropProcessor _processor;
-    private readonly IGameAutomationService _automationService;
-    private readonly ILogger<FileDropRequestHandler> _logger;
+    private readonly IGameCatalogService _gameCatalog;
+    private readonly ISteamGameResolver _steamResolver;
+    private readonly IGameAutomationService _automation;
+    private readonly IConfigPathProvider _configPath;
+    private readonly ILogger<FileDropIntake> _logger;
 
-    public FileDropRequestHandler(
-        IServiceProvider services,
-        IFileDropProcessor processor,
-        IGameAutomationService automationService,
-        ILogger<FileDropRequestHandler> logger)
+    public FileDropIntake(
+        IGameCatalogService gameCatalog,
+        ISteamGameResolver steamResolver,
+        IGameAutomationService automation,
+        IConfigPathProvider configPath,
+        ILogger<FileDropIntake> logger)
     {
-        _services = services;
-        _processor = processor;
-        _automationService = automationService;
+        _gameCatalog = gameCatalog;
+        _steamResolver = steamResolver;
+        _automation = automation;
+        _configPath = configPath;
         _logger = logger;
     }
 
     public async Task<DropAddResponse> HandleAsync(DropAddRequest request, CancellationToken cancellationToken)
     {
-        if (request.Paths is null || request.Paths.Length == 0)
+        ArgumentNullException.ThrowIfNull(request);
+        if (!FileDropHandler.LooksLikeFilePaths(request.Paths))
         {
-            return new DropAddResponse { Success = false, Error = "No file paths provided." };
-        }
-
-        if (!_processor.LooksLikeFilePaths(request.Paths))
-        {
-            return new DropAddResponse { Success = false, Error = "Invalid drag-drop payload. Only existing .exe/.lnk/.url files are accepted." };
+            return new DropAddResponse
+            {
+                Success = false,
+                Error = "Invalid drag-drop payload. Only existing .exe/.lnk/.url files are accepted."
+            };
         }
 
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        var sw = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         try
         {
-            var summary = _processor.ProcessFilePaths(request.Paths, request.ConfigOverride, _services);
-            _automationService.ReloadConfig();
+            var requests = new List<GameCatalogIntakeRequest>();
+            var skipped = 0;
+            foreach (var path in request.Paths)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var executablePath = ResolveExecutablePath(path);
+                    if (string.IsNullOrWhiteSpace(executablePath) ||
+                        !executablePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    var (productName, _) = GameMetadataExtractor.ExtractMetadata(executablePath);
+                    requests.Add(new GameCatalogIntakeRequest
+                    {
+                        Executable = ExecutableIdentity.Parse(executablePath),
+                        ProductName = productName,
+                        DisplayName = ResolveDisplayName(path, executablePath),
+                        IsEnabled = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Skipping dropped file {Path}", path);
+                    skipped++;
+                }
+            }
+
+            var results = _gameCatalog.BatchIntake(requests);
+            if (results.Count > 0)
+            {
+                _automation.ReloadConfig();
+            }
 
             var response = new DropAddResponse
             {
                 Success = true,
-                Added = summary.Added,
-                Updated = summary.Updated,
-                Skipped = summary.Skipped,
-                DuplicatesRemoved = summary.DuplicatesRemoved,
-                ConfigPath = summary.ConfigPath
+                Added = results.Count(result => result.WasAdded),
+                Updated = results.Count(result => !result.WasAdded),
+                Skipped = skipped,
+                ConfigPath = _configPath.ConfigPath
             };
 
             _logger.LogInformation(
-                "IPC file-drop handled in {ElapsedMs}ms: Added={Added}, Updated={Updated}, Skipped={Skipped}",
-                sw.ElapsedMilliseconds,
+                "File-drop Intake completed in {ElapsedMs}ms: Added={Added}, Updated={Updated}, Skipped={Skipped}",
+                stopwatch.ElapsedMilliseconds,
                 response.Added,
                 response.Updated,
                 response.Skipped);
-
             return response;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "IPC file-drop handling failed");
+            _logger.LogError(ex, "File-drop Intake failed");
             return new DropAddResponse { Success = false, Error = ex.Message };
         }
         finally
         {
-            sw.Stop();
+            stopwatch.Stop();
             _gate.Release();
         }
+    }
+
+    private string? ResolveExecutablePath(string path)
+    {
+        if (Path.GetExtension(path).Equals(".url", StringComparison.OrdinalIgnoreCase))
+        {
+            var url = _steamResolver.TryParseInternetShortcutUrl(path);
+            var appId = url is null ? null : _steamResolver.TryParseRunGameId(url);
+            var resolved = appId is null ? null : _steamResolver.TryResolveExeFromAppId(appId);
+            if (!string.IsNullOrWhiteSpace(resolved))
+            {
+                return resolved;
+            }
+        }
+
+        return ExecutableResolver.TryResolveFromInput(path);
+    }
+
+    private static string ResolveDisplayName(string sourcePath, string executablePath)
+    {
+        var extension = Path.GetExtension(sourcePath);
+        if (extension.Equals(".lnk", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".url", StringComparison.OrdinalIgnoreCase))
+        {
+            var shortcutName = Path.GetFileNameWithoutExtension(sourcePath);
+            if (!string.IsNullOrWhiteSpace(shortcutName))
+            {
+                return shortcutName;
+            }
+        }
+
+        return Path.GetFileNameWithoutExtension(executablePath);
     }
 }

@@ -1,6 +1,6 @@
 namespace GameHelper.Core.Models;
 
-public sealed class GameEntryImportResult
+public sealed record GameCatalogIntakeResult
 {
     public required GameEntry Entry { get; init; }
 

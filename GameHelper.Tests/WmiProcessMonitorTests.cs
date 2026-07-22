@@ -57,7 +57,7 @@ namespace GameHelper.Tests
             var start = new FakeWatcher();
             var stop = new FakeWatcher();
             var monitor = new WmiProcessMonitor(start, stop);
-            ((IProcessNameFilterControl)monitor).SetAllowedProcessNames(new[] { "game.exe" });
+            monitor.Configure(new ProcessObservationPolicy(new[] { "game.exe" }));
 
             var started = new List<string>();
             var stopped = new List<string>();
@@ -72,6 +72,35 @@ namespace GameHelper.Tests
             stop.Raise(new ProcessEventInfo("other.exe", null));
 
             Assert.Equal(new[] { "game.exe" }, started);
+            Assert.Equal(new[] { "game.exe" }, stopped);
+        }
+
+        [Fact]
+        public void Configure_AppliesCandidateAndStopEventContract()
+        {
+            var start = new FakeWatcher();
+            var stop = new FakeWatcher();
+            var monitor = new WmiProcessMonitor(start, stop);
+            var started = new List<string>();
+            var stopped = new List<string>();
+            monitor.ProcessStarted += info => started.Add(info.ExecutableName);
+            monitor.ProcessStopped += info => stopped.Add(info.ExecutableName);
+
+            monitor.Configure(new ProcessObservationPolicy(new[] { "GAME" }, observeStopEvents: false));
+            monitor.Start();
+            start.Raise(new ProcessEventInfo("game.exe", null));
+            start.Raise(new ProcessEventInfo("other.exe", null));
+            stop.Raise(new ProcessEventInfo("game.exe", null));
+
+            Assert.Equal(new[] { "game.exe" }, started);
+            Assert.Empty(stopped);
+            Assert.True(stop.Started);
+
+            monitor.Configure(new ProcessObservationPolicy(new[] { "game.exe" }, observeStopEvents: true));
+            stop.Raise(new ProcessEventInfo("game.exe", null));
+            stop.Raise(new ProcessEventInfo("other.exe", null));
+
+            Assert.True(stop.Started);
             Assert.Equal(new[] { "game.exe" }, stopped);
         }
 
@@ -200,29 +229,6 @@ namespace GameHelper.Tests
                 "Win32_ProcessStopTrace",
                 123,
                 "other.exe",
-                out _);
-
-            Assert.True(startCreated);
-            Assert.False(stopCreated);
-        }
-
-        [Fact]
-        public void WmiProcessEventResolver_Start_DoesNotCache_WhenStopEventsAreDisabled()
-        {
-            var resolver = new WmiProcessEventResolver(
-                name => string.Equals(name, "game.exe", StringComparison.OrdinalIgnoreCase),
-                () => false,
-                _ => new WmiProcessDetails("game.exe", @"C:\Games\game.exe"));
-
-            var startCreated = resolver.TryCreateProcessEvent(
-                "Win32_ProcessStartTrace",
-                123,
-                "game.exe",
-                out _);
-            var stopCreated = resolver.TryCreateProcessEvent(
-                "Win32_ProcessStopTrace",
-                123,
-                null,
                 out _);
 
             Assert.True(startCreated);

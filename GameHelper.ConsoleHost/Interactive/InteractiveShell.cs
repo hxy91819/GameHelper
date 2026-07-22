@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using GameHelper.ConsoleHost.Models;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
@@ -35,8 +34,7 @@ namespace GameHelper.ConsoleHost.Interactive
         private readonly ParsedArguments _arguments;
         private readonly IAnsiConsole _console;
         private readonly PromptUI _promptUI;
-        private readonly IConfigProvider _configProvider;
-        private readonly IAppConfigProvider _appConfigProvider;
+        private readonly IGameConfiguration _gameConfiguration;
         private readonly bool _autoStartMonitor;
 
         public InteractiveShell(IHost host, ParsedArguments arguments, IAnsiConsole? console = null, InteractiveScript? script = null, Func<IHost, CancellationToken, Task>? monitorLoop = null)
@@ -45,8 +43,7 @@ namespace GameHelper.ConsoleHost.Interactive
             var modules = InteractiveShellModules.Create(host, _arguments, console, script, monitorLoop);
             _console = modules.Console;
             _promptUI = modules.PromptUI;
-            _configProvider = modules.ConfigProvider;
-            _appConfigProvider = modules.AppConfigProvider;
+            _gameConfiguration = modules.GameConfiguration;
             _monitorUI = modules.MonitorUI;
             _catalogUI = modules.CatalogUI;
             _settingsUI = modules.SettingsUI;
@@ -120,7 +117,7 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             try
             {
-                var appConfig = _appConfigProvider.LoadAppConfig();
+                var appConfig = _gameConfiguration.Read();
                 return appConfig.AutoStartInteractiveMonitor;
             }
             catch
@@ -190,7 +187,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private string GetConfigPathDescription()
         {
-            if (_configProvider is IConfigPathProvider pathProvider)
+            if (_gameConfiguration is IConfigPathProvider pathProvider)
             {
                 return pathProvider.ConfigPath;
             }
@@ -204,7 +201,7 @@ namespace GameHelper.ConsoleHost.Interactive
             {
                 if (!_arguments.MonitorDryRun)
                 {
-                    configuredMonitorType = _appConfigProvider.LoadAppConfig().ProcessMonitorType;
+                    configuredMonitorType = _gameConfiguration.Read().ProcessMonitorType;
                 }
             }
             catch

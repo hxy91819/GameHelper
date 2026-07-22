@@ -11,8 +11,7 @@ public sealed class ConfigEntryMatcherTests
         var existing = new GameConfig
         {
             DataKey = "game-a",
-            ExecutableName = "game.exe",
-            ExecutablePath = Path.Combine("C:", "Games", "Game", "game.exe")
+            Executable = Path.Combine("C:", "Games", "Game", "game.exe")
         };
         var configs = new[]
         {
@@ -20,12 +19,11 @@ public sealed class ConfigEntryMatcherTests
             new GameConfig
             {
                 DataKey = "game-b",
-                ExecutableName = "game.exe",
-                ExecutablePath = Path.Combine("D:", "Games", "Game", "game.exe")
+                Executable = Path.Combine("D:", "Games", "Game", "game.exe")
             }
         };
 
-        var match = ConfigEntryMatcher.FindExistingForAdd(configs, "game.exe", existing.ExecutablePath);
+        var match = ConfigEntryMatcher.FindExistingForIntake(configs, ExecutableIdentity.Parse(existing.Executable!));
 
         Assert.Same(existing, match);
     }
@@ -36,10 +34,10 @@ public sealed class ConfigEntryMatcherTests
         var existing = new GameConfig
         {
             DataKey = "game-a",
-            ExecutableName = "game.exe"
+            Executable = "game.exe"
         };
 
-        var match = ConfigEntryMatcher.FindExistingForAdd(new[] { existing }, "game.exe", null);
+        var match = ConfigEntryMatcher.FindExistingForIntake(new[] { existing }, ExecutableIdentity.Parse("game.exe"));
 
         Assert.Same(existing, match);
     }
@@ -49,11 +47,11 @@ public sealed class ConfigEntryMatcherTests
     {
         var configs = new[]
         {
-            new GameConfig { DataKey = "game-a", ExecutableName = "game.exe" },
-            new GameConfig { DataKey = "game-b", ExecutableName = "game.exe" }
+            new GameConfig { DataKey = "game-a", Executable = "game.exe" },
+            new GameConfig { DataKey = "game-b", Executable = "game.exe" }
         };
 
-        var match = ConfigEntryMatcher.FindExistingForAdd(configs, "game.exe", null);
+        var match = ConfigEntryMatcher.FindExistingForIntake(configs, ExecutableIdentity.Parse("game.exe"));
 
         Assert.Null(match);
     }

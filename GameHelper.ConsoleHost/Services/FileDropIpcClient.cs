@@ -13,7 +13,6 @@ internal static class FileDropIpcClient
 
     public static async Task<DropAddResponse> SendAsync(
         string[] paths,
-        string? configOverride,
         int timeoutMs = 5000,
         CancellationToken cancellationToken = default)
     {
@@ -33,8 +32,7 @@ internal static class FileDropIpcClient
 
         var request = new DropAddRequest
         {
-            Paths = paths ?? Array.Empty<string>(),
-            ConfigOverride = configOverride
+            Paths = paths ?? Array.Empty<string>()
         };
 
         var requestText = JsonSerializer.Serialize(request, JsonOptions);

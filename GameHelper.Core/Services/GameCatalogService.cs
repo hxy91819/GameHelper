@@ -4,303 +4,275 @@ using GameHelper.Core.Utilities;
 
 namespace GameHelper.Core.Services;
 
+/// <summary>
+/// Owns Game Catalog Intake invariants and commits each mutation as one Game Configuration change.
+/// </summary>
 public sealed class GameCatalogService : IGameCatalogService
 {
-    private readonly IConfigProvider _configProvider;
+    private readonly IGameConfiguration _configuration;
 
-    public GameCatalogService(IConfigProvider configProvider)
+    public GameCatalogService(IGameConfiguration configuration)
     {
-        _configProvider = configProvider;
+        _configuration = configuration;
     }
 
-    public IReadOnlyList<GameEntry> GetAll()
-    {
-        var configs = _configProvider.Load();
-        return configs.Values
-            .OrderBy(v => v.DisplayName ?? v.DataKey, StringComparer.OrdinalIgnoreCase)
-            .Select(ToEntry)
-            .ToList();
-    }
+    public IReadOnlyList<GameEntry> List() => _configuration.Read().Games
+        .OrEmpty()
+        .Where(config => config.ExecutableIdentity is not null)
+        .OrderBy(config => config.DisplayName ?? config.DataKey, StringComparer.OrdinalIgnoreCase)
+        .Select(ToEntry)
+        .ToList();
 
-    public GameEntry? FindExistingForAdd(string executableName, string? executablePath)
+    public GameCatalogIntakePreview PreviewIntake(GameCatalogIntakeRequest request)
     {
-        var normalizedExecutableName = NormalizeExecutableName(executableName);
-        if (string.IsNullOrWhiteSpace(normalizedExecutableName))
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateIdentity(request.Executable);
+
+        var configs = CreateWorkingMapByDataKey(_configuration.Read().Games.OrEmpty());
+        var existing = FindExisting(configs.Values, request.Executable);
+        var suggestedDataKey = existing?.DataKey ?? DataKeyGenerator.GenerateUniqueDataKey(
+            request.Executable,
+            request.ProductName,
+            configs.Values.Select(config => config.DataKey));
+
+        return new GameCatalogIntakePreview
         {
-            return null;
-        }
-
-        var configs = _configProvider.Load();
-        var existing = ConfigEntryMatcher.FindExistingForAdd(configs.Values, normalizedExecutableName, executablePath);
-        return existing is null ? null : ToEntry(existing);
-    }
-
-    public string SuggestDataKey(string executableIdentity, string? productName = null)
-    {
-        var existingKeys = _configProvider.Load().Values.Select(config => config.DataKey);
-        return DataKeyGenerator.GenerateUniqueDataKey(executableIdentity, productName, existingKeys);
-    }
-
-    public bool IsDataKeyAvailable(string dataKey, string? currentDataKey = null)
-    {
-        if (string.IsNullOrWhiteSpace(dataKey))
-        {
-            return false;
-        }
-
-        var requested = dataKey.Trim();
-        return _configProvider.Load().Values.All(config =>
-            !string.Equals(config.DataKey, requested, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(config.DataKey, currentDataKey, StringComparison.OrdinalIgnoreCase));
-    }
-
-    public GameEntry Add(GameEntryUpsertRequest request)
-    {
-        var executableName = NormalizeExecutableName(request.ExecutableName);
-        if (string.IsNullOrWhiteSpace(executableName))
-        {
-            throw new ArgumentException("ExecutableName is required.", nameof(request));
-        }
-
-        var configs = CreateWorkingMapByDataKey(_configProvider.Load());
-        var requestedDataKey = string.IsNullOrWhiteSpace(request.DataKey) ? executableName : request.DataKey;
-        var dataKey = ConfigIdentity.EnsureUniqueDataKey(requestedDataKey, configs.Values.Select(v => v.DataKey));
-
-        var config = new GameConfig
-        {
-            DataKey = dataKey,
-            ExecutableName = executableName,
-            ExecutablePath = request.ExecutablePath,
-            DisplayName = request.DisplayName,
-            IsEnabled = request.IsEnabled,
-            HdrEnabled = request.HdrEnabled
+            Executable = request.Executable,
+            ExistingEntry = existing is null ? null : ToEntry(existing),
+            SuggestedDataKey = suggestedDataKey,
+            IsRequestedDataKeyAvailable = IsDataKeyAvailable(
+                request.DataKey,
+                existing?.DataKey,
+                configs.Values)
         };
-
-        configs[dataKey] = config;
-        _configProvider.Save(configs);
-        return ToEntry(config);
     }
 
-    public GameEntry Save(GameEntryUpsertRequest request)
+    public GameCatalogIntakeResult Intake(GameCatalogIntakeRequest request)
     {
-        var executableName = NormalizeExecutableName(request.ExecutableName);
-        if (string.IsNullOrWhiteSpace(executableName))
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateIdentity(request.Executable);
+
+        GameCatalogIntakeResult? result = null;
+        _configuration.Change(config =>
         {
-            throw new ArgumentException("ExecutableName is required.", nameof(request));
-        }
+            var configs = CreateWorkingMapByDataKey(config.Games.OrEmpty());
+            result = Intake(configs, request);
+            config.Games = configs.Values.ToList();
+        });
 
-        var configs = CreateWorkingMapByDataKey(_configProvider.Load());
-        var existing = ConfigEntryMatcher.FindExistingForAdd(configs.Values, executableName, request.ExecutablePath);
-        var existingDataKey = existing?.DataKey;
-        var requestedDataKey = string.IsNullOrWhiteSpace(request.DataKey) ? executableName : request.DataKey;
-        var dataKey = ResolveRequestedDataKey(requestedDataKey, configs.Values, existingDataKey);
-
-        var config = existing ?? new GameConfig();
-        config.DataKey = dataKey;
-        config.ExecutableName = executableName;
-        config.ExecutablePath = request.ClearExecutablePath ? null : request.ExecutablePath;
-        config.DisplayName = request.ClearDisplayName ? null : request.DisplayName;
-        config.IsEnabled = request.IsEnabled;
-        config.HdrEnabled = request.HdrEnabled;
-
-        if (!string.IsNullOrWhiteSpace(existingDataKey) &&
-            !string.Equals(existingDataKey, dataKey, StringComparison.OrdinalIgnoreCase))
-        {
-            configs.Remove(existingDataKey);
-        }
-
-        configs[dataKey] = config;
-        _configProvider.Save(configs);
-        return ToEntry(config);
+        return result!;
     }
 
-    public GameEntryImportResult Import(GameEntryImportRequest request)
+    public IReadOnlyList<GameCatalogIntakeResult> BatchIntake(IEnumerable<GameCatalogIntakeRequest> requests)
     {
-        var executableName = NormalizeExecutableName(request.ExecutableName);
-        if (string.IsNullOrWhiteSpace(executableName))
+        ArgumentNullException.ThrowIfNull(requests);
+        var batch = requests.ToList();
+        foreach (var request in batch)
         {
-            throw new ArgumentException("ExecutableName is required.", nameof(request));
+            ArgumentNullException.ThrowIfNull(request);
+            ValidateIdentity(request.Executable);
         }
 
-        var executablePath = NormalizeImportPath(request.ExecutablePath);
-        if (string.IsNullOrWhiteSpace(executablePath))
+        if (batch.Count == 0)
         {
-            throw new ArgumentException("ExecutablePath is required.", nameof(request));
+            return Array.Empty<GameCatalogIntakeResult>();
         }
 
-        var configs = CreateWorkingMapByDataKey(_configProvider.Load());
-        var existing = ConfigEntryMatcher.FindExistingForAdd(configs.Values, executableName, executablePath);
-        if (existing is not null)
+        var results = new List<GameCatalogIntakeResult>(batch.Count);
+        _configuration.Change(config =>
         {
-            var previousExecutablePath = existing.ExecutablePath;
-            existing.DataKey = EnsureExistingDataKey(existing, configs.Values, request.BaseDataKey ?? executableName);
-            existing.ExecutablePath = executablePath;
-            existing.ExecutableName = executableName;
-            existing.DisplayName = request.DisplayName;
-            existing.IsEnabled = request.IsEnabled;
-
-            configs[existing.DataKey] = existing;
-            _configProvider.Save(configs);
-            return new GameEntryImportResult
+            var configs = CreateWorkingMapByDataKey(config.Games.OrEmpty());
+            foreach (var request in batch)
             {
-                Entry = ToEntry(existing),
-                WasAdded = false,
-                PreviousExecutablePath = previousExecutablePath
-            };
-        }
+                results.Add(Intake(configs, request));
+            }
 
-        var dataKey = ConfigIdentity.EnsureUniqueDataKey(
-            request.BaseDataKey ?? executableName,
-            configs.Values.Select(c => c.DataKey));
-        var config = new GameConfig
-        {
-            DataKey = dataKey,
-            ExecutablePath = executablePath,
-            ExecutableName = executableName,
-            DisplayName = request.DisplayName,
-            IsEnabled = request.IsEnabled,
-            HdrEnabled = false
-        };
+            config.Games = configs.Values.ToList();
+        });
 
-        configs[dataKey] = config;
-        _configProvider.Save(configs);
-        return new GameEntryImportResult
-        {
-            Entry = ToEntry(config),
-            WasAdded = true
-        };
+        return results;
     }
 
-    public void RepairStorage()
-    {
-        var configs = CreateWorkingMapByDataKey(_configProvider.Load());
-        _configProvider.Save(configs);
-    }
-
-    public GameEntry Update(string dataKey, GameEntryUpsertRequest request)
+    public GameEntry Update(string dataKey, GameCatalogUpdateRequest request)
     {
         if (string.IsNullOrWhiteSpace(dataKey))
         {
             throw new ArgumentException("Data key is required.", nameof(dataKey));
         }
 
-        var configs = CreateWorkingMapByDataKey(_configProvider.Load());
-        var existing = FindByDataKey(configs.Values, dataKey);
-        if (existing is null)
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Executable is not null)
         {
-            throw new KeyNotFoundException($"Game '{dataKey}' not found.");
+            ValidateIdentity(request.Executable);
         }
 
-        existing.ExecutableName = NormalizeExecutableName(request.ExecutableName) ?? existing.ExecutableName;
-        existing.ExecutablePath = request.ClearExecutablePath ? null : request.ExecutablePath ?? existing.ExecutablePath;
-        existing.DisplayName = request.ClearDisplayName ? null : request.DisplayName ?? existing.DisplayName;
-        existing.IsEnabled = request.IsEnabled;
-        existing.HdrEnabled = request.HdrEnabled;
+        GameEntry? result = null;
+        _configuration.Change(config =>
+        {
+            var configs = CreateWorkingMapByDataKey(config.Games.OrEmpty());
+            var existing = FindByDataKey(configs.Values, dataKey) ??
+                throw new KeyNotFoundException($"Game '{dataKey}' not found.");
+            var identity = request.Executable ?? existing.ExecutableIdentity ??
+                throw new InvalidOperationException($"Game '{dataKey}' has no executable identity.");
 
-        configs[existing.DataKey] = existing;
-        _configProvider.Save(configs);
-        return ToEntry(existing);
+            var updated = new GameConfig
+            {
+                DataKey = existing.DataKey,
+                Executable = identity.Value,
+                DisplayName = request.ClearDisplayName ? null : request.DisplayName ?? existing.DisplayName,
+                IsEnabled = request.IsEnabled ?? existing.IsEnabled,
+                HdrEnabled = request.HdrEnabled ?? existing.HdrEnabled
+            };
+
+            configs[updated.DataKey] = updated;
+            config.Games = configs.Values.ToList();
+            result = ToEntry(updated);
+        });
+
+        return result!;
     }
 
-    public bool Delete(string dataKey)
+    public bool Remove(string dataKey)
     {
         if (string.IsNullOrWhiteSpace(dataKey))
         {
             return false;
         }
 
-        var configs = CreateWorkingMapByDataKey(_configProvider.Load());
-        var existing = FindByDataKey(configs.Values, dataKey);
-        if (existing is null)
+        var removed = false;
+        _configuration.Change(config =>
         {
-            return false;
+            var configs = CreateWorkingMapByDataKey(config.Games.OrEmpty());
+            var existing = FindByDataKey(configs.Values, dataKey);
+            if (existing is not null)
+            {
+                removed = configs.Remove(existing.DataKey);
+            }
+
+            config.Games = configs.Values.ToList();
+        });
+
+        return removed;
+    }
+
+    private static GameCatalogIntakeResult Intake(
+        IDictionary<string, GameConfig> configs,
+        GameCatalogIntakeRequest request)
+    {
+        var existing = FindExisting(configs.Values, request.Executable);
+        var previousExecutablePath = existing?.ExecutablePath;
+        var dataKey = ResolveDataKey(request, existing, configs.Values);
+        var updated = new GameConfig
+        {
+            DataKey = dataKey,
+            Executable = request.Executable.Value,
+            DisplayName = request.DisplayName ?? existing?.DisplayName,
+            IsEnabled = request.IsEnabled,
+            HdrEnabled = request.HdrEnabled ?? existing?.HdrEnabled ?? false
+        };
+
+        if (existing is not null &&
+            !string.Equals(existing.DataKey, dataKey, StringComparison.OrdinalIgnoreCase))
+        {
+            configs.Remove(existing.DataKey);
         }
 
-        configs.Remove(existing.DataKey);
-        _configProvider.Save(configs);
-        return true;
+        configs[dataKey] = updated;
+        return new GameCatalogIntakeResult
+        {
+            Entry = ToEntry(updated),
+            WasAdded = existing is null,
+            PreviousExecutablePath = previousExecutablePath
+        };
     }
+
+    private static string ResolveDataKey(
+        GameCatalogIntakeRequest request,
+        GameConfig? existing,
+        IEnumerable<GameConfig> configs)
+    {
+        var requested = request.DataKey?.Trim();
+        if (string.IsNullOrWhiteSpace(requested))
+        {
+            return existing?.DataKey ?? DataKeyGenerator.GenerateUniqueDataKey(
+                request.Executable,
+                request.ProductName,
+                configs.Select(config => config.DataKey));
+        }
+
+        if (!IsDataKeyAvailable(requested, existing?.DataKey, configs))
+        {
+            throw new InvalidOperationException($"DataKey '{requested}' is already used by another game.");
+        }
+
+        return requested;
+    }
+
+    private static bool IsDataKeyAvailable(
+        string? requestedDataKey,
+        string? currentDataKey,
+        IEnumerable<GameConfig> configs)
+    {
+        if (string.IsNullOrWhiteSpace(requestedDataKey))
+        {
+            return true;
+        }
+
+        var requested = requestedDataKey.Trim();
+        return configs.All(config =>
+            !string.Equals(config.DataKey, requested, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(config.DataKey, currentDataKey, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static GameConfig? FindExisting(IEnumerable<GameConfig> configs, ExecutableIdentity identity) =>
+        ConfigEntryMatcher.FindExistingForIntake(configs, identity);
 
     private static GameEntry ToEntry(GameConfig config) => new()
     {
         DataKey = config.DataKey,
-        ExecutableName = config.ExecutableName,
-        ExecutablePath = config.ExecutablePath,
+        Executable = config.ExecutableIdentity ??
+            throw new InvalidOperationException($"Game '{config.DataKey}' has no executable identity."),
         DisplayName = config.DisplayName,
         IsEnabled = config.IsEnabled,
         HdrEnabled = config.HdrEnabled
     };
 
-    private static string? NormalizeExecutableName(string? executableName)
-    {
-        if (string.IsNullOrWhiteSpace(executableName))
-        {
-            return null;
-        }
-
-        return executableName.Trim();
-    }
-
-    private static string? NormalizeImportPath(string? executablePath)
-    {
-        if (string.IsNullOrWhiteSpace(executablePath))
-        {
-            return null;
-        }
-
-        return executablePath.Trim();
-    }
-
-    private static Dictionary<string, GameConfig> CreateWorkingMapByDataKey(IReadOnlyDictionary<string, GameConfig> configs)
+    private static Dictionary<string, GameConfig> CreateWorkingMapByDataKey(IEnumerable<GameConfig> configs)
     {
         var result = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
         var usedDataKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var config in configs.Values)
+        foreach (var config in configs)
         {
-            config.DataKey = ConfigIdentity.EnsureUniqueDataKey(config.DataKey, usedDataKeys);
-            result[config.DataKey] = config;
+            var dataKey = ConfigIdentity.EnsureUniqueDataKey(config.DataKey, usedDataKeys);
+            result[dataKey] = new GameConfig
+            {
+                DataKey = dataKey,
+                Executable = config.Executable,
+                DisplayName = config.DisplayName,
+                IsEnabled = config.IsEnabled,
+                HdrEnabled = config.HdrEnabled
+            };
         }
 
         return result;
     }
 
-    private static GameConfig? FindByDataKey(IEnumerable<GameConfig> configs, string dataKey)
-    {
-        return configs.FirstOrDefault(config =>
+    private static GameConfig? FindByDataKey(IEnumerable<GameConfig> configs, string dataKey) =>
+        configs.FirstOrDefault(config =>
             string.Equals(config.DataKey, dataKey, StringComparison.OrdinalIgnoreCase));
-    }
 
-    private static string EnsureExistingDataKey(GameConfig existing, IEnumerable<GameConfig> allConfigs, string baseDataKey)
+    private static void ValidateIdentity(ExecutableIdentity identity)
     {
-        if (!string.IsNullOrWhiteSpace(existing.DataKey))
+        ArgumentNullException.ThrowIfNull(identity);
+        if (string.IsNullOrWhiteSpace(identity.Name))
         {
-            return existing.DataKey;
+            throw new ArgumentException("Executable identity must contain a file name.", nameof(identity));
         }
-
-        var keys = allConfigs
-            .Where(c => !string.Equals(c.DataKey, existing.DataKey, StringComparison.OrdinalIgnoreCase))
-            .Select(c => c.DataKey);
-
-        return ConfigIdentity.EnsureUniqueDataKey(baseDataKey, keys);
     }
+}
 
-    private static string ResolveRequestedDataKey(string? requestedDataKey, IEnumerable<GameConfig> allConfigs, string? currentDataKey)
-    {
-        if (string.IsNullOrWhiteSpace(requestedDataKey))
-        {
-            throw new ArgumentException("DataKey is required.", nameof(requestedDataKey));
-        }
-
-        var dataKey = requestedDataKey.Trim();
-        var isUsedByAnotherEntry = allConfigs.Any(config =>
-            string.Equals(config.DataKey, dataKey, StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(config.DataKey, currentDataKey, StringComparison.OrdinalIgnoreCase));
-        if (isUsedByAnotherEntry)
-        {
-            throw new InvalidOperationException($"DataKey '{dataKey}' is already used by another game.");
-        }
-
-        return dataKey;
-    }
-
+internal static class GameCatalogEnumerableExtensions
+{
+    public static IEnumerable<GameConfig> OrEmpty(this IEnumerable<GameConfig>? configs) =>
+        configs ?? Array.Empty<GameConfig>();
 }

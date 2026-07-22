@@ -103,6 +103,28 @@ public sealed class FilePlaytimeSnapshotProviderTests : IDisposable
     }
 
     [Fact]
+    public void GetPlaytimeRecords_WithMalformedRows_ShouldSkipOnlyInvalidRows()
+    {
+        var gameDir = Path.Combine(_tempRoot, "GameHelper");
+        Directory.CreateDirectory(gameDir);
+        var csvPath = Path.Combine(gameDir, "playtime.csv");
+        File.WriteAllText(
+            csvPath,
+            "game,start_time,end_time,duration_minutes\n" +
+            "bad-date,not-a-date,2026-01-01T10:30:00,30\n" +
+            "bad-duration,2026-01-01T10:00:00,2026-01-01T10:30:00,-1\n" +
+            "wrong-field-count,2026-01-01T10:00:00,2026-01-01T10:30:00,30,extra\n" +
+            "\"bad\"suffix,2026-01-01T10:00:00,2026-01-01T10:30:00,30\n" +
+            "valid-game,2026-01-01T11:00:00,2026-01-01T11:45:00,45\n");
+
+        var records = new FilePlaytimeSnapshotProvider().GetPlaytimeRecords();
+
+        var record = Assert.Single(records);
+        Assert.Equal("valid-game", record.GameName);
+        Assert.Equal(45, Assert.Single(record.Sessions).DurationMinutes);
+    }
+
+    [Fact]
     public void GetPlaytimeOverview_WithCsv_ShouldAggregateWithoutLoadingSessions()
     {
         var gameDir = Path.Combine(_tempRoot, "GameHelper");

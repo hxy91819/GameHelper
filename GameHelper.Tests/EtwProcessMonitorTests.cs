@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Security.Principal;
+using GameHelper.Core.Abstractions;
 using GameHelper.Infrastructure.Exceptions;
 using GameHelper.Infrastructure.Processes;
 using Microsoft.Extensions.Logging;
@@ -55,14 +56,14 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void SetStopEventsEnabled_ShouldNotThrow()
+        public void Configure_ShouldNotThrow()
         {
             // Arrange
             var monitor = new EtwProcessMonitor();
 
             // Act & Assert
-            monitor.SetStopEventsEnabled(true);
-            monitor.SetStopEventsEnabled(false);
+            monitor.Configure(new ProcessObservationPolicy(new[] { "game.exe" }, observeStopEvents: true));
+            monitor.Configure(new ProcessObservationPolicy(new[] { "game.exe" }, observeStopEvents: false));
         }
 
         [Fact]
@@ -124,30 +125,43 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void SetStopEventsEnabled_WhenReEnabled_DoesNotClearActivePathCache()
+        public void Configure_WhenStopEventsReEnabled_DoesNotClearActivePathCache()
         {
             var monitor = new EtwProcessMonitor();
             var cacheField = typeof(EtwProcessMonitor).GetField("_startPathCache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             var cache = (ConcurrentDictionary<int, string>)cacheField!.GetValue(monitor)!;
             cache[123] = @"C:\\Games\\game.exe";
-            monitor.SetStopEventsEnabled(false);
+            monitor.Configure(new ProcessObservationPolicy(new[] { "game.exe" }, observeStopEvents: false));
             Assert.Contains(123, cache.Keys);
             // Re-enabling stop events should NOT clear the cache; active entries are still
             // valid and stale entries are handled by TryRemove on stop.
-            monitor.SetStopEventsEnabled(true);
+            monitor.Configure(new ProcessObservationPolicy(new[] { "game.exe" }, observeStopEvents: true));
             Assert.Contains(123, cache.Keys);
+        }
+
+        [Fact]
+        public void Configure_AppliesCandidateAndStopEventContract()
+        {
+            var monitor = new EtwProcessMonitor();
+            monitor.Configure(new ProcessObservationPolicy(new[] { "GAME" }, observeStopEvents: false));
+
+            Assert.True(monitor.IsAllowedProcessStart("game.exe", null));
+            Assert.False(monitor.IsAllowedProcessStart("other.exe", null));
+            Assert.False(monitor.IsAllowedProcessStop("game.exe", hadCachedStart: true));
+
+            monitor.Configure(new ProcessObservationPolicy(new[] { "game.exe" }, observeStopEvents: true));
+
+            Assert.True(monitor.IsAllowedProcessStop("game.exe", hadCachedStart: false));
+            Assert.True(monitor.IsAllowedProcessStop("renamed.exe", hadCachedStart: true));
+            Assert.False(monitor.IsAllowedProcessStop("other.exe", hadCachedStart: false));
         }
 
         [Fact]
         public void IsAllowedProcessStart_WhenPathHintFilenameAllowed_ReturnsTrue()
         {
             var monitor = new EtwProcessMonitor(new[] { "game.exe" }, null);
-            var method = typeof(EtwProcessMonitor).GetMethod(
-                "IsAllowedProcessStart",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
-            var allowedByPath = (bool)method!.Invoke(monitor, new object?[] { "launcher.exe", @"C:\Steam\game.exe" })!;
-            var rejected = (bool)method.Invoke(monitor, new object?[] { "launcher.exe", @"C:\Tools\launcher.exe" })!;
+            var allowedByPath = monitor.IsAllowedProcessStart("launcher.exe", @"C:\Steam\game.exe");
+            var rejected = monitor.IsAllowedProcessStart("launcher.exe", @"C:\Tools\launcher.exe");
 
             Assert.True(allowedByPath);
             Assert.False(rejected);

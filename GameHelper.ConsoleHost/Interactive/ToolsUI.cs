@@ -77,10 +77,16 @@ namespace GameHelper.ConsoleHost.Interactive
                 _console.Status().Start("转换配置中...", ctx =>
                 {
                     var jsonProvider = new JsonConfigProvider(jsonPath);
-                    var data = jsonProvider.Load();
+                    var data = jsonProvider.Read();
                     ctx.Status("写入 YAML...");
                     var yamlProvider = new YamlConfigProvider(ymlPath);
-                    yamlProvider.Save(data);
+                    yamlProvider.Change(config =>
+                    {
+                        config.ProcessMonitorType = data.ProcessMonitorType;
+                        config.AutoStartInteractiveMonitor = data.AutoStartInteractiveMonitor;
+                        config.LaunchOnSystemStartup = data.LaunchOnSystemStartup;
+                        config.Games = data.Games;
+                    });
                 });
 
                 _console.MarkupLine($"[green]转换完成[/]，YAML 已写入 {Markup.Escape(ymlPath)}。");

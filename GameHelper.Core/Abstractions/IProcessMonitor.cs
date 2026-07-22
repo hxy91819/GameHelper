@@ -21,6 +21,12 @@ namespace GameHelper.Core.Abstractions
         event Action<ProcessEventInfo>? ProcessStopped;
 
         /// <summary>
+        /// Atomically replaces the process-name gate and stop-event policy. Implementations must accept
+        /// configuration both before and while monitoring.
+        /// </summary>
+        void Configure(ProcessObservationPolicy policy);
+
+        /// <summary>
         /// Starts monitoring and begins raising events.
         /// </summary>
         void Start();

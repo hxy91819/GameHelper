@@ -143,13 +143,13 @@ namespace GameHelper.Tests
             {
                 Games = new List<GameConfig>
                 {
-                    new() { DataKey = "elden_ring", ExecutableName = "eldenring.exe", DisplayName = "Elden Ring", IsEnabled = true },
-                    new() { DataKey = "dark_souls_3", ExecutableName = "darksouls3.exe", DisplayName = "Dark Souls III", IsEnabled = true }
+                    new() { DataKey = "elden_ring", Executable = "eldenring.exe", DisplayName = "Elden Ring", IsEnabled = true },
+                    new() { DataKey = "dark_souls_3", Executable = "darksouls3.exe", DisplayName = "Dark Souls III", IsEnabled = true }
                 }
             };
             
             var provider = new YamlConfigProvider(_configFile);
-            provider.SaveAppConfig(appConfig);
+            SaveConfig(provider, appConfig);
             
             // CSV 包含 DataKey
             var csvContent = new StringBuilder();
@@ -160,7 +160,7 @@ namespace GameHelper.Tests
             File.WriteAllText(_csvFile, csvContent.ToString());
             
             // When: 读取配置和 CSV
-            var configs = provider.Load();
+            var configs = LoadGames(provider);
             var games = new FilePlaytimeSnapshotProvider(_dir).GetPlaytimeRecords();
             
             // Then:
@@ -191,12 +191,12 @@ namespace GameHelper.Tests
             {
                 Games = new List<GameConfig>
                 {
-                    new() { DataKey = "elden_ring", ExecutableName = "eldenring.exe", IsEnabled = true }
+                    new() { DataKey = "elden_ring", Executable = "eldenring.exe", IsEnabled = true }
                 }
             };
             
             var provider = new YamlConfigProvider(_configFile);
-            provider.SaveAppConfig(appConfig);
+            SaveConfig(provider, appConfig);
             
             var csvContent = new StringBuilder();
             csvContent.AppendLine("game,start_time,end_time,duration_minutes");
@@ -205,7 +205,7 @@ namespace GameHelper.Tests
             File.WriteAllText(_csvFile, csvContent.ToString());
             
             // When: 读取配置
-            var configs = provider.Load();
+            var configs = LoadGames(provider);
             
             // Then: DisplayName 应为 null，需要回退到 DataKey
             Assert.Single(configs);
@@ -223,12 +223,12 @@ namespace GameHelper.Tests
             {
                 Games = new List<GameConfig>
                 {
-                    new() { DataKey = "elden_ring", ExecutableName = "eldenring.exe", DisplayName = "Elden Ring", IsEnabled = true }
+                    new() { DataKey = "elden_ring", Executable = "eldenring.exe", DisplayName = "Elden Ring", IsEnabled = true }
                 }
             };
             
             var provider = new YamlConfigProvider(_configFile);
-            provider.SaveAppConfig(appConfig);
+            SaveConfig(provider, appConfig);
             
             var csvContent = new StringBuilder();
             csvContent.AppendLine("game,start_time,end_time,duration_minutes");
@@ -239,7 +239,7 @@ namespace GameHelper.Tests
             
             // When: 读取 CSV
             var games = new FilePlaytimeSnapshotProvider(_dir).GetPlaytimeRecords();
-            var configs = provider.Load();
+            var configs = LoadGames(provider);
             
             // Then: 
             // - CSV 应包含两个游戏
@@ -269,5 +269,17 @@ namespace GameHelper.Tests
                 // ignore
             }
         }
+
+        private static IReadOnlyDictionary<string, GameConfig> LoadGames(YamlConfigProvider provider) =>
+            provider.Read().Games.ToDictionary(game => game.DataKey, StringComparer.OrdinalIgnoreCase);
+
+        private static void SaveConfig(YamlConfigProvider provider, AppConfig source) =>
+            provider.Change(config =>
+            {
+                config.ProcessMonitorType = source.ProcessMonitorType;
+                config.AutoStartInteractiveMonitor = source.AutoStartInteractiveMonitor;
+                config.LaunchOnSystemStartup = source.LaunchOnSystemStartup;
+                config.Games = source.Games.ToList();
+            });
     }
 }

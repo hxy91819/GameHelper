@@ -26,8 +26,7 @@ public sealed class InteractiveShellModulesTests
         var modules = InteractiveShellModules.Create(host, arguments, console, script: null, monitorLoop: null);
 
         Assert.Same(console, modules.Console);
-        Assert.Same(host.Services.GetRequiredService<IConfigProvider>(), modules.ConfigProvider);
-        Assert.Same(host.Services.GetRequiredService<IAppConfigProvider>(), modules.AppConfigProvider);
+        Assert.Same(host.Services.GetRequiredService<IGameConfiguration>(), modules.GameConfiguration);
         Assert.NotNull(modules.PromptUI);
         Assert.NotNull(modules.MonitorUI);
         Assert.NotNull(modules.CatalogUI);
@@ -38,10 +37,9 @@ public sealed class InteractiveShellModulesTests
 
     private static IHost CreateHost()
     {
-        var provider = new FakeConfigProvider();
+        var provider = new FakeGameConfiguration();
         var services = new ServiceCollection()
-            .AddSingleton<IConfigProvider>(provider)
-            .AddSingleton<IAppConfigProvider>(provider)
+            .AddSingleton<IGameConfiguration>(provider)
             .AddSingleton<IAutoStartManager, FakeAutoStartManager>()
             .AddSingleton<IGameCatalogService, GameCatalogService>()
             .AddSingleton<IMonitorControlService, FakeMonitorControlService>()
@@ -70,18 +68,16 @@ public sealed class InteractiveShellModulesTests
         public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
-    private sealed class FakeConfigProvider : IConfigProvider, IAppConfigProvider
+    private sealed class FakeGameConfiguration : IGameConfiguration
     {
-        public IReadOnlyDictionary<string, GameConfig> Load() => new Dictionary<string, GameConfig>();
+        private AppConfig _config = new() { Games = new List<GameConfig>() };
 
-        public void Save(IReadOnlyDictionary<string, GameConfig> configs)
+        public AppConfig Read() => _config;
+
+        public AppConfig Change(Action<AppConfig> change)
         {
-        }
-
-        public AppConfig LoadAppConfig() => new();
-
-        public void SaveAppConfig(AppConfig appConfig)
-        {
+            change(_config);
+            return _config;
         }
     }
 

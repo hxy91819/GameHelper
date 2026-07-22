@@ -288,6 +288,25 @@ namespace GameHelper.Tests
         }
 
         [Fact]
+        public void WrittenSession_ShouldRoundTripThroughSnapshotProvider_WithSpecialCharacters()
+        {
+            var dataKey = "Game, The: \"Special Edition\"\r\nmodded";
+            var svc = new CsvBackedPlayTimeService(_dir);
+
+            svc.StartTracking(dataKey);
+            var writtenSession = svc.StopTracking(dataKey);
+
+            var records = new FilePlaytimeSnapshotProvider(_dir).GetPlaytimeRecords();
+
+            var record = Assert.Single(records);
+            Assert.Equal(dataKey, record.GameName);
+            var readSession = Assert.Single(record.Sessions);
+            Assert.Equal(writtenSession!.StartTime.ToString("yyyy-MM-ddTHH:mm:ss"), readSession.StartTime.ToString("yyyy-MM-ddTHH:mm:ss"));
+            Assert.Equal(writtenSession.EndTime.ToString("yyyy-MM-ddTHH:mm:ss"), readSession.EndTime.ToString("yyyy-MM-ddTHH:mm:ss"));
+            Assert.Equal(writtenSession.DurationMinutes, readSession.DurationMinutes);
+        }
+
+        [Fact]
         public void MultipleGamesWithDataKeys_ShouldWriteCorrectly()
         {
             // Given: 多个游戏使用 DataKey 格式

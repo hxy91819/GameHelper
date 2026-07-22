@@ -12,8 +12,16 @@ namespace GameHelper.Infrastructure.Providers
     /// <summary>
     /// JSON-based config provider stored at %AppData%/GameHelper/config.json.
     /// </summary>
-    public sealed class JsonConfigProvider : IConfigProvider, IConfigPathProvider
+    public sealed class JsonConfigProvider : IGameConfiguration, IConfigPathProvider
     {
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = true
+        };
+
+        private readonly object _gate = new();
         private readonly string _configFilePath;
 
         public JsonConfigProvider()
@@ -28,7 +36,34 @@ namespace GameHelper.Infrastructure.Providers
 
         public string ConfigPath => _configFilePath;
 
-        public IReadOnlyDictionary<string, GameConfig> Load()
+        public AppConfig Read()
+        {
+            lock (_gate)
+            {
+                return ReadCore();
+            }
+        }
+
+        public AppConfig Change(Action<AppConfig> change)
+        {
+            ArgumentNullException.ThrowIfNull(change);
+
+            lock (_gate)
+            {
+                var appConfig = ReadCore();
+                change(appConfig);
+                var normalized = (appConfig.Games ?? new List<GameConfig>())
+                    .Select(config => ConfigEntryNormalizer.NormalizeForSave(config))
+                    .ToList();
+
+                ConfigEntryNormalizer.RepairDuplicateDataKeys(normalized);
+                appConfig.Games = normalized;
+                WriteCore(appConfig);
+                return ReadCore();
+            }
+        }
+
+        private AppConfig ReadCore()
         {
             try
             {
@@ -40,28 +75,24 @@ namespace GameHelper.Infrastructure.Providers
 
                 if (!File.Exists(_configFilePath))
                 {
-                    return new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+                    return new AppConfig { Games = new List<GameConfig>() };
                 }
 
                 var json = File.ReadAllText(_configFilePath);
-                var root = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-                if (root is null || !root.TryGetValue("games", out var gamesNode) || gamesNode is null)
-                {
-                    return new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-                }
-
-                var configs = TryLoadStructuredConfig(gamesNode) ?? new List<GameConfig>();
-                if (configs.Count == 0)
-                {
-                    return new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-                }
-
+                using var document = JsonDocument.Parse(json);
+                var root = document.RootElement;
+                var storedGames = TryGetProperty(root, "games", out var gamesNode)
+                    ? JsonSerializer.Deserialize<List<JsonGameConfigDocument>>(gamesNode.GetRawText(), JsonOptions) ?? new()
+                    : new List<JsonGameConfigDocument>();
+                var configs = NormalizeLoadedGames(storedGames.Select(game => game.ToGameConfig()));
                 ConfigEntryNormalizer.RepairDuplicateDataKeys(configs);
-
-                return configs.ToDictionary(
-                    cfg => cfg.DataKey,
-                    cfg => cfg,
-                    StringComparer.OrdinalIgnoreCase);
+                return new AppConfig
+                {
+                    Games = configs,
+                    ProcessMonitorType = ReadProcessMonitorType(root),
+                    AutoStartInteractiveMonitor = ReadBoolean(root, "autoStartInteractiveMonitor"),
+                    LaunchOnSystemStartup = ReadBoolean(root, "launchOnSystemStartup")
+                };
             }
             catch (InvalidDataException)
             {
@@ -69,11 +100,11 @@ namespace GameHelper.Infrastructure.Providers
             }
             catch
             {
-                return new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
+                return new AppConfig { Games = new List<GameConfig>() };
             }
         }
 
-        public void Save(IReadOnlyDictionary<string, GameConfig> configs)
+        private void WriteCore(AppConfig appConfig)
         {
             var dir = Path.GetDirectoryName(_configFilePath);
             if (!string.IsNullOrEmpty(dir))
@@ -81,53 +112,118 @@ namespace GameHelper.Infrastructure.Providers
                 Directory.CreateDirectory(dir);
             }
 
-            var normalized = configs.Values
-                .Select(config => ConfigEntryNormalizer.NormalizeForSave(config))
-                .ToList();
-
-            ConfigEntryNormalizer.RepairDuplicateDataKeys(normalized);
-
-            var payload = new Dictionary<string, object>
+            var payload = new AppConfig
             {
-                ["games"] = normalized
+                Games = (appConfig.Games ?? new List<GameConfig>())
                     .OrderBy(cfg => cfg.DataKey, StringComparer.OrdinalIgnoreCase)
-                    .ToArray()
+                    .ToList(),
+                ProcessMonitorType = appConfig.ProcessMonitorType,
+                AutoStartInteractiveMonitor = appConfig.AutoStartInteractiveMonitor,
+                LaunchOnSystemStartup = appConfig.LaunchOnSystemStartup
             };
 
-            var serialized = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(_configFilePath, serialized);
-        }
-
-        private static List<GameConfig>? TryLoadStructuredConfig(object gamesNode)
-        {
+            var serialized = JsonSerializer.Serialize(payload, JsonOptions);
+            var tempPath = _configFilePath + ".tmp";
             try
             {
-                var gameConfigs = JsonSerializer.Deserialize<GameConfig[]>(gamesNode.ToString() ?? string.Empty);
-                if (gameConfigs is null)
+                File.WriteAllText(tempPath, serialized);
+                File.Move(tempPath, _configFilePath, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(tempPath))
                 {
-                    return null;
+                    File.Delete(tempPath);
+                }
+            }
+        }
+
+        private static List<GameConfig> NormalizeLoadedGames(IEnumerable<GameConfig>? gameConfigs)
+        {
+            var result = new List<GameConfig>();
+            foreach (var gameConfig in gameConfigs ?? Array.Empty<GameConfig>())
+            {
+                if (gameConfig is null)
+                {
+                    continue;
                 }
 
-                var result = new List<GameConfig>();
-                foreach (var gameConfig in gameConfigs)
+                var normalized = ConfigEntryNormalizer.NormalizeLoaded(gameConfig, MissingDataKeyAction.Throw);
+                if (normalized is not null)
                 {
-                    var normalized = ConfigEntryNormalizer.NormalizeLoaded(gameConfig, MissingDataKeyAction.Throw);
-                    if (normalized is not null)
-                    {
-                        result.Add(normalized);
-                    }
+                    result.Add(normalized);
                 }
+            }
 
-                return result;
-            }
-            catch (InvalidDataException)
+            return result;
+        }
+
+        private static bool TryGetProperty(JsonElement root, string name, out JsonElement value)
+        {
+            foreach (var property in root.EnumerateObject())
             {
-                throw;
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
             }
-            catch
+
+            value = default;
+            return false;
+        }
+
+        private static bool ReadBoolean(JsonElement root, string name) =>
+            TryGetProperty(root, name, out var value) &&
+            value.ValueKind is JsonValueKind.True or JsonValueKind.False &&
+            value.GetBoolean();
+
+        private static ProcessMonitorType ReadProcessMonitorType(JsonElement root)
+        {
+            if (!TryGetProperty(root, "processMonitorType", out var value))
             {
-                return null;
+                return ProcessMonitorType.ETW;
             }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var numeric) &&
+                Enum.IsDefined(typeof(ProcessMonitorType), numeric))
+            {
+                return (ProcessMonitorType)numeric;
+            }
+
+            return value.ValueKind == JsonValueKind.String &&
+                   Enum.TryParse<ProcessMonitorType>(value.GetString(), ignoreCase: true, out var parsed)
+                ? parsed
+                : ProcessMonitorType.ETW;
+        }
+
+        private sealed class JsonGameConfigDocument
+        {
+            public string DataKey { get; set; } = string.Empty;
+
+            public string? Executable { get; set; }
+
+            public string? ExecutableName { get; set; }
+
+            public string? ExecutablePath { get; set; }
+
+            public string? DisplayName { get; set; }
+
+            public bool IsEnabled { get; set; } = true;
+
+            public bool HdrEnabled { get; set; }
+
+            public GameConfig ToGameConfig() => new()
+            {
+                DataKey = DataKey,
+                Executable = FirstNonEmpty(Executable, ExecutablePath, ExecutableName),
+                DisplayName = DisplayName,
+                IsEnabled = IsEnabled,
+                HdrEnabled = HdrEnabled
+            };
+
+            private static string? FirstNonEmpty(params string?[] values) =>
+                values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
         }
 
     }

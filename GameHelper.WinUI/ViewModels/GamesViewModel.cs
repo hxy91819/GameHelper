@@ -25,7 +25,7 @@ public partial class GamesViewModel : ObservableObject
     private void Refresh()
     {
         Games.Clear();
-        foreach (var game in _gameCatalogService.GetAll())
+        foreach (var game in _gameCatalogService.List())
         {
             Games.Add(game);
         }
@@ -34,9 +34,9 @@ public partial class GamesViewModel : ObservableObject
     [RelayCommand]
     private void Add()
     {
-        _gameCatalogService.Add(new GameEntryUpsertRequest
+        _gameCatalogService.Intake(new GameCatalogIntakeRequest
         {
-            ExecutableName = $"new-game-{DateTimeOffset.Now.ToUnixTimeSeconds()}.exe",
+            Executable = ExecutableIdentity.Parse($"new-game-{DateTimeOffset.Now.ToUnixTimeSeconds()}.exe"),
             DisplayName = "New Game",
             IsEnabled = true
         });
@@ -52,10 +52,8 @@ public partial class GamesViewModel : ObservableObject
             return;
         }
 
-        _gameCatalogService.Update(SelectedGame.DataKey, new GameEntryUpsertRequest
+        _gameCatalogService.Update(SelectedGame.DataKey, new GameCatalogUpdateRequest
         {
-            ExecutableName = SelectedGame.ExecutableName,
-            ExecutablePath = SelectedGame.ExecutablePath,
             DisplayName = string.IsNullOrWhiteSpace(SelectedGame.DisplayName)
                 ? SelectedGame.DataKey
                 : $"{SelectedGame.DisplayName} (Updated)",
@@ -74,7 +72,7 @@ public partial class GamesViewModel : ObservableObject
             return;
         }
 
-        _gameCatalogService.Delete(SelectedGame.DataKey);
+        _gameCatalogService.Remove(SelectedGame.DataKey);
         Refresh();
     }
 }

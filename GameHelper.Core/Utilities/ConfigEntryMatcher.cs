@@ -8,13 +8,13 @@ namespace GameHelper.Core.Utilities;
 /// </summary>
 public static class ConfigEntryMatcher
 {
-    public static GameConfig? FindExistingForAdd(
+    public static GameConfig? FindExistingForIntake(
         IEnumerable<GameConfig> configs,
-        string executableName,
-        string? executablePath)
+        ExecutableIdentity executable)
     {
+        ArgumentNullException.ThrowIfNull(executable);
         var candidates = configs?.Where(c => c is not null).ToList() ?? new List<GameConfig>();
-        var normalizedPath = NormalizePath(executablePath);
+        var normalizedPath = NormalizePath(executable.Path);
 
         if (!string.IsNullOrWhiteSpace(normalizedPath))
         {
@@ -28,7 +28,7 @@ public static class ConfigEntryMatcher
         }
 
         var sameNameCandidates = candidates
-            .Where(cfg => string.Equals(cfg.ExecutableName, executableName, StringComparison.OrdinalIgnoreCase))
+            .Where(cfg => string.Equals(cfg.ExecutableName, executable.Name, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         if (sameNameCandidates.Count == 1 && string.IsNullOrWhiteSpace(sameNameCandidates[0].ExecutablePath))

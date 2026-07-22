@@ -14,14 +14,14 @@ namespace GameHelper.ConsoleHost.Interactive
     {
         private readonly IAnsiConsole _console;
         private readonly PromptUI _promptUI;
-        private readonly IAppConfigProvider _appConfigProvider;
+        private readonly IGameConfiguration _gameConfiguration;
         private readonly IAutoStartManager _autoStartManager;
 
-        public SettingsUI(IAnsiConsole console, PromptUI promptUI, IAppConfigProvider appConfigProvider, IAutoStartManager autoStartManager)
+        public SettingsUI(IAnsiConsole console, PromptUI promptUI, IGameConfiguration gameConfiguration, IAutoStartManager autoStartManager)
         {
             _console = console ?? throw new ArgumentNullException(nameof(console));
             _promptUI = promptUI ?? throw new ArgumentNullException(nameof(promptUI));
-            _appConfigProvider = appConfigProvider ?? throw new ArgumentNullException(nameof(appConfigProvider));
+            _gameConfiguration = gameConfiguration ?? throw new ArgumentNullException(nameof(gameConfiguration));
             _autoStartManager = autoStartManager ?? throw new ArgumentNullException(nameof(autoStartManager));
         }
 
@@ -85,7 +85,7 @@ namespace GameHelper.ConsoleHost.Interactive
             AppConfig appConfig;
             try
             {
-                appConfig = _appConfigProvider.LoadAppConfig();
+                appConfig = _gameConfiguration.Read();
             }
             catch (Exception ex)
             {
@@ -116,7 +116,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
             try
             {
-                await Task.Run(() => _appConfigProvider.SaveAppConfig(appConfig)).ConfigureAwait(false);
+                await Task.Run(() => _gameConfiguration.Change(current => CopySettings(appConfig, current))).ConfigureAwait(false);
                 var resultMessage = newValue
                     ? "[green]已更新：启动后将自动进入实时监控。[/]"
                     : "[green]已更新：启动后需手动选择监控。[/]";
@@ -139,7 +139,7 @@ namespace GameHelper.ConsoleHost.Interactive
             AppConfig appConfig;
             try
             {
-                appConfig = _appConfigProvider.LoadAppConfig();
+                appConfig = _gameConfiguration.Read();
             }
             catch (Exception ex)
             {
@@ -208,7 +208,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
                 try
                 {
-                    await Task.Run(() => _appConfigProvider.SaveAppConfig(appConfig)).ConfigureAwait(false);
+                    await Task.Run(() => _gameConfiguration.Change(current => CopySettings(appConfig, current))).ConfigureAwait(false);
                     var resultMessage = newValue
                         ? "[green]已更新：开机时将自动启动 GameHelper。[/]"
                         : "[green]已更新：开机时不会自动启动 GameHelper。[/]";
@@ -239,6 +239,13 @@ namespace GameHelper.ConsoleHost.Interactive
                 _console.MarkupLine($"[yellow]无法读取系统自启动状态：{Markup.Escape(ex.Message)}[/]");
                 return null;
             }
+        }
+
+        private static void CopySettings(AppConfig source, AppConfig destination)
+        {
+            destination.ProcessMonitorType = source.ProcessMonitorType;
+            destination.AutoStartInteractiveMonitor = source.AutoStartInteractiveMonitor;
+            destination.LaunchOnSystemStartup = source.LaunchOnSystemStartup;
         }
     }
 

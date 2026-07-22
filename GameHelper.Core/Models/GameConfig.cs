@@ -37,75 +37,22 @@ namespace GameHelper.Core.Models
         public bool HdrEnabled { get; set; } = false;
 
         /// <summary>
+        /// Immutable identity view derived from <see cref="Executable"/>.
+        /// </summary>
+        [JsonIgnore]
+        public ExecutableIdentity? ExecutableIdentity =>
+            global::GameHelper.Core.Models.ExecutableIdentity.TryCreate(Executable, out var identity) ? identity : null;
+
+        /// <summary>
         /// Optional absolute executable path derived from <see cref="Executable"/>.
         /// </summary>
         [JsonIgnore]
-        public string? ExecutablePath
-        {
-            get
-            {
-                var executable = NormalizeExecutable(Executable);
-                return LooksLikePath(executable) ? executable : null;
-            }
-            set
-            {
-                if (!string.IsNullOrWhiteSpace(value))
-                {
-                    Executable = value.Trim();
-                    return;
-                }
-
-                if (LooksLikePath(Executable))
-                {
-                    Executable = null;
-                }
-            }
-        }
+        public string? ExecutablePath => ExecutableIdentity?.Path;
 
         /// <summary>
         /// Executable file name derived from <see cref="Executable"/>.
         /// </summary>
         [JsonIgnore]
-        public string? ExecutableName
-        {
-            get
-            {
-                var executable = NormalizeExecutable(Executable);
-                if (string.IsNullOrWhiteSpace(executable))
-                {
-                    return null;
-                }
-
-                return LooksLikePath(executable) ? Path.GetFileName(executable) : executable;
-            }
-            set
-            {
-                if (string.IsNullOrWhiteSpace(value))
-                {
-                    if (!LooksLikePath(Executable))
-                    {
-                        Executable = null;
-                    }
-
-                    return;
-                }
-
-                if (!LooksLikePath(Executable))
-                {
-                    Executable = value.Trim();
-                }
-            }
-        }
-
-        private static string? NormalizeExecutable(string? executable) =>
-            string.IsNullOrWhiteSpace(executable) ? null : executable.Trim();
-
-        private static bool LooksLikePath(string? value)
-        {
-            return !string.IsNullOrWhiteSpace(value) &&
-                   (Path.IsPathFullyQualified(value) ||
-                    value.Contains(Path.DirectorySeparatorChar) ||
-                    value.Contains(Path.AltDirectorySeparatorChar));
-        }
+        public string? ExecutableName => ExecutableIdentity?.Name;
     }
 }

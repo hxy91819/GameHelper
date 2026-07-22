@@ -26,12 +26,19 @@ namespace GameHelper.Infrastructure.Processes
             IEnumerable<string>? allowedProcessNames = null,
             ILogger? logger = null)
         {
-            return type switch
+            var monitor = type switch
             {
-                ProcessMonitorType.ETW => new EtwProcessMonitor(allowedProcessNames, logger as ILogger<EtwProcessMonitor>),
-                ProcessMonitorType.WMI => new WmiProcessMonitor(allowedProcessNames),
+                ProcessMonitorType.ETW => (IProcessMonitor)new EtwProcessMonitor(logger: logger as ILogger<EtwProcessMonitor>),
+                ProcessMonitorType.WMI => new WmiProcessMonitor(),
                 _ => throw new ArgumentException($"Unsupported monitor type: {type}", nameof(type))
             };
+
+            if (allowedProcessNames is not null)
+            {
+                monitor.Configure(new ProcessObservationPolicy(allowedProcessNames));
+            }
+
+            return monitor;
         }
 
         /// <summary>

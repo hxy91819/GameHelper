@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using GameHelper.Core.Abstractions;
+using GameHelper.Core.Models;
 using Microsoft.Win32;
 
 namespace GameHelper.Infrastructure.Resolvers
@@ -96,6 +97,49 @@ namespace GameHelper.Infrastructure.Resolvers
             return result;
         }
 
+        public IReadOnlyList<SteamInstalledGame> TryEnumerateInstalledGames()
+        {
+            var result = new List<SteamInstalledGame>();
+            try
+            {
+                var steamRoot = GetSteamRootFromRegistry();
+                if (steamRoot == null) return result;
+
+                var seenAppIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var library in EnumerateSteamLibraries(steamRoot)
+                    .Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    var steamApps = Path.Combine(library, "steamapps");
+                    if (!Directory.Exists(steamApps)) continue;
+
+                    foreach (var manifest in Directory.EnumerateFiles(steamApps, "appmanifest_*.acf"))
+                    {
+                        var appId = TryGetAppIdFromManifestPath(manifest);
+                        if (appId == null || !seenAppIds.Add(appId)) continue;
+                        if (!TryReadAppManifest(manifest, out var installDir, out var appName)) continue;
+
+                        var installPath = Path.Combine(steamApps, "common", installDir);
+                        if (!Directory.Exists(installPath)) continue;
+
+                        var executablePath = PickBestExeCandidate(new DirectoryInfo(installPath), installDir, appName);
+                        if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath)) continue;
+
+                        result.Add(new SteamInstalledGame
+                        {
+                            AppId = appId,
+                            Name = string.IsNullOrWhiteSpace(appName) ? installDir : appName,
+                            ExecutablePath = executablePath
+                        });
+                    }
+                }
+            }
+            catch { }
+
+            return result
+                .OrderBy(game => game.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
         private static string? GetSteamRootFromRegistry()
         {
             try
@@ -169,6 +213,13 @@ namespace GameHelper.Infrastructure.Resolvers
                 return !string.IsNullOrWhiteSpace(installdir);
             }
             catch { return false; }
+        }
+
+        private static string? TryGetAppIdFromManifestPath(string manifestPath)
+        {
+            var fileName = Path.GetFileNameWithoutExtension(manifestPath);
+            var match = Regex.Match(fileName, @"^appmanifest_(?<id>\d+)$", RegexOptions.IgnoreCase);
+            return match.Success ? match.Groups["id"].Value : null;
         }
 
         private static string? PickBestExeCandidate(DirectoryInfo installDir, string? installDirName, string? appName)

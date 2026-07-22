@@ -71,7 +71,7 @@ namespace GameHelper.Tests
                 ["dworigins"] = new GameConfig
                 {
                     DataKey = "dworigins",
-                    ExecutableName = "DWORIGINS.exe",
+                    Executable = "DWORIGINS.exe",
                     DisplayName = "三国无双：起源",
                     IsEnabled = true,
                     HdrEnabled = false
@@ -79,10 +79,10 @@ namespace GameHelper.Tests
             };
 
             var provider = new YamlConfigProvider(configPath);
-            provider.Save(configs);
+            provider.Change(config => config.Games = configs.Values.ToList());
 
             // Reload and verify
-            var loaded = provider.Load();
+            var loaded = provider.Read().Games.ToDictionary(config => config.DataKey, StringComparer.OrdinalIgnoreCase);
             Assert.Single(loaded);
             
             var game = Assert.Single(loaded.Values);
@@ -102,16 +102,16 @@ namespace GameHelper.Tests
             var testConfig = new GameConfig
             {
                 DataKey = "testgame",
-                ExecutableName = "TestGame.exe",
+                Executable = "TestGame.exe",
                 DisplayName = "Test Game",
                 IsEnabled = false,
                 HdrEnabled = true
             };
 
             var provider = new YamlConfigProvider(configPath);
-            provider.Save(new Dictionary<string, GameConfig> { ["testgame"] = testConfig });
+            provider.Change(config => config.Games = new List<GameConfig> { testConfig });
 
-            var loaded = provider.Load();
+            var loaded = provider.Read().Games.ToDictionary(config => config.DataKey, StringComparer.OrdinalIgnoreCase);
             var game = Assert.Single(loaded.Values);
 
             Assert.Equal("testgame", game.DataKey);

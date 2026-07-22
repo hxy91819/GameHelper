@@ -1,16 +1,18 @@
 namespace GameHelper.Core.Models;
 
-public sealed class GameEntry
+public sealed record GameEntry
 {
-    public string DataKey { get; set; } = string.Empty;
+    public required string DataKey { get; init; }
 
-    public string? ExecutableName { get; set; }
+    public required ExecutableIdentity Executable { get; init; }
 
-    public string? ExecutablePath { get; set; }
+    public string ExecutableName => Executable.Name;
 
-    public string? DisplayName { get; set; }
+    public string? ExecutablePath => Executable.Path;
 
-    public bool IsEnabled { get; set; } = true;
+    public string? DisplayName { get; init; }
 
-    public bool HdrEnabled { get; set; }
+    public bool IsEnabled { get; init; } = true;
+
+    public bool HdrEnabled { get; init; }
 }

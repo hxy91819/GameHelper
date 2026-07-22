@@ -35,17 +35,17 @@ public static class ServiceLocator
             .ConfigureServices(services =>
             {
                 services.AddSingleton(UiLogSink.Instance);
-                services.AddSingleton<IConfigProvider>(_ => new YamlConfigProvider());
-                services.AddSingleton<IAppConfigProvider>(sp => (YamlConfigProvider)sp.GetRequiredService<IConfigProvider>());
+                services.AddSingleton<IGameConfiguration>(_ => new YamlConfigProvider());
                 services.AddSingleton<IProcessMonitor>(sp =>
                 {
-                    var appConfigProvider = sp.GetRequiredService<IAppConfigProvider>();
+                    var appConfigProvider = sp.GetRequiredService<IGameConfiguration>();
                     var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("WinUI.ProcessMonitor");
-                    var appConfig = appConfigProvider.LoadAppConfig();
-                    var preferredMonitor = appConfig.ProcessMonitorType ?? ProcessMonitorType.ETW;
-                    var allowedProcesses = appConfig.Games?
-                        .Select(game => game.ExecutableName ?? game.DataKey)
+                    var appConfig = appConfigProvider.Read();
+                    var preferredMonitor = appConfig.ProcessMonitorType;
+                    var allowedProcesses = appConfig.Games
+                        .Select(game => game.ExecutableName)
                         .Where(name => !string.IsNullOrWhiteSpace(name))
+                        .Select(name => name!)
                         .ToArray();
 
                     return ProcessMonitorFactory.CreateWithFallback(preferredMonitor, allowedProcesses, logger);

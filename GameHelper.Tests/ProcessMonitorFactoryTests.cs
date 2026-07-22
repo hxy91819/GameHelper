@@ -64,7 +64,7 @@ namespace GameHelper.Tests
         {
             var monitor = ProcessMonitorFactory.Create(ProcessMonitorType.WMI, new[] { "game.exe" });
 
-            Assert.IsAssignableFrom<IProcessNameFilterControl>(monitor);
+            monitor.Configure(new ProcessObservationPolicy(new[] { "other.exe" }, observeStopEvents: false));
         }
 
         [WindowsOnlyFact]

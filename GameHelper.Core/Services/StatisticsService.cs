@@ -6,12 +6,12 @@ namespace GameHelper.Core.Services;
 public sealed class StatisticsService : IStatisticsService
 {
     private readonly IPlaytimeSnapshotProvider _playtimeSnapshotProvider;
-    private readonly IConfigProvider _configProvider;
+    private readonly IGameConfiguration _gameConfiguration;
 
-    public StatisticsService(IPlaytimeSnapshotProvider playtimeSnapshotProvider, IConfigProvider configProvider)
+    public StatisticsService(IPlaytimeSnapshotProvider playtimeSnapshotProvider, IGameConfiguration gameConfiguration)
     {
         _playtimeSnapshotProvider = playtimeSnapshotProvider;
-        _configProvider = configProvider;
+        _gameConfiguration = gameConfiguration;
     }
 
     public IReadOnlyList<GameStatsSummary> GetOverview()
@@ -90,7 +90,9 @@ public sealed class StatisticsService : IStatisticsService
 
     private StatisticsConfigIndex LoadConfigIndex()
     {
-        return StatisticsConfigIndex.Build(_configProvider.Load());
+        var configs = (_gameConfiguration.Read().Games ?? new List<GameConfig>())
+            .ToDictionary(config => config.DataKey, StringComparer.OrdinalIgnoreCase);
+        return StatisticsConfigIndex.Build(configs);
     }
 
     private static GameStatsSummary ToSummary(

@@ -31,6 +31,7 @@ dotnet run --project .\GameHelper.ConsoleHost -- stats [--game <name>]
 # 配置游戏
 dotnet run --project .\GameHelper.ConsoleHost -- config list
 dotnet run --project .\GameHelper.ConsoleHost -- config add <exe|path-to-exe>
+dotnet run --project .\GameHelper.ConsoleHost -- config import-steam
 dotnet run --project .\GameHelper.ConsoleHost -- config remove <dataKey>
 
 # 历史数据迁移
@@ -41,11 +42,14 @@ dotnet run --project .\GameHelper.ConsoleHost -- migrate
 
 `config list` 会同时显示 `dataKey` 和 `displayName`，方便核对配置显示名。
 
+`config import-steam` 会扫描本机 Steam 的所有游戏库，并批量添加已安装且可定位到主可执行文件的游戏。
+
 更多 CLI 说明见 `docs/guides/cli.md`。
 
 ### 运行中拖拽添加（已支持）
 - 支持拖拽 `.exe` / `.lnk` / `.url`。
 - 当 CLI 主进程已在运行时，新的拖拽启动请求会自动转发给主进程处理。
+- 转发请求始终写入运行中主进程当前使用的配置；新启动进程不会通过 IPC 切换主进程的 `--config`。
 - 配置会立即热重载，对后续新启动的进程生效。
 - 不会破坏“单实例”约束（主进程始终只有一个）。
 
@@ -106,6 +110,8 @@ games:
 - `startup.launchOnStartup`：是否随系统启动 GameHelper。
 
 CLI `config add` 可接收可执行文件名或 `.exe` 路径。传入路径时会保存到 `executable`，运行时从中派生路径与候选进程名。
+
+配置更新以完整文档事务提交：修改游戏清单不会覆盖监控或启动设置，写入失败也不会留下部分更新。
 
 监控匹配：
 - GameHelper 只处理启用配置中的候选进程名，候选名来自 `executable` 的文件名；ETW 与 WMI 降级路径都使用这道候选名门控。

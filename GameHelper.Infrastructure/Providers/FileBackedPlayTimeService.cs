@@ -10,9 +10,10 @@ using GameHelper.Core.Utilities;
 namespace GameHelper.Infrastructure.Providers
 {
     /// <summary>
-    /// File-backed play time tracker compatible with GamePlayTimeManager's playtime.json format.
-    /// Writes to %AppData%/GameHelper/playtime.json by default.
+    /// Legacy JSON writer retained only for migration compatibility and targeted tests.
+    /// New runtime composition must use <see cref="CsvBackedPlayTimeService"/>.
     /// </summary>
+    [Obsolete("Legacy JSON playtime writer retained for migration/testing only. Use CsvBackedPlayTimeService.")]
     public sealed class FileBackedPlayTimeService : IPlayTimeService
     {
         private readonly object _gate = new();

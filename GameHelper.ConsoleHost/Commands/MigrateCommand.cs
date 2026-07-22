@@ -4,7 +4,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
-using GameHelper.ConsoleHost.Models;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Models;
@@ -141,7 +140,9 @@ namespace GameHelper.ConsoleHost.Commands
             try
             {
                 var provider = new YamlConfigProvider(configPath);
-                var configs = provider.Load();
+                var configs = provider.Read().Games.ToDictionary(
+                    config => config.DataKey,
+                    StringComparer.OrdinalIgnoreCase);
                 AnsiConsole.MarkupLine($"[green]✓ 已读取 {configs.Count} 个游戏配置[/]");
                 return configs;
             }
