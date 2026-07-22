@@ -1,7 +1,6 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using GameHelper.ConsoleHost.Models;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,8 +14,7 @@ internal sealed class InteractiveShellModules
     private InteractiveShellModules(
         IAnsiConsole console,
         PromptUI promptUI,
-        IConfigProvider configProvider,
-        IAppConfigProvider appConfigProvider,
+        IGameConfiguration gameConfiguration,
         MonitorUI monitorUI,
         GameCatalogUI catalogUI,
         SettingsUI settingsUI,
@@ -25,8 +23,7 @@ internal sealed class InteractiveShellModules
     {
         Console = console;
         PromptUI = promptUI;
-        ConfigProvider = configProvider;
-        AppConfigProvider = appConfigProvider;
+        GameConfiguration = gameConfiguration;
         MonitorUI = monitorUI;
         CatalogUI = catalogUI;
         SettingsUI = settingsUI;
@@ -38,9 +35,7 @@ internal sealed class InteractiveShellModules
 
     public PromptUI PromptUI { get; }
 
-    public IConfigProvider ConfigProvider { get; }
-
-    public IAppConfigProvider AppConfigProvider { get; }
+    public IGameConfiguration GameConfiguration { get; }
 
     public MonitorUI MonitorUI { get; }
 
@@ -69,11 +64,11 @@ internal sealed class InteractiveShellModules
             resolvedConsole.Profile.Capabilities.Unicode = true;
         }
 
-        var configProvider = host.Services.GetRequiredService<IConfigProvider>();
-        var appConfigProvider = host.Services.GetRequiredService<IAppConfigProvider>();
+        var gameConfiguration = host.Services.GetRequiredService<IGameConfiguration>();
         var autoStartManager = host.Services.GetRequiredService<IAutoStartManager>();
         var statisticsService = host.Services.GetRequiredService<IStatisticsService>();
         var gameCatalogService = host.Services.GetRequiredService<IGameCatalogService>();
+        var steamGameResolver = host.Services.GetService<ISteamGameResolver>();
         var monitorControlService = host.Services.GetRequiredService<IMonitorControlService>();
         var promptUI = new PromptUI(resolvedConsole, script);
         var resolvedMonitorLoop = monitorLoop ?? ((_, _) => Task.CompletedTask);
@@ -81,11 +76,10 @@ internal sealed class InteractiveShellModules
         return new InteractiveShellModules(
             resolvedConsole,
             promptUI,
-            configProvider,
-            appConfigProvider,
+            gameConfiguration,
             new MonitorUI(host, resolvedConsole, promptUI, statisticsService, monitorControlService, script, resolvedMonitorLoop, arguments.MonitorDryRun),
-            new GameCatalogUI(resolvedConsole, promptUI, appConfigProvider, autoStartManager, gameCatalogService),
-            new SettingsUI(resolvedConsole, promptUI, appConfigProvider, autoStartManager),
+            new GameCatalogUI(resolvedConsole, promptUI, gameConfiguration, autoStartManager, gameCatalogService, steamGameResolver),
+            new SettingsUI(resolvedConsole, promptUI, gameConfiguration, autoStartManager),
             new StatisticsUI(resolvedConsole, promptUI, statisticsService),
             new ToolsUI(resolvedConsole, promptUI));
     }

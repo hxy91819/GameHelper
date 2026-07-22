@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 
@@ -14,7 +15,7 @@ namespace GameHelper.Infrastructure.Processes
     /// Raises simple string events with the process executable name (e.g., "game.exe").
     /// Internally resolves names via ProcessID against Win32_Process to avoid truncated names.
     /// </summary>
-    public sealed class WmiProcessMonitor : IProcessMonitor, IStopEventsControl, IProcessNameFilterControl
+    public sealed class WmiProcessMonitor : IProcessMonitor
     {
         private const string StartTraceQuery = "SELECT * FROM Win32_ProcessStartTrace";
         private const string StopTraceQuery = "SELECT * FROM Win32_ProcessStopTrace";
@@ -22,13 +23,9 @@ namespace GameHelper.Infrastructure.Processes
         private IProcessEventWatcher? _stopWatcher;
         private WmiProcessEventResolver? _eventResolver;
         private bool _ownsWatchers;
-        private readonly bool _filterExternalWatcherEvents;
         private bool _running;
         private bool _disposed;
-        private bool _stopEventsEnabled = true; // default to true for backward compatibility
-        private readonly object _allowedProcessNamesLock = new();
-        private readonly HashSet<string> _allowedProcessNames = new(StringComparer.OrdinalIgnoreCase);
-        private volatile bool _hasProcessNameFilter;
+        private ProcessObservationPolicy _policy = ProcessObservationPolicy.ObserveAll();
 
         /// <inheritdoc />
         public event Action<ProcessEventInfo>? ProcessStarted;
@@ -44,7 +41,6 @@ namespace GameHelper.Infrastructure.Processes
             _startWatcher = startWatcher;
             _stopWatcher = stopWatcher;
             _ownsWatchers = false;
-            _filterExternalWatcherEvents = true;
         }
 
         /// <summary>
@@ -55,57 +51,15 @@ namespace GameHelper.Infrastructure.Processes
         {
             if (allowedProcessNames is not null)
             {
-                SetAllowedProcessNames(allowedProcessNames);
+                Configure(new ProcessObservationPolicy(allowedProcessNames));
             }
-        }
-
-        /// <summary>
-        /// Enables or disables emitting ProcessStopped events by starting/stopping the Stop watcher.
-        /// Start events are always enabled.
-        /// </summary>
-        public void SetStopEventsEnabled(bool enabled)
-        {
-            _stopEventsEnabled = enabled;
-            if (_disposed) return;
-            if (_stopWatcher is null) return; // will be honored when Start() creates watchers
-            if (!_running) return; // will be honored upon Start()
-
-            try
-            {
-                if (enabled)
-                {
-                    _stopWatcher.Start();
-                }
-                else
-                {
-                    _stopWatcher.Stop();
-                    _eventResolver?.ClearCache();
-                }
-            }
-            catch { }
         }
 
         /// <inheritdoc />
-        public void SetAllowedProcessNames(IEnumerable<string> processNames)
+        public void Configure(ProcessObservationPolicy policy)
         {
-            ArgumentNullException.ThrowIfNull(processNames);
-
-            lock (_allowedProcessNamesLock)
-            {
-                _allowedProcessNames.Clear();
-                foreach (var name in processNames)
-                {
-                    var normalized = NormalizeProcessName(name);
-                    if (!string.IsNullOrWhiteSpace(normalized))
-                    {
-                        _allowedProcessNames.Add(normalized);
-                    }
-                }
-
-                _hasProcessNameFilter = true;
-            }
-
-            _eventResolver?.ClearCache();
+            ArgumentNullException.ThrowIfNull(policy);
+            Volatile.Write(ref _policy, policy);
         }
 
         /// <summary>
@@ -120,22 +74,19 @@ namespace GameHelper.Infrastructure.Processes
             {
                 if (_startWatcher is null || _stopWatcher is null)
                 {
-                    _eventResolver = new WmiProcessEventResolver(
-                        IsAllowedProcessName,
-                        () => _stopEventsEnabled);
+                    _ownsWatchers = true;
+                    _eventResolver = new WmiProcessEventResolver(name => CurrentPolicy.Includes(name));
                     _startWatcher = new WmiEventWatcher(StartTraceQuery, _eventResolver);
                     _stopWatcher  = new WmiEventWatcher(StopTraceQuery, _eventResolver);
-                    _ownsWatchers = true;
                 }
 
                 _startWatcher.ProcessEvent += OnStartEvent;
                 _stopWatcher.ProcessEvent += OnStopEvent;
 
                 _startWatcher.Start();
-                if (_stopEventsEnabled)
-                {
-                    _stopWatcher.Start();
-                }
+                // Keep the watcher active so every stop can evict PID cache entries. The policy
+                // controls emission, not cleanup, matching the ETW adapter's semantics.
+                _stopWatcher.Start();
 
                 _running = true;
             }
@@ -163,7 +114,7 @@ namespace GameHelper.Infrastructure.Processes
                 return;
             }
 
-            if (_filterExternalWatcherEvents && !IsAllowedProcessName(processInfo.ExecutableName))
+            if (!CurrentPolicy.Includes(processInfo.ExecutableName))
             {
                 return;
             }
@@ -178,7 +129,8 @@ namespace GameHelper.Infrastructure.Processes
                 return;
             }
 
-            if (_filterExternalWatcherEvents && !IsAllowedProcessName(processInfo.ExecutableName))
+            var policy = CurrentPolicy;
+            if (!policy.ObserveStopEvents || !policy.Includes(processInfo.ExecutableName))
             {
                 return;
             }
@@ -186,45 +138,7 @@ namespace GameHelper.Infrastructure.Processes
             ProcessStopped?.Invoke(processInfo);
         }
 
-        private bool IsAllowedProcessName(string? processName)
-        {
-            if (!_hasProcessNameFilter)
-            {
-                return true;
-            }
-
-            var normalized = NormalizeProcessName(processName);
-            if (string.IsNullOrWhiteSpace(normalized))
-            {
-                return false;
-            }
-
-            lock (_allowedProcessNamesLock)
-            {
-                return _allowedProcessNames.Contains(normalized);
-            }
-        }
-
-        private static string? NormalizeProcessName(string? processName)
-        {
-            if (string.IsNullOrWhiteSpace(processName))
-            {
-                return null;
-            }
-
-            var name = Path.GetFileName(processName.Trim());
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return null;
-            }
-
-            if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-            {
-                name += ".exe";
-            }
-
-            return name;
-        }
+        private ProcessObservationPolicy CurrentPolicy => Volatile.Read(ref _policy);
 
         private void SafeTearDown()
         {
@@ -234,16 +148,22 @@ namespace GameHelper.Infrastructure.Processes
             {
                 try { _startWatcher.ProcessEvent -= OnStartEvent; } catch { }
                 try { _startWatcher.Stop(); } catch { }
-                if (_ownsWatchers && _startWatcher is IDisposable d1) d1.Dispose();
-                _startWatcher = null;
+                if (_ownsWatchers && _startWatcher is IDisposable d1)
+                {
+                    try { d1.Dispose(); } catch { }
+                    _startWatcher = null;
+                }
             }
 
             if (_stopWatcher is not null)
             {
                 try { _stopWatcher.ProcessEvent -= OnStopEvent; } catch { }
                 try { _stopWatcher.Stop(); } catch { }
-                if (_ownsWatchers && _stopWatcher is IDisposable d2) d2.Dispose();
-                _stopWatcher = null;
+                if (_ownsWatchers && _stopWatcher is IDisposable d2)
+                {
+                    try { d2.Dispose(); } catch { }
+                    _stopWatcher = null;
+                }
             }
 
             _eventResolver?.ClearCache();
@@ -360,36 +280,19 @@ namespace GameHelper.Infrastructure.Processes
     internal sealed class WmiProcessEventResolver
     {
         private readonly Func<string?, bool> _isAllowedProcessName;
-        private readonly Func<bool> _areStopEventsEnabled;
         private readonly Func<int, WmiProcessDetails?> _resolveProcessDetails;
         private readonly ConcurrentDictionary<int, WmiProcessDetails> _pidToDetails = new();
 
         public WmiProcessEventResolver(Func<string?, bool> isAllowedProcessName)
-            : this(isAllowedProcessName, () => true, ResolveProcessDetails)
+            : this(isAllowedProcessName, ResolveProcessDetails)
         {
         }
 
         public WmiProcessEventResolver(
             Func<string?, bool> isAllowedProcessName,
-            Func<bool> areStopEventsEnabled)
-            : this(isAllowedProcessName, areStopEventsEnabled, ResolveProcessDetails)
-        {
-        }
-
-        public WmiProcessEventResolver(
-            Func<string?, bool> isAllowedProcessName,
-            Func<int, WmiProcessDetails?> resolveProcessDetails)
-            : this(isAllowedProcessName, () => true, resolveProcessDetails)
-        {
-        }
-
-        public WmiProcessEventResolver(
-            Func<string?, bool> isAllowedProcessName,
-            Func<bool> areStopEventsEnabled,
             Func<int, WmiProcessDetails?> resolveProcessDetails)
         {
             _isAllowedProcessName = isAllowedProcessName ?? throw new ArgumentNullException(nameof(isAllowedProcessName));
-            _areStopEventsEnabled = areStopEventsEnabled ?? throw new ArgumentNullException(nameof(areStopEventsEnabled));
             _resolveProcessDetails = resolveProcessDetails ?? throw new ArgumentNullException(nameof(resolveProcessDetails));
         }
 
@@ -438,7 +341,7 @@ namespace GameHelper.Infrastructure.Processes
             }
 
             var details = new WmiProcessDetails(executableName, resolvedDetails?.ExecutablePath, rawProcessName);
-            if (processId > 0 && _areStopEventsEnabled())
+            if (processId > 0)
             {
                 _pidToDetails[processId] = details;
             }

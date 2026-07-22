@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
-using System.Text;
 using System.Text.Json;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
@@ -121,8 +119,9 @@ namespace GameHelper.Infrastructure.Providers
                 {
                     lock (_csvWriteGate)
                     {
-                        EnsureCsvFileExists();
-                        AppendCsvLine(gameName, startTime, endTime, durationMinutes);
+                        PlaytimeCsvCodec.Append(
+                            _csvFilePath,
+                            new PlaytimeCsvRow(gameName, startTime, endTime, durationMinutes));
                     }
 
                     return;
@@ -135,48 +134,6 @@ namespace GameHelper.Infrastructure.Providers
             }
 
             throw new InvalidOperationException($"Failed to write session to CSV after {maxRetries} attempts");
-        }
-
-        private void EnsureCsvFileExists()
-        {
-            if (File.Exists(_csvFilePath))
-            {
-                return;
-            }
-
-            var dir = Path.GetDirectoryName(_csvFilePath);
-            if (!string.IsNullOrEmpty(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            var tempFile = _csvFilePath + ".tmp";
-            File.WriteAllText(tempFile, "game,start_time,end_time,duration_minutes\n", Encoding.UTF8);
-            File.Move(tempFile, _csvFilePath);
-        }
-
-        private void AppendCsvLine(string gameName, DateTime startTime, DateTime endTime, long durationMinutes)
-        {
-            var startTimeStr = startTime.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
-            var endTimeStr = endTime.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
-            var csvLine = $"{EscapeCsvField(gameName)},{startTimeStr},{endTimeStr},{durationMinutes}\n";
-
-            using var stream = new FileStream(_csvFilePath, FileMode.Append, FileAccess.Write, FileShare.Read);
-            using var writer = new StreamWriter(stream, Encoding.UTF8);
-            writer.Write(csvLine);
-        }
-
-        private static string EscapeCsvField(string field)
-        {
-            if (string.IsNullOrEmpty(field)) return field;
-
-            // If field contains comma, quote, or newline, wrap in quotes and escape internal quotes
-            if (field.Contains(',') || field.Contains('"') || field.Contains('\n') || field.Contains('\r'))
-            {
-                return $"\"{field.Replace("\"", "\"\"")}\"";
-            }
-
-            return field;
         }
 
         private void MigrateFromJsonIfNeeded()
@@ -199,28 +156,14 @@ namespace GameHelper.Infrastructure.Providers
                     var games = JsonSerializer.Deserialize<JsonGameRecord[]>(node.ToString() ?? string.Empty);
                     if (games != null)
                     {
-                        // Create CSV with header
-                        var dir = Path.GetDirectoryName(_csvFilePath);
-                        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-
-                        using var stream = new FileStream(_csvFilePath, FileMode.Create, FileAccess.Write, FileShare.Read);
-                        using var writer = new StreamWriter(stream, Encoding.UTF8);
-
-                        writer.WriteLine("game,start_time,end_time,duration_minutes");
-
-                        foreach (var game in games)
-                        {
-                            if (game.Sessions != null)
-                            {
-                                foreach (var session in game.Sessions)
-                                {
-                                    var startTimeStr = session.StartTime.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
-                                    var endTimeStr = session.EndTime.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
-                                    var csvLine = $"{EscapeCsvField(game.GameName)},{startTimeStr},{endTimeStr},{session.DurationMinutes}";
-                                    writer.WriteLine(csvLine);
-                                }
-                            }
-                        }
+                        var rows = games.SelectMany(game =>
+                            (game.Sessions ?? Enumerable.Empty<JsonSessionRecord>())
+                                .Select(session => new PlaytimeCsvRow(
+                                    game.GameName,
+                                    session.StartTime,
+                                    session.EndTime,
+                                    session.DurationMinutes)));
+                        PlaytimeCsvCodec.WriteAll(_csvFilePath, rows);
 
                         _logger?.LogInformation("Successfully migrated {GameCount} games with sessions to CSV", games.Length);
                     }

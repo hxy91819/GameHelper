@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Services;
@@ -21,6 +22,7 @@ namespace GameHelper.Tests
         {
             public event Action<ProcessEventInfo>? ProcessStarted;
             public event Action<ProcessEventInfo>? ProcessStopped;
+            public void Configure(ProcessObservationPolicy policy) { }
             public void Start() { }
             public void Stop() { }
             public void Dispose() { }
@@ -47,12 +49,46 @@ namespace GameHelper.Tests
             }
         }
 
-        private sealed class FakeConfig : IConfigProvider
+        private sealed class FakeConfig : IGameConfiguration
         {
-            private readonly IReadOnlyDictionary<string, GameConfig> _configs;
-            public FakeConfig(IReadOnlyDictionary<string, GameConfig> configs) => _configs = configs;
-            public IReadOnlyDictionary<string, GameConfig> Load() => _configs;
-            public void Save(IReadOnlyDictionary<string, GameConfig> configs) { }
+            private readonly object _sync = new();
+            private AppConfig _config;
+
+            public FakeConfig(IReadOnlyDictionary<string, GameConfig> configs) =>
+                _config = new AppConfig { Games = configs.Values.Select(CloneGame).ToList() };
+
+            public AppConfig Read()
+            {
+                lock (_sync) return CloneConfig(_config);
+            }
+
+            public AppConfig Change(Action<AppConfig> change)
+            {
+                lock (_sync)
+                {
+                    var next = CloneConfig(_config);
+                    change(next);
+                    _config = next;
+                    return CloneConfig(_config);
+                }
+            }
+
+            private static AppConfig CloneConfig(AppConfig source) => new()
+            {
+                Games = source.Games.Select(CloneGame).ToList(),
+                ProcessMonitorType = source.ProcessMonitorType,
+                AutoStartInteractiveMonitor = source.AutoStartInteractiveMonitor,
+                LaunchOnSystemStartup = source.LaunchOnSystemStartup
+            };
+
+            private static GameConfig CloneGame(GameConfig game) => new()
+            {
+                DataKey = game.DataKey,
+                Executable = game.Executable,
+                DisplayName = game.DisplayName,
+                IsEnabled = game.IsEnabled,
+                HdrEnabled = game.HdrEnabled
+            };
         }
 
         private static GameAutomationService CreateService(params GameConfig[] configs)
@@ -86,8 +122,7 @@ namespace GameHelper.Tests
             var config = new GameConfig
             {
                 DataKey = "RE.exe",
-                ExecutableName = "RE.exe",
-                ExecutablePath = @"D:\Games\RE\RE.exe",
+                Executable = @"D:\Games\RE\RE.exe",
                 IsEnabled = true
             };
 
@@ -117,8 +152,7 @@ namespace GameHelper.Tests
             var config = new GameConfig
             {
                 DataKey = configName,
-                ExecutableName = configName,
-                ExecutablePath = configPath,
+                Executable = configPath,
                 IsEnabled = true
             };
 
@@ -148,8 +182,7 @@ namespace GameHelper.Tests
             var config = new GameConfig
             {
                 DataKey = configName,
-                ExecutableName = configName,
-                ExecutablePath = configPath,
+                Executable = configPath,
                 IsEnabled = true
             };
 
@@ -176,8 +209,7 @@ namespace GameHelper.Tests
             var config = new GameConfig
             {
                 DataKey = "VeryLongGameName.exe",
-                ExecutableName = "VeryLongGameName.exe",
-                ExecutablePath = @"D:\Games\VeryLongGameName\VeryLongGameName.exe",
+                Executable = @"D:\Games\VeryLongGameName\VeryLongGameName.exe",
                 IsEnabled = true
             };
 
@@ -208,8 +240,7 @@ namespace GameHelper.Tests
             var config = new GameConfig
             {
                 DataKey = "Game.exe",
-                ExecutableName = "Game.exe",
-                ExecutablePath = @"D:\Games\MyGame\Game.exe",
+                Executable = @"D:\Games\MyGame\Game.exe",
                 IsEnabled = true
             };
 
@@ -236,8 +267,7 @@ namespace GameHelper.Tests
             var config = new GameConfig
             {
                 DataKey = "Game.exe",
-                ExecutableName = "Game.exe",
-                ExecutablePath = @"D:\Games\MyGame\Game.exe",
+                Executable = @"D:\Games\MyGame\Game.exe",
                 IsEnabled = true
             };
 
@@ -264,8 +294,7 @@ namespace GameHelper.Tests
             var config = new GameConfig
             {
                 DataKey = "Game.exe",
-                ExecutableName = "Game.exe",
-                ExecutablePath = @"D:\\Games\\MyGame\\Game.exe",
+                Executable = @"D:\\Games\\MyGame\\Game.exe",
                 IsEnabled = true
             };
 
@@ -292,8 +321,7 @@ namespace GameHelper.Tests
             var config = new GameConfig
             {
                 DataKey = "Game.exe",
-                ExecutableName = "Game.exe",
-                ExecutablePath = @"D:\Games\MyGame\Game.exe",
+                Executable = @"D:\Games\MyGame\Game.exe",
                 IsEnabled = true
             };
 
@@ -328,8 +356,7 @@ namespace GameHelper.Tests
             var config = new GameConfig
             {
                 DataKey = "RE.exe",
-                ExecutableName = "RE.exe",
-                ExecutablePath = @"D:\Games\RE\RE.exe",
+                Executable = @"D:\Games\RE\RE.exe",
                 IsEnabled = true
             };
 
@@ -361,8 +388,7 @@ namespace GameHelper.Tests
             var config = new GameConfig
             {
                 DataKey = processName,
-                ExecutableName = processName,
-                ExecutablePath = gamePath,
+                Executable = gamePath,
                 IsEnabled = true
             };
 
@@ -393,8 +419,7 @@ namespace GameHelper.Tests
             var config = new GameConfig
             {
                 DataKey = "RE.exe",
-                ExecutableName = "RE.exe",
-                ExecutablePath = @"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe",
+                Executable = @"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe",
                 IsEnabled = true
             };
 
@@ -421,8 +446,7 @@ namespace GameHelper.Tests
             var config = new GameConfig
             {
                 DataKey = "RE.exe",
-                ExecutableName = "RE.exe",
-                ExecutablePath = @"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe",
+                Executable = @"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe",
                 IsEnabled = true
             };
 
@@ -449,8 +473,7 @@ namespace GameHelper.Tests
             var config = new GameConfig
             {
                 DataKey = "RE.exe",
-                ExecutableName = "RE.exe",
-                ExecutablePath = @"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe",
+                Executable = @"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe",
                 IsEnabled = true
             };
 

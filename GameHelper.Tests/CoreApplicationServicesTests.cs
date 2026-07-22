@@ -9,7 +9,7 @@ public sealed class CoreApplicationServicesTests
     [Fact]
     public void SettingsService_Update_ShouldPersistSnapshot()
     {
-        var provider = new FakeConfigProvider();
+        var provider = new FakeGameConfiguration();
         var service = new SettingsService(provider);
 
         var updated = service.Update(new UpdateAppSettingsRequest
@@ -25,327 +25,149 @@ public sealed class CoreApplicationServicesTests
     }
 
     [Fact]
-    public void GameCatalogService_AddUpdateDelete_ShouldWork()
+    public void GameCatalogService_IntakeUpdateRemove_CommitOncePerOperation()
     {
-        var provider = new FakeConfigProvider();
-        var service = new GameCatalogService(provider);
+        var configuration = new FakeGameConfiguration();
+        var service = new GameCatalogService(configuration);
 
-        var created = service.Add(new GameEntryUpsertRequest
+        var created = service.Intake(new GameCatalogIntakeRequest
         {
-            ExecutableName = "test.exe",
-            DisplayName = "Test",
-            IsEnabled = true
+            Executable = ExecutableIdentity.Parse("test.exe"),
+            DisplayName = "Test"
         });
-
-        Assert.Equal("test.exe", created.DataKey);
-
-        var updated = service.Update("test.exe", new GameEntryUpsertRequest
+        var updated = service.Update(created.Entry.DataKey, new GameCatalogUpdateRequest
         {
-            ExecutableName = "test.exe",
             DisplayName = "Test Updated",
             IsEnabled = false,
             HdrEnabled = true
         });
+        var removed = service.Remove(created.Entry.DataKey);
 
+        Assert.Equal("test", created.Entry.DataKey);
         Assert.Equal("Test Updated", updated.DisplayName);
         Assert.False(updated.IsEnabled);
         Assert.True(updated.HdrEnabled);
-
-        Assert.True(service.Delete("test.exe"));
+        Assert.True(removed);
+        Assert.Equal(3, configuration.ChangeCount);
     }
 
     [Fact]
-    public void GameCatalogService_Update_ShouldClearOptionalFields()
+    public void GameCatalogService_Update_ReplacesExecutableIdentityAndClearsDisplayName()
     {
-        var provider = new FakeConfigProvider();
-        var service = new GameCatalogService(provider);
-
-        _ = service.Add(new GameEntryUpsertRequest
+        var configuration = new FakeGameConfiguration();
+        var service = new GameCatalogService(configuration);
+        var created = service.Intake(new GameCatalogIntakeRequest
         {
-            ExecutableName = "clear.exe",
-            ExecutablePath = @"C:\Games\clear.exe",
-            DisplayName = "Clear Me",
-            IsEnabled = true
+            Executable = ExecutableIdentity.Parse(@"C:\Games\clear.exe"),
+            DisplayName = "Clear Me"
         });
 
-        var updated = service.Update("clear.exe", new GameEntryUpsertRequest
+        var updated = service.Update(created.Entry.DataKey, new GameCatalogUpdateRequest
         {
-            ExecutableName = "clear.exe",
-            ClearExecutablePath = true,
-            ClearDisplayName = true,
-            IsEnabled = true
+            Executable = ExecutableIdentity.Parse("clear.exe"),
+            ClearDisplayName = true
         });
 
+        Assert.Equal("clear.exe", updated.ExecutableName);
         Assert.Null(updated.ExecutablePath);
         Assert.Null(updated.DisplayName);
     }
 
     [Fact]
-    public void GameCatalogService_Add_ShouldUseDataKeyAsStorageKey()
+    public void GameCatalogService_PreviewIntake_ConcentratesDuplicateAndDataKeyPolicy()
     {
-        var provider = new FakeConfigProvider();
-        var service = new GameCatalogService(provider);
-        provider.Save(new Dictionary<string, GameConfig>
+        var configuration = new FakeGameConfiguration(new AppConfig
         {
-            ["legacy-key"] = new()
-            {
-                DataKey = "legacy",
-                ExecutableName = "legacy.exe",
-                IsEnabled = true
-            }
+            Games =
+            [
+                new GameConfig
+                {
+                    DataKey = "same",
+                    Executable = @"C:\Games\same.exe",
+                    DisplayName = "Same"
+                }
+            ]
+        });
+        var service = new GameCatalogService(configuration);
+
+        var preview = service.PreviewIntake(new GameCatalogIntakeRequest
+        {
+            Executable = ExecutableIdentity.Parse(@"C:\Games\same.exe"),
+            DataKey = "same"
         });
 
-        var created = service.Add(new GameEntryUpsertRequest
-        {
-            ExecutableName = "new.exe",
-            IsEnabled = true
-        });
-
-        Assert.Equal("new.exe", created.DataKey);
-        Assert.Equal(2, provider.Load().Count);
-        Assert.All(provider.Load(), pair =>
-        {
-            Assert.Equal(pair.Value.DataKey, pair.Key);
-        });
+        Assert.Equal("same", preview.ExistingEntry?.DataKey);
+        Assert.Equal("same", preview.SuggestedDataKey);
+        Assert.True(preview.IsRequestedDataKeyAvailable);
+        Assert.Equal(0, configuration.ChangeCount);
     }
 
     [Fact]
-    public void GameCatalogService_Update_ShouldUseDataKeyAsStorageKey()
+    public void GameCatalogService_Intake_UpdatesExistingAndPreservesHdrChoice()
     {
-        var provider = new FakeConfigProvider();
-        var service = new GameCatalogService(provider);
-        provider.Save(new Dictionary<string, GameConfig>
+        var configuration = new FakeGameConfiguration(new AppConfig
         {
-            ["legacy-key"] = new()
-            {
-                DataKey = "legacy",
-                ExecutableName = "legacy.exe",
-                DisplayName = "Legacy",
-                IsEnabled = false
-            }
+            Games =
+            [
+                new GameConfig
+                {
+                    DataKey = "legacy",
+                    Executable = @"C:\Games\Legacy.exe",
+                    DisplayName = "Old Name",
+                    IsEnabled = false,
+                    HdrEnabled = true
+                }
+            ]
         });
+        var service = new GameCatalogService(configuration);
 
-        _ = service.Update("legacy", new GameEntryUpsertRequest
+        var result = service.Intake(new GameCatalogIntakeRequest
         {
-            ExecutableName = "legacy.exe",
-            DisplayName = "Updated",
-            IsEnabled = true
-        });
-
-        var pair = Assert.Single(provider.Load());
-        Assert.Equal(pair.Value.DataKey, pair.Key);
-        Assert.Equal("legacy", pair.Value.DataKey);
-        Assert.Equal("Updated", pair.Value.DisplayName);
-    }
-
-    [Fact]
-    public void GameCatalogService_Delete_ShouldKeepRemainingDataKeyStorage()
-    {
-        var provider = new FakeConfigProvider();
-        var service = new GameCatalogService(provider);
-        provider.Save(new Dictionary<string, GameConfig>
-        {
-            ["delete-key"] = new()
-            {
-                DataKey = "delete-me",
-                ExecutableName = "delete.exe",
-                IsEnabled = true
-            },
-            ["keep-key"] = new()
-            {
-                DataKey = "keep-me",
-                ExecutableName = "keep.exe",
-                IsEnabled = true
-            }
-        });
-
-        Assert.True(service.Delete("delete-me"));
-
-        var pair = Assert.Single(provider.Load());
-        Assert.Equal(pair.Value.DataKey, pair.Key);
-        Assert.Equal("keep-me", pair.Value.DataKey);
-    }
-
-    [Fact]
-    public void GameCatalogService_Save_ShouldCreateEntryWithRequestedDataKey()
-    {
-        var provider = new FakeConfigProvider();
-        var service = new GameCatalogService(provider);
-
-        var saved = service.Save(new GameEntryUpsertRequest
-        {
-            DataKey = "custom-key",
-            ExecutableName = "custom.exe",
-            DisplayName = "Custom",
-            IsEnabled = true,
-            HdrEnabled = true
-        });
-
-        Assert.Equal("custom-key", saved.DataKey);
-        Assert.Equal("custom.exe", saved.ExecutableName);
-        Assert.Equal("Custom", saved.DisplayName);
-        Assert.True(saved.HdrEnabled);
-    }
-
-    [Fact]
-    public void GameCatalogService_Save_ShouldUpdateExistingMatchingEntry()
-    {
-        var provider = new FakeConfigProvider();
-        var service = new GameCatalogService(provider);
-        provider.Save(new Dictionary<string, GameConfig>
-        {
-            ["entry1"] = new()
-            {
-                DataKey = "old-key",
-                ExecutableName = "same.exe",
-                DisplayName = "Old",
-                IsEnabled = false,
-                HdrEnabled = false
-            }
-        });
-
-        var saved = service.Save(new GameEntryUpsertRequest
-        {
+            Executable = ExecutableIdentity.Parse(@"C:\Games\Legacy.exe"),
             DataKey = "new-key",
-            ExecutableName = "same.exe",
-            DisplayName = "New",
-            IsEnabled = true,
-            HdrEnabled = true
-        });
-
-        Assert.Equal("new-key", saved.DataKey);
-        Assert.Equal("New", saved.DisplayName);
-        Assert.True(saved.IsEnabled);
-        Assert.True(saved.HdrEnabled);
-        Assert.Single(provider.Load());
-    }
-
-    [Fact]
-    public void GameCatalogService_Save_ShouldKeepDataKeyWhenUpdating()
-    {
-        var provider = new FakeConfigProvider();
-        var service = new GameCatalogService(provider);
-        provider.Save(new Dictionary<string, GameConfig>
-        {
-            ["legacy-key"] = new()
-            {
-                DataKey = "legacy",
-                ExecutableName = "legacy.exe",
-                DisplayName = "Legacy",
-                IsEnabled = false
-            }
-        });
-
-        var saved = service.Save(new GameEntryUpsertRequest
-        {
-            DataKey = "legacy",
-            ExecutableName = "legacy.exe",
-            DisplayName = "Updated",
-            IsEnabled = true
-        });
-
-        var config = Assert.Single(provider.Load().Values);
-        Assert.Equal(saved.DataKey, config.DataKey);
-        Assert.Equal("Updated", config.DisplayName);
-    }
-
-    [Fact]
-    public void GameCatalogService_QueryHelpers_ShouldUseCatalogStoragePolicy()
-    {
-        var provider = new FakeConfigProvider();
-        var service = new GameCatalogService(provider);
-        provider.Save(new Dictionary<string, GameConfig>
-        {
-            ["entry1"] = new()
-            {
-                DataKey = "same",
-                ExecutableName = "same.exe",
-                ExecutablePath = @"C:\Games\same.exe",
-                DisplayName = "Same"
-            }
-        });
-
-        var match = service.FindExistingForAdd("same.exe", @"C:\Games\same.exe");
-        var suggested = service.SuggestDataKey(@"C:\Games\same.exe");
-
-        Assert.NotNull(match);
-        Assert.Equal("same", match.DataKey);
-        Assert.Equal("same2", suggested);
-        Assert.False(service.IsDataKeyAvailable("same"));
-        Assert.True(service.IsDataKeyAvailable("same", currentDataKey: "same"));
-    }
-
-    [Fact]
-    public void GameCatalogService_Import_ShouldAddUsingBaseDataKey()
-    {
-        var provider = new FakeConfigProvider();
-        var service = new GameCatalogService(provider);
-
-        var result = service.Import(new GameEntryImportRequest
-        {
-            ExecutableName = "Launcher.exe",
-            ExecutablePath = @"C:\Games\Launcher.exe",
-            DisplayName = "Friendly Game",
-            BaseDataKey = "friendly-game",
-            IsEnabled = true
-        });
-
-        Assert.True(result.WasAdded);
-        Assert.Equal("friendly-game", result.Entry.DataKey);
-        Assert.Equal("Launcher.exe", result.Entry.ExecutableName);
-        Assert.Equal(@"C:\Games\Launcher.exe", result.Entry.ExecutablePath);
-        Assert.Equal("Friendly Game", result.Entry.DisplayName);
-        Assert.True(result.Entry.IsEnabled);
-        Assert.False(result.Entry.HdrEnabled);
-    }
-
-    [Fact]
-    public void GameCatalogService_Import_ShouldUpdateExistingAndPreserveHdrChoice()
-    {
-        var provider = new FakeConfigProvider();
-        var service = new GameCatalogService(provider);
-        provider.Save(new Dictionary<string, GameConfig>
-        {
-            ["legacy-entry"] = new()
-            {
-                DataKey = "legacy",
-                ExecutableName = "Legacy.exe",
-                ExecutablePath = @"C:\Games\Legacy.exe",
-                DisplayName = "Old Name",
-                IsEnabled = false,
-                HdrEnabled = true
-            }
-        });
-
-        var result = service.Import(new GameEntryImportRequest
-        {
-            ExecutableName = "Legacy.exe",
-            ExecutablePath = @"C:\Games\Legacy.exe",
-            DisplayName = "New Name",
-            BaseDataKey = "new-key",
-            IsEnabled = true
+            DisplayName = "New Name"
         });
 
         Assert.False(result.WasAdded);
         Assert.Equal(@"C:\Games\Legacy.exe", result.PreviousExecutablePath);
-        Assert.Equal("legacy", result.Entry.DataKey);
-        Assert.Equal("New Name", result.Entry.DisplayName);
-        Assert.True(result.Entry.IsEnabled);
+        Assert.Equal("new-key", result.Entry.DataKey);
         Assert.True(result.Entry.HdrEnabled);
+        Assert.Single(configuration.Read().Games!);
+    }
+
+    [Fact]
+    public void GameCatalogService_BatchIntake_UsesOneAtomicChange()
+    {
+        var configuration = new FakeGameConfiguration(new AppConfig
+        {
+            ProcessMonitorType = ProcessMonitorType.WMI,
+            AutoStartInteractiveMonitor = true
+        });
+        var service = new GameCatalogService(configuration);
+
+        var results = service.BatchIntake(
+        [
+            new GameCatalogIntakeRequest { Executable = ExecutableIdentity.Parse("a.exe") },
+            new GameCatalogIntakeRequest { Executable = ExecutableIdentity.Parse("b.exe") }
+        ]);
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal(1, configuration.ChangeCount);
+        Assert.Equal(ProcessMonitorType.WMI, configuration.Read().ProcessMonitorType);
+        Assert.True(configuration.Read().AutoStartInteractiveMonitor);
     }
 
     [Fact]
     public void StatisticsService_ShouldAggregateSessions()
     {
-        var provider = new FakeConfigProvider();
-        provider.Save(new Dictionary<string, GameConfig>
+        var provider = new FakeGameConfiguration(new AppConfig
         {
-            ["game.exe"] = new()
+            Games = [new()
             {
                 DataKey = "game.exe",
-                ExecutableName = "game.exe",
+                Executable = "game.exe",
                 DisplayName = "Game Display"
-            }
+            }]
         });
 
         var now = DateTime.Now;
@@ -377,16 +199,14 @@ public sealed class CoreApplicationServicesTests
     [Fact]
     public void StatisticsService_ShouldPreferDisplayName_WhenRecordUsesDataKey()
     {
-        var provider = new FakeConfigProvider();
-        provider.Save(new Dictionary<string, GameConfig>
+        var provider = new FakeGameConfiguration(new AppConfig
         {
-            // Simulate provider keyed by executable name while data is tracked by DataKey.
-            ["wh40krt.exe"] = new()
+            Games = [new()
             {
                 DataKey = "wh40krt",
-                ExecutableName = "wh40krt.exe",
+                Executable = "wh40krt.exe",
                 DisplayName = "Warhammer 40,000: Rogue Trader"
-            }
+            }]
         });
 
         var now = DateTime.Now;
@@ -416,15 +236,14 @@ public sealed class CoreApplicationServicesTests
     [Fact]
     public void StatisticsService_GetSessionActivitySnapshot_ShouldResolveDisplayNames()
     {
-        var provider = new FakeConfigProvider();
-        provider.Save(new Dictionary<string, GameConfig>
+        var provider = new FakeGameConfiguration(new AppConfig
         {
-            ["game.exe"] = new()
+            Games = [new()
             {
                 DataKey = "game-key",
-                ExecutableName = "game.exe",
+                Executable = "game.exe",
                 DisplayName = "Game Display"
-            }
+            }]
         });
 
         var started = new DateTime(2024, 1, 1, 20, 0, 0, DateTimeKind.Unspecified);
@@ -457,15 +276,14 @@ public sealed class CoreApplicationServicesTests
     [Fact]
     public void StatisticsService_GetDetails_ShouldResolveDisplayName()
     {
-        var provider = new FakeConfigProvider();
-        provider.Save(new Dictionary<string, GameConfig>
+        var provider = new FakeGameConfiguration(new AppConfig
         {
-            ["game.exe"] = new()
+            Games = [new()
             {
                 DataKey = "game-key",
-                ExecutableName = "game.exe",
+                Executable = "game.exe",
                 DisplayName = "Game Display"
-            }
+            }]
         });
 
         var snapshot = new FakePlaytimeSnapshotProvider
@@ -493,11 +311,13 @@ public sealed class CoreApplicationServicesTests
     [Fact]
     public void StatisticsService_WhenRecentMinutesTie_ShouldSortByTotalMinutesDescending()
     {
-        var provider = new FakeConfigProvider();
-        provider.Save(new Dictionary<string, GameConfig>
+        var provider = new FakeGameConfiguration(new AppConfig
         {
-            ["a.exe"] = new() { DataKey = "a", ExecutableName = "a.exe", DisplayName = "A" },
-            ["b.exe"] = new() { DataKey = "b", ExecutableName = "b.exe", DisplayName = "B" }
+            Games =
+            [
+                new() { DataKey = "a", Executable = "a.exe", DisplayName = "A" },
+                new() { DataKey = "b", Executable = "b.exe", DisplayName = "B" }
+            ]
         });
 
         var now = DateTime.Now;
@@ -554,23 +374,44 @@ public sealed class CoreApplicationServicesTests
         Assert.True(automationService.StopCalled);
     }
 
-    private sealed class FakeConfigProvider : IConfigProvider, IAppConfigProvider
+    private sealed class FakeGameConfiguration : IGameConfiguration
     {
-        private Dictionary<string, GameConfig> _configs = new(StringComparer.OrdinalIgnoreCase);
-        private AppConfig _appConfig = new();
+        private AppConfig _config;
 
-        public IReadOnlyDictionary<string, GameConfig> Load() => _configs;
-
-        public void Save(IReadOnlyDictionary<string, GameConfig> configs)
+        public FakeGameConfiguration(AppConfig? config = null)
         {
-            _configs = new Dictionary<string, GameConfig>(configs, StringComparer.OrdinalIgnoreCase);
+            _config = Clone(config ?? new AppConfig());
         }
 
-        public AppConfig LoadAppConfig() => _appConfig;
+        public int ChangeCount { get; private set; }
 
-        public void SaveAppConfig(AppConfig appConfig)
+        public AppConfig Read() => Clone(_config);
+
+        public AppConfig Change(Action<AppConfig> change)
         {
-            _appConfig = appConfig;
+            var working = Clone(_config);
+            change(working);
+            _config = Clone(working);
+            ChangeCount++;
+            return Clone(_config);
+        }
+
+        private static AppConfig Clone(AppConfig source)
+        {
+            return new AppConfig
+            {
+                ProcessMonitorType = source.ProcessMonitorType,
+                AutoStartInteractiveMonitor = source.AutoStartInteractiveMonitor,
+                LaunchOnSystemStartup = source.LaunchOnSystemStartup,
+                Games = source.Games?.Select(config => new GameConfig
+                {
+                    DataKey = config.DataKey,
+                    Executable = config.Executable,
+                    DisplayName = config.DisplayName,
+                    IsEnabled = config.IsEnabled,
+                    HdrEnabled = config.HdrEnabled
+                }).ToList()
+            };
         }
     }
 
@@ -592,6 +433,10 @@ public sealed class CoreApplicationServicesTests
 
         public bool StartCalled { get; private set; }
         public bool StopCalled { get; private set; }
+
+        public void Configure(ProcessObservationPolicy policy)
+        {
+        }
 
         public void Dispose()
         {

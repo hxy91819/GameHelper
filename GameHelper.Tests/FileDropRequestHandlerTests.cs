@@ -1,128 +1,145 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
-using GameHelper.ConsoleHost.Models;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.Core.Abstractions;
-using Microsoft.Extensions.DependencyInjection;
+using GameHelper.Core.Models;
+using GameHelper.Core.Services;
+using GameHelper.Infrastructure.Providers;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 
 namespace GameHelper.Tests;
 
-public sealed class FileDropRequestHandlerTests
+public sealed class FileDropRequestHandlerTests : IDisposable
 {
-    [Fact]
-    public async Task HandleAsync_ValidRequest_ReturnsSummaryAndReloads()
+    private readonly string _tempDirectory;
+    private readonly string _configPath;
+    private readonly YamlConfigProvider _yamlConfiguration;
+    private readonly CountingGameConfiguration _configuration;
+    private readonly Mock<ISteamGameResolver> _steamResolver = new(MockBehavior.Strict);
+    private readonly Mock<IGameAutomationService> _automation = new(MockBehavior.Strict);
+    private readonly FileDropIntake _intake;
+
+    public FileDropRequestHandlerTests()
     {
-        var processor = new FakeProcessor
-        {
-            LooksLikeFilePathsResult = true,
-            Summary = new AddSummary { Added = 1, Updated = 2, Skipped = 3, DuplicatesRemoved = 4, ConfigPath = "config.yml" }
-        };
-        var automation = new FakeAutomationService();
-        var services = new ServiceCollection().BuildServiceProvider();
-        var handler = new FileDropRequestHandler(services, processor, automation, NullLogger<FileDropRequestHandler>.Instance);
-
-        var result = await handler.HandleAsync(new DropAddRequest { Paths = new[] { @"C:\game.exe" } }, CancellationToken.None);
-
-        Assert.True(result.Success);
-        Assert.Equal(1, result.Added);
-        Assert.Equal(2, result.Updated);
-        Assert.Equal(3, result.Skipped);
-        Assert.Equal(4, result.DuplicatesRemoved);
-        Assert.Equal("config.yml", result.ConfigPath);
-        Assert.Equal(1, automation.ReloadCalls);
+        _tempDirectory = Path.Combine(Path.GetTempPath(), "GameHelperFileDropTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_tempDirectory);
+        _configPath = Path.Combine(_tempDirectory, "config.yml");
+        _yamlConfiguration = new YamlConfigProvider(_configPath);
+        _configuration = new CountingGameConfiguration(_yamlConfiguration);
+        _intake = new FileDropIntake(
+            new GameCatalogService(_configuration),
+            _steamResolver.Object,
+            _automation.Object,
+            _yamlConfiguration,
+            NullLogger<FileDropIntake>.Instance);
     }
 
     [Fact]
-    public async Task HandleAsync_InvalidPaths_ReturnsError()
+    public async Task HandleAsync_MultipleExecutables_CommitsBatchOnceAndReloadsOnce()
     {
-        var processor = new FakeProcessor { LooksLikeFilePathsResult = false };
-        var automation = new FakeAutomationService();
-        var services = new ServiceCollection().BuildServiceProvider();
-        var handler = new FileDropRequestHandler(services, processor, automation, NullLogger<FileDropRequestHandler>.Instance);
+        var firstPath = CreateFile("FirstAdventure.exe");
+        var secondPath = CreateFile("SecondAdventure.EXE");
+        _automation.Setup(service => service.ReloadConfig());
 
-        var result = await handler.HandleAsync(new DropAddRequest { Paths = new[] { @"C:\not-valid.txt" } }, CancellationToken.None);
+        var result = await _intake.HandleAsync(
+            new DropAddRequest { Paths = [firstPath, secondPath] },
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(2, result.Added);
+        Assert.Equal(0, result.Updated);
+        Assert.Equal(0, result.Skipped);
+        Assert.Equal(_configPath, result.ConfigPath);
+        Assert.Equal(1, _configuration.ChangeCalls);
+
+        var games = _yamlConfiguration.Read().Games;
+        Assert.Equal(2, games.Count);
+        Assert.Contains(games, game => game.Executable == firstPath);
+        Assert.Contains(games, game => game.Executable == secondPath);
+
+        _automation.Verify(service => service.ReloadConfig(), Times.Once);
+        _steamResolver.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task HandleAsync_InvalidPayload_DoesNotCommitOrReload()
+    {
+        var invalidPath = CreateFile("not-a-game.txt");
+
+        var result = await _intake.HandleAsync(
+            new DropAddRequest { Paths = [invalidPath] },
+            CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.NotNull(result.Error);
-        Assert.Equal(0, automation.ReloadCalls);
+        Assert.Contains("Only existing .exe/.lnk/.url", result.Error);
+        Assert.Equal(0, _configuration.ChangeCalls);
+        Assert.False(File.Exists(_configPath));
+        _automation.Verify(service => service.ReloadConfig(), Times.Never);
+        _steamResolver.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public async Task HandleAsync_ConcurrentRequests_AreSerialized()
+    public async Task HandleAsync_ExistingGame_PreservesHdrPreference()
     {
-        var processor = new FakeProcessor
-        {
-            LooksLikeFilePathsResult = true,
-            Summary = new AddSummary { Added = 1, ConfigPath = "config.yml" },
-            DelayMs = 120
-        };
-        var automation = new FakeAutomationService();
-        var services = new ServiceCollection().BuildServiceProvider();
-        var handler = new FileDropRequestHandler(services, processor, automation, NullLogger<FileDropRequestHandler>.Instance);
+        var executablePath = CreateFile("ExistingGame.exe");
+        _yamlConfiguration.Change(config => config.Games =
+        [
+            new GameConfig
+            {
+                DataKey = "existing-game",
+                Executable = executablePath,
+                DisplayName = "Existing Game",
+                IsEnabled = true,
+                HdrEnabled = true
+            }
+        ]);
+        _automation.Setup(service => service.ReloadConfig());
 
-        var t1 = handler.HandleAsync(new DropAddRequest { Paths = new[] { @"C:\a.exe" } }, CancellationToken.None);
-        var t2 = handler.HandleAsync(new DropAddRequest { Paths = new[] { @"C:\b.exe" } }, CancellationToken.None);
+        var result = await _intake.HandleAsync(
+            new DropAddRequest { Paths = [executablePath] },
+            CancellationToken.None);
 
-        await Task.WhenAll(t1, t2);
-
-        Assert.False(processor.SawParallelExecution);
-        Assert.Equal(2, automation.ReloadCalls);
+        Assert.True(result.Success);
+        Assert.Equal(0, result.Added);
+        Assert.Equal(1, result.Updated);
+        Assert.True(Assert.Single(_yamlConfiguration.Read().Games).HdrEnabled);
+        _automation.Verify(service => service.ReloadConfig(), Times.Once);
+        _steamResolver.VerifyNoOtherCalls();
     }
 
-    private sealed class FakeProcessor : IFileDropProcessor
+    private string CreateFile(string fileName)
     {
-        private int _activeCalls;
+        var path = Path.Combine(_tempDirectory, fileName);
+        File.WriteAllText(path, string.Empty);
+        return path;
+    }
 
-        public bool LooksLikeFilePathsResult { get; set; }
-
-        public bool SawParallelExecution { get; private set; }
-
-        public int DelayMs { get; set; }
-
-        public AddSummary Summary { get; set; } = new();
-
-        public bool LooksLikeFilePaths(string[] paths) => LooksLikeFilePathsResult;
-
-        public AddSummary ProcessFilePaths(string[] paths, string? configOverride, IServiceProvider services)
+    public void Dispose()
+    {
+        if (Directory.Exists(_tempDirectory))
         {
-            if (Interlocked.Increment(ref _activeCalls) > 1)
-            {
-                SawParallelExecution = true;
-            }
-
-            try
-            {
-                if (DelayMs > 0)
-                {
-                    Thread.Sleep(DelayMs);
-                }
-
-                return Summary;
-            }
-            finally
-            {
-                Interlocked.Decrement(ref _activeCalls);
-            }
+            Directory.Delete(_tempDirectory, recursive: true);
         }
     }
 
-    private sealed class FakeAutomationService : IGameAutomationService
+    private sealed class CountingGameConfiguration : IGameConfiguration
     {
-        public int ReloadCalls { get; private set; }
+        private readonly IGameConfiguration _inner;
 
-        public void Start()
+        public CountingGameConfiguration(IGameConfiguration inner)
         {
+            _inner = inner;
         }
 
-        public void ReloadConfig()
-        {
-            ReloadCalls++;
-        }
+        public int ChangeCalls { get; private set; }
 
-        public void Stop()
+        public AppConfig Read() => _inner.Read();
+
+        public AppConfig Change(Action<AppConfig> change)
         {
+            ChangeCalls++;
+            return _inner.Change(change);
         }
     }
 }

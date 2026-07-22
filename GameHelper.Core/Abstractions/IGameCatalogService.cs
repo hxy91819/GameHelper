@@ -4,23 +4,15 @@ namespace GameHelper.Core.Abstractions;
 
 public interface IGameCatalogService
 {
-    IReadOnlyList<GameEntry> GetAll();
+    IReadOnlyList<GameEntry> List();
 
-    GameEntry? FindExistingForAdd(string executableName, string? executablePath);
+    GameCatalogIntakePreview PreviewIntake(GameCatalogIntakeRequest request);
 
-    string SuggestDataKey(string executableIdentity, string? productName = null);
+    GameCatalogIntakeResult Intake(GameCatalogIntakeRequest request);
 
-    bool IsDataKeyAvailable(string dataKey, string? currentDataKey = null);
+    IReadOnlyList<GameCatalogIntakeResult> BatchIntake(IEnumerable<GameCatalogIntakeRequest> requests);
 
-    GameEntry Add(GameEntryUpsertRequest request);
+    GameEntry Update(string dataKey, GameCatalogUpdateRequest request);
 
-    GameEntry Save(GameEntryUpsertRequest request);
-
-    GameEntryImportResult Import(GameEntryImportRequest request);
-
-    void RepairStorage();
-
-    GameEntry Update(string dataKey, GameEntryUpsertRequest request);
-
-    bool Delete(string dataKey);
+    bool Remove(string dataKey);
 }

@@ -5,32 +5,33 @@ namespace GameHelper.Core.Services;
 
 public sealed class SettingsService : ISettingsService
 {
-    private readonly IAppConfigProvider _appConfigProvider;
+    private readonly IGameConfiguration _gameConfiguration;
 
-    public SettingsService(IAppConfigProvider appConfigProvider)
+    public SettingsService(IGameConfiguration gameConfiguration)
     {
-        _appConfigProvider = appConfigProvider;
+        _gameConfiguration = gameConfiguration;
     }
 
     public AppSettingsSnapshot Get()
     {
-        var config = _appConfigProvider.LoadAppConfig();
+        var config = _gameConfiguration.Read();
         return ToSnapshot(config);
     }
 
     public AppSettingsSnapshot Update(UpdateAppSettingsRequest request)
     {
-        var config = _appConfigProvider.LoadAppConfig();
-        config.ProcessMonitorType = request.ProcessMonitorType ?? config.ProcessMonitorType ?? ProcessMonitorType.ETW;
-        config.AutoStartInteractiveMonitor = request.AutoStartInteractiveMonitor;
-        config.LaunchOnSystemStartup = request.LaunchOnSystemStartup;
-        _appConfigProvider.SaveAppConfig(config);
+        var config = _gameConfiguration.Change(current =>
+        {
+            current.ProcessMonitorType = request.ProcessMonitorType ?? current.ProcessMonitorType;
+            current.AutoStartInteractiveMonitor = request.AutoStartInteractiveMonitor;
+            current.LaunchOnSystemStartup = request.LaunchOnSystemStartup;
+        });
         return ToSnapshot(config);
     }
 
     private static AppSettingsSnapshot ToSnapshot(AppConfig config) => new()
     {
-        ProcessMonitorType = config.ProcessMonitorType ?? ProcessMonitorType.ETW,
+        ProcessMonitorType = config.ProcessMonitorType,
         AutoStartInteractiveMonitor = config.AutoStartInteractiveMonitor,
         LaunchOnSystemStartup = config.LaunchOnSystemStartup
     };

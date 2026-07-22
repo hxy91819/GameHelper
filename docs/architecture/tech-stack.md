@@ -32,7 +32,7 @@
 | 场景 | 技术 | 说明 |
 | --- | --- | --- |
 | 配置存储 | YAML (`config.yml`) | `YamlConfigProvider` 负责解析与验证，支持路径/名称混合匹配字段。|
-| 游玩时长 | CSV (`playtime.csv`) | `CsvBackedPlayTimeService` 和 `FileBackedPlayTimeService` 提供写入/读取与 JSON 迁移。|
+| 游玩时长 | CSV (`playtime.csv`) | `CsvBackedPlayTimeService` 写入会话，`FilePlaytimeSnapshotProvider` 读取统计；二者共享内部 CSV codec。`FileBackedPlayTimeService` 仅保留用于 legacy JSON 迁移测试。|
 | 临时数据/缓存 | 本地文件系统 | 暂无额外数据库；未来 HDR/自动化扩展再评估。|
 
 ## 4. Tooling & Automation

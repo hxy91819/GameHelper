@@ -36,7 +36,7 @@ public static class ConsoleHostBootstrapper
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(parsedArgs);
 
-        services.AddSingleton<IConfigProvider>(_ =>
+        services.AddSingleton<IGameConfiguration>(_ =>
         {
             if (!string.IsNullOrWhiteSpace(parsedArgs.ConfigOverride))
             {
@@ -45,7 +45,6 @@ public static class ConsoleHostBootstrapper
 
             return new YamlConfigProvider();
         });
-        services.AddSingleton<IAppConfigProvider>(sp => (YamlConfigProvider)sp.GetRequiredService<IConfigProvider>());
         services.AddSingleton<IProcessMonitor>(sp =>
         {
             var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("GameHelper.ConsoleHost.ProcessMonitor");
@@ -53,7 +52,7 @@ public static class ConsoleHostBootstrapper
                 ? MonitorModeSelection.Resolve(parsedArgs, null)
                 : MonitorModeSelection.Resolve(
                     parsedArgs,
-                    sp.GetRequiredService<IAppConfigProvider>().LoadAppConfig().ProcessMonitorType);
+                    sp.GetRequiredService<IGameConfiguration>().Read().ProcessMonitorType);
 
             if (monitorMode.IsDryRun)
             {
@@ -117,8 +116,8 @@ public static class ConsoleHostBootstrapper
         services.AddSingleton<IStatisticsService, StatisticsService>();
         services.AddSingleton<ISteamGameResolver, SteamGameResolver>();
 
-        services.AddSingleton<IFileDropProcessor, DefaultFileDropProcessor>();
-        services.AddSingleton<IFileDropRequestHandler, FileDropRequestHandler>();
+        services.AddSingleton<IConfigPathProvider>(sp => (IConfigPathProvider)sp.GetRequiredService<IGameConfiguration>());
+        services.AddSingleton<FileDropIntake>();
         services.AddSingleton<FileDropIpcServer>();
         services.AddSingleton<IFileDropIpcServer>(sp => sp.GetRequiredService<FileDropIpcServer>());
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<FileDropIpcServer>());

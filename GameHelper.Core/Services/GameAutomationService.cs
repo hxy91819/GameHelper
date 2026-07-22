@@ -16,9 +16,7 @@ namespace GameHelper.Core.Services;
 public sealed class GameAutomationService : IGameAutomationService
 {
     private readonly IProcessMonitor _monitor;
-    private readonly IStopEventsControl? _stopControl;
-    private readonly IProcessNameFilterControl? _nameFilterControl;
-    private readonly IConfigProvider _configProvider;
+    private readonly IGameConfiguration _gameConfiguration;
     private readonly IHdrController _hdr;
     private readonly IProcessPathResolver? _pathResolver;
     private readonly HdrScheduler _hdrScheduler = new();
@@ -32,16 +30,14 @@ public sealed class GameAutomationService : IGameAutomationService
 
     public GameAutomationService(
         IProcessMonitor monitor,
-        IConfigProvider configProvider,
+        IGameConfiguration gameConfiguration,
         IHdrController hdr,
         IPlayTimeService playTime,
         ILogger<GameAutomationService> logger,
         IProcessPathResolver? pathResolver = null)
     {
         _monitor = monitor;
-        _stopControl = monitor as IStopEventsControl;
-        _nameFilterControl = monitor as IProcessNameFilterControl;
-        _configProvider = configProvider;
+        _gameConfiguration = gameConfiguration;
         _hdr = hdr;
         _pathResolver = pathResolver;
         _playTime = playTime;
@@ -53,22 +49,11 @@ public sealed class GameAutomationService : IGameAutomationService
         lock (_stateLock)
         {
             LoadAndBuildIndexes();
-            SyncProcessNameFilter();
-
             _sessionTracker.Clear();
+            ConfigureProcessObservation();
 
             _monitor.ProcessStarted += OnProcessStarted;
             _monitor.ProcessStopped += OnProcessStopped;
-
-            try
-            {
-                _stopControl?.SetStopEventsEnabled(false);
-                _logger.LogDebug("Stop events listening disabled at startup");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to disable stop events at startup");
-            }
 
             _logger.LogInformation(
                 "GameAutomationService started: {Total} configs ({PathCount} path, {ExactNameCount} exact-name, {NameCount} fuzzy-name)",
@@ -84,7 +69,7 @@ public sealed class GameAutomationService : IGameAutomationService
         lock (_stateLock)
         {
             LoadAndBuildIndexes();
-            SyncProcessNameFilter();
+            ConfigureProcessObservation();
             _logger.LogInformation(
                 "GameAutomationService config reloaded: {Total} configs ({PathCount} path, {ExactNameCount} exact-name, {NameCount} fuzzy-name)",
                 _configIndex.All.Count,
@@ -117,7 +102,7 @@ public sealed class GameAutomationService : IGameAutomationService
 
             try
             {
-                _stopControl?.SetStopEventsEnabled(false);
+                ConfigureProcessObservation();
             }
             catch (Exception ex)
             {
@@ -178,20 +163,12 @@ public sealed class GameAutomationService : IGameAutomationService
                 }
             }
 
-            SyncProcessNameFilter();
+            ConfigureProcessObservation();
             UpdateHdrState();
 
             if (!hadAnyActive && _sessionTracker.ActiveCount > 0)
             {
-                try
-                {
-                    _stopControl?.SetStopEventsEnabled(true);
-                    _logger.LogDebug("Stop events enabled (first active)");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Failed to enable stop events");
-                }
+                _logger.LogDebug("Stop events enabled (first active)");
             }
         }
     }
@@ -213,7 +190,7 @@ public sealed class GameAutomationService : IGameAutomationService
             }
 
             var isLastForDataKey = _sessionTracker.Release(entry.DataKey);
-            SyncProcessNameFilter();
+            ConfigureProcessObservation();
 
             _logger.LogInformation(
                 "Process stop: DataKey={DataKey}, Executable={Executable}, Path={Path}, PID={ProcessId}",
@@ -247,15 +224,7 @@ public sealed class GameAutomationService : IGameAutomationService
 
             if (_sessionTracker.ActiveCount == 0 && hadAnyActive)
             {
-                try
-                {
-                    _stopControl?.SetStopEventsEnabled(false);
-                    _logger.LogDebug("Stop events disabled (none active)");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Failed to disable stop events");
-                }
+                _logger.LogDebug("Stop events disabled (none active)");
             }
         }
     }
@@ -278,11 +247,8 @@ public sealed class GameAutomationService : IGameAutomationService
             return pathHintConfig;
         }
 
-        // Only name-gated monitors may resolve PID before the candidate-name gate.
-        // Monitors that do not implement the filter can emit every system process start here.
-        var resolvedPath = _nameFilterControl is not null
-            ? ResolvePathByPid(processInfo.ProcessId)
-            : null;
+        // Every monitor is configured with the same candidate-name gate before events are subscribed.
+        var resolvedPath = ResolvePathByPid(processInfo.ProcessId);
         var resolvedPathConfig = GameMatcher.MatchByPath(resolvedPath, _configIndex.ByPath, _logger);
         if (resolvedPathConfig is not null)
         {
@@ -394,25 +360,23 @@ public sealed class GameAutomationService : IGameAutomationService
 
     private void LoadAndBuildIndexes()
     {
-        _configIndex = AutomationConfigIndex.Build(_configProvider.Load(), _logger);
+        var configs = (_gameConfiguration.Read().Games ?? new List<GameConfig>())
+            .Where(static config => !string.IsNullOrWhiteSpace(config.DataKey))
+            .ToDictionary(static config => config.DataKey, StringComparer.OrdinalIgnoreCase);
+        _configIndex = AutomationConfigIndex.Build(configs, _logger);
     }
 
-    private void SyncProcessNameFilter()
+    private void ConfigureProcessObservation()
     {
-        try
-        {
-            var allowedNames = _configIndex.ByExactName.Keys
-                .Concat(_sessionTracker.GetActiveNamesSnapshot())
-                .Distinct(StringComparer.OrdinalIgnoreCase);
+        var candidateNames = _configIndex.ByExactName.Keys
+            .Concat(_sessionTracker.GetActiveNamesSnapshot())
+            .Distinct(StringComparer.OrdinalIgnoreCase);
 
-            // Config reloads can remove a game while its process is still active.
-            // Keep active names in the ETW gate until the matching stop event is observed.
-            _nameFilterControl?.SetAllowedProcessNames(allowedNames);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to update process-name filter");
-        }
+        // Config reloads can remove a game while its process is still active. Keep active names
+        // in the gate until their stop event is observed, and only observe stops while needed.
+        _monitor.Configure(new ProcessObservationPolicy(
+            candidateNames,
+            observeStopEvents: _sessionTracker.ActiveCount > 0));
     }
 
     private void UpdateHdrState()

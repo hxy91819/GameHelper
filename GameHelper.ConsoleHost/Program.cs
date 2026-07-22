@@ -20,7 +20,8 @@ if (startupMode == StartupMode.ForwardFileDropToRunningInstance)
 {
     try
     {
-        var response = await FileDropIpcClient.SendAsync(parsedArgs.EffectiveArgs, parsedArgs.ConfigOverride).ConfigureAwait(false);
+        // IPC never changes the main process's configuration boundary; forwarded drops use its startup-selected config.
+        var response = await FileDropIpcClient.SendAsync(parsedArgs.EffectiveArgs).ConfigureAwait(false);
         var text = FormatDropResponse(response);
         FileDropHandler.TryShowMessageBox(text, "GameHelper");
         Environment.Exit(response.Success ? 0 : 1);
@@ -46,7 +47,7 @@ var host = ConsoleHostBootstrapper.CreateBuilder(args, parsedArgs).Build();
 // Print effective config file path and build info
 try
 {
-    var cfgProvider = host.Services.GetService<IConfigProvider>();
+    var cfgProvider = host.Services.GetService<IGameConfiguration>();
     if (cfgProvider is IConfigPathProvider pathProvider)
     {
         Console.WriteLine($"Using config: {pathProvider.ConfigPath}");
@@ -59,8 +60,8 @@ try
         var autoStartManager = host.Services.GetRequiredService<IAutoStartManager>();
         if (autoStartManager.IsSupported)
         {
-            var appConfigProvider = host.Services.GetRequiredService<IAppConfigProvider>();
-            var appConfig = appConfigProvider.LoadAppConfig();
+            var appConfigProvider = host.Services.GetRequiredService<IGameConfiguration>();
+            var appConfig = appConfigProvider.Read();
             autoStartManager.SetEnabled(appConfig.LaunchOnSystemStartup);
         }
     }
@@ -76,9 +77,9 @@ try
     // Handle file drag & drop (auto-add to config and exit)
     if (isFileDropRequest)
     {
-        var handler = host.Services.GetRequiredService<IFileDropRequestHandler>();
+        var handler = host.Services.GetRequiredService<FileDropIntake>();
         var response = await handler.HandleAsync(
-                new DropAddRequest { Paths = parsedArgs.EffectiveArgs, ConfigOverride = parsedArgs.ConfigOverride },
+                new DropAddRequest { Paths = parsedArgs.EffectiveArgs },
                 CancellationToken.None)
             .ConfigureAwait(false);
 
@@ -111,5 +112,5 @@ static string FormatDropResponse(DropAddResponse response)
         return $"添加失败: {response.Error}";
     }
 
-    return $"已完成添加/更新\nAdded={response.Added}, Updated={response.Updated}, Skipped={response.Skipped}\n重复清理: {response.DuplicatesRemoved}\n配置: {response.ConfigPath}";
+    return $"已完成添加/更新\nAdded={response.Added}, Updated={response.Updated}, Skipped={response.Skipped}\n配置: {response.ConfigPath}";
 }

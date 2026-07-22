@@ -16,7 +16,7 @@ namespace GameHelper.Tests
                 ["DS2.exe"] = new()
                 {
                     DataKey = "deathstranding2onthebeach",
-                    ExecutableName = "DS2.exe",
+                    Executable = "DS2.exe",
                     DisplayName = "DEATH STRANDING 2",
                     IsEnabled = true
                 }
@@ -37,7 +37,7 @@ namespace GameHelper.Tests
                 ["DS2.exe"] = new()
                 {
                     DataKey = "deathstranding2onthebeach",
-                    ExecutableName = "DS2.exe",
+                    Executable = "DS2.exe",
                     DisplayName = "DEATH STRANDING 2",
                     IsEnabled = true
                 }
@@ -58,7 +58,7 @@ namespace GameHelper.Tests
                 ["DS2.exe"] = new()
                 {
                     DataKey = "deathstranding2onthebeach",
-                    ExecutableName = "DS2.exe",
+                    Executable = "DS2.exe",
                     DisplayName = "DEATH STRANDING 2",
                     IsEnabled = true
                 }
@@ -89,13 +89,13 @@ namespace GameHelper.Tests
                 ["game1"] = new()
                 {
                     DataKey = "game1",
-                    ExecutableName = "shared.exe",
+                    Executable = "shared.exe",
                     IsEnabled = true
                 },
                 ["game2"] = new()
                 {
                     DataKey = "game2",
-                    ExecutableName = "shared.exe",
+                    Executable = "shared.exe",
                     IsEnabled = true
                 }
             };

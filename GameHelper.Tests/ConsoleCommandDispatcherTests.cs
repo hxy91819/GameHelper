@@ -16,7 +16,7 @@ public sealed class ConsoleCommandDispatcherTests
         {
             services.AddSingleton<IGameCatalogService>(new FakeGameCatalogService(new[]
             {
-                new GameEntry { DataKey = "sample", ExecutableName = "sample.exe", DisplayName = "Sample Game", IsEnabled = true, HdrEnabled = true }
+                new GameEntry { DataKey = "sample", Executable = ExecutableIdentity.Parse("sample.exe"), DisplayName = "Sample Game", IsEnabled = true, HdrEnabled = true }
             }));
         });
 
@@ -144,25 +144,23 @@ games:
             _games = games;
         }
 
-        public IReadOnlyList<GameEntry> GetAll() => _games;
+        public IReadOnlyList<GameEntry> List() => _games;
 
-        public GameEntry? FindExistingForAdd(string executableName, string? executablePath) => null;
+        public GameCatalogIntakePreview PreviewIntake(GameCatalogIntakeRequest request) => new()
+        {
+            Executable = request.Executable,
+            SuggestedDataKey = request.DataKey ?? request.Executable.Name,
+            IsRequestedDataKeyAvailable = true
+        };
 
-        public string SuggestDataKey(string executableIdentity, string? productName = null) => executableIdentity;
+        public GameCatalogIntakeResult Intake(GameCatalogIntakeRequest request) => throw new NotSupportedException();
 
-        public bool IsDataKeyAvailable(string dataKey, string? currentDataKey = null) => true;
+        public IReadOnlyList<GameCatalogIntakeResult> BatchIntake(IEnumerable<GameCatalogIntakeRequest> requests) =>
+            throw new NotSupportedException();
 
-        public GameEntry Add(GameEntryUpsertRequest request) => throw new NotSupportedException();
+        public GameEntry Update(string dataKey, GameCatalogUpdateRequest request) => throw new NotSupportedException();
 
-        public GameEntry Save(GameEntryUpsertRequest request) => throw new NotSupportedException();
-
-        public GameEntryImportResult Import(GameEntryImportRequest request) => throw new NotSupportedException();
-
-        public void RepairStorage() => throw new NotSupportedException();
-
-        public GameEntry Update(string dataKey, GameEntryUpsertRequest request) => throw new NotSupportedException();
-
-        public bool Delete(string dataKey) => throw new NotSupportedException();
+        public bool Remove(string dataKey) => throw new NotSupportedException();
     }
 
     private sealed class FakeStatisticsService : IStatisticsService

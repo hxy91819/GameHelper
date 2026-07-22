@@ -93,11 +93,8 @@ namespace GameHelper.Tests
 
                 Directory.CreateDirectory(expectedDir);
                 File.WriteAllText(expectedConfig, "games: []");
-                var auto = new AutoConfigProvider();
-
                 Assert.Equal(expectedConfig, yaml.ConfigPath);
                 Assert.Equal(Path.Combine(expectedDir, "config.json"), json.ConfigPath);
-                Assert.Equal(expectedConfig, auto.ConfigPath);
             }
             finally
             {

@@ -12,7 +12,7 @@ public sealed class PlaytimeMigrationMatcherTests
     {
         var match = _matcher.Match("witcher3", new[]
         {
-            new GameConfig { DataKey = "witcher3", ExecutableName = "witcher3.exe" }
+            new GameConfig { DataKey = "witcher3", Executable = "witcher3.exe" }
         });
 
         Assert.Equal(PlaytimeMigrationMatchKind.AlreadyDataKey, match.Kind);
@@ -25,7 +25,7 @@ public sealed class PlaytimeMigrationMatcherTests
     {
         var match = _matcher.Match("WITCHER3.EXE", new[]
         {
-            new GameConfig { DataKey = "witcher3", ExecutableName = "witcher3.exe" }
+            new GameConfig { DataKey = "witcher3", Executable = "witcher3.exe" }
         });
 
         Assert.Equal(PlaytimeMigrationMatchKind.ExactExecutableName, match.Kind);
@@ -38,7 +38,7 @@ public sealed class PlaytimeMigrationMatcherTests
     {
         var match = _matcher.Match("Game.exe", new[]
         {
-            new GameConfig { DataKey = "game", ExecutableName = "Game" }
+            new GameConfig { DataKey = "game", Executable = "Game" }
         });
 
         Assert.Equal(PlaytimeMigrationMatchKind.ExactExecutableName, match.Kind);
@@ -51,7 +51,7 @@ public sealed class PlaytimeMigrationMatcherTests
     {
         var match = _matcher.Match("Game.exe", new[]
         {
-            new GameConfig { DataKey = "game", ExecutableName = @"C:\Games\Game\Game.exe" }
+            new GameConfig { DataKey = "game", Executable = @"C:\Games\Game\Game.exe" }
         });
 
         Assert.Equal(PlaytimeMigrationMatchKind.ExactExecutableName, match.Kind);
@@ -64,7 +64,7 @@ public sealed class PlaytimeMigrationMatcherTests
     {
         var match = _matcher.Match("ProjectPlague.exe", new[]
         {
-            new GameConfig { DataKey = "project_plague", ExecutableName = "Project_Plague.exe" }
+            new GameConfig { DataKey = "project_plague", Executable = "Project_Plague.exe" }
         });
 
         Assert.Equal(PlaytimeMigrationMatchKind.FuzzyExecutableName, match.Kind);
@@ -78,8 +78,8 @@ public sealed class PlaytimeMigrationMatcherTests
     {
         var match = _matcher.Match("launcher.exe", new[]
         {
-            new GameConfig { DataKey = "game_one", ExecutableName = "launcher.exe" },
-            new GameConfig { DataKey = "game_two", ExecutableName = "launcher.exe" }
+            new GameConfig { DataKey = "game_one", Executable = "launcher.exe" },
+            new GameConfig { DataKey = "game_two", Executable = "launcher.exe" }
         });
 
         Assert.Equal(PlaytimeMigrationMatchKind.Ambiguous, match.Kind);
@@ -92,7 +92,7 @@ public sealed class PlaytimeMigrationMatcherTests
     {
         var match = _matcher.Match("unknown.exe", new[]
         {
-            new GameConfig { DataKey = "witcher3", ExecutableName = "witcher3.exe" }
+            new GameConfig { DataKey = "witcher3", Executable = "witcher3.exe" }
         });
 
         Assert.Equal(PlaytimeMigrationMatchKind.NotFound, match.Kind);

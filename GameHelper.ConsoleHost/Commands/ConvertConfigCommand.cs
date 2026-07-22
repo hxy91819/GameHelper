@@ -23,12 +23,18 @@ namespace GameHelper.ConsoleHost.Commands
 
                 // Load from JSON
                 var jsonProvider = new JsonConfigProvider(jsonPath);
-                var data = jsonProvider.Load();
-                Console.WriteLine($"Loaded {data.Count} entries from JSON.");
+                var data = jsonProvider.Read();
+                Console.WriteLine($"Loaded {data.Games.Count} entries from JSON.");
 
                 // Save to YAML (overwrites if exists)
                 var yamlProvider = new YamlConfigProvider(ymlPath);
-                yamlProvider.Save(data);
+                yamlProvider.Change(config =>
+                {
+                    config.ProcessMonitorType = data.ProcessMonitorType;
+                    config.AutoStartInteractiveMonitor = data.AutoStartInteractiveMonitor;
+                    config.LaunchOnSystemStartup = data.LaunchOnSystemStartup;
+                    config.Games = data.Games;
+                });
                 Console.WriteLine($"Written YAML to {ymlPath}");
             }
             catch (Exception ex)

@@ -23,16 +23,13 @@ namespace GameHelper.Infrastructure.Processes
     /// ETW-based process monitor that provides low-latency process lifecycle notifications.
     /// Requires administrator privileges to access kernel ETW providers.
     /// </summary>
-    public sealed class EtwProcessMonitor : IProcessMonitor, IStopEventsControl, IProcessNameFilterControl, IDisposable
+    public sealed class EtwProcessMonitor : IProcessMonitor
     {
         private TraceEventSession? _session;
         private Thread? _processingThread;
         private volatile bool _isRunning;
-        private volatile bool _stopEventsEnabled = true;
         private volatile bool _disposed;
-        private readonly object _allowedProcessNamesLock = new();
-        private readonly HashSet<string> _allowedProcessNames;
-        private volatile bool _hasProcessNameFilter;
+        private ProcessObservationPolicy _policy = ProcessObservationPolicy.ObserveAll();
         private readonly ILogger<EtwProcessMonitor>? _logger;
         private readonly string _sessionName;
 
@@ -53,13 +50,14 @@ namespace GameHelper.Infrastructure.Processes
             _logger = logger;
             _sessionName = $"GameHelper-ETW-{Guid.NewGuid():N}";
             
-            _allowedProcessNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (allowedProcessNames != null)
             {
-                SetAllowedProcessNames(allowedProcessNames);
+                Configure(new ProcessObservationPolicy(allowedProcessNames));
             }
 
-            _logger?.LogDebug("EtwProcessMonitor created with {Count} allowed processes", _allowedProcessNames.Count);
+            _logger?.LogDebug(
+                "EtwProcessMonitor created with {Count} candidate processes",
+                CurrentPolicy.CandidateProcessNames.Count);
         }
 
         /// <inheritdoc />
@@ -94,6 +92,7 @@ namespace GameHelper.Infrastructure.Processes
                 try
                 {
                     InitializeEtwSession();
+                    PrefillRunningProcesses();
                     _isRunning = true;
                     _logger?.LogInformation("ETW process monitor started successfully after cleanup");
                 }
@@ -124,43 +123,16 @@ namespace GameHelper.Infrastructure.Processes
         }
 
         /// <inheritdoc />
-        public void SetStopEventsEnabled(bool enabled)
+        public void Configure(ProcessObservationPolicy policy)
         {
-            if (_stopEventsEnabled != enabled)
-            {
-                _stopEventsEnabled = enabled;
-                if (enabled)
-                {
-                    _logger?.LogDebug("ETW stop events re-enabled");
-                }
-            }
-            _logger?.LogDebug("ETW stop events enabled: {Enabled}", enabled);
-        }
-
-        /// <inheritdoc />
-        public void SetAllowedProcessNames(IEnumerable<string> processNames)
-        {
-            ArgumentNullException.ThrowIfNull(processNames);
-
-            int count;
-            lock (_allowedProcessNamesLock)
-            {
-                _allowedProcessNames.Clear();
-                foreach (var name in processNames)
-                {
-                    if (!string.IsNullOrWhiteSpace(name))
-                    {
-                        _allowedProcessNames.Add(NormalizeProcessName(name));
-                    }
-                }
-
-                _hasProcessNameFilter = true;
-                count = _allowedProcessNames.Count;
-            }
+            ArgumentNullException.ThrowIfNull(policy);
+            Volatile.Write(ref _policy, policy);
 
             _logger?.LogDebug(
-                "ETW process-name filter updated with {Count} allowed processes",
-                count);
+                "ETW observation policy updated: {Count} candidates, all={ObserveAll}, stop={ObserveStopEvents}",
+                policy.CandidateProcessNames.Count,
+                policy.ObservesAllProcessNames,
+                policy.ObserveStopEvents);
         }
 
         /// <inheritdoc />
@@ -253,9 +225,6 @@ namespace GameHelper.Infrastructure.Processes
             // so stale entries don't accumulate while stop events are disabled.
             bool hadCache = _startPathCache.TryRemove(data.ProcessID, out var cachedPath);
 
-            if (!_stopEventsEnabled)
-                return;
-
             try
             {
                 var processName = GetProcessName(data);
@@ -267,26 +236,24 @@ namespace GameHelper.Infrastructure.Processes
                     processName = Path.GetFileName(cachedPath);
                 }
 
-                if (string.IsNullOrWhiteSpace(processName))
-                    return;
-
                 // If this PID was previously cached (meaning it passed the start filter),
                 // always allow the stop event regardless of whether the stop payload's
                 // name matches the current filter. The process may have changed its
                 // displayed name between start and stop.
-                if (!hadCache && !IsAllowedProcess(processName))
+                if (!IsAllowedProcessStop(processName, hadCache))
                 {
                     return;
                 }
 
                 var fallbackImageFileName = data.PayloadByName("ImageFileName") as string;
                 var realPath = hadCache ? cachedPath : fallbackImageFileName;
+                var executableName = processName!;
 
                 _logger?.LogDebug(
                     "Process stopped: {ProcessName} (PID: {ProcessId}, CacheHit={CacheHit}, CachedPath={CachedPath}, Fallback={Fallback})",
-                    processName, data.ProcessID, hadCache, realPath, fallbackImageFileName);
+                    executableName, data.ProcessID, hadCache, realPath, fallbackImageFileName);
 
-                var info = new ProcessEventInfo(processName, realPath, data.ProcessID);
+                var info = new ProcessEventInfo(executableName, realPath, data.ProcessID);
                 ProcessStopped?.Invoke(info);
             }
             catch (Exception ex)
@@ -319,23 +286,10 @@ namespace GameHelper.Infrastructure.Processes
             return null;
         }
 
-        private bool IsAllowedProcess(string processName)
+        internal bool IsAllowedProcessStart(string processName, string? pathHint)
         {
-            if (!_hasProcessNameFilter)
-            {
-                return true;
-            }
-
-            var normalized = NormalizeProcessName(processName);
-            lock (_allowedProcessNamesLock)
-            {
-                return _allowedProcessNames.Contains(normalized);
-            }
-        }
-
-        private bool IsAllowedProcessStart(string processName, string? pathHint)
-        {
-            if (IsAllowedProcess(processName))
+            var policy = CurrentPolicy;
+            if (policy.Includes(processName))
             {
                 return true;
             }
@@ -350,7 +304,7 @@ namespace GameHelper.Infrastructure.Processes
                 // The ETW callback must stay cheap: do not open every non-candidate
                 // process here just to recover rare bad name/path payloads.
                 var hintName = Path.GetFileName(pathHint);
-                return !string.IsNullOrWhiteSpace(hintName) && IsAllowedProcess(hintName);
+                return !string.IsNullOrWhiteSpace(hintName) && policy.Includes(hintName);
             }
             catch
             {
@@ -358,19 +312,15 @@ namespace GameHelper.Infrastructure.Processes
             }
         }
 
-        private static string NormalizeProcessName(string processName)
+        internal bool IsAllowedProcessStop(string? processName, bool hadCachedStart)
         {
-            if (string.IsNullOrWhiteSpace(processName))
-                return processName;
-
-            // Keep filename only and ensure .exe suffix for consistency
-            var name = Path.GetFileName(processName.Trim());
-            if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-            {
-                name += ".exe";
-            }
-            return name;
+            var policy = CurrentPolicy;
+            return policy.ObserveStopEvents &&
+                !string.IsNullOrWhiteSpace(processName) &&
+                (hadCachedStart || policy.Includes(processName));
         }
+
+        private ProcessObservationPolicy CurrentPolicy => Volatile.Read(ref _policy);
 
         /// <summary>
         /// Checks whether an exception indicates ETW session resource exhaustion (0x800705AA).
@@ -498,15 +448,8 @@ namespace GameHelper.Infrastructure.Processes
         {
             try
             {
-                HashSet<string> allowedSet;
-                lock (_allowedProcessNamesLock)
-                {
-                    allowedSet = _hasProcessNameFilter
-                        ? _allowedProcessNames.ToHashSet(StringComparer.OrdinalIgnoreCase)
-                        : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                }
-
-                if (allowedSet.Count == 0)
+                var policy = CurrentPolicy;
+                if (policy.ObservesAllProcessNames || policy.CandidateProcessNames.Count == 0)
                 {
                     _logger?.LogDebug("No process-name candidates configured, skipping pre-fill scan");
                     return;
@@ -534,8 +477,7 @@ namespace GameHelper.Infrastructure.Processes
                 int prefillCount = 0;
                 foreach (var proc in processes)
                 {
-                    var normalizedName = NormalizeProcessName(proc.ProcessName + ".exe");
-                    if (!allowedSet.Contains(normalizedName))
+                    if (!policy.Includes(proc.ProcessName))
                     {
                         continue;
                     }

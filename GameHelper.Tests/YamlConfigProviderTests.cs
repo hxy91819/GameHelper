@@ -20,7 +20,7 @@ public class YamlConfigProviderTests : IDisposable
     {
         var provider = new YamlConfigProvider(_configPath);
 
-        var config = provider.LoadAppConfig();
+        var config = provider.Read();
 
         Assert.NotNull(config.Games);
         Assert.Empty(config.Games);
@@ -36,7 +36,7 @@ public class YamlConfigProviderTests : IDisposable
             ["ignored-old-key"] = new()
             {
                 DataKey = "cyberpunk2077",
-                ExecutableName = "cyberpunk2077.exe",
+                Executable = "cyberpunk2077.exe",
                 DisplayName = "Cyberpunk 2077",
                 IsEnabled = true,
                 HdrEnabled = true
@@ -44,16 +44,16 @@ public class YamlConfigProviderTests : IDisposable
             ["another-old-key"] = new()
             {
                 DataKey = "rdr2",
-                ExecutableName = "rdr2.exe",
+                Executable = "rdr2.exe",
                 DisplayName = "Red Dead Redemption 2",
                 IsEnabled = false,
                 HdrEnabled = false
             }
         };
 
-        provider.Save(input);
+        SaveGames(provider, input);
 
-        var output = provider.Load();
+        var output = LoadGames(provider);
         Assert.Equal(2, output.Count);
         Assert.Contains("cyberpunk2077", output.Keys);
         Assert.Contains("rdr2", output.Keys);
@@ -77,7 +77,23 @@ games:
 """);
         var provider = new YamlConfigProvider(_configPath);
 
-        var output = provider.Load();
+        var output = LoadGames(provider);
+
+        Assert.Empty(output);
+    }
+
+    [Fact]
+    public void Load_WhenExecutableIdentityIsInvalid_SkipsEntryDuringNormalization()
+    {
+        File.WriteAllText(_configPath, """
+monitor: ETW
+games:
+  - dataKey: broken
+    executable: C:\Games\DirectoryOnly\
+""");
+        var provider = new YamlConfigProvider(_configPath);
+
+        var output = LoadGames(provider);
 
         Assert.Empty(output);
     }
@@ -95,7 +111,7 @@ games:
 """);
         var provider = new YamlConfigProvider(_configPath);
 
-        var output = provider.Load();
+        var output = LoadGames(provider);
 
         Assert.Equal(2, output.Count);
         Assert.Contains(output.Values, v => v.DataKey == "game");
@@ -111,14 +127,14 @@ games:
             ["re"] = new()
             {
                 DataKey = "re",
-                ExecutablePath = @"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe",
+                Executable = @"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe",
                 DisplayName = "Romantic Escapades",
                 IsEnabled = true,
                 HdrEnabled = false
             }
         };
 
-        provider.Save(input);
+        SaveGames(provider, input);
 
         var yaml = File.ReadAllText(_configPath);
         Assert.Contains("monitor: ETW", yaml);
@@ -132,7 +148,7 @@ games:
         Assert.DoesNotContain("executableName", yaml, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("executablePath", yaml, StringComparison.OrdinalIgnoreCase);
 
-        var game = Assert.Single(provider.Load().Values);
+        var game = Assert.Single(LoadGames(provider).Values);
         Assert.Equal("re", game.DataKey);
         Assert.Equal(@"D:\Games\Romantic.Escapades.v2.0.2\game\RE.exe", game.ExecutablePath);
         Assert.Equal("RE.exe", game.ExecutableName);
@@ -148,19 +164,19 @@ games:
             ["granblue"] = new()
             {
                 DataKey = "granblue",
-                ExecutableName = "granblue.exe",
+                Executable = "granblue.exe",
                 DisplayName = "Granblue Fantasy: Relink",
                 IsEnabled = true,
                 HdrEnabled = false
             }
         };
 
-        provider.Save(input);
+        SaveGames(provider, input);
 
         var yaml = File.ReadAllText(_configPath);
         Assert.Contains("Granblue Fantasy: Relink", yaml);
 
-        var game = Assert.Single(provider.Load().Values);
+        var game = Assert.Single(LoadGames(provider).Values);
         Assert.Equal("Granblue Fantasy: Relink", game.DisplayName);
     }
 
@@ -176,7 +192,7 @@ games:
 """);
         var provider = new YamlConfigProvider(_configPath);
 
-        var ex = Assert.Throws<InvalidDataException>(() => provider.LoadAppConfig());
+        var ex = Assert.Throws<InvalidDataException>(() => provider.Read());
 
         Assert.Contains(_configPath, ex.Message);
         Assert.Contains("line", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -187,35 +203,35 @@ games:
     public void Save_WhenAppSettingsExist_PreservesGlobalSettings()
     {
         var provider = new YamlConfigProvider(_configPath);
-        provider.SaveAppConfig(new AppConfig
+        provider.Change(config =>
         {
-            ProcessMonitorType = ProcessMonitorType.WMI,
-            AutoStartInteractiveMonitor = true,
-            LaunchOnSystemStartup = true,
-            Games = new List<GameConfig>
+            config.ProcessMonitorType = ProcessMonitorType.WMI;
+            config.AutoStartInteractiveMonitor = true;
+            config.LaunchOnSystemStartup = true;
+            config.Games = new List<GameConfig>
             {
                 new()
                 {
                     DataKey = "old",
-                    ExecutableName = "old.exe",
+                    Executable = "old.exe",
                     IsEnabled = true
                 }
-            }
+            };
         });
 
-        provider.Save(new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
+        SaveGames(provider, new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
         {
             ["new"] = new()
             {
                 DataKey = "new",
-                ExecutableName = "new.exe",
+                Executable = "new.exe",
                 DisplayName = "New Game",
                 IsEnabled = true,
                 HdrEnabled = true
             }
         });
 
-        var appConfig = provider.LoadAppConfig();
+        var appConfig = provider.Read();
         Assert.Equal(ProcessMonitorType.WMI, appConfig.ProcessMonitorType);
         Assert.True(appConfig.AutoStartInteractiveMonitor);
         Assert.True(appConfig.LaunchOnSystemStartup);
@@ -225,6 +241,38 @@ games:
         Assert.Equal("new.exe", game.Executable);
         Assert.Equal("New Game", game.DisplayName);
         Assert.True(game.HdrEnabled);
+    }
+
+    [Fact]
+    public void Change_WhenMutationThrows_DoesNotCommitPartialDocument()
+    {
+        var provider = new YamlConfigProvider(_configPath);
+        provider.Change(config => config.AutoStartInteractiveMonitor = true);
+
+        Assert.Throws<InvalidOperationException>(() => provider.Change(config =>
+        {
+            config.AutoStartInteractiveMonitor = false;
+            config.LaunchOnSystemStartup = true;
+            throw new InvalidOperationException("abort");
+        }));
+
+        var snapshot = provider.Read();
+        Assert.True(snapshot.AutoStartInteractiveMonitor);
+        Assert.False(snapshot.LaunchOnSystemStartup);
+    }
+
+    [Fact]
+    public void Change_ConcurrentIndependentChanges_PreserveBothResults()
+    {
+        var provider = new YamlConfigProvider(_configPath);
+
+        Parallel.Invoke(
+            () => provider.Change(config => config.AutoStartInteractiveMonitor = true),
+            () => provider.Change(config => config.LaunchOnSystemStartup = true));
+
+        var snapshot = provider.Read();
+        Assert.True(snapshot.AutoStartInteractiveMonitor);
+        Assert.True(snapshot.LaunchOnSystemStartup);
     }
 
     public void Dispose()
@@ -241,4 +289,12 @@ games:
             // best-effort cleanup
         }
     }
+
+    private static IReadOnlyDictionary<string, GameConfig> LoadGames(YamlConfigProvider provider) =>
+        provider.Read().Games.ToDictionary(game => game.DataKey, StringComparer.OrdinalIgnoreCase);
+
+    private static void SaveGames(
+        YamlConfigProvider provider,
+        IReadOnlyDictionary<string, GameConfig> games) =>
+        provider.Change(config => config.Games = games.Values.ToList());
 }

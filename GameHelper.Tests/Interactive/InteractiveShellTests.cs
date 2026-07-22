@@ -102,7 +102,7 @@ namespace GameHelper.Tests.Interactive
                 ["entry1"] = new GameConfig
                 {
                     DataKey = "same",
-                    ExecutableName = "same.exe",
+                    Executable = "same.exe",
                     DisplayName = "Same",
                     IsEnabled = true,
                     HdrEnabled = false
@@ -372,8 +372,7 @@ namespace GameHelper.Tests.Interactive
         {
             autoStartManager ??= new FakeAutoStartManager();
             var services = new ServiceCollection()
-                .AddSingleton<IConfigProvider>(configProvider)
-                .AddSingleton<IAppConfigProvider>(configProvider)
+                .AddSingleton<IGameConfiguration>(configProvider)
                 .AddSingleton<IAutoStartManager>(autoStartManager)
                 .AddSingleton<IGameCatalogService, GameCatalogService>()
                 .AddSingleton<IProcessMonitor, FakeProcessMonitor>()
@@ -412,7 +411,7 @@ namespace GameHelper.Tests.Interactive
             public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
         }
 
-        private sealed class FakeConfigProvider : IConfigProvider, IAppConfigProvider, IConfigPathProvider
+        private sealed class FakeConfigProvider : IGameConfiguration, IConfigPathProvider
         {
             private readonly object _lock = new();
             private Dictionary<string, GameConfig> _configs;
@@ -464,6 +463,21 @@ namespace GameHelper.Tests.Interactive
                 }
             }
 
+            public AppConfig Read() => LoadAppConfig();
+
+            public AppConfig Change(Action<AppConfig> change)
+            {
+                lock (_lock)
+                {
+                    var working = LoadAppConfig();
+                    change(working);
+                    _configs = (working.Games ?? new List<GameConfig>())
+                        .ToDictionary(config => config.DataKey, StringComparer.OrdinalIgnoreCase);
+                    _appConfig = working;
+                    return LoadAppConfig();
+                }
+            }
+
             public void SaveAppConfig(AppConfig appConfig)
             {
                 lock (_lock)
@@ -488,6 +502,10 @@ namespace GameHelper.Tests.Interactive
             {
                 add { }
                 remove { }
+            }
+
+            public void Configure(ProcessObservationPolicy policy)
+            {
             }
 
             public void Start()
@@ -577,7 +595,7 @@ namespace GameHelper.Tests.Interactive
             public void WritePlaytimeCsv(params (string Game, DateTime Start, DateTime End, long Minutes)[] sessions)
             {
                 var file = Path.Combine(_path, "GameHelper", "playtime.csv");
-                var lines = new List<string> { "GameName,StartTime,EndTime,DurationMinutes" };
+                var lines = new List<string> { "game,start_time,end_time,duration_minutes" };
                 lines.AddRange(sessions.Select(s => $"{s.Game},{s.Start:o},{s.End:o},{s.Minutes}"));
                 File.WriteAllLines(file, lines);
             }

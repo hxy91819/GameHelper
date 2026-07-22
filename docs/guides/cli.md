@@ -36,6 +36,7 @@ dotnet run --project .\GameHelper.ConsoleHost -- stats --game <dataKey>
 # 配置管理
 dotnet run --project .\GameHelper.ConsoleHost -- config list
 dotnet run --project .\GameHelper.ConsoleHost -- config add <exe|path-to-exe>
+dotnet run --project .\GameHelper.ConsoleHost -- config import-steam
 dotnet run --project .\GameHelper.ConsoleHost -- config remove <dataKey>
 
 # 配置工具与校验
@@ -81,12 +82,19 @@ games:
 
 `config add` 可接收可执行文件名或 `.exe` 路径，并统一保存到 `executable`；运行时会从该字段派生路径匹配与候选进程名。
 
+`config import-steam` 会扫描 Steam 主目录及 `libraryfolders.vdf` 中的库，读取已安装游戏的 `appmanifest_*.acf`，为每个游戏选择一个候选主可执行文件，并通过一次批量写入添加到配置。相同可执行文件已存在时会更新其显示名称和启用状态。
+
+交互式 Shell 的“配置管理”也提供“扫描并导入 Steam 游戏”入口：会先显示候选游戏清单，用户确认后才写入配置。
+
+所有配置写操作都会在最新完整文档上应用一次变更，再通过临时文件原子替换；游戏清单、监控设置和启动设置不会因彼此更新而丢失。
+
 ## 拖放添加游戏
 
 - 支持拖放 `.exe`、`.lnk`、`.url` 到 `GameHelper.ConsoleHost.exe`。
 - 若主实例已运行，新的拖放请求会自动转发给主实例处理。
+- 转发后的批次使用主实例当前配置路径；IPC 请求不能切换主实例的 `--config`。
 - 系统会尝试提取 `ProductName` 并生成建议的 `dataKey`。
-- 保存后配置会立即写入 `config.yml`。
+- 整个批次通过一次 Game Catalog Intake 提交，成功后只触发一次监控配置热重载。
 
 ## 数据文件
 

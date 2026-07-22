@@ -43,6 +43,17 @@ internal static class ConfigEntryNormalizer
             return null;
         }
 
+        if (!ExecutableIdentity.TryCreate(executable, out _))
+        {
+            if (missingDataKeyAction == MissingDataKeyAction.Throw)
+            {
+                throw new InvalidDataException($"Configuration entry '{dataKey}' has an invalid Executable identity.");
+            }
+
+            logger?.LogWarning("Skip config entry '{DataKey}': Executable identity is invalid.", dataKey);
+            return null;
+        }
+
         return CreateNormalized(source, dataKey, executable, displayName);
     }
 
@@ -58,6 +69,11 @@ internal static class ConfigEntryNormalizer
         if (string.IsNullOrWhiteSpace(executable))
         {
             throw new InvalidDataException($"Cannot save config entry '{dataKey}' without Executable.");
+        }
+
+        if (!ExecutableIdentity.TryCreate(executable, out _))
+        {
+            throw new InvalidDataException($"Cannot save config entry '{dataKey}' with an invalid Executable identity.");
         }
 
         var displayName = (source.DisplayName ?? string.Empty).Trim();

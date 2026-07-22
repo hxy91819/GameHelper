@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using GameHelper.Core.Models;
 
 namespace GameHelper.Core.Utilities;
 
@@ -13,18 +14,19 @@ public static class DataKeyGenerator
     /// Generates a unique DataKey from executable path and optional product name.
     /// Ensures uniqueness by appending a suffix if the key already exists.
     /// </summary>
-    /// <param name="exePath">Full path to the executable file.</param>
+    /// <param name="executable">Executable identity used as the fallback source.</param>
     /// <param name="productName">Optional product name from metadata.</param>
     /// <param name="existingDataKeys">Existing DataKeys to check for uniqueness.</param>
     /// <returns>A unique DataKey string.</returns>
     public static string GenerateUniqueDataKey(
-        string exePath,
+        ExecutableIdentity executable,
         string? productName,
         IEnumerable<string> existingDataKeys)
     {
+        ArgumentNullException.ThrowIfNull(executable);
         ArgumentNullException.ThrowIfNull(existingDataKeys);
 
-        var baseKey = GenerateBaseDataKey(exePath, productName);
+        var baseKey = GenerateBaseDataKey(executable, productName);
         return ConfigIdentity.EnsureUniqueDataKey(baseKey, existingDataKeys);
     }
 
@@ -32,25 +34,15 @@ public static class DataKeyGenerator
     /// Generates a base DataKey without uniqueness check.
     /// Used by migration tool where uniqueness is guaranteed by source data.
     /// </summary>
-    /// <param name="exePath">Full path to the executable file.</param>
+    /// <param name="executable">Executable identity used as the fallback source.</param>
     /// <param name="productName">Optional product name from metadata.</param>
     /// <returns>A normalized DataKey string.</returns>
-    public static string GenerateBaseDataKey(string exePath, string? productName = null)
+    public static string GenerateBaseDataKey(ExecutableIdentity executable, string? productName = null)
     {
+        ArgumentNullException.ThrowIfNull(executable);
         return !string.IsNullOrWhiteSpace(productName) && IsSuitableProductName(productName)
             ? NormalizeDataKey(productName)
-            : NormalizeDataKey(GetFileNameWithoutExtensionCrossPlatform(exePath));
-    }
-
-    private static string GetFileNameWithoutExtensionCrossPlatform(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return string.Empty;
-        }
-
-        var normalizedPath = path.Replace('\\', '/');
-        return Path.GetFileNameWithoutExtension(normalizedPath);
+            : NormalizeDataKey(Path.GetFileNameWithoutExtension(executable.Name));
     }
 
     private static string NormalizeDataKey(string input)

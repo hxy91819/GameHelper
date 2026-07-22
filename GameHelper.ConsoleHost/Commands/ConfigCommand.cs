@@ -1,6 +1,5 @@
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
-using GameHelper.Core.Utilities;
 using GameHelper.ConsoleHost.Utilities;
 
 namespace GameHelper.ConsoleHost.Commands;
@@ -8,6 +7,14 @@ namespace GameHelper.ConsoleHost.Commands;
 public static class ConfigCommand
 {
     public static void Run(IGameCatalogService gameCatalogService, string[] args)
+    {
+        Run(gameCatalogService, null, args);
+    }
+
+    public static void Run(
+        IGameCatalogService gameCatalogService,
+        ISteamGameResolver? steamGameResolver,
+        string[] args)
     {
         ArgumentNullException.ThrowIfNull(gameCatalogService);
 
@@ -30,15 +37,46 @@ public static class ConfigCommand
             case "remove":
                 RemoveGame(args, gameCatalogService);
                 break;
+            case "import-steam":
+                ImportSteamGames(gameCatalogService, steamGameResolver);
+                break;
             default:
                 CommandHelpers.PrintUsage();
                 break;
         }
     }
 
+    private static void ImportSteamGames(
+        IGameCatalogService gameCatalogService,
+        ISteamGameResolver? steamGameResolver)
+    {
+        if (steamGameResolver is null)
+        {
+            Console.WriteLine("Steam import is unavailable because the Steam resolver is not configured.");
+            return;
+        }
+
+        var games = steamGameResolver.TryEnumerateInstalledGames();
+        if (games.Count == 0)
+        {
+            Console.WriteLine("No installed Steam games with a resolvable executable were found.");
+            return;
+        }
+
+        var results = gameCatalogService.BatchIntake(games.Select(game => new GameCatalogIntakeRequest
+        {
+            Executable = ExecutableIdentity.Parse(game.ExecutablePath),
+            ProductName = game.Name,
+            DisplayName = game.Name,
+            IsEnabled = true
+        }));
+        var added = results.Count(result => result.WasAdded);
+        Console.WriteLine($"Steam import completed: Added={added}, Updated={results.Count - added}.");
+    }
+
     private static void ListGames(IGameCatalogService gameCatalogService)
     {
-        var games = gameCatalogService.GetAll();
+        var games = gameCatalogService.List();
         if (games.Count == 0)
         {
             Console.WriteLine("No games configured.");
@@ -70,7 +108,7 @@ public static class ConfigCommand
         var pathImportRequest = TryCreatePathImportRequest(executableInput);
         if (pathImportRequest is not null)
         {
-            var result = gameCatalogService.Import(pathImportRequest);
+            var result = gameCatalogService.Intake(pathImportRequest);
             var entry = result.Entry;
             Console.WriteLine(result.WasAdded
                 ? $"Added {entry.ExecutableName}. DataKey={entry.DataKey} Path={entry.ExecutablePath}"
@@ -79,17 +117,18 @@ public static class ConfigCommand
         }
 
         var executableName = executableInput.Trim();
-        gameCatalogService.Add(new GameEntryUpsertRequest
+        var nameOnlyResult = gameCatalogService.Intake(new GameCatalogIntakeRequest
         {
-            ExecutableName = executableName,
-            IsEnabled = true,
-            HdrEnabled = false
+            Executable = ExecutableIdentity.Parse(executableName),
+            IsEnabled = true
         });
 
-        Console.WriteLine($"Added {executableName}.");
+        Console.WriteLine(nameOnlyResult.WasAdded
+            ? $"Added {executableName}."
+            : $"Updated {executableName}.");
     }
 
-    private static GameEntryImportRequest? TryCreatePathImportRequest(string executableInput)
+    private static GameCatalogIntakeRequest? TryCreatePathImportRequest(string executableInput)
     {
         var executablePath = executableInput.Trim();
         if (!executablePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
@@ -109,12 +148,11 @@ public static class ConfigCommand
             ? GameMetadataExtractor.ExtractMetadata(executablePath)
             : (null, null);
 
-        return new GameEntryImportRequest
+        return new GameCatalogIntakeRequest
         {
-            ExecutableName = executableName,
-            ExecutablePath = executablePath,
+            Executable = ExecutableIdentity.Parse(executablePath),
             DisplayName = displayName,
-            BaseDataKey = DataKeyGenerator.GenerateBaseDataKey(executablePath, productName),
+            ProductName = productName,
             IsEnabled = true
         };
     }
@@ -135,7 +173,7 @@ public static class ConfigCommand
         }
 
         var dataKey = args[1];
-        if (gameCatalogService.Delete(dataKey))
+        if (gameCatalogService.Remove(dataKey))
         {
             Console.WriteLine($"Removed {dataKey}.");
         }

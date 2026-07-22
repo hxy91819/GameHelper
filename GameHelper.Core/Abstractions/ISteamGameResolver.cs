@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using GameHelper.Core.Models;
 
 namespace GameHelper.Core.Abstractions
 {
@@ -29,5 +30,10 @@ namespace GameHelper.Core.Abstractions
         /// For diagnostics: enumerate candidate executables for a given appId, if available.
         /// </summary>
         IReadOnlyList<string> TryEnumerateExeCandidates(string appId);
+
+        /// <summary>
+        /// Enumerate locally installed Steam games that have a resolvable executable.
+        /// </summary>
+        IReadOnlyList<SteamInstalledGame> TryEnumerateInstalledGames();
     }
 }

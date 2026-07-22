@@ -1,4 +1,5 @@
 using System;
+using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Processes;
 using Xunit;
@@ -37,6 +38,30 @@ namespace GameHelper.Tests
 
             monitor.SimulateStop(new ProcessEventInfo("game.exe", null));
             Assert.Equal("game.exe", received?.ExecutableName);
+        }
+
+        [Fact]
+        public void Configure_AppliesCandidateAndStopEventContract()
+        {
+            var monitor = new NoOpProcessMonitor();
+            var started = new List<string>();
+            var stopped = new List<string>();
+            monitor.ProcessStarted += info => started.Add(info.ExecutableName);
+            monitor.ProcessStopped += info => stopped.Add(info.ExecutableName);
+
+            monitor.Configure(new ProcessObservationPolicy(new[] { "GAME" }, observeStopEvents: false));
+            monitor.SimulateStart(new ProcessEventInfo("game.exe", null));
+            monitor.SimulateStart(new ProcessEventInfo("other.exe", null));
+            monitor.SimulateStop(new ProcessEventInfo("game.exe", null));
+
+            Assert.Equal(new[] { "game.exe" }, started);
+            Assert.Empty(stopped);
+
+            monitor.Configure(new ProcessObservationPolicy(new[] { "game.exe" }, observeStopEvents: true));
+            monitor.SimulateStop(new ProcessEventInfo("game.exe", null));
+            monitor.SimulateStop(new ProcessEventInfo("other.exe", null));
+
+            Assert.Equal(new[] { "game.exe" }, stopped);
         }
     }
 }

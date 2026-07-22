@@ -16,8 +16,9 @@ namespace GameHelper.Infrastructure.Providers
     /// <summary>
     /// YAML-based config provider stored at %AppData%/GameHelper/config.yml.
     /// </summary>
-    public sealed class YamlConfigProvider : IConfigProvider, IConfigPathProvider, IAppConfigProvider
+    public sealed class YamlConfigProvider : IGameConfiguration, IConfigPathProvider
     {
+        private readonly object _gate = new();
         private readonly string _configFilePath;
         private readonly ILogger<YamlConfigProvider> _logger;
 
@@ -61,47 +62,29 @@ namespace GameHelper.Infrastructure.Providers
             .WithNewLine("\n")
             .Build();
 
-        public IReadOnlyDictionary<string, GameConfig> Load()
+        public AppConfig Read()
         {
-            var appConfig = LoadAppConfig();
-            var result = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase);
-
-            if (appConfig.Games is null || appConfig.Games.Count == 0)
+            lock (_gate)
             {
-                return result;
+                return Normalize(ReadCore());
             }
-
-            var normalizedGames = new List<GameConfig>();
-            foreach (var source in appConfig.Games)
-            {
-                if (source is null)
-                {
-                    continue;
-                }
-
-                var normalized = ConfigEntryNormalizer.NormalizeLoaded(source, MissingDataKeyAction.Skip, _logger);
-                if (normalized is null)
-                {
-                    continue;
-                }
-
-                normalizedGames.Add(normalized);
-            }
-
-            ConfigEntryNormalizer.RepairDuplicateDataKeys(
-                normalizedGames,
-                _logger,
-                " while loading.");
-
-            foreach (var game in normalizedGames)
-            {
-                result[game.DataKey] = game;
-            }
-
-            return result;
         }
 
-        public AppConfig LoadAppConfig()
+        public AppConfig Change(Action<AppConfig> change)
+        {
+            ArgumentNullException.ThrowIfNull(change);
+
+            lock (_gate)
+            {
+                var appConfig = Normalize(ReadCore());
+                change(appConfig);
+                appConfig = Normalize(appConfig, forSave: true);
+                WriteCore(appConfig);
+                return Normalize(ReadCore());
+            }
+        }
+
+        private AppConfig ReadCore()
         {
             try
             {
@@ -131,21 +114,30 @@ namespace GameHelper.Infrastructure.Providers
             }
         }
 
-        public void Save(IReadOnlyDictionary<string, GameConfig> configs)
+        private AppConfig Normalize(AppConfig appConfig, bool forSave = false)
         {
-            var appConfig = LoadAppConfig();
+            var normalizedGames = new List<GameConfig>();
+            foreach (var source in appConfig.Games ?? Enumerable.Empty<GameConfig>())
+            {
+                var normalized = forSave
+                    ? ConfigEntryNormalizer.NormalizeForSave(source, _logger)
+                    : ConfigEntryNormalizer.NormalizeLoaded(source, MissingDataKeyAction.Skip, _logger);
+                if (normalized is not null)
+                {
+                    normalizedGames.Add(normalized);
+                }
+            }
 
-            var normalizedGames = configs.Values
-                .Select(config => ConfigEntryNormalizer.NormalizeForSave(config, _logger))
-                .ToList();
-
-            ConfigEntryNormalizer.RepairDuplicateDataKeys(normalizedGames, _logger, " while saving.");
+            ConfigEntryNormalizer.RepairDuplicateDataKeys(
+                normalizedGames,
+                _logger,
+                forSave ? " while saving." : " while loading.");
 
             appConfig.Games = normalizedGames;
-            SaveAppConfig(appConfig);
+            return appConfig;
         }
 
-        public void SaveAppConfig(AppConfig appConfig)
+        private void WriteCore(AppConfig appConfig)
         {
             var dir = Path.GetDirectoryName(_configFilePath);
             if (!string.IsNullOrEmpty(dir))
@@ -154,7 +146,19 @@ namespace GameHelper.Infrastructure.Providers
             }
 
             var yaml = Serializer.Serialize(ToStoredAppConfig(appConfig));
-            File.WriteAllText(_configFilePath, yaml);
+            var tempPath = _configFilePath + ".tmp";
+            try
+            {
+                File.WriteAllText(tempPath, yaml);
+                File.Move(tempPath, _configFilePath, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+            }
         }
 
         private static string ResolveDefaultPath() => AppDataPath.GetConfigPath();
@@ -203,16 +207,16 @@ namespace GameHelper.Infrastructure.Providers
 
         private static StoredAppConfig ToStoredAppConfig(AppConfig appConfig) => new()
         {
-            Monitor = appConfig.ProcessMonitorType ?? ProcessMonitorType.ETW,
+            Monitor = appConfig.ProcessMonitorType,
             Startup = new StoredStartupConfig
             {
                 AutoStartMonitor = appConfig.AutoStartInteractiveMonitor,
                 LaunchOnStartup = appConfig.LaunchOnSystemStartup
             },
-            Games = appConfig.Games?
+            Games = appConfig.Games
                 .Select(ToStoredGameConfig)
                 .OrderBy(game => game.DataKey, StringComparer.OrdinalIgnoreCase)
-                .ToList() ?? new List<StoredGameConfig>()
+                .ToList()
         };
 
         private static StoredGameConfig ToStoredGameConfig(GameConfig gameConfig) => new()

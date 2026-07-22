@@ -1,329 +1,124 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.Core.Abstractions;
-using GameHelper.Core.Models;
+using GameHelper.Core.Services;
 using GameHelper.Infrastructure.Providers;
-using Microsoft.Extensions.DependencyInjection;
-using Xunit;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 
 namespace GameHelper.Tests;
 
-public sealed class FileDropHandlerTests
+public sealed class FileDropHandlerTests : IDisposable
 {
-    [Fact]
-    public void LooksLikeFilePaths_ReturnsTrueForExistingExeFiles()
+    private readonly string _tempDirectory;
+    private readonly string _configPath;
+    private readonly YamlConfigProvider _configuration;
+    private readonly Mock<ISteamGameResolver> _steamResolver = new(MockBehavior.Strict);
+    private readonly Mock<IGameAutomationService> _automation = new(MockBehavior.Strict);
+    private readonly FileDropIntake _intake;
+
+    public FileDropHandlerTests()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        try
-        {
-            var exePath = Path.Combine(tempDir, "SampleGame.exe");
-            File.WriteAllText(exePath, string.Empty);
-
-            var result = FileDropHandler.LooksLikeFilePaths(new[] { exePath });
-
-            Assert.True(result);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
+        _tempDirectory = Path.Combine(Path.GetTempPath(), "GameHelperFileDropBehaviorTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_tempDirectory);
+        _configPath = Path.Combine(_tempDirectory, "config.yml");
+        _configuration = new YamlConfigProvider(_configPath);
+        _intake = new FileDropIntake(
+            new GameCatalogService(_configuration),
+            _steamResolver.Object,
+            _automation.Object,
+            _configuration,
+            NullLogger<FileDropIntake>.Instance);
     }
 
     [Fact]
-    public void ProcessFilePaths_AddsNewExecutableWithDefaults()
+    public void LooksLikeFilePaths_AcceptsExistingExeAndUrlCaseInsensitively()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var configPath = Path.Combine(tempDir, "config.yml");
-        var exePath = Path.Combine(tempDir, "NewAdventure.exe");
-        File.WriteAllText(exePath, string.Empty);
+        var executablePath = CreateFile("Game.EXE");
+        var shortcutPath = CreateFile("Steam Game.URL", "URL=steam://rungameid/42");
 
-        using var services = new ServiceCollection().BuildServiceProvider();
+        var result = FileDropHandler.LooksLikeFilePaths([executablePath, shortcutPath]);
 
-        try
-        {
-            var summary = FileDropHandler.ProcessFilePaths(new[] { exePath }, configPath, services);
-
-            Assert.Equal(1, summary.Added);
-            Assert.Equal(0, summary.Updated);
-            Assert.Equal(0, summary.Skipped);
-
-            var provider = new YamlConfigProvider(configPath);
-            var map = provider.Load();
-
-            var config = Assert.Single(map.Values);
-            Assert.Equal("newadventure", config.DataKey); // DataKey is normalized: lowercase, no .exe
-            Assert.Equal(exePath, config.Executable);
-            Assert.Equal("NewAdventure.exe", config.ExecutableName);
-            Assert.Equal("NewAdventure", config.DisplayName);
-            Assert.True(config.IsEnabled);
-            Assert.False(config.HdrEnabled);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
+        Assert.True(result);
     }
 
     [Fact]
-    public void ProcessFilePaths_UpdatesExistingGameAndPreservesHdrChoice()
+    public void LooksLikeFilePaths_RejectsUnsupportedOrMissingFiles()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var configPath = Path.Combine(tempDir, "config.yml");
-        var exePath = Path.Combine(tempDir, "LegacyClassic.exe");
-        File.WriteAllText(exePath, string.Empty);
+        var textPath = CreateFile("notes.txt");
+        var missingExecutablePath = Path.Combine(_tempDirectory, "missing.exe");
 
-        var seed = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["legacy-entry"] = new GameConfig
-            {
-                DataKey = "LegacyClassic", // Existing DataKey without .exe
-                ExecutableName = "LegacyClassic.exe",
-                DisplayName = "旧版经典",
-                IsEnabled = false,
-                HdrEnabled = false
-            }
-        };
-        var seedProvider = new YamlConfigProvider(configPath);
-        seedProvider.Save(seed);
-
-        using var services = new ServiceCollection().BuildServiceProvider();
-
-        try
-        {
-            var summary = FileDropHandler.ProcessFilePaths(new[] { exePath }, configPath, services);
-
-            Assert.Equal(0, summary.Added);
-            Assert.Equal(1, summary.Updated);
-            Assert.Equal(0, summary.Skipped);
-
-            var provider = new YamlConfigProvider(configPath);
-            var map = provider.Load();
-
-            var config = Assert.Single(map.Values);
-            Assert.Equal("LegacyClassic", config.DataKey); // DataKey should be preserved
-            Assert.Equal("LegacyClassic.exe", config.ExecutableName);
-            Assert.Equal("LegacyClassic", config.DisplayName);
-            Assert.True(config.IsEnabled); // Updated to enabled
-            Assert.False(config.HdrEnabled); // HDR preserved
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
+        Assert.False(FileDropHandler.LooksLikeFilePaths([textPath]));
+        Assert.False(FileDropHandler.LooksLikeFilePaths([missingExecutablePath]));
+        Assert.False(FileDropHandler.LooksLikeFilePaths([]));
     }
 
     [Fact]
-    public void ProcessFilePaths_UsesSteamResolverForUrlShortcuts()
+    public async Task HandleAsync_Executable_StoresSingleIdentityAndFileNameDisplay()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var configPath = Path.Combine(tempDir, "config.yml");
-        var urlPath = Path.Combine(tempDir, "SteamShortcut.url");
-        var resolvedExe = Path.Combine(tempDir, "SteamAdventure.exe");
-        File.WriteAllText(urlPath, "URL=steam://rungameid/4242");
-        File.WriteAllText(resolvedExe, string.Empty);
+        var executablePath = CreateFile("My Special Game.EXE");
+        _automation.Setup(service => service.ReloadConfig());
 
-        var resolver = new StubSteamResolver
-        {
-            UrlToReturn = "steam://rungameid/4242",
-            AppIdToReturn = "4242",
-            ExeToReturn = resolvedExe
-        };
+        var result = await _intake.HandleAsync(
+            new DropAddRequest { Paths = [executablePath] },
+            CancellationToken.None);
 
-        using var services = new ServiceCollection()
-            .AddSingleton<ISteamGameResolver>(resolver)
-            .BuildServiceProvider();
-
-        try
-        {
-            var summary = FileDropHandler.ProcessFilePaths(new[] { urlPath }, configPath, services);
-
-            Assert.Equal(1, summary.Added);
-            Assert.Equal(0, summary.Updated);
-            Assert.Equal(0, summary.Skipped);
-
-            Assert.Contains(urlPath, resolver.ShortcutPaths);
-            Assert.Contains(resolver.UrlToReturn!, resolver.Urls);
-            Assert.Contains(resolver.AppIdToReturn!, resolver.AppIds);
-
-            var provider = new YamlConfigProvider(configPath);
-            var map = provider.Load();
-
-            var config = Assert.Single(map.Values);
-            Assert.Equal("steamadventure", config.DataKey); // DataKey is normalized: lowercase, no .exe
-            Assert.Equal("SteamAdventure.exe", config.ExecutableName);
-            Assert.Equal("SteamShortcut", config.DisplayName); // DisplayName from .url filename
-            Assert.True(config.IsEnabled);
-            Assert.False(config.HdrEnabled);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
+        Assert.True(result.Success);
+        Assert.Equal(1, result.Added);
+        var game = Assert.Single(_configuration.Read().Games);
+        Assert.Equal("myspecialgame", game.DataKey);
+        Assert.Equal(executablePath, game.Executable);
+        Assert.Equal("My Special Game.EXE", game.ExecutableName);
+        Assert.Equal("My Special Game", game.DisplayName);
+        Assert.True(game.IsEnabled);
+        Assert.False(game.HdrEnabled);
+        _automation.Verify(service => service.ReloadConfig(), Times.Once);
+        _steamResolver.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public void ProcessFilePaths_SameExecutableNameDifferentPath_AddsNewEntry()
+    public async Task HandleAsync_SteamUrl_ResolvesExecutableAndUsesShortcutDisplayName()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        var oldDir = Path.Combine(tempDir, "old");
-        var newDir = Path.Combine(tempDir, "new");
-        Directory.CreateDirectory(oldDir);
-        Directory.CreateDirectory(newDir);
+        var shortcutPath = CreateFile("Steam Adventure.url", "URL=steam://rungameid/4242");
+        var executablePath = CreateFile("SteamAdventure.exe");
+        _steamResolver
+            .Setup(resolver => resolver.TryParseInternetShortcutUrl(shortcutPath))
+            .Returns("steam://rungameid/4242");
+        _steamResolver
+            .Setup(resolver => resolver.TryParseRunGameId("steam://rungameid/4242"))
+            .Returns("4242");
+        _steamResolver
+            .Setup(resolver => resolver.TryResolveExeFromAppId("4242"))
+            .Returns(executablePath);
+        _automation.Setup(service => service.ReloadConfig());
 
-        var configPath = Path.Combine(tempDir, "config.yml");
-        var oldExePath = Path.Combine(oldDir, "Game.exe");
-        var newExePath = Path.Combine(newDir, "Game.exe");
-        File.WriteAllText(oldExePath, string.Empty);
-        File.WriteAllText(newExePath, string.Empty);
+        var result = await _intake.HandleAsync(
+            new DropAddRequest { Paths = [shortcutPath] },
+            CancellationToken.None);
 
-        var seed = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["entry1"] = new GameConfig
-            {
-                DataKey = "game",
-                ExecutablePath = oldExePath,
-                DisplayName = "Old Game",
-                IsEnabled = true,
-                HdrEnabled = false
-            }
-        };
-        new YamlConfigProvider(configPath).Save(seed);
-
-        using var services = new ServiceCollection().BuildServiceProvider();
-
-        try
-        {
-            var summary = FileDropHandler.ProcessFilePaths(new[] { newExePath }, configPath, services);
-
-            Assert.Equal(1, summary.Added);
-            Assert.Equal(0, summary.Updated);
-
-            var loaded = new YamlConfigProvider(configPath).Load().Values.ToList();
-            Assert.Equal(2, loaded.Count);
-            Assert.Contains(loaded, c => string.Equals(c.ExecutablePath, oldExePath, StringComparison.OrdinalIgnoreCase));
-            Assert.Contains(loaded, c => string.Equals(c.ExecutablePath, newExePath, StringComparison.OrdinalIgnoreCase));
-            Assert.Contains(loaded, c => c.DataKey == "game");
-            Assert.Contains(loaded, c => c.DataKey == "game2");
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
+        Assert.True(result.Success);
+        Assert.Equal(1, result.Added);
+        var game = Assert.Single(_configuration.Read().Games);
+        Assert.Equal("steamadventure", game.DataKey);
+        Assert.Equal(executablePath, game.Executable);
+        Assert.Equal("SteamAdventure.exe", game.ExecutableName);
+        Assert.Equal("Steam Adventure", game.DisplayName);
+        _steamResolver.VerifyAll();
+        _automation.Verify(service => service.ReloadConfig(), Times.Once);
     }
 
-    [Fact]
-    public void ProcessFilePaths_SamePath_ReusesEntryAndUpdates()
+    private string CreateFile(string fileName, string content = "")
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var configPath = Path.Combine(tempDir, "config.yml");
-        var exePath = Path.Combine(tempDir, "Game.exe");
-        File.WriteAllText(exePath, string.Empty);
-
-        var seed = new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["entry1"] = new GameConfig
-            {
-                DataKey = "game",
-                ExecutablePath = exePath,
-                DisplayName = "Old Name",
-                IsEnabled = false,
-                HdrEnabled = true
-            }
-        };
-        new YamlConfigProvider(configPath).Save(seed);
-
-        using var services = new ServiceCollection().BuildServiceProvider();
-
-        try
-        {
-            var summary = FileDropHandler.ProcessFilePaths(new[] { exePath }, configPath, services);
-
-            Assert.Equal(0, summary.Added);
-            Assert.Equal(1, summary.Updated);
-
-            var config = Assert.Single(new YamlConfigProvider(configPath).Load().Values);
-            Assert.Equal("game", config.DataKey);
-            Assert.True(config.IsEnabled);
-            Assert.True(config.HdrEnabled); // preserve previous HDR preference
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
+        var path = Path.Combine(_tempDirectory, fileName);
+        File.WriteAllText(path, content);
+        return path;
     }
 
-    [Fact]
-    public void ProcessFilePaths_SkippedInput_ShouldStillRepairDuplicateDataKeys()
+    public void Dispose()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var configPath = Path.Combine(tempDir, "config.yml");
-        var textPath = Path.Combine(tempDir, "not-a-game.txt");
-        File.WriteAllText(textPath, string.Empty);
-        File.WriteAllText(configPath, """
-monitor: ETW
-games:
-  - dataKey: duplicate
-    executable: One.exe
-  - dataKey: duplicate
-    executable: Two.exe
-""");
-
-        using var services = new ServiceCollection().BuildServiceProvider();
-
-        try
+        if (Directory.Exists(_tempDirectory))
         {
-            var summary = FileDropHandler.ProcessFilePaths(new[] { textPath }, configPath, services);
-
-            Assert.Equal(0, summary.Added);
-            Assert.Equal(0, summary.Updated);
-            Assert.Equal(1, summary.Skipped);
-            Assert.Equal(1, summary.DuplicatesRemoved);
-
-            var loaded = new YamlConfigProvider(configPath).Load().Values.ToList();
-            Assert.Equal(2, loaded.Count);
-            Assert.Equal(2, loaded.Select(config => config.DataKey).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+            Directory.Delete(_tempDirectory, recursive: true);
         }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    private sealed class StubSteamResolver : ISteamGameResolver
-    {
-        public string? UrlToReturn { get; set; }
-        public string? AppIdToReturn { get; set; }
-        public string? ExeToReturn { get; set; }
-        public List<string> ShortcutPaths { get; } = new();
-        public List<string> Urls { get; } = new();
-        public List<string> AppIds { get; } = new();
-
-        public string? TryParseInternetShortcutUrl(string urlFilePath)
-        {
-            ShortcutPaths.Add(urlFilePath);
-            return UrlToReturn;
-        }
-
-        public string? TryParseRunGameId(string steamUrl)
-        {
-            Urls.Add(steamUrl);
-            return AppIdToReturn;
-        }
-
-        public string? TryResolveExeFromAppId(string appId)
-        {
-            AppIds.Add(appId);
-            return ExeToReturn;
-        }
-
-        public IReadOnlyList<string> TryEnumerateExeCandidates(string appId) => Array.Empty<string>();
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using GameHelper.Core.Models;
 using GameHelper.Core.Utilities;
 using Xunit;
 
@@ -14,7 +15,7 @@ namespace GameHelper.Tests
             var productName = "Awesome Game";
 
             // Act
-            var result = DataKeyGenerator.GenerateBaseDataKey(exePath, productName);
+            var result = DataKeyGenerator.GenerateBaseDataKey(ExecutableIdentity.Parse(exePath), productName);
 
             // Assert
             Assert.Equal("awesomegame", result); // Normalized: lowercase, no spaces
@@ -28,7 +29,7 @@ namespace GameHelper.Tests
             string? productName = null;
 
             // Act
-            var result = DataKeyGenerator.GenerateBaseDataKey(exePath, productName);
+            var result = DataKeyGenerator.GenerateBaseDataKey(ExecutableIdentity.Parse(exePath), productName);
 
             // Assert
             Assert.Equal("game", result);
@@ -41,7 +42,7 @@ namespace GameHelper.Tests
             var exePath = @"C:\Games\Tales of Arise.exe";
 
             // Act
-            var result = DataKeyGenerator.GenerateBaseDataKey(exePath);
+            var result = DataKeyGenerator.GenerateBaseDataKey(ExecutableIdentity.Parse(exePath));
 
             // Assert
             Assert.Equal("talesofarise", result); // Spaces removed
@@ -54,7 +55,7 @@ namespace GameHelper.Tests
             var exePath = @"C:\Games\Project_Plague.exe";
 
             // Act
-            var result = DataKeyGenerator.GenerateBaseDataKey(exePath);
+            var result = DataKeyGenerator.GenerateBaseDataKey(ExecutableIdentity.Parse(exePath));
 
             // Assert
             Assert.Equal("project_plague", result); // Underscores preserved
@@ -67,7 +68,7 @@ namespace GameHelper.Tests
             var exePath = @"C:\Games\DWORIGINS.exe";
 
             // Act
-            var result = DataKeyGenerator.GenerateBaseDataKey(exePath);
+            var result = DataKeyGenerator.GenerateBaseDataKey(ExecutableIdentity.Parse(exePath));
 
             // Assert
             Assert.Equal("dworigins", result);
@@ -80,7 +81,7 @@ namespace GameHelper.Tests
             var exePath = @"C:\Games\Game!@#$%^&*().exe";
 
             // Act
-            var result = DataKeyGenerator.GenerateBaseDataKey(exePath);
+            var result = DataKeyGenerator.GenerateBaseDataKey(ExecutableIdentity.Parse(exePath));
 
             // Assert
             Assert.Equal("game", result); // Special characters removed
@@ -94,7 +95,7 @@ namespace GameHelper.Tests
             var existingDataKeys = Array.Empty<string>();
 
             // Act
-            var result = DataKeyGenerator.GenerateUniqueDataKey(exePath, null, existingDataKeys);
+            var result = DataKeyGenerator.GenerateUniqueDataKey(ExecutableIdentity.Parse(exePath), null, existingDataKeys);
 
             // Assert
             Assert.Equal("newgame", result);
@@ -108,7 +109,7 @@ namespace GameHelper.Tests
             var existingDataKeys = new[] { "re" };
 
             // Act
-            var result = DataKeyGenerator.GenerateUniqueDataKey(exePath, null, existingDataKeys);
+            var result = DataKeyGenerator.GenerateUniqueDataKey(ExecutableIdentity.Parse(exePath), null, existingDataKeys);
 
             // Assert
             Assert.Equal("re2", result); // Appended "2" for uniqueness
@@ -122,7 +123,7 @@ namespace GameHelper.Tests
             var existingDataKeys = new[] { "re", "re2", "re3" };
 
             // Act
-            var result = DataKeyGenerator.GenerateUniqueDataKey(exePath, null, existingDataKeys);
+            var result = DataKeyGenerator.GenerateUniqueDataKey(ExecutableIdentity.Parse(exePath), null, existingDataKeys);
 
             // Assert
             Assert.Equal("re4", result); // Found next available suffix
@@ -136,7 +137,7 @@ namespace GameHelper.Tests
             var productName = "Game"; // Too generic
 
             // Act
-            var result = DataKeyGenerator.GenerateBaseDataKey(exePath, productName);
+            var result = DataKeyGenerator.GenerateBaseDataKey(ExecutableIdentity.Parse(exePath), productName);
 
             // Assert
             Assert.Equal("mygame", result); // Falls back to filename
@@ -150,7 +151,7 @@ namespace GameHelper.Tests
             var productName = "AB"; // Too short
 
             // Act
-            var result = DataKeyGenerator.GenerateBaseDataKey(exePath, productName);
+            var result = DataKeyGenerator.GenerateBaseDataKey(ExecutableIdentity.Parse(exePath), productName);
 
             // Assert
             Assert.Equal("mygame", result); // Falls back to filename

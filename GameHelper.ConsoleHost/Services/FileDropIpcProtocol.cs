@@ -11,7 +11,6 @@ internal sealed class DropAddRequest
 {
     public string[] Paths { get; set; } = Array.Empty<string>();
 
-    public string? ConfigOverride { get; set; }
 }
 
 internal sealed class DropAddResponse
@@ -23,8 +22,6 @@ internal sealed class DropAddResponse
     public int Updated { get; set; }
 
     public int Skipped { get; set; }
-
-    public int DuplicatesRemoved { get; set; }
 
     public string ConfigPath { get; set; } = string.Empty;
 

@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using GameHelper.Core.Abstractions;
@@ -92,20 +91,20 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
     private static IReadOnlyList<GamePlaytimeRecord> ReadFromCsv(string path)
     {
         var map = new Dictionary<string, GamePlaytimeRecord>(StringComparer.OrdinalIgnoreCase);
-        ReadCsvRows(path, (gameName, startTime, endTime, durationMinutes) =>
+        PlaytimeCsvCodec.ReadRows(path, row =>
         {
-            if (!map.TryGetValue(gameName, out var record))
+            if (!map.TryGetValue(row.GameName, out var record))
             {
-                record = new GamePlaytimeRecord { GameName = gameName };
-                map[gameName] = record;
+                record = new GamePlaytimeRecord { GameName = row.GameName };
+                map[row.GameName] = record;
             }
 
             record.Sessions.Add(new PlaySession(
-                gameName,
-                startTime,
-                endTime,
-                endTime - startTime,
-                durationMinutes));
+                row.GameName,
+                row.StartTime,
+                row.EndTime,
+                row.EndTime - row.StartTime,
+                row.DurationMinutes));
         });
 
         return map.Values.ToList();
@@ -114,15 +113,15 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
     private static IReadOnlyList<GamePlaytimeOverviewRecord> ReadOverviewFromCsv(string path, DateTime recentCutoff)
     {
         var map = new Dictionary<string, PlaytimeOverviewAccumulator>(StringComparer.OrdinalIgnoreCase);
-        ReadCsvRows(path, (gameName, _, endTime, durationMinutes) =>
+        PlaytimeCsvCodec.ReadRows(path, row =>
         {
-            ref var accumulator = ref CollectionsMarshal.GetValueRefOrAddDefault(map, gameName, out var exists);
+            ref var accumulator = ref CollectionsMarshal.GetValueRefOrAddDefault(map, row.GameName, out var exists);
             if (!exists)
             {
-                accumulator = new PlaytimeOverviewAccumulator(gameName);
+                accumulator = new PlaytimeOverviewAccumulator(row.GameName);
             }
 
-            accumulator.Add(endTime, durationMinutes, recentCutoff);
+            accumulator.Add(row.EndTime, row.DurationMinutes, recentCutoff);
         });
 
         return map.Values
@@ -148,45 +147,6 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
             .ToList();
     }
 
-    private static void ReadCsvRows(
-        string path,
-        Action<string, DateTime, DateTime, long> handleRow)
-    {
-        using var reader = new StreamReader(path);
-        _ = reader.ReadLine(); // skip header
-
-        while (reader.ReadLine() is { } line)
-        {
-            try
-            {
-                var remaining = line.AsSpan();
-
-                var gameNameSpan = SplitNextField(ref remaining);
-                if (gameNameSpan.IsEmpty && remaining.IsEmpty) continue;
-
-                var startTimeSpan = SplitNextField(ref remaining);
-                if (startTimeSpan.IsEmpty) continue;
-
-                var endTimeSpan = SplitNextField(ref remaining);
-                if (endTimeSpan.IsEmpty) continue;
-
-                var durationSpan = SplitNextField(ref remaining);
-                if (durationSpan.IsEmpty) continue;
-
-                var gameName = Unescape(gameNameSpan);
-                var startTime = DateTime.Parse(startTimeSpan, CultureInfo.InvariantCulture);
-                var endTime = DateTime.Parse(endTimeSpan, CultureInfo.InvariantCulture);
-                var durationMinutes = long.Parse(durationSpan, CultureInfo.InvariantCulture);
-
-                handleRow(gameName, startTime, endTime, durationMinutes);
-            }
-            catch
-            {
-                // Skip malformed rows.
-            }
-        }
-    }
-
     private static IReadOnlyList<GamePlaytimeRecord> ReadFromJson(string path)
     {
         var options = new JsonSerializerOptions
@@ -203,98 +163,6 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
 
         var records = JsonSerializer.Deserialize<List<GamePlaytimeRecord>>(gamesNode.GetRawText(), options);
         return records ?? new List<GamePlaytimeRecord>();
-    }
-
-    /// <summary>
-    /// Parses the next CSV field from the remaining line span.
-    /// Handles quoted fields (including escaped quotes via double-quote) and standard fields.
-    /// Updates the remaining span to point after the current field and delimiter.
-    /// </summary>
-    private static ReadOnlySpan<char> SplitNextField(ref ReadOnlySpan<char> remaining)
-    {
-        if (remaining.IsEmpty) return ReadOnlySpan<char>.Empty;
-
-        // Check if the field starts with a quote
-        if (remaining[0] == '"')
-        {
-            // Quoted field
-            // We need to find the closing quote that is NOT escaped.
-            // An escaped quote is represented as two double quotes ("").
-
-            int i = 1;
-            while (i < remaining.Length)
-            {
-                if (remaining[i] == '"')
-                {
-                    // Check if this is an escaped quote ("")
-                    if (i + 1 < remaining.Length && remaining[i + 1] == '"')
-                    {
-                        // Skip the escaped quote
-                        i += 2;
-                        continue;
-                    }
-
-                    // Found the closing quote
-                    var field = remaining.Slice(1, i - 1); // Extract content inside quotes
-
-                    // Move past the closing quote
-                    int advance = i + 1;
-
-                    // Move past the comma if it exists
-                    if (advance < remaining.Length && remaining[advance] == ',')
-                    {
-                        advance++;
-                    }
-
-                    remaining = remaining.Slice(advance);
-                    return field;
-                }
-                i++;
-            }
-
-            // Malformed quoted field (no closing quote), consume the rest as the field
-            var rest = remaining.Slice(1);
-            remaining = ReadOnlySpan<char>.Empty;
-            return rest;
-        }
-        else
-        {
-            // Standard field
-            int commaIndex = remaining.IndexOf(',');
-            if (commaIndex >= 0)
-            {
-                var field = remaining.Slice(0, commaIndex);
-                remaining = remaining.Slice(commaIndex + 1);
-                return field;
-            }
-            else
-            {
-                var field = remaining;
-                remaining = ReadOnlySpan<char>.Empty;
-                return field;
-            }
-        }
-    }
-
-    private static string Unescape(ReadOnlySpan<char> field)
-    {
-        // Optimization: check if we need to replace anything
-        bool needsUnescape = false;
-        foreach (char c in field)
-        {
-            if (c == '"')
-            {
-                needsUnescape = true;
-                break;
-            }
-        }
-
-        if (needsUnescape)
-        {
-            return field.ToString().Replace("\"\"", "\"");
-        }
-
-        return field.ToString();
     }
 
     private struct PlaytimeOverviewAccumulator

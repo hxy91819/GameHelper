@@ -20,6 +20,7 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             View,
             Add,
+            ImportSteam,
             Edit,
             Remove,
             Back
@@ -27,22 +28,25 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private readonly IAnsiConsole _console;
         private readonly PromptUI _promptUI;
-        private readonly IAppConfigProvider _appConfigProvider;
+        private readonly IGameConfiguration _gameConfiguration;
         private readonly IAutoStartManager _autoStartManager;
         private readonly IGameCatalogService _gameCatalogService;
+        private readonly ISteamGameResolver? _steamGameResolver;
 
         public GameCatalogUI(
             IAnsiConsole console,
             PromptUI promptUI,
-            IAppConfigProvider appConfigProvider,
+            IGameConfiguration gameConfiguration,
             IAutoStartManager autoStartManager,
-            IGameCatalogService gameCatalogService)
+            IGameCatalogService gameCatalogService,
+            ISteamGameResolver? steamGameResolver = null)
         {
             _console = console ?? throw new ArgumentNullException(nameof(console));
             _promptUI = promptUI ?? throw new ArgumentNullException(nameof(promptUI));
-            _appConfigProvider = appConfigProvider ?? throw new ArgumentNullException(nameof(appConfigProvider));
+            _gameConfiguration = gameConfiguration ?? throw new ArgumentNullException(nameof(gameConfiguration));
             _autoStartManager = autoStartManager ?? throw new ArgumentNullException(nameof(autoStartManager));
             _gameCatalogService = gameCatalogService ?? throw new ArgumentNullException(nameof(gameCatalogService));
+            _steamGameResolver = steamGameResolver;
         }
 
         public async Task HandleConfigurationAsync()
@@ -65,6 +69,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     {
                         ConfigAction.View => "📋  查看当前配置",
                         ConfigAction.Add => "➕  添加新游戏",
+                        ConfigAction.ImportSteam => "🎮  扫描并导入 Steam 游戏",
                         ConfigAction.Edit => "✏️  修改现有游戏",
                         ConfigAction.Remove => "🗑  删除游戏",
                         ConfigAction.Back => "⬅️  返回上一级",
@@ -78,6 +83,9 @@ namespace GameHelper.ConsoleHost.Interactive
                         break;
                     case ConfigAction.Add:
                         await AddGameAsync().ConfigureAwait(false);
+                        break;
+                    case ConfigAction.ImportSteam:
+                        await ImportSteamGamesAsync().ConfigureAwait(false);
                         break;
                     case ConfigAction.Edit:
                         await EditGameAsync().ConfigureAwait(false);
@@ -93,12 +101,12 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private void RenderConfigTable()
         {
-            var configs = _gameCatalogService.GetAll()
+            var configs = _gameCatalogService.List()
                 .ToList();
             AppConfig? appConfig = null;
             try
             {
-                appConfig = _appConfigProvider.LoadAppConfig();
+                appConfig = _gameConfiguration.Read();
             }
             catch (Exception ex)
             {
@@ -217,7 +225,6 @@ namespace GameHelper.ConsoleHost.Interactive
             string? exePath = null;
             string executableName;
             string? productName = null;
-            string dataKeyIdentity;
 
             // Check if input is a file path
             if (File.Exists(input))
@@ -248,7 +255,6 @@ namespace GameHelper.ConsoleHost.Interactive
                 // Extract metadata
                 (productName, _) = GameMetadataExtractor.ExtractMetadata(exePath);
                 executableName = Path.GetFileName(exePath);
-                dataKeyIdentity = exePath;
 
                 // Display extracted information
                 _console.MarkupLine("[green]检测到游戏文件：[/]");
@@ -264,13 +270,16 @@ namespace GameHelper.ConsoleHost.Interactive
             {
                 // Treat as executable name only
                 executableName = input;
-                dataKeyIdentity = input;
             }
 
-            // Check for existing config by path first, then by unique executable name fallback.
-            var existingConfig = _gameCatalogService.FindExistingForAdd(executableName, exePath);
-            var existingDataKey = existingConfig?.DataKey;
-            var suggestedDataKey = existingDataKey ?? _gameCatalogService.SuggestDataKey(dataKeyIdentity, productName);
+            var executableIdentity = ExecutableIdentity.Parse(exePath ?? executableName);
+            var preview = _gameCatalogService.PreviewIntake(new GameCatalogIntakeRequest
+            {
+                Executable = executableIdentity,
+                ProductName = productName
+            });
+            var existingConfig = preview.ExistingEntry;
+            var suggestedDataKey = preview.SuggestedDataKey;
 
             // Prompt for DataKey
             var dataKeyPrompt = new TextPrompt<string>(
@@ -284,7 +293,13 @@ namespace GameHelper.ConsoleHost.Interactive
                     {
                         return ConsoleValidationResult.Error("DataKey 不能为空。");
                     }
-                    if (!_gameCatalogService.IsDataKeyAvailable(key, existingDataKey))
+                    var availability = _gameCatalogService.PreviewIntake(new GameCatalogIntakeRequest
+                    {
+                        Executable = executableIdentity,
+                        DataKey = key,
+                        ProductName = productName
+                    });
+                    if (!availability.IsRequestedDataKeyAvailable)
                     {
                         return ConsoleValidationResult.Error($"DataKey '{key}' 已被其他游戏使用。");
                     }
@@ -328,23 +343,69 @@ namespace GameHelper.ConsoleHost.Interactive
             hdrPrompt.AddChoices(hdrChoices);
             var hdr = _promptUI.PromptSelection(hdrPrompt, hdrChoices, value => Markup.Escape(value), hdrTitle);
 
-            var saved = _gameCatalogService.Save(new GameEntryUpsertRequest
+            var saved = _gameCatalogService.Intake(new GameCatalogIntakeRequest
             {
                 DataKey = dataKey,
-                ExecutablePath = exePath, // Will be null if only name was provided
-                ExecutableName = executableName,
+                Executable = executableIdentity,
+                ProductName = productName,
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim(),
                 IsEnabled = string.Equals(enable, "启用", StringComparison.Ordinal),
                 HdrEnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal)
-            });
+            }).Entry;
 
-            _console.MarkupLine($"[green]已保存[/]：{Markup.Escape(saved.ExecutableName ?? executableName)} (DataKey: {Markup.Escape(saved.DataKey)})");
+            _console.MarkupLine($"[green]已保存[/]：{Markup.Escape(saved.ExecutableName)} (DataKey: {Markup.Escape(saved.DataKey)})");
+            return Task.CompletedTask;
+        }
+
+        private Task ImportSteamGamesAsync()
+        {
+            if (_steamGameResolver is null)
+            {
+                _console.MarkupLine("[yellow]当前环境未配置 Steam 扫描服务。[/]");
+                return Task.CompletedTask;
+            }
+
+            var games = _steamGameResolver.TryEnumerateInstalledGames();
+            if (games.Count == 0)
+            {
+                _console.MarkupLine("[yellow]没有找到包含可执行文件的已安装 Steam 游戏。[/]");
+                return Task.CompletedTask;
+            }
+
+            var table = new Table { Border = TableBorder.Rounded };
+            table.AddColumn("Steam AppId");
+            table.AddColumn("游戏");
+            table.AddColumn("可执行文件");
+            foreach (var game in games)
+            {
+                table.AddRow(
+                    Markup.Escape(game.AppId),
+                    Markup.Escape(game.Name),
+                    Markup.Escape(Path.GetFileName(game.ExecutablePath)));
+            }
+
+            _console.Write(table);
+            if (!_promptUI.PromptConfirm($"导入以上 {games.Count} 个 Steam 游戏？现有相同可执行文件的条目会更新。"))
+            {
+                _console.MarkupLine("[grey]已取消导入。[/]");
+                return Task.CompletedTask;
+            }
+
+            var results = _gameCatalogService.BatchIntake(games.Select(game => new GameCatalogIntakeRequest
+            {
+                Executable = ExecutableIdentity.Parse(game.ExecutablePath),
+                ProductName = game.Name,
+                DisplayName = game.Name,
+                IsEnabled = true
+            }));
+            var added = results.Count(result => result.WasAdded);
+            _console.MarkupLine($"[green]Steam 导入完成[/]：新增 {added} 个，更新 {results.Count - added} 个。");
             return Task.CompletedTask;
         }
 
         private Task EditGameAsync()
         {
-            var configs = _gameCatalogService.GetAll();
+            var configs = _gameCatalogService.List();
             if (configs.Count == 0)
             {
                 _console.MarkupLine("[italic grey]没有可以修改的游戏。[/]");
@@ -462,21 +523,24 @@ namespace GameHelper.ConsoleHost.Interactive
             hdrPrompt.AddChoices(hdrChoices);
             var hdr = _promptUI.PromptSelection(hdrPrompt, hdrChoices, value => Markup.Escape(value), hdrTitle);
 
-            // Update configuration
-            cfg.ExecutablePath = newExecutablePath;
-            cfg.DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim();
-            cfg.IsEnabled = string.Equals(enable, "启用", StringComparison.Ordinal);
-            cfg.HdrEnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal);
-
-            var updated = _gameCatalogService.Update(cfg.DataKey, new GameEntryUpsertRequest
+            ExecutableIdentity? updatedIdentity = null;
+            if (clearExecutablePath)
             {
-                ExecutableName = cfg.ExecutableName,
-                ExecutablePath = cfg.ExecutablePath,
-                ClearExecutablePath = clearExecutablePath,
-                DisplayName = cfg.DisplayName,
+                updatedIdentity = ExecutableIdentity.Parse(cfg.ExecutableName!);
+            }
+            else if (!string.Equals(newExecutablePath, cfg.ExecutablePath, StringComparison.OrdinalIgnoreCase) &&
+                     !string.IsNullOrWhiteSpace(newExecutablePath))
+            {
+                updatedIdentity = ExecutableIdentity.Parse(newExecutablePath!);
+            }
+
+            var updated = _gameCatalogService.Update(cfg.DataKey, new GameCatalogUpdateRequest
+            {
+                Executable = updatedIdentity,
+                DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim(),
                 ClearDisplayName = string.IsNullOrWhiteSpace(displayName),
-                IsEnabled = cfg.IsEnabled,
-                HdrEnabled = cfg.HdrEnabled
+                IsEnabled = string.Equals(enable, "启用", StringComparison.Ordinal),
+                HdrEnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal)
             });
             _console.MarkupLine("[green]配置已更新。[/]");
 
@@ -500,7 +564,7 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             await Task.CompletedTask.ConfigureAwait(false);
 
-            var configs = _gameCatalogService.GetAll();
+            var configs = _gameCatalogService.List();
             if (configs.Count == 0)
             {
                 _console.MarkupLine("[italic grey]当前没有可删除的游戏。[/]");
@@ -532,7 +596,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 return;
             }
 
-            _gameCatalogService.Delete(selectedDataKey);
+            _gameCatalogService.Remove(selectedDataKey);
             _console.MarkupLine("[yellow]已移除该游戏。[/]");
         }
 

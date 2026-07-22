@@ -12,18 +12,15 @@ using CoreGameConfig = GameHelper.Core.Models.GameConfig;
 namespace GameHelper.Tests
 {
     // Fakes
-    file sealed class FakeMonitor : IProcessMonitor, IProcessNameFilterControl
+    file sealed class FakeMonitor : IProcessMonitor
     {
         public event Action<ProcessEventInfo>? ProcessStarted;
         public event Action<ProcessEventInfo>? ProcessStopped;
-        public IReadOnlyList<string> LastAllowedProcessNames { get; private set; } = Array.Empty<string>();
+        public ProcessObservationPolicy LastPolicy { get; private set; } = ProcessObservationPolicy.ObserveAll();
         public void Start() { }
         public void Stop() { }
         public void Dispose() { }
-        public void SetAllowedProcessNames(IEnumerable<string> processNames)
-        {
-            LastAllowedProcessNames = processNames.ToArray();
-        }
+        public void Configure(ProcessObservationPolicy policy) => LastPolicy = policy;
         public void RaiseStart(ProcessEventInfo info) => ProcessStarted?.Invoke(info);
         public void RaiseStop(ProcessEventInfo info) => ProcessStopped?.Invoke(info);
     }
@@ -99,36 +96,70 @@ namespace GameHelper.Tests
         }
     }
 
-    file sealed class FakeConfig : IConfigProvider
+    file static class TestConfigDocument
     {
-        private readonly IReadOnlyDictionary<string, CoreGameConfig> _configs;
-        public FakeConfig(IReadOnlyDictionary<string, CoreGameConfig> configs)
+        public static AppConfig From(IReadOnlyDictionary<string, CoreGameConfig> configs) =>
+            new() { Games = configs.Values.Select(CloneGame).ToList() };
+
+        public static AppConfig Clone(AppConfig source) => new()
         {
-            _configs = configs;
-        }
-        public IReadOnlyDictionary<string, CoreGameConfig> Load() => _configs;
-        public void Save(IReadOnlyDictionary<string, CoreGameConfig> configs) { /* not used in tests */ }
+            Games = source.Games.Select(CloneGame).ToList(),
+            ProcessMonitorType = source.ProcessMonitorType,
+            AutoStartInteractiveMonitor = source.AutoStartInteractiveMonitor,
+            LaunchOnSystemStartup = source.LaunchOnSystemStartup
+        };
+
+        private static CoreGameConfig CloneGame(CoreGameConfig game) => new()
+        {
+            DataKey = game.DataKey,
+            Executable = game.Executable,
+            DisplayName = game.DisplayName,
+            IsEnabled = game.IsEnabled,
+            HdrEnabled = game.HdrEnabled
+        };
     }
 
-    file sealed class MutableFakeConfig : IConfigProvider
+    file class FakeConfig : IGameConfiguration
     {
-        private IReadOnlyDictionary<string, CoreGameConfig> _configs;
+        private readonly object _sync = new();
+        private AppConfig _config;
 
-        public MutableFakeConfig(IReadOnlyDictionary<string, CoreGameConfig> initial)
+        public FakeConfig(IReadOnlyDictionary<string, CoreGameConfig> configs)
         {
-            _configs = initial;
+            _config = TestConfigDocument.From(configs);
         }
 
-        public IReadOnlyDictionary<string, CoreGameConfig> Load() => _configs;
-
-        public void Save(IReadOnlyDictionary<string, CoreGameConfig> configs)
+        public AppConfig Read()
         {
-            _configs = configs;
+            lock (_sync) return TestConfigDocument.Clone(_config);
         }
+
+        public AppConfig Change(Action<AppConfig> change)
+        {
+            lock (_sync)
+            {
+                var next = TestConfigDocument.Clone(_config);
+                change(next);
+                _config = next;
+                return TestConfigDocument.Clone(_config);
+            }
+        }
+    }
+
+    file sealed class MutableFakeConfig : FakeConfig
+    {
+        public MutableFakeConfig(IReadOnlyDictionary<string, CoreGameConfig> initial) : base(initial) { }
 
         public void Set(IReadOnlyDictionary<string, CoreGameConfig> configs)
         {
-            _configs = configs;
+            Change(config => config.Games = configs.Values.Select(game => new CoreGameConfig
+            {
+                DataKey = game.DataKey,
+                Executable = game.Executable,
+                DisplayName = game.DisplayName,
+                IsEnabled = game.IsEnabled,
+                HdrEnabled = game.HdrEnabled
+            }).ToList());
         }
     }
 
@@ -142,7 +173,7 @@ namespace GameHelper.Tests
                 dict[name] = new CoreGameConfig
                 {
                     DataKey = name,
-                    ExecutableName = name,
+                    Executable = name,
                     IsEnabled = enabled,
                     HdrEnabled = hdrEnabled
                 };
@@ -410,8 +441,7 @@ namespace GameHelper.Tests
                 ["new.exe"] = new()
                 {
                     DataKey = "new-key",
-                    ExecutableName = "new.exe",
-                    ExecutablePath = @"C:\Games\new.exe",
+                    Executable = @"C:\Games\new.exe",
                     IsEnabled = true,
                     HdrEnabled = true
                 }
@@ -460,12 +490,14 @@ namespace GameHelper.Tests
             cfg.Set(new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase));
             svc.ReloadConfig();
 
-            Assert.Contains("game.exe", monitor.LastAllowedProcessNames, StringComparer.OrdinalIgnoreCase);
+            Assert.Contains("game.exe", monitor.LastPolicy.CandidateProcessNames, StringComparer.OrdinalIgnoreCase);
+            Assert.True(monitor.LastPolicy.ObserveStopEvents);
 
             monitor.RaiseStop(new ProcessEventInfo("game.exe", null));
 
             Assert.Equal(1, play.StopCalls);
-            Assert.DoesNotContain("game.exe", monitor.LastAllowedProcessNames, StringComparer.OrdinalIgnoreCase);
+            Assert.DoesNotContain("game.exe", monitor.LastPolicy.CandidateProcessNames, StringComparer.OrdinalIgnoreCase);
+            Assert.False(monitor.LastPolicy.ObserveStopEvents);
         }
 
         [Fact]
@@ -477,15 +509,13 @@ namespace GameHelper.Tests
                 ["entry1"] = new()
                 {
                     DataKey = "game1",
-                    ExecutableName = "Game.exe",
-                    ExecutablePath = @"D:\Games\A\Game.exe",
+                    Executable = @"D:\Games\A\Game.exe",
                     IsEnabled = true
                 },
                 ["entry2"] = new()
                 {
                     DataKey = "game2",
-                    ExecutableName = "Game.exe",
-                    ExecutablePath = null,
+                    Executable = "Game.exe",
                     IsEnabled = true
                 }
             });
@@ -511,15 +541,13 @@ namespace GameHelper.Tests
                 ["entry1"] = new()
                 {
                     DataKey = "game1",
-                    ExecutableName = "Game.exe",
-                    ExecutablePath = @"D:\Games\A\Game.exe",
+                    Executable = @"D:\Games\A\Game.exe",
                     IsEnabled = true
                 },
                 ["entry2"] = new()
                 {
                     DataKey = "game2",
-                    ExecutableName = "Game.exe",
-                    ExecutablePath = @"D:\Games\B\Game.exe",
+                    Executable = @"D:\Games\B\Game.exe",
                     IsEnabled = true
                 }
             });

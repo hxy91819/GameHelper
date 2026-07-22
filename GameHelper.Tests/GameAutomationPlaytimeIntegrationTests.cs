@@ -18,6 +18,7 @@ namespace GameHelper.Tests
         {
             public event Action<ProcessEventInfo>? ProcessStarted;
             public event Action<ProcessEventInfo>? ProcessStopped;
+            public void Configure(ProcessObservationPolicy policy) { }
             public void Start() { }
             public void Stop() { }
             public void Dispose() { }
@@ -32,12 +33,46 @@ namespace GameHelper.Tests
             public void Disable() { IsEnabled = false; }
         }
 
-        private sealed class FakeConfig : IConfigProvider
+        private sealed class FakeConfig : IGameConfiguration
         {
-            private readonly IReadOnlyDictionary<string, GameConfig> _configs;
-            public FakeConfig(IReadOnlyDictionary<string, GameConfig> configs) { _configs = configs; }
-            public IReadOnlyDictionary<string, GameConfig> Load() => _configs;
-            public void Save(IReadOnlyDictionary<string, GameConfig> configs) { }
+            private readonly object _sync = new();
+            private AppConfig _config;
+
+            public FakeConfig(IReadOnlyDictionary<string, GameConfig> configs) =>
+                _config = new AppConfig { Games = configs.Values.Select(CloneGame).ToList() };
+
+            public AppConfig Read()
+            {
+                lock (_sync) return CloneConfig(_config);
+            }
+
+            public AppConfig Change(Action<AppConfig> change)
+            {
+                lock (_sync)
+                {
+                    var next = CloneConfig(_config);
+                    change(next);
+                    _config = next;
+                    return CloneConfig(_config);
+                }
+            }
+
+            private static AppConfig CloneConfig(AppConfig source) => new()
+            {
+                Games = source.Games.Select(CloneGame).ToList(),
+                ProcessMonitorType = source.ProcessMonitorType,
+                AutoStartInteractiveMonitor = source.AutoStartInteractiveMonitor,
+                LaunchOnSystemStartup = source.LaunchOnSystemStartup
+            };
+
+            private static GameConfig CloneGame(GameConfig game) => new()
+            {
+                DataKey = game.DataKey,
+                Executable = game.Executable,
+                DisplayName = game.DisplayName,
+                IsEnabled = game.IsEnabled,
+                HdrEnabled = game.HdrEnabled
+            };
         }
 
         private readonly string _dir;
@@ -59,7 +94,7 @@ namespace GameHelper.Tests
             var hdr = new FakeHdr();
             var cfg = new FakeConfig(new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
             {
-                ["demo.exe"] = new GameConfig { DataKey = "demo.exe", ExecutableName = "demo.exe", IsEnabled = true, HdrEnabled = true }
+                ["demo.exe"] = new GameConfig { DataKey = "demo.exe", Executable = "demo.exe", IsEnabled = true, HdrEnabled = true }
             });
             var play = new FileBackedPlayTimeService(_dir);
             var svc = new GameAutomationService(monitor, cfg, hdr, play, NullLogger<GameAutomationService>.Instance);
@@ -84,7 +119,7 @@ namespace GameHelper.Tests
             var hdr = new FakeHdr();
             var cfg = new FakeConfig(new Dictionary<string, GameConfig>(StringComparer.OrdinalIgnoreCase)
             {
-                ["flush.exe"] = new GameConfig { DataKey = "flush.exe", ExecutableName = "flush.exe", IsEnabled = true, HdrEnabled = true }
+                ["flush.exe"] = new GameConfig { DataKey = "flush.exe", Executable = "flush.exe", IsEnabled = true, HdrEnabled = true }
             });
             var play = new FileBackedPlayTimeService(_dir);
             var svc = new GameAutomationService(monitor, cfg, hdr, play, NullLogger<GameAutomationService>.Instance);
@@ -112,8 +147,7 @@ namespace GameHelper.Tests
                 ["sample-entry"] = new GameConfig
                 {
                     DataKey = "sample_data_key",
-                    ExecutableName = "sample.exe",
-                    ExecutablePath = @"C:\Games\Sample\sample.exe",
+                    Executable = @"C:\Games\Sample\sample.exe",
                     IsEnabled = true,
                     HdrEnabled = true
                 }

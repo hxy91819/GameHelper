@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Services;
@@ -13,14 +14,14 @@ namespace GameHelper.Tests
     public class GameAutomationServiceRefactorSafetyTests
     {
 
-        private sealed class FakeMonitor : IProcessMonitor, IProcessNameFilterControl
+        private sealed class FakeMonitor : IProcessMonitor
         {
             public event Action<ProcessEventInfo>? ProcessStarted;
             public event Action<ProcessEventInfo>? ProcessStopped;
             public void Start() { }
             public void Stop() { }
             public void Dispose() { }
-            public void SetAllowedProcessNames(IEnumerable<string> processNames) { }
+            public void Configure(ProcessObservationPolicy policy) { }
             public void RaiseStart(ProcessEventInfo info) => ProcessStarted?.Invoke(info);
             public void RaiseStop(ProcessEventInfo info) => ProcessStopped?.Invoke(info);
         }
@@ -53,12 +54,46 @@ namespace GameHelper.Tests
             }
         }
 
-        private sealed class FakeConfig : IConfigProvider
+        private sealed class FakeConfig : IGameConfiguration
         {
-            private readonly IReadOnlyDictionary<string, CoreGameConfig> _configs;
-            public FakeConfig(IReadOnlyDictionary<string, CoreGameConfig> configs) => _configs = configs;
-            public IReadOnlyDictionary<string, CoreGameConfig> Load() => _configs;
-            public void Save(IReadOnlyDictionary<string, CoreGameConfig> configs) { }
+            private readonly object _sync = new();
+            private AppConfig _config;
+
+            public FakeConfig(IReadOnlyDictionary<string, CoreGameConfig> configs) =>
+                _config = new AppConfig { Games = configs.Values.Select(CloneGame).ToList() };
+
+            public AppConfig Read()
+            {
+                lock (_sync) return CloneConfig(_config);
+            }
+
+            public AppConfig Change(Action<AppConfig> change)
+            {
+                lock (_sync)
+                {
+                    var next = CloneConfig(_config);
+                    change(next);
+                    _config = next;
+                    return CloneConfig(_config);
+                }
+            }
+
+            private static AppConfig CloneConfig(AppConfig source) => new()
+            {
+                Games = source.Games.Select(CloneGame).ToList(),
+                ProcessMonitorType = source.ProcessMonitorType,
+                AutoStartInteractiveMonitor = source.AutoStartInteractiveMonitor,
+                LaunchOnSystemStartup = source.LaunchOnSystemStartup
+            };
+
+            private static CoreGameConfig CloneGame(CoreGameConfig game) => new()
+            {
+                DataKey = game.DataKey,
+                Executable = game.Executable,
+                DisplayName = game.DisplayName,
+                IsEnabled = game.IsEnabled,
+                HdrEnabled = game.HdrEnabled
+            };
         }
 
         private sealed class FakePathResolver : IProcessPathResolver
@@ -71,7 +106,7 @@ namespace GameHelper.Tests
 
         private static void CreateService(
             IProcessMonitor monitor,
-            IConfigProvider cfg,
+            IGameConfiguration cfg,
             IHdrController hdr,
             IPlayTimeService play,
             ILogger<GameAutomationService>? logger = null,
@@ -97,8 +132,7 @@ namespace GameHelper.Tests
                 ["multi"] = new()
                 {
                     DataKey = "multi",
-                    ExecutableName = "game.exe",
-                    ExecutablePath = @"C:\Games\game.exe",
+                    Executable = @"C:\Games\game.exe",
                     IsEnabled = true,
                     HdrEnabled = true
                 }
@@ -140,8 +174,7 @@ namespace GameHelper.Tests
                 ["exact"] = new()
                 {
                     DataKey = "exact",
-                    ExecutableName = "something-else.exe",
-                    ExecutablePath = @"C:\Steam\game.exe",
+                    Executable = @"C:\Steam\game.exe",
                     IsEnabled = true,
                     HdrEnabled = false
                 }
@@ -165,8 +198,7 @@ namespace GameHelper.Tests
                 ["exact"] = new()
                 {
                     DataKey = "exact",
-                    ExecutableName = "game.exe",
-                    ExecutablePath = @"C:\Steam\game.exe",
+                    Executable = @"C:\Steam\game.exe",
                     IsEnabled = true,
                     HdrEnabled = false
                 }
@@ -189,8 +221,7 @@ namespace GameHelper.Tests
                 ["exact"] = new()
                 {
                     DataKey = "exact",
-                    ExecutableName = "game.exe",
-                    ExecutablePath = @"C:\Steam\game.exe",
+                    Executable = @"C:\Steam\game.exe",
                     IsEnabled = true,
                     HdrEnabled = false
                 }
@@ -215,7 +246,7 @@ namespace GameHelper.Tests
                 ["path-only"] = new()
                 {
                     DataKey = "path-only",
-                    ExecutablePath = @"C:\Steam\game.exe",
+                    Executable = @"C:\Steam\game.exe",
                     IsEnabled = true,
                     HdrEnabled = false
                 }
@@ -241,8 +272,7 @@ namespace GameHelper.Tests
                 ["norm"] = new()
                 {
                     DataKey = "norm",
-                    ExecutableName = "game.exe",
-                    ExecutablePath = configPath,
+                    Executable = configPath,
                     IsEnabled = true,
                     HdrEnabled = false
                 }
@@ -264,15 +294,13 @@ namespace GameHelper.Tests
                 ["first"] = new()
                 {
                     DataKey = "first",
-                    ExecutableName = "game.exe",
-                    ExecutablePath = @"C:\Steam\game.exe",
+                    Executable = @"C:\Steam\game.exe",
                     IsEnabled = true
                 },
                 ["second"] = new()
                 {
                     DataKey = "second",
-                    ExecutableName = "game.exe",
-                    ExecutablePath = @"C:\Steam\game.exe",
+                    Executable = @"C:\Steam\game.exe",
                     IsEnabled = true
                 }
             });
@@ -297,15 +325,13 @@ namespace GameHelper.Tests
                 ["gameA"] = new()
                 {
                     DataKey = "gameA",
-                    ExecutableName = "game.exe",
-                    ExecutablePath = @"C:\Games\A\game.exe",
+                    Executable = @"C:\Games\A\game.exe",
                     IsEnabled = true
                 },
                 ["gameB"] = new()
                 {
                     DataKey = "gameB",
-                    ExecutableName = "game.exe",
-                    ExecutablePath = @"C:\Games\B\game.exe",
+                    Executable = @"C:\Games\B\game.exe",
                     IsEnabled = true
                 }
             });
@@ -328,15 +354,13 @@ namespace GameHelper.Tests
                 ["gameA"] = new()
                 {
                     DataKey = "gameA",
-                    ExecutableName = "game.exe",
-                    ExecutablePath = @"C:\Games\A\game.exe",
+                    Executable = @"C:\Games\A\game.exe",
                     IsEnabled = true
                 },
                 ["gameB"] = new()
                 {
                     DataKey = "gameB",
-                    ExecutableName = "game.exe",
-                    ExecutablePath = @"C:\Games\B\game.exe",
+                    Executable = @"C:\Games\B\game.exe",
                     IsEnabled = true
                 }
             });
@@ -358,8 +382,7 @@ namespace GameHelper.Tests
                 ["unc"] = new()
                 {
                     DataKey = "unc",
-                    ExecutableName = "game.exe",
-                    ExecutablePath = @"\\server\share\games\game.exe",
+                    Executable = @"\\server\share\games\game.exe",
                     IsEnabled = true
                 }
             });
@@ -381,8 +404,7 @@ namespace GameHelper.Tests
                 ["rel"] = new()
                 {
                     DataKey = "rel",
-                    ExecutableName = "game.exe",
-                    ExecutablePath = fullPath,
+                    Executable = fullPath,
                     IsEnabled = true
                 }
             });
@@ -404,8 +426,7 @@ namespace GameHelper.Tests
                 ["cross"] = new()
                 {
                     DataKey = "cross",
-                    ExecutableName = "game.exe",
-                    ExecutablePath = @"C:\Games\A\game.exe",
+                    Executable = @"C:\Games\A\game.exe",
                     IsEnabled = true,
                     HdrEnabled = true
                 }
@@ -442,8 +463,7 @@ namespace GameHelper.Tests
                 ["fallback"] = new()
                 {
                     DataKey = "fallback",
-                    ExecutableName = "game.exe",
-                    ExecutablePath = @"C:\Games\A\game.exe",
+                    Executable = @"C:\Games\A\game.exe",
                     IsEnabled = true
                 }
             });

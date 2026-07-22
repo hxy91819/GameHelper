@@ -38,6 +38,7 @@ public static class ConsoleCommandDispatcher
                 {
                     ConfigCommand.Run(
                         scope.ServiceProvider.GetRequiredService<IGameCatalogService>(),
+                        scope.ServiceProvider.GetService<ISteamGameResolver>(),
                         parsedArgs.EffectiveArgs.Skip(1).ToArray());
                 }
                 break;
