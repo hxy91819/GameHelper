@@ -3,6 +3,7 @@ using System.Text.Json;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Utilities;
+using System.Text;
 
 namespace GameHelper.Infrastructure.Providers;
 
@@ -154,7 +155,7 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
             PropertyNameCaseInsensitive = true
         };
 
-        var json = File.ReadAllText(path);
+        var json = File.ReadAllText(path, Encoding.UTF8);
         var document = JsonSerializer.Deserialize<JsonElement>(json, options);
         if (document.ValueKind != JsonValueKind.Object || !document.TryGetProperty("games", out var gamesNode))
         {

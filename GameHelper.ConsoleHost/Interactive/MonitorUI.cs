@@ -9,6 +9,7 @@ using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using Microsoft.Extensions.Hosting;
 using Spectre.Console;
+using Spectre.Console.Rendering;
 
 namespace GameHelper.ConsoleHost.Interactive
 {
@@ -264,28 +265,62 @@ namespace GameHelper.ConsoleHost.Interactive
                 return;
             }
 
-            var table = new Table { Border = TableBorder.Rounded };
-            table.AddColumn("游戏");
-            table.AddColumn("结束时间");
-            table.AddColumn("时长");
+            var preview = _statisticsService.GetSessionActivityPreview();
 
-            foreach (var record in snapshot.Records
-                .OrderByDescending(r => r.End)
-                .Take(5))
-            {
-                table.AddRow(
-                    Markup.Escape(record.DisplayName),
-                    FormatTimestamp(record.End),
-                    DurationFormatter.Format(record.DurationMinutes));
-            }
+            var content = preview.Games.Count == 0
+                ? new Markup("[italic grey]近 7 天暂无游玩记录。更早的会话不参与预览统计。[/]")
+                : BuildPreviewContent(preview);
 
-            table.Caption("最近 5 条记录");
-
-            _console.Write(new Panel(table)
+            _console.Write(new Panel(content)
             {
                 Header = new PanelHeader("历史记录预览"),
                 Border = BoxBorder.Rounded
             });
+        }
+
+        private static IRenderable BuildPreviewContent(SessionActivityPreview preview)
+        {
+            return new Rows(BuildGameSummaryTable(preview), BuildDailyTrendChart(preview));
+        }
+
+        private static Table BuildGameSummaryTable(SessionActivityPreview preview)
+        {
+            var table = new Table { Border = TableBorder.Rounded };
+            table.AddColumn("游戏");
+            table.AddColumn("次数");
+            table.AddColumn("总时长");
+            table.AddColumn("最近游玩");
+
+            foreach (var game in preview.Games)
+            {
+                table.AddRow(
+                    Markup.Escape(game.DisplayName),
+                    game.SessionCount.ToString(CultureInfo.InvariantCulture),
+                    DurationFormatter.Format(game.TotalMinutes),
+                    FormatRecentTimestamp(game.LastEnd));
+            }
+
+            table.Caption($"近 {preview.WindowDays} 天 · {preview.SessionCount} 次会话 · {preview.Games.Count} 款游戏");
+            return table;
+        }
+
+        private static BarChart BuildDailyTrendChart(SessionActivityPreview preview)
+        {
+            var chart = new BarChart
+            {
+                Width = 60,
+                Label = $"近 {preview.WindowDays} 天每日游玩时长（分钟）"
+            };
+
+            foreach (var day in preview.DailyTrend)
+            {
+                chart.AddItem(
+                    day.Date.ToString("MM-dd", CultureInfo.InvariantCulture),
+                    day.Minutes,
+                    Color.Green);
+            }
+
+            return chart;
         }
 
         private void RenderSessionSummary(SessionActivitySnapshot before, SessionActivitySnapshot after)
@@ -350,6 +385,16 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             return timestamp.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        }
+
+        private static string FormatRecentTimestamp(DateTime timestamp)
+        {
+            if (timestamp.Kind == DateTimeKind.Utc)
+            {
+                timestamp = timestamp.ToLocalTime();
+            }
+
+            return timestamp.ToString("MM-dd HH:mm", CultureInfo.InvariantCulture);
         }
 
     }
