@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Linq;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
@@ -103,7 +104,7 @@ namespace GameHelper.Infrastructure.Providers
                     };
                 }
 
-                var yaml = File.ReadAllText(_configFilePath);
+                var yaml = File.ReadAllText(_configFilePath, Encoding.UTF8);
 
                 var storedConfig = Deserializer.Deserialize<StoredAppConfig?>(yaml);
                 return ToAppConfig(storedConfig);

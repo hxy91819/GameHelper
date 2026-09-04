@@ -274,6 +274,107 @@ public sealed class CoreApplicationServicesTests
     }
 
     [Fact]
+    public void StatisticsService_GetSessionActivityPreview_ShouldAggregateRecentSessionsByGame()
+    {
+        var provider = new FakeGameConfiguration(new AppConfig
+        {
+            Games =
+            [
+                new() { DataKey = "game-key", Executable = "game.exe", DisplayName = "Game Display" },
+                new() { DataKey = "other-key", Executable = "other.exe", DisplayName = "Other Game" }
+            ]
+        });
+
+        var today = DateTime.Now.Date;
+        var snapshot = new FakePlaytimeSnapshotProvider
+        {
+            Records = new List<GamePlaytimeRecord>
+            {
+                new()
+                {
+                    GameName = "game-key",
+                    Sessions =
+                    {
+                        new PlaySession("game-key", today.AddDays(-2).AddHours(20), today.AddDays(-2).AddHours(21), TimeSpan.FromHours(1), 60),
+                        new PlaySession("game-key", today.AddDays(-3).AddHours(20), today.AddDays(-3).AddHours(20).AddMinutes(30), TimeSpan.FromMinutes(30), 30),
+                        new PlaySession("game-key", today.AddDays(-4).AddHours(20), today.AddDays(-4).AddHours(20).AddMinutes(45), TimeSpan.FromMinutes(45), 45),
+                        // UTC 会话：昨天中午 UTC 在任何真实时区下都落在预览窗口内
+                        new PlaySession("game-key", DateTime.UtcNow.Date.AddDays(-1).AddHours(11), DateTime.UtcNow.Date.AddDays(-1).AddHours(12), TimeSpan.FromMinutes(30), 30),
+                        // 窗口外的旧会话应被排除
+                        new PlaySession("game-key", today.AddDays(-10).AddHours(20), today.AddDays(-10).AddHours(21).AddMinutes(30), TimeSpan.FromMinutes(90), 90)
+                    }
+                },
+                new()
+                {
+                    GameName = "other-key",
+                    Sessions =
+                    {
+                        new PlaySession("other-key", today.AddDays(-2).AddHours(22), today.AddDays(-2).AddHours(22).AddMinutes(20), TimeSpan.FromMinutes(20), 20)
+                    }
+                }
+            }
+        };
+
+        var service = new StatisticsService(snapshot, provider);
+        var preview = service.GetSessionActivityPreview();
+
+        Assert.Equal(5, preview.SessionCount);
+        Assert.Equal(StatisticsService.PreviewWindowDays, preview.WindowDays);
+        Assert.Equal(2, preview.Games.Count);
+
+        var first = preview.Games[0];
+        Assert.Equal("game-key", first.GameName);
+        Assert.Equal("Game Display", first.DisplayName);
+        Assert.Equal(4, first.SessionCount);
+        Assert.Equal(165, first.TotalMinutes);
+        Assert.Equal(20, preview.Games[1].TotalMinutes);
+
+        Assert.Equal(StatisticsService.PreviewWindowDays, preview.DailyTrend.Count);
+        Assert.Equal(today.AddDays(-(StatisticsService.PreviewWindowDays - 1)), preview.DailyTrend[0].Date);
+        Assert.Equal(80, Assert.Single(preview.DailyTrend, day => day.Date == today.AddDays(-2)).Minutes);
+        Assert.Equal(30, Assert.Single(preview.DailyTrend, day => day.Date == today.AddDays(-3)).Minutes);
+        Assert.Equal(45, Assert.Single(preview.DailyTrend, day => day.Date == today.AddDays(-4)).Minutes);
+
+        // UTC 会话按本地日期归属，落在昨天或今天（取决于时区偏移）
+        var utcSessionLocalDate = DateTime.UtcNow.Date.AddDays(-1).AddHours(12).ToLocalTime().Date;
+        Assert.Equal(30, Assert.Single(preview.DailyTrend, day => day.Date == utcSessionLocalDate).Minutes);
+        Assert.Equal(185, preview.DailyTrend.Sum(day => day.Minutes));
+    }
+
+    [Fact]
+    public void StatisticsService_GetSessionActivityPreview_ShouldReturnEmptyGames_WhenAllSessionsOutOfWindow()
+    {
+        var provider = new FakeGameConfiguration(new AppConfig
+        {
+            Games = [new() { DataKey = "game-key", Executable = "game.exe", DisplayName = "Game Display" }]
+        });
+
+        var today = DateTime.Now.Date;
+        var snapshot = new FakePlaytimeSnapshotProvider
+        {
+            Records = new List<GamePlaytimeRecord>
+            {
+                new()
+                {
+                    GameName = "game-key",
+                    Sessions =
+                    {
+                        new PlaySession("game-key", today.AddDays(-30).AddHours(20), today.AddDays(-30).AddHours(21), TimeSpan.FromHours(1), 60)
+                    }
+                }
+            }
+        };
+
+        var service = new StatisticsService(snapshot, provider);
+        var preview = service.GetSessionActivityPreview();
+
+        Assert.Empty(preview.Games);
+        Assert.Equal(0, preview.SessionCount);
+        Assert.Equal(StatisticsService.PreviewWindowDays, preview.DailyTrend.Count);
+        Assert.All(preview.DailyTrend, day => Assert.Equal(0, day.Minutes));
+    }
+
+    [Fact]
     public void StatisticsService_GetDetails_ShouldResolveDisplayName()
     {
         var provider = new FakeGameConfiguration(new AppConfig

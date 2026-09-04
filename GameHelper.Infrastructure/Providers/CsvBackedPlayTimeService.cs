@@ -6,6 +6,7 @@ using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Utilities;
 using Microsoft.Extensions.Logging;
+using System.Text;
 
 namespace GameHelper.Infrastructure.Providers
 {
@@ -148,7 +149,7 @@ namespace GameHelper.Infrastructure.Providers
             {
                 _logger?.LogInformation("Migrating playtime data from JSON to CSV format");
 
-                var json = File.ReadAllText(_jsonFilePath);
+                var json = File.ReadAllText(_jsonFilePath, Encoding.UTF8);
                 var root = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
 
                 if (root != null && root.TryGetValue("games", out var node) && node != null)

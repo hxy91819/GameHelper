@@ -83,7 +83,7 @@ internal static class PlaytimeCsvCodec
     {
         ArgumentNullException.ThrowIfNull(handleRow);
 
-        using var reader = new StreamReader(path, detectEncodingFromByteOrderMarks: true);
+        using var reader = new StreamReader(path, Utf8WithoutBom, detectEncodingFromByteOrderMarks: true);
         using var records = ParseRecords(reader).GetEnumerator();
 
         if (!records.MoveNext() || !IsExpectedHeader(records.Current))

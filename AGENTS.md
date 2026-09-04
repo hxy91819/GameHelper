@@ -64,6 +64,13 @@
 - If `dotnet test` cannot run in the execution environment (e.g., SDK not installed), report the failure reason in your final message.
 - When adding functionality that depends on ETW/WMI, include unit tests that can run without elevated Windows permissions when possible.
 
+## Verification & Deployment Workflow (mandatory after every development task)
+- After development is complete, follow `docs/guides/verify-and-deploy-workflow.md` **in full**: build + test, publish, on-machine verification with an isolated test instance, then deploy to the local publish directory.
+- **Never stop, restart, or kill the user's running GameHelper instance.** The user may be monitoring at any time; verification must use a dedicated test instance that coexists with it.
+- Test instances must isolate data via `GAMEHELPER_DATA_DIR` (sandboxed data dir) and skip the single-instance mutex via `GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE=1` so the user's instance is never affected.
+- Deploy targets the shortcut path `GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish/` so the user's next launch picks up the new build. If files there are locked by a running instance, perform a partial deploy, keep the new build, and tell the user to re-run `scripts\verify-on-machine.ps1 -SkipVerify` after closing it.
+- One-shot command: `powershell -File scripts\verify-on-machine.ps1` (append `-SkipVerify` to deploy only).
+
 ## Documentation Updates
 - Update `README.md` or relevant files under `docs/` whenever user-facing behavior, CLI arguments, or configuration formats change.
 - Provide inline XML comments or markdown docs for newly introduced public APIs when it aids discoverability.
@@ -72,6 +79,7 @@
 - Architecture and standards: `docs/architecture/index.md`
 - Product behavior and scope: `docs/prd/index.md`
 - CLI usage: `docs/guides/cli.md`
+- Verification & deployment workflow: `docs/guides/verify-and-deploy-workflow.md`
 
 ## PR Message Requirements
 - Summaries should clearly state the functional changes and impacted components.
@@ -81,3 +89,17 @@
 ## Additional Notes
 - Prefer extending this file with more specific directory-level instructions if a sub-area gains unique requirements.
 - Keep configuration samples (`debug.config.yml`, `test-etw.config.yml`) in sync with any schema or behavioral changes made in code.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked as GitHub issues on `hxy91819/GameHelper` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Uses the five canonical triage labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` at the repo root plus `docs/adr/`. See `docs/agents/domain.md`.
