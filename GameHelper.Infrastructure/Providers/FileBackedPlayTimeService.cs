@@ -6,6 +6,7 @@ using System.Text.Json;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Utilities;
+using System.Text;
 
 namespace GameHelper.Infrastructure.Providers
 {
@@ -97,7 +98,7 @@ namespace GameHelper.Infrastructure.Providers
             try
             {
                 if (!File.Exists(_filePath)) return;
-                var json = File.ReadAllText(_filePath);
+                var json = File.ReadAllText(_filePath, Encoding.UTF8);
                 var root = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
                 if (root != null && root.TryGetValue("games", out var node) && node != null)
                 {

@@ -1,6 +1,7 @@
 using GameHelper.ConsoleHost.Commands;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Services;
 
 namespace GameHelper.Tests;
 
@@ -101,6 +102,11 @@ public sealed class StatsCommandTests
         {
             throw new InvalidOperationException("broken file");
         }
+
+        public SessionActivityPreview GetSessionActivityPreview()
+        {
+            throw new InvalidOperationException("broken file");
+        }
     }
 
     private sealed class EmptyStatisticsService : IStatisticsService
@@ -112,6 +118,13 @@ public sealed class StatsCommandTests
         public SessionActivitySnapshot GetSessionActivitySnapshot() => new(
             new HashSet<SessionActivityKey>(),
             Array.Empty<SessionActivityRecord>(),
+            string.Empty);
+
+        public SessionActivityPreview GetSessionActivityPreview() => new(
+            Array.Empty<SessionGameSummary>(),
+            Array.Empty<DailyPlaytimeSummary>(),
+            0,
+            StatisticsService.PreviewWindowDays,
             string.Empty);
     }
 
@@ -143,6 +156,13 @@ public sealed class StatsCommandTests
         public SessionActivitySnapshot GetSessionActivitySnapshot() => new(
             new HashSet<SessionActivityKey>(),
             Array.Empty<SessionActivityRecord>(),
+            string.Empty);
+
+        public SessionActivityPreview GetSessionActivityPreview() => new(
+            Array.Empty<SessionGameSummary>(),
+            Array.Empty<DailyPlaytimeSummary>(),
+            0,
+            StatisticsService.PreviewWindowDays,
             string.Empty);
     }
 }

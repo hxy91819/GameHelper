@@ -6,6 +6,7 @@ using System.Text.Json;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Utilities;
+using System.Text;
 
 namespace GameHelper.Infrastructure.Providers
 {
@@ -78,7 +79,7 @@ namespace GameHelper.Infrastructure.Providers
                     return new AppConfig { Games = new List<GameConfig>() };
                 }
 
-                var json = File.ReadAllText(_configFilePath);
+                var json = File.ReadAllText(_configFilePath, Encoding.UTF8);
                 using var document = JsonDocument.Parse(json);
                 var root = document.RootElement;
                 var storedGames = TryGetProperty(root, "games", out var gamesNode)

@@ -276,10 +276,49 @@ namespace GameHelper.Tests.Interactive
             _output.WriteLine("[Monitor Snapshot]\n" + snapshot);
 
             Assert.Contains("历史记录预览", snapshot);
+            Assert.Contains("近 7 天暂无游玩记录", snapshot); // 窗口外的 2024 历史不参与预览
             Assert.Contains("2024-02-02 22:00", snapshot); // 21:15 + 45 min
             Assert.Contains("45 min", snapshot);
             Assert.Contains("TOTAL", snapshot);
             Assert.Contains("本次共计 1 次游戏结束", snapshot);
+        }
+
+        [Fact]
+        public async Task RunAsync_LaunchMonitor_ShowsAggregatedHistoryPreview()
+        {
+            using var scope = new AppDataScope();
+            var today = DateTime.Now.Date;
+            scope.WritePlaytimeCsv(
+                ("eldenring.exe", today.AddDays(-1).AddHours(20), today.AddDays(-1).AddHours(21), 60),
+                ("eldenring.exe", today.AddDays(-2).AddHours(20), today.AddDays(-2).AddHours(20).AddMinutes(30), 30));
+
+            var configProvider = new FakeConfigProvider(new Dictionary<string, GameConfig>
+            {
+                ["eldenring.exe"] = new GameConfig { DataKey = "eldenring.exe", Executable = "eldenring.exe", DisplayName = "艾尔登法环", IsEnabled = true, HdrEnabled = true }
+            },
+            new AppConfig { ProcessMonitorType = ProcessMonitorType.WMI },
+            configPath: scope.ConfigPath);
+
+            await using var host = CreateHost(configProvider);
+            var console = CreateConsole();
+            var script = new InteractiveScript()
+                .Enqueue("Monitor")
+                .Enqueue("Q")
+                .Enqueue("Exit");
+
+            Task HostRunner(IHost _, CancellationToken token) => Task.CompletedTask;
+
+            var shell = new InteractiveShell(host, new ParsedArguments(), console, script, HostRunner);
+            await shell.RunAsync();
+
+            var snapshot = console.Output.ToString();
+            _output.WriteLine("[Monitor Preview Snapshot]\n" + snapshot);
+
+            Assert.Contains("历史记录预览", snapshot);
+            Assert.Contains("艾尔登法环", snapshot);
+            Assert.Contains("1.5 h", snapshot);
+            Assert.Contains("近 7 天 · 2 次会话 · 1 款游戏", snapshot);
+            Assert.Contains("每日游玩时长", snapshot);
         }
 
         [Fact]

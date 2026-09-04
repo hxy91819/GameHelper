@@ -2,6 +2,7 @@ using GameHelper.ConsoleHost;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -182,6 +183,13 @@ games:
         public SessionActivitySnapshot GetSessionActivitySnapshot() => new(
             new HashSet<SessionActivityKey>(),
             Array.Empty<SessionActivityRecord>(),
+            string.Empty);
+
+        public SessionActivityPreview GetSessionActivityPreview() => new(
+            Array.Empty<SessionGameSummary>(),
+            Array.Empty<DailyPlaytimeSummary>(),
+            0,
+            StatisticsService.PreviewWindowDays,
             string.Empty);
     }
 }

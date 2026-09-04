@@ -27,4 +27,5 @@ The maintained baseline is:
 - Product goals: [1-goals-and-background.md](./1-goals-and-background.md)
 - Current architecture: [../architecture/index.md](../architecture/index.md)
 - CLI usage: [../guides/cli.md](../guides/cli.md)
+- Verification & deployment workflow: [../guides/verify-and-deploy-workflow.md](../guides/verify-and-deploy-workflow.md)
 - Archived story detail: [../archives/prd/2-epics-and-stories.md](../archives/prd/2-epics-and-stories.md)
