@@ -32,6 +32,33 @@ namespace GameHelper.Tests
         }
 
         [Fact]
+        public void GetBaseDirectory_PrefersDataDirOverrideOverEverything()
+        {
+            var originalDataDir = Environment.GetEnvironmentVariable(AppDataPath.DataDirectoryEnvironmentVariable);
+            var originalXdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+            var originalAppData = Environment.GetEnvironmentVariable("APPDATA");
+            var dataDir = Path.Combine(Path.GetTempPath(), "gh-tests-datadir", Guid.NewGuid().ToString("N"));
+
+            try
+            {
+                Environment.SetEnvironmentVariable(AppDataPath.DataDirectoryEnvironmentVariable, dataDir);
+                Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", Path.Combine(dataDir, "xdg"));
+                Environment.SetEnvironmentVariable("APPDATA", Path.Combine(dataDir, "appdata"));
+
+                Assert.Equal(dataDir, AppDataPath.GetBaseDirectory());
+                Assert.Equal(Path.Combine(dataDir, "GameHelper"), AppDataPath.GetGameHelperDirectory());
+                Assert.Equal(Path.Combine(dataDir, "GameHelper", "config.yml"), AppDataPath.GetConfigPath());
+                Assert.Equal(Path.Combine(dataDir, "GameHelper", "playtime.csv"), AppDataPath.GetPlaytimeCsvPath());
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(AppDataPath.DataDirectoryEnvironmentVariable, originalDataDir);
+                Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", originalXdg);
+                Environment.SetEnvironmentVariable("APPDATA", originalAppData);
+            }
+        }
+
+        [Fact]
         public void GetBaseDirectory_UsesAppDataWhenXdgMissing()
         {
             var originalXdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");

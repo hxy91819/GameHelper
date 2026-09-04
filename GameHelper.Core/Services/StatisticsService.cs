@@ -5,6 +5,9 @@ namespace GameHelper.Core.Services;
 
 public sealed class StatisticsService : IStatisticsService
 {
+    /// <summary>历史记录预览覆盖的最近自然日数量（含今天）。</summary>
+    public const int PreviewWindowDays = 7;
+
     private readonly IPlaytimeSnapshotProvider _playtimeSnapshotProvider;
     private readonly IGameConfiguration _gameConfiguration;
 
@@ -86,6 +89,46 @@ public sealed class StatisticsService : IStatisticsService
         }
 
         return new SessionActivitySnapshot(keys, records, source);
+    }
+
+    public SessionActivityPreview GetSessionActivityPreview()
+    {
+        var snapshot = GetSessionActivitySnapshot();
+        var today = DateTime.Now.Date;
+        var windowStart = today.AddDays(-(PreviewWindowDays - 1));
+
+        var windowSessions = snapshot.Records
+            .Where(record => ToLocalTime(record.End) >= windowStart)
+            .ToList();
+
+        var games = windowSessions
+            .GroupBy(record => record.Key.Game, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new SessionGameSummary(
+                group.Key,
+                group.First().DisplayName,
+                group.Count(),
+                group.Sum(record => record.DurationMinutes),
+                group.Max(record => record.End)))
+            .OrderByDescending(item => item.TotalMinutes)
+            .ThenByDescending(item => item.LastEnd)
+            .ToList();
+
+        var dailyTrend = new List<DailyPlaytimeSummary>();
+        for (var day = windowStart; day <= today; day = day.AddDays(1))
+        {
+            var currentDay = day;
+            var minutes = windowSessions
+                .Where(record => ToLocalTime(record.End).Date == currentDay)
+                .Sum(record => record.DurationMinutes);
+            dailyTrend.Add(new DailyPlaytimeSummary(currentDay, minutes));
+        }
+
+        return new SessionActivityPreview(games, dailyTrend, windowSessions.Count, PreviewWindowDays, snapshot.Source);
+    }
+
+    private static DateTime ToLocalTime(DateTime timestamp)
+    {
+        return timestamp.Kind == DateTimeKind.Utc ? timestamp.ToLocalTime() : timestamp;
     }
 
     private StatisticsConfigIndex LoadConfigIndex()
