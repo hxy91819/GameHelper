@@ -379,3 +379,9 @@ FodyWeavers.xsd
 .codex/
 .windsurf/
 .agent/
+
+# ZCode session artifacts (plans are conversation-local)
+.zcode/
+
+# Ad-hoc research notes (not part of the product docs)
+docs/todo/
