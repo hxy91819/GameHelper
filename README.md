@@ -36,6 +36,11 @@ dotnet run --project .\GameHelper.ConsoleHost -- config remove <dataKey>
 
 # 历史数据迁移
 dotnet run --project .\GameHelper.ConsoleHost -- migrate
+
+# 统计推送到 GitHub 仓库（自动/手动）
+dotnet run --project .\GameHelper.ConsoleHost -- sync now [--force]
+dotnet run --project .\GameHelper.ConsoleHost -- sync test
+dotnet run --project .\GameHelper.ConsoleHost -- sync status
 ```
 
 `migrate` 会按当前 Core 匹配规则把旧 `playtime.csv` 中的游戏名映射到 `dataKey`；歧义匹配不会自动改写。
@@ -45,6 +50,15 @@ dotnet run --project .\GameHelper.ConsoleHost -- migrate
 `config import-steam` 会扫描本机 Steam 的所有游戏库，并批量添加已安装且可定位到主可执行文件的游戏。
 
 更多 CLI 说明见 `docs/guides/cli.md`。
+
+### 统计推送到 GitHub（已支持）
+
+把游戏时长统计自动推送到你指定的 GitHub 仓库（公开展示或私有备份）：
+
+- 推送内容为聚合报告（Markdown）+ 按日×按游戏聚合 CSV，只写入仓库的 `game-stats/` 子目录，不含精确作息时间；原始明细可选附带。
+- 两种上传方式：`method: git`（默认，复用本机 git 凭据，零 token）或 `method: api`（GitHub token）。
+- 自动推送默认每天最多一次，会话结束路径零新增磁盘写入；也可用 `sync now` 手动触发。
+- 配置方法、token 创建与隐私说明见 `docs/guides/sync.md`。
 
 ### 运行中拖拽添加（已支持）
 - 支持拖拽 `.exe` / `.lnk` / `.url`。
@@ -108,6 +122,7 @@ games:
 - `hdr`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
 - `startup.autoStartMonitor`：交互模式启动后是否自动进入实时监控。
 - `startup.launchOnStartup`：是否随系统启动 GameHelper。
+- `sync`：统计推送到 GitHub 的配置（省略整段表示未配置；完整字段见 `docs/guides/sync.md`）。
 
 CLI `config add` 可接收可执行文件名或 `.exe` 路径。传入路径时会保存到 `executable`，运行时从中派生路径与候选进程名。
 

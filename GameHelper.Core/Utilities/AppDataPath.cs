@@ -41,4 +41,10 @@ public static class AppDataPath
     public static string GetPlaytimeCsvPath() => Path.Combine(GetGameHelperDirectory(), "playtime.csv");
 
     public static string GetPlaytimeJsonPath() => Path.Combine(GetGameHelperDirectory(), "playtime.json");
+
+    /// <summary>统计推送状态文件路径（sync-state.json）。</summary>
+    public static string GetSyncStatePath() => Path.Combine(GetGameHelperDirectory(), "sync-state.json");
+
+    /// <summary>统计推送 git 方式的工作副本根目录。</summary>
+    public static string GetSyncCloneRoot() => Path.Combine(GetGameHelperDirectory(), "sync");
 }

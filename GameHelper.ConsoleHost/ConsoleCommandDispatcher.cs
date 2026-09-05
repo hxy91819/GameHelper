@@ -52,6 +52,12 @@ public static class ConsoleCommandDispatcher
                 }
                 break;
 
+            case "sync":
+                await SyncCommand.RunAsync(
+                    host.Services.GetRequiredService<ISyncService>(),
+                    parsedArgs.EffectiveArgs.Skip(1).ToArray()).ConfigureAwait(false);
+                break;
+
             case "convert-config":
                 ConvertConfigCommand.Run();
                 break;

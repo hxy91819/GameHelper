@@ -43,11 +43,26 @@ dotnet run --project .\GameHelper.ConsoleHost -- config remove <dataKey>
 dotnet run --project .\GameHelper.ConsoleHost -- convert-config
 dotnet run --project .\GameHelper.ConsoleHost -- validate-config
 dotnet run --project .\GameHelper.ConsoleHost -- migrate
+
+# 统计推送
+dotnet run --project .\GameHelper.ConsoleHost -- sync now [--force]
+dotnet run --project .\GameHelper.ConsoleHost -- sync test
+dotnet run --project .\GameHelper.ConsoleHost -- sync status
 ```
 
 `migrate` 会复用 Core 监控匹配阈值迁移旧 `playtime.csv`，只自动改写唯一的精确或模糊匹配；歧义记录会保留给人工处理。
 
 `config list` 会输出每个条目的 `dataKey`、`displayName`、启用状态和 HDR 设置，便于核对本地配置。
+
+## 统计推送（sync）
+
+把聚合后的游戏时长统计自动推送到 GitHub 仓库。详见 [sync 指南](sync.md)。
+
+- `sync now [--force]`：立即推送一次。默认会跳过“未到间隔/无新数据/内容一致”并给出原因；`--force` 穿透间隔与失败退避。
+- `sync test`：校验配置与渠道可达性（git 方式验证推送凭据，api 方式验证 token 与仓库/分支），不写入数据。
+- `sync status`：查看启用状态、目标仓库、上次成功/失败时间与待推送数据。
+
+自动推送随 `monitor` 命令在后台运行（启动延迟 3 分钟，之后每 15 分钟做一次 mtime 轻量检查，默认每天最多推送一次）。`sync` 命令受单实例约束：监控实例运行期间无法执行，可先关闭或临时设置 `GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE=1`。
 
 ## 配置文件
 
@@ -62,6 +77,13 @@ monitor: ETW
 startup:
   autoStartMonitor: false
   launchOnStartup: false
+sync:
+  enabled: false
+  provider: github
+  method: git
+  repo: yourname/game-stats
+  directory: game-stats
+  intervalMinutes: 1440
 games:
   - dataKey: witcher3
     executable: "D:\\Games\\The Witcher 3\\bin\\x64\\witcher3.exe"
@@ -79,6 +101,7 @@ games:
 - `hdr`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
 - `startup.autoStartMonitor`：交互模式启动后是否自动进入实时监控。
 - `startup.launchOnStartup`：是否随系统启动 GameHelper。
+- `sync`：统计推送配置（上述为节选，完整字段与 token 说明见 [sync 指南](sync.md)）；省略整段表示未配置推送。
 
 `config add` 可接收可执行文件名或 `.exe` 路径，并统一保存到 `executable`；运行时会从该字段派生路径匹配与候选进程名。
 

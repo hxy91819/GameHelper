@@ -16,6 +16,8 @@ namespace GameHelper.ConsoleHost.Commands
             Console.WriteLine("  config import-steam [--config <path>] [--debug]");
             Console.WriteLine("  config remove <dataKey> [--config <path>] [--debug]");
             Console.WriteLine("  stats [--game <name>] [--config <path>] [--debug]");
+            Console.WriteLine("  sync now [--force] / sync test / sync status");
+            Console.WriteLine("                      统计推送配置与手动触发（详见 docs/guides/sync.md）");
             Console.WriteLine("  migrate [--config <path>] [--csv <path>] [--dry-run] [--force]");
             Console.WriteLine("  convert-config");
             Console.WriteLine("  validate-config");
