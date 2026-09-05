@@ -1,5 +1,5 @@
 using System;
-using System.Net;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -12,17 +12,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace GameHelper.Infrastructure.Upload;
-
-/// <summary>GitHub API 调用失败（含可直接展示的中文错误说明）。</summary>
-public sealed class GitHubApiException : Exception
-{
-    public int StatusCode { get; }
-
-    public GitHubApiException(int statusCode, string message) : base(message)
-    {
-        StatusCode = statusCode;
-    }
-}
 
 /// <summary>
 /// 基于 GitHub REST API（Git Data API）的上传渠道：把一批文件以单个原子提交写入目标分支。
@@ -88,7 +77,7 @@ public sealed class GitHubApiChannel : IStatsUploadChannel
             }
             catch (GitHubApiException ex) when (ex.StatusCode is 409 or 422 && attempt < 3)
             {
-                _logger.LogWarning("GitHub 引用冲突（{Status}），重试第 {Attempt} 次", ex.StatusCode, attempt);
+                _logger.LogWarning(ex, "GitHub 引用冲突（{Status}），重试第 {Attempt} 次", ex.StatusCode, attempt);
             }
         }
     }
@@ -113,10 +102,12 @@ public sealed class GitHubApiChannel : IStatsUploadChannel
         var baseTreeSha = GetString(baseCommit, "tree", "sha");
 
         var prefix = $"{settings.NormalizedDirectory}/";
-        var treeEntries = new object[files.Count];
-        for (var index = 0; index < files.Count; index++)
+        var uploadedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var treeEntries = new List<object>();
+        foreach (var file in files)
         {
-            var file = files[index];
+            var path = prefix + file.RelativePath.Replace('\\', '/');
+            uploadedPaths.Add(path);
             var contentBytes = Encoding.UTF8.GetBytes(file.Content);
             var blob = await SendAsync(
                 HttpMethod.Post,
@@ -124,13 +115,28 @@ public sealed class GitHubApiChannel : IStatsUploadChannel
                 new { content = Convert.ToBase64String(contentBytes), encoding = "base64" },
                 token,
                 cancellationToken).ConfigureAwait(false);
-            treeEntries[index] = new
+            treeEntries.Add(new
             {
-                path = prefix + file.RelativePath.Replace('\\', '/'),
+                path,
                 mode = "100644",
                 type = "blob",
                 sha = GetString(blob, "sha")
-            };
+            });
+        }
+
+        // base_tree 只增不删：目标目录下先前推送过、本次不再上传的文件（例如关闭
+        // includeRawCsv 后的 raw/playtime.csv）必须显式生成删除条目，否则含精确时间戳的
+        // 隐私文件会永远残留在远端。
+        foreach (var stalePath in await ListStaleManagedPathsAsync(
+                owner,
+                name,
+                baseTreeSha,
+                prefix,
+                uploadedPaths,
+                token,
+                cancellationToken).ConfigureAwait(false))
+        {
+            treeEntries.Add(new { path = stalePath, mode = "100644", type = "blob", sha = (string?)null });
         }
 
         var tree = await SendAsync(
@@ -158,6 +164,53 @@ public sealed class GitHubApiChannel : IStatsUploadChannel
 
         _logger.LogInformation("GitHub API 渠道推送完成：{CommitSha}", commitSha);
         return commitSha.Length > 10 ? commitSha[..10] : commitSha;
+    }
+
+    /// <summary>列出基础树中位于推送目录内、本次未再上传的 blob 路径（需要删除的残留文件）。</summary>
+    private async Task<IReadOnlyList<string>> ListStaleManagedPathsAsync(
+        string owner,
+        string name,
+        string baseTreeSha,
+        string prefix,
+        HashSet<string> uploadedPaths,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        var stale = new List<string>();
+        var baseTree = await SendAsync(
+            HttpMethod.Get,
+            $"/repos/{owner}/{name}/git/trees/{baseTreeSha}?recursive=1",
+            null,
+            token,
+            cancellationToken).ConfigureAwait(false);
+
+        if (baseTree.ValueKind != JsonValueKind.Object || !baseTree.TryGetProperty("tree", out var entries))
+        {
+            return stale;
+        }
+
+        foreach (var entry in entries.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object
+                || !entry.TryGetProperty("path", out var pathElement)
+                || !entry.TryGetProperty("type", out var typeElement))
+            {
+                continue;
+            }
+
+            var path = pathElement.GetString();
+            if (path is null
+                || !path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                || uploadedPaths.Contains(path)
+                || !string.Equals(typeElement.GetString(), "blob", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            stale.Add(path);
+        }
+
+        return stale;
     }
 
     public static string ResolveToken(SyncSettings settings)

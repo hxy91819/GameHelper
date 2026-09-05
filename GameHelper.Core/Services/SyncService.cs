@@ -62,16 +62,10 @@ public sealed class SyncService : ISyncService
 
     public async Task<SyncOutcome> SyncNowAsync(bool force = false, CancellationToken cancellationToken = default)
     {
-        var appConfig = _configuration.Read();
-        var settings = appConfig.SyncSettings;
+        var (appConfig, settings) = ReadConfigWithSettings();
         if (settings is null)
         {
-            return SyncOutcome.Skipped("未配置 sync 段");
-        }
-
-        if (!settings.Enabled)
-        {
-            return SyncOutcome.Skipped("sync 未启用（config.yml: sync.enabled: true）");
+            return SyncOutcome.Skipped("sync 未配置或未启用（config.yml: sync.enabled: true）");
         }
 
         var configError = settings.Validate();
@@ -146,15 +140,10 @@ public sealed class SyncService : ISyncService
 
     public async Task<SyncOutcome> ValidateAsync(CancellationToken cancellationToken = default)
     {
-        var settings = _configuration.Read().SyncSettings;
+        var (_, settings) = ReadConfigWithSettings();
         if (settings is null)
         {
-            return SyncOutcome.Skipped("未配置 sync 段");
-        }
-
-        if (!settings.Enabled)
-        {
-            return SyncOutcome.Skipped("sync 未启用（config.yml: sync.enabled: true）");
+            return SyncOutcome.Skipped("sync 未配置或未启用（config.yml: sync.enabled: true）");
         }
 
         var configError = settings.Validate();
@@ -207,6 +196,16 @@ public sealed class SyncService : ISyncService
             LastError = targetMatches ? state.LastError : null,
             HasPendingData = configError is null && HasLocalChanges(effectiveState)
         };
+    }
+
+    /// <summary>
+    /// 读取配置并解析可用的 sync 设置；未配置或未启用时 <paramref name="appConfig"/> 仍返回完整配置。
+    /// </summary>
+    private (AppConfig AppConfig, SyncSettings? Settings) ReadConfigWithSettings()
+    {
+        var appConfig = _configuration.Read();
+        var settings = appConfig.SyncSettings is { Enabled: true } enabled ? enabled : null;
+        return (appConfig, settings);
     }
 
     private SyncOutcome? ShouldSkip(SyncSettings settings, SyncState state, DateTime nowUtc)

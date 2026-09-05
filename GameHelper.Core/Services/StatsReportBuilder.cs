@@ -6,17 +6,10 @@ using GameHelper.Core.Models;
 
 namespace GameHelper.Core.Services;
 
-/// <summary>构建完成的推送内容：文件集合 + 汇总元数据。</summary>
-public sealed record StatsReport(
-    IReadOnlyList<StatsUploadFile> Files,
-    int SessionCount,
-    int GameCount,
-    long TotalMinutes,
-    string ContentHash);
-
 /// <summary>
 /// 把游玩时长快照聚合成可推送的报告（Markdown 总览 + 按日×按游戏 CSV）。
 /// 只输出聚合数据，不含精确时间戳（原始明细需显式开启且仅建议私有仓库）。
+/// 报告内容不嵌生成时刻，保证内容指纹稳定（否则"内容未变化跳过上传"失效）；更新时间见提交历史。
 /// </summary>
 public sealed class StatsReportBuilder
 {
@@ -116,10 +109,15 @@ public sealed class StatsReportBuilder
         var lastDay = sessions.Max(session => session.EndTime.Date);
         var today = generatedAtLocal.Date;
         var windowStart = today.AddDays(-6);
+        // 本周按周一为一周起点；周日的偏移量为 6 天。
+        var weekStart = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
 
         var totalMinutes = sessions.Sum(session => session.DurationMinutes);
         var weekMinutes = sessions
             .Where(session => session.EndTime.Date >= windowStart && session.EndTime.Date <= today)
+            .Sum(session => session.DurationMinutes);
+        var thisWeekMinutes = sessions
+            .Where(session => session.EndTime.Date >= weekStart && session.EndTime.Date <= today)
             .Sum(session => session.DurationMinutes);
         var monthMinutes = sessions
             .Where(session => session.EndTime.Year == today.Year && session.EndTime.Month == today.Month)
@@ -135,6 +133,7 @@ public sealed class StatsReportBuilder
         builder.AppendLine($"| 会话总数 | {sessions.Count} |");
         builder.AppendLine($"| 累计时长 | {FormatDuration(totalMinutes)} |");
         builder.AppendLine($"| 最近 7 天 | {FormatDuration(weekMinutes)} |");
+        builder.AppendLine($"| 本周（周一起） | {FormatDuration(thisWeekMinutes)} |");
         builder.AppendLine($"| 本月（{today:yyyy-MM}） | {FormatDuration(monthMinutes)} |");
 
         AppendGameTable(builder, sessions);

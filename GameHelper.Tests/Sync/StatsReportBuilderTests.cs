@@ -149,6 +149,31 @@ public class StatsReportBuilderTests
         Assert.NotEqual(before.ContentHash, after.ContentHash);
     }
 
+    [Fact]
+    public void Build_WithZeroMinuteSession_CountsSessionAndZeroMinutes()
+    {
+        var records = new List<GamePlaytimeRecord>
+        {
+            new()
+            {
+                GameName = "short_game",
+                Sessions =
+                {
+                    // 短于 1 分钟的会话在 CSV 层就记录为 0 分钟。
+                    Session("short_game", new DateTime(2026, 9, 5, 22, 0, 0), new DateTime(2026, 9, 5, 22, 0, 30), 0)
+                }
+            }
+        };
+
+        var report = _builder.Build(records, new List<GameConfig>(), GeneratedAt, includeRawCsv: false);
+
+        Assert.Equal(1, report.SessionCount);
+        Assert.Equal(1, report.GameCount);
+        Assert.Equal(0, report.TotalMinutes);
+        Assert.Contains("2026-09-05,short_game,0", report.Files[1].Content);
+        Assert.Contains("| 1 |", report.Files[0].Content);
+    }
+
     private static List<GamePlaytimeRecord> SingleSessionRecords(int minutes = 60)
     {
         var start = new DateTime(2026, 9, 4, 20, 0, 0);

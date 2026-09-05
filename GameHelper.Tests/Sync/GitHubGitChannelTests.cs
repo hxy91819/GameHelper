@@ -24,15 +24,18 @@ public class GitHubGitChannelTests : IDisposable
     }
 
     [Fact]
-    public async Task Upload_WithExistingClone_FetchesWritesCommitsAndPushes()
+    public async Task UploadAsync_WithExistingClone_FetchesWritesCommitsAndPushes()
     {
         var repoDir = EnsureExistingClone();
         _runner.Responder = arguments => arguments[0] switch
         {
-            "fetch" or "add" or "commit" or "push" => new GitRunResult(0, string.Empty, string.Empty),
+            "fetch" or "checkout" or "add" or "commit" or "push" => new GitRunResult(0, string.Empty, string.Empty),
+            "symbolic-ref" => new GitRunResult(0, "main" + Environment.NewLine, string.Empty),
+            "rev-parse" => arguments.Contains("--quiet")
+                ? new GitRunResult(0, "origin/main" + Environment.NewLine, string.Empty)
+                : new GitRunResult(0, "abc1234" + Environment.NewLine, string.Empty),
             "status" => new GitRunResult(0, "M game-stats/README.md" + Environment.NewLine, string.Empty),
             "config" => new GitRunResult(0, "Mason" + Environment.NewLine, string.Empty),
-            "rev-parse" => new GitRunResult(0, "abc1234" + Environment.NewLine, string.Empty),
             _ => new GitRunResult(1, string.Empty, "unexpected")
         };
         var files = new List<StatsUploadFile>
@@ -47,7 +50,20 @@ public class GitHubGitChannelTests : IDisposable
         Assert.False(result.NoChanges);
 
         Assert.Equal(
-            new[] { "fetch", "add", "status", "config", "config", "commit", "push", "rev-parse" },
+            new[]
+            {
+                "fetch",
+                "symbolic-ref",
+                "rev-parse",
+                "checkout",
+                "add",
+                "status",
+                "config",
+                "config",
+                "commit",
+                "push",
+                "rev-parse"
+            },
             _runner.Calls.Select(call => call.Arguments[0]).ToArray());
 
         var writtenReport = File.ReadAllText(Path.Combine(repoDir, "game-stats", "README.md"));
@@ -56,7 +72,7 @@ public class GitHubGitChannelTests : IDisposable
     }
 
     [Fact]
-    public async Task Upload_WhenCloneMissing_ClonesFirst()
+    public async Task UploadAsync_WhenCloneMissing_ClonesFirst()
     {
         _runner.Responder = arguments => arguments[0] switch
         {
@@ -70,13 +86,14 @@ public class GitHubGitChannelTests : IDisposable
         await _channel.UploadAsync(Settings(), SingleFile(), "msg", CancellationToken.None);
 
         var cloneCall = _runner.Calls.First(call => call.Arguments[0] == "clone");
-        Assert.Equal("https://github.com/owner/repo.git", cloneCall.Arguments[1]);
-        Assert.Equal("owner-repo", cloneCall.Arguments[2]);
+        Assert.Equal(
+            new[] { "clone", "--depth", "1", "https://github.com/owner/repo.git", "owner-repo" },
+            cloneCall.Arguments);
         Assert.DoesNotContain(_runner.Calls, call => call.Arguments[0] == "fetch");
     }
 
     [Fact]
-    public async Task Upload_WithConfiguredBranch_ChecksOutRemoteBranch()
+    public async Task UploadAsync_WithConfiguredBranch_ChecksOutRemoteBranch()
     {
         EnsureExistingClone();
         _runner.Responder = arguments => arguments[0] switch
@@ -97,7 +114,7 @@ public class GitHubGitChannelTests : IDisposable
     }
 
     [Fact]
-    public async Task Upload_WithNoChanges_SkipsCommitAndPush()
+    public async Task UploadAsync_WithNoChanges_SkipsCommitAndPush()
     {
         EnsureExistingClone();
         _runner.Responder = arguments => arguments[0] switch
@@ -115,7 +132,7 @@ public class GitHubGitChannelTests : IDisposable
     }
 
     [Fact]
-    public async Task Upload_WhenPushFails_ThrowsWithStderrDetail()
+    public async Task UploadAsync_WhenPushFails_ThrowsWithStderrDetail()
     {
         EnsureExistingClone();
         _runner.Responder = arguments => arguments[0] switch
@@ -136,7 +153,7 @@ public class GitHubGitChannelTests : IDisposable
     }
 
     [Fact]
-    public async Task Upload_WithDirectoryEscape_RejectsPath()
+    public async Task UploadAsync_WithDirectoryEscape_RejectsPath()
     {
         EnsureExistingClone();
         _runner.Responder = _ => new GitRunResult(0, string.Empty, string.Empty);
@@ -148,7 +165,7 @@ public class GitHubGitChannelTests : IDisposable
     }
 
     [Fact]
-    public async Task Validate_WhenPushDryRunFails_ThrowsActionableMessage()
+    public async Task ValidateAsync_WhenPushDryRunFails_ThrowsActionableMessage()
     {
         EnsureExistingClone();
         _runner.Responder = arguments => arguments[0] switch
@@ -163,6 +180,76 @@ public class GitHubGitChannelTests : IDisposable
 
         Assert.Contains("sync.method: api", ex.Message);
         Assert.Contains("Authentication failed", ex.Message);
+    }
+
+    [Fact]
+    public async Task UploadAsync_WhenDefaultBranchUpstreamAdvanced_AlignsBeforeCommit()
+    {
+        EnsureExistingClone();
+        _runner.Responder = arguments => arguments[0] switch
+        {
+            "fetch" => new GitRunResult(0, string.Empty, string.Empty),
+            "symbolic-ref" => new GitRunResult(0, "main" + Environment.NewLine, string.Empty),
+            "rev-parse" => new GitRunResult(0, "origin/main" + Environment.NewLine, string.Empty),
+            "checkout" => new GitRunResult(0, string.Empty, string.Empty),
+            "add" => new GitRunResult(0, string.Empty, string.Empty),
+            "status" => new GitRunResult(0, string.Empty, string.Empty),
+            _ => new GitRunResult(1, string.Empty, "unexpected")
+        };
+
+        await _channel.UploadAsync(Settings(), SingleFile(), "msg", CancellationToken.None);
+
+        var checkout = _runner.Calls.First(call => call.Arguments[0] == "checkout");
+        Assert.Equal(new[] { "checkout", "-f", "-B", "main", "origin/main" }, checkout.Arguments);
+    }
+
+    [Fact]
+    public async Task UploadAsync_WithUserFileInManagedDirectory_LeavesUserFilesUntouched()
+    {
+        var repoDir = EnsureExistingClone();
+        var userFile = Path.Combine(repoDir, "game-stats", "user-notes.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(userFile)!);
+        File.WriteAllText(userFile, "user content");
+
+        _runner.Responder = arguments => arguments[0] switch
+        {
+            "fetch" or "add" => new GitRunResult(0, string.Empty, string.Empty),
+            "status" => new GitRunResult(0, string.Empty, string.Empty),
+            _ => new GitRunResult(1, string.Empty, "unexpected")
+        };
+
+        var result = await _channel.UploadAsync(Settings(), SingleFile(), "msg", CancellationToken.None);
+
+        Assert.True(result.NoChanges);
+        Assert.Equal("user content", File.ReadAllText(userFile));
+        // add/status 只针对受管文件，避免把用户自放文件卷进提交。
+        var addCall = _runner.Calls.First(call => call.Arguments[0] == "add");
+        Assert.Equal(
+            new[] { "add", "-A", "game-stats/README.md", "game-stats/daily.csv", "game-stats/raw/playtime.csv" },
+            addCall.Arguments);
+    }
+
+    [Fact]
+    public async Task UploadAsync_WhenRawCsvRemovedFromPayload_DeletesStaleManagedFile()
+    {
+        var repoDir = EnsureExistingClone();
+        var staleRaw = Path.Combine(repoDir, "game-stats", "raw", "playtime.csv");
+        Directory.CreateDirectory(Path.GetDirectoryName(staleRaw)!);
+        File.WriteAllText(staleRaw, "game,start_time,end_time,duration_minutes");
+
+        _runner.Responder = arguments => arguments[0] switch
+        {
+            "fetch" or "add" or "commit" or "push" => new GitRunResult(0, string.Empty, string.Empty),
+            "status" => new GitRunResult(0, "D game-stats/raw/playtime.csv" + Environment.NewLine, string.Empty),
+            "config" => new GitRunResult(0, "Mason" + Environment.NewLine, string.Empty),
+            "rev-parse" => new GitRunResult(0, "abc1234" + Environment.NewLine, string.Empty),
+            _ => new GitRunResult(1, string.Empty, "unexpected")
+        };
+
+        var result = await _channel.UploadAsync(Settings(), SingleFile(), "msg", CancellationToken.None);
+
+        Assert.False(result.NoChanges);
+        Assert.False(File.Exists(staleRaw));
     }
 
     public void Dispose()

@@ -9,34 +9,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace GameHelper.Infrastructure.Upload;
 
-/// <summary>单次 git 命令执行结果。</summary>
-public sealed record GitRunResult(int ExitCode, string StandardOutput, string StandardError)
-{
-    public bool Succeeded => ExitCode == 0;
-
-    /// <summary>拼出可直接展示/记录的错误摘要（优先 stderr，截断到有限长度）。</summary>
-    public string DescribeError()
-    {
-        var message = string.IsNullOrWhiteSpace(StandardError) ? StandardOutput : StandardError;
-        message = message.Trim();
-        if (message.Length > 500)
-        {
-            message = message[..500] + "…";
-        }
-
-        return message.Length == 0 ? $"git 退出码 {ExitCode}" : message;
-    }
-}
-
-/// <summary>git 命令执行抽象，便于单元测试替换。</summary>
-public interface IGitRunner
-{
-    Task<GitRunResult> RunAsync(
-        string? workingDirectory,
-        IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken = default);
-}
-
 /// <summary>
 /// 通过 git.exe 执行命令。禁用交互式凭据提示（GIT_TERMINAL_PROMPT=0、GCM_INTERACTIVE=never），
 /// 凭据未就绪时快速失败而不是挂起后台任务；单条命令超时后强制结束进程树。
@@ -48,8 +20,18 @@ public sealed class ProcessGitRunner : IGitRunner
 
     private readonly int _timeoutSeconds;
     private readonly ILogger<ProcessGitRunner> _logger;
+    private readonly string _executable;
 
     public ProcessGitRunner(ILogger<ProcessGitRunner>? logger = null, int timeoutSeconds = DefaultTimeoutSeconds)
+        : this(logger, timeoutSeconds, executableOverride: null)
+    {
+    }
+
+    /// <summary>测试专用构造：允许替换可执行文件以验证超时与环境注入行为。</summary>
+    internal ProcessGitRunner(
+        ILogger<ProcessGitRunner>? logger,
+        int timeoutSeconds,
+        string? executableOverride)
     {
         _logger = logger ?? NullLogger<ProcessGitRunner>.Instance;
         if (timeoutSeconds <= 0)
@@ -58,6 +40,7 @@ public sealed class ProcessGitRunner : IGitRunner
         }
 
         _timeoutSeconds = timeoutSeconds;
+        _executable = string.IsNullOrWhiteSpace(executableOverride) ? "git" : executableOverride!;
     }
 
     public async Task<GitRunResult> RunAsync(
@@ -67,7 +50,7 @@ public sealed class ProcessGitRunner : IGitRunner
     {
         var startInfo = new ProcessStartInfo
         {
-            FileName = "git",
+            FileName = _executable,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -118,7 +101,7 @@ public sealed class ProcessGitRunner : IGitRunner
             }
 
             throw new TimeoutException(
-                $"git 命令超时（{_timeoutSeconds}s）：git {string.Join(' ', arguments)}");
+                $"git 命令超时（{_timeoutSeconds}s）：{_executable} {string.Join(' ', arguments)}");
         }
 
         var stdout = await stdoutTask.ConfigureAwait(false);

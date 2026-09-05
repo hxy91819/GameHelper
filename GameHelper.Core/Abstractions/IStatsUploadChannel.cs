@@ -2,15 +2,9 @@ using GameHelper.Core.Models;
 
 namespace GameHelper.Core.Abstractions;
 
-/// <summary>待上传到远端仓库的单个文件。</summary>
-public sealed record StatsUploadFile(string RelativePath, string Content);
-
-/// <summary>上传结果。</summary>
-public sealed record StatsUploadResult(string? CommitId, bool NoChanges);
-
 /// <summary>
 /// 统计数据上传渠道。实现方负责把文件写入远端目标（如 GitHub 仓库），
-/// 且只允许触碰 <see cref="SyncSettings.Directory"/> 指定的子目录。
+/// 且只允许触碰 <see cref="SyncSettings.Directory"/> 指定的子目录中由 GameHelper 管理的文件。
 /// </summary>
 public interface IStatsUploadChannel
 {

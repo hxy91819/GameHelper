@@ -36,7 +36,7 @@ public class SyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Sync_WhenNotConfigured_Skips()
+    public async Task SyncNowAsync_WhenNotConfigured_Skips()
     {
         var outcome = await _service.SyncNowAsync();
 
@@ -45,7 +45,7 @@ public class SyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Sync_WhenDisabled_Skips()
+    public async Task SyncNowAsync_WhenDisabled_Skips()
     {
         _config.Config.SyncSettings = new SyncSettings { Enabled = false, Repo = "owner/repo" };
 
@@ -56,7 +56,7 @@ public class SyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Sync_WithInvalidRepoFormat_Fails()
+    public async Task SyncNowAsync_WithInvalidRepoFormat_Fails()
     {
         _config.Config.SyncSettings = new SyncSettings { Enabled = true, Repo = "not-a-repo" };
         WriteCsv();
@@ -68,7 +68,7 @@ public class SyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Sync_FirstRunWithData_UploadsAndWritesState()
+    public async Task SyncNowAsync_FirstRunWithData_UploadsAndWritesState()
     {
         EnableSync();
         WriteCsv();
@@ -87,7 +87,7 @@ public class SyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Sync_WithinInterval_SkipsEvenWithNewData()
+    public async Task SyncNowAsync_WithinInterval_SkipsEvenWithNewData()
     {
         EnableSync();
         await FirstSyncAsync();
@@ -102,7 +102,7 @@ public class SyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Sync_AfterInterval_WithoutNewData_Skips()
+    public async Task SyncNowAsync_AfterInterval_WithoutNewData_Skips()
     {
         EnableSync();
         await FirstSyncAsync();
@@ -116,7 +116,7 @@ public class SyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Sync_AfterInterval_WithUnchangedContent_SkipsUploadButRefreshesState()
+    public async Task SyncNowAsync_AfterInterval_WithUnchangedContent_SkipsUploadButRefreshesState()
     {
         EnableSync(intervalMinutes: 10);
         await FirstSyncAsync();
@@ -135,7 +135,7 @@ public class SyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Sync_WhenChannelFails_RecordsErrorAndBacksOff()
+    public async Task SyncNowAsync_WhenChannelFails_RecordsErrorAndBacksOff()
     {
         EnableSync(intervalMinutes: 10);
         WriteCsv();
@@ -159,7 +159,7 @@ public class SyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Sync_Force_BypassesInterval()
+    public async Task SyncNowAsync_Force_BypassesInterval()
     {
         EnableSync();
         await FirstSyncAsync();
@@ -173,7 +173,7 @@ public class SyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Sync_WithNoPlayData_Skips()
+    public async Task SyncNowAsync_WithNoPlayData_Skips()
     {
         EnableSync();
         WriteCsv();
@@ -186,7 +186,7 @@ public class SyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Validate_WithEnabledConfig_CallsChannel()
+    public async Task ValidateAsync_WithEnabledConfig_CallsChannel()
     {
         EnableSync();
 

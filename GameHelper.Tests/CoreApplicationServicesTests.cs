@@ -286,6 +286,8 @@ public sealed class CoreApplicationServicesTests
         });
 
         var today = DateTime.Now.Date;
+        var utcSessionLocal = today.AddDays(-1).AddHours(12);
+        var utcSessionUtc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(utcSessionLocal, DateTimeKind.Unspecified));
         var snapshot = new FakePlaytimeSnapshotProvider
         {
             Records = new List<GamePlaytimeRecord>
@@ -298,8 +300,13 @@ public sealed class CoreApplicationServicesTests
                         new PlaySession("game-key", today.AddDays(-2).AddHours(20), today.AddDays(-2).AddHours(21), TimeSpan.FromHours(1), 60),
                         new PlaySession("game-key", today.AddDays(-3).AddHours(20), today.AddDays(-3).AddHours(20).AddMinutes(30), TimeSpan.FromMinutes(30), 30),
                         new PlaySession("game-key", today.AddDays(-4).AddHours(20), today.AddDays(-4).AddHours(20).AddMinutes(45), TimeSpan.FromMinutes(45), 45),
-                        // UTC 会话：昨天中午 UTC 在任何真实时区下都落在预览窗口内
-                        new PlaySession("game-key", DateTime.UtcNow.Date.AddDays(-1).AddHours(11), DateTime.UtcNow.Date.AddDays(-1).AddHours(12), TimeSpan.FromMinutes(30), 30),
+                        // UTC 会话：由“本地归属日 = 昨天”反推 UTC 时间，跨午夜/时区时归属日恒定
+                        new PlaySession(
+                            "game-key",
+                            utcSessionUtc.AddHours(-1),
+                            utcSessionUtc,
+                            TimeSpan.FromMinutes(30),
+                            30),
                         // 窗口外的旧会话应被排除
                         new PlaySession("game-key", today.AddDays(-10).AddHours(20), today.AddDays(-10).AddHours(21).AddMinutes(30), TimeSpan.FromMinutes(90), 90)
                     }
@@ -335,9 +342,8 @@ public sealed class CoreApplicationServicesTests
         Assert.Equal(30, Assert.Single(preview.DailyTrend, day => day.Date == today.AddDays(-3)).Minutes);
         Assert.Equal(45, Assert.Single(preview.DailyTrend, day => day.Date == today.AddDays(-4)).Minutes);
 
-        // UTC 会话按本地日期归属，落在昨天或今天（取决于时区偏移）
-        var utcSessionLocalDate = DateTime.UtcNow.Date.AddDays(-1).AddHours(12).ToLocalTime().Date;
-        Assert.Equal(30, Assert.Single(preview.DailyTrend, day => day.Date == utcSessionLocalDate).Minutes);
+        // UTC 会话按本地日期归属，此处构造时即锚定在昨天
+        Assert.Equal(30, Assert.Single(preview.DailyTrend, day => day.Date == utcSessionLocal.Date).Minutes);
         Assert.Equal(185, preview.DailyTrend.Sum(day => day.Minutes));
     }
 

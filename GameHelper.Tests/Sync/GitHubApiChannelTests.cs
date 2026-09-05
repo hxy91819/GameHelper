@@ -15,7 +15,7 @@ public class GitHubApiChannelTests
     private const string NewCommitJson = """{"sha":"NEWSHA1234567890"}""";
 
     [Fact]
-    public async Task Upload_BuildsSingleAtomicCommit()
+    public async Task UploadAsync_BuildsSingleAtomicCommit()
     {
         var handler = new FakeGitHubHandler(ComposeDefaultResponder());
         var channel = CreateChannel(handler);
@@ -39,6 +39,7 @@ public class GitHubApiChannelTests
             "GET /repos/o/r/git/commits/REFSHA",
             "POST /repos/o/r/git/blobs",
             "POST /repos/o/r/git/blobs",
+            "GET /repos/o/r/git/trees/BASETREE",
             "POST /repos/o/r/git/trees",
             "POST /repos/o/r/git/commits",
             "PATCH /repos/o/r/git/refs/heads/main"
@@ -63,7 +64,7 @@ public class GitHubApiChannelTests
     }
 
     [Fact]
-    public async Task Upload_WhenRepositoryMissing_ThrowsActionableError()
+    public async Task UploadAsync_WhenRepositoryMissing_ThrowsActionableError()
     {
         var handler = new FakeGitHubHandler((request, _) =>
             request.RequestUri!.AbsolutePath == "/repos/o/r"
@@ -79,7 +80,7 @@ public class GitHubApiChannelTests
     }
 
     [Fact]
-    public async Task Upload_WhenReferenceConflicts_RetriesFromScratch()
+    public async Task UploadAsync_WhenReferenceConflicts_RetriesFromScratch()
     {
         var patchCalls = 0;
         var handler = new FakeGitHubHandler((request, _) =>
@@ -103,7 +104,7 @@ public class GitHubApiChannelTests
     }
 
     [Fact]
-    public async Task Upload_WithoutConfiguredToken_ThrowsActionableError()
+    public async Task UploadAsync_WithoutConfiguredToken_ThrowsActionableError()
     {
         var previous = Environment.GetEnvironmentVariable(SyncSettings.TokenEnvironmentVariable);
         Environment.SetEnvironmentVariable(SyncSettings.TokenEnvironmentVariable, null);
@@ -127,7 +128,7 @@ public class GitHubApiChannelTests
     }
 
     [Fact]
-    public async Task Upload_UsesTokenFromEnvironmentWhenConfigEmpty()
+    public async Task UploadAsync_UsesTokenFromEnvironmentWhenConfigEmpty()
     {
         var previous = Environment.GetEnvironmentVariable(SyncSettings.TokenEnvironmentVariable);
         Environment.SetEnvironmentVariable(SyncSettings.TokenEnvironmentVariable, "env-token");
@@ -156,7 +157,39 @@ public class GitHubApiChannelTests
     }
 
     [Fact]
-    public async Task Validate_WithAccessibleRepository_ChecksRepoAndBranch()
+    public async Task UploadAsync_DeletesStaleManagedFilesNotInPayload()
+    {
+        // 基础树里包含上一轮推送过的 raw/playtime.csv；本次 payload 未包含它，
+        // 必须生成 sha=null 的删除条目，否则含精确时间戳的文件残留在远端。
+        var handler = new FakeGitHubHandler((request, body) =>
+        {
+            if (request.Method == HttpMethod.Get
+                && request.RequestUri!.AbsolutePath.EndsWith("/git/trees/BASETREE", StringComparison.Ordinal))
+            {
+                return JsonResponse(HttpStatusCode.OK, """
+                    {"tree":[
+                        {"path":"game-stats/README.md","type":"blob"},
+                        {"path":"game-stats/raw/playtime.csv","type":"blob"},
+                        {"path":"outside/keep.txt","type":"blob"}
+                    ]}
+                    """);
+            }
+
+            return ComposeDefaultResponder()(request, body);
+        });
+        var channel = CreateChannel(handler);
+
+        await channel.UploadAsync(ApiSettings(), SingleFile(), "msg", CancellationToken.None);
+
+        var treeBody = handler.Bodies.First(body => body.Contains("base_tree"));
+        Assert.Contains("game-stats/raw/playtime.csv", treeBody);
+        Assert.Contains("\"sha\":null", treeBody);
+        // 目录外的文件不受影响。
+        Assert.DoesNotContain("outside/keep.txt", treeBody);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_WithAccessibleRepository_ChecksRepoAndBranch()
     {
         var handler = new FakeGitHubHandler(ComposeDefaultResponder());
         var channel = CreateChannel(handler);
@@ -187,6 +220,11 @@ public class GitHubApiChannelTests
             if (request.Method == HttpMethod.Get && path.EndsWith("/git/commits/REFSHA", StringComparison.Ordinal))
             {
                 return JsonResponse(HttpStatusCode.OK, CommitJson);
+            }
+
+            if (request.Method == HttpMethod.Get && path.EndsWith("/git/trees/BASETREE", StringComparison.Ordinal))
+            {
+                return JsonResponse(HttpStatusCode.OK, """{"tree":[]}""");
             }
 
             if (request.Method == HttpMethod.Post && path.EndsWith("/git/blobs", StringComparison.Ordinal))
