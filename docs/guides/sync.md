@@ -9,16 +9,17 @@ GameHelper 可以把游戏时长统计自动推送到远端 GitHub 仓库，用�
 
 ## 推送内容
 
-默认只推送聚合数据，写入仓库的 `sync.directory` 子目录（默认 `game-stats/`），绝不触碰该目录之外的任何文件：
+默认只推送聚合数据，写入仓库的 `sync.directory` 子目录（默认 `game-stats/`）：
 
 ```
 game-stats/
-├── README.md   # Markdown 报告：各游戏总时长/会话数、最近 7 天趋势、本月合计
+├── README.md   # Markdown 报告：各游戏总时长/会话数、最近 7 天趋势、本周/本月合计
 └── daily.csv   # date,game,minutes 按日×按游戏累计聚合
 ```
 
 - 报告与聚合 CSV 不含精确开始/结束时间戳，适合公开仓库。
-- `includeRawCsv: true` 可附带 `raw/playtime.csv`（完整会话明细，含精确时间），**仅建议私有仓库开启**。
+- 报告内容刻意不嵌"生成时刻"：这保证内容指纹稳定，数据没变时不会产生空提交；报告的更新时间看仓库提交历史即可。
+- GameHelper 只管理上述两个文件（开启 `includeRawCsv` 时还有 `raw/playtime.csv`）；你在该子目录里自放的文件不会被推送，也不会被删除。关闭 `includeRawCsv` 时，之前推送过的 `raw/playtime.csv` 会在下一次推送中自动从远端删除。
 - `daily.csv` 的 `game` 列使用稳定的 `dataKey`（不随显示名变化）。
 
 ## 配置
@@ -67,7 +68,7 @@ sync:
 
 3. 运行 `sync test` 校验凭据；如提示凭据未就绪，手动对任意该仓库的克隆执行一次 `git push` 让凭据管理器记住凭据，或改用 `api` 方式。
 
-工作机制：GameHelper 在数据目录维护专属克隆（`%AppData%\GameHelper\sync\<owner-repo>\`），每次上传先 `fetch` 并强制对齐远端，再整目录重写、按需提交、推送。该克隆仅供 GameHelper 使用，不要在其中手工编辑。
+工作机制：GameHelper 在数据目录维护专属浅克隆（`%AppData%\GameHelper\sync\<owner-repo>\`），每次上传先 `fetch` 并把本地分支强制对齐到远端，再重写受管文件、按需提交、推送。该克隆仅供 GameHelper 使用，不要在其中手工编辑。
 
 ## 方式二：GitHub REST API + token
 
@@ -89,8 +90,8 @@ token 只保存在本机配置/环境变量中，不会写入日志；推送错�
 - **会话结束路径零新增磁盘写入**：游戏退出时只写原有的一行 `playtime.csv`，推送功能不做任何额外写盘。
 - **轻量检查**：监控运行期间后台每 15 分钟检查一次（启动后延迟 3 分钟首查），检查内容仅为 config 读取 + 文件 mtime 对比。
 - **触发条件**：距上次成功推送 ≥ `intervalMinutes` **且** 本地数据比上次推送更新。
-- **写盘频率**：仅在推送成功/失败后更新一次 `sync-state.json`（正常 ≈ 每天 1 次）。
-- **内容去重**：内容与上次一致时跳过上传，不产生空提交。
+- **写盘频率**：仅在每次推送尝试后更新一次 `sync-state.json`（正常 ≈ 每天 1 次）。
+- **内容去重**：内容与上次一致时跳过上传，不产生空提交（报告不含生成时刻正是为了配合这一机制）。
 - **失败退避**：推送失败后 60 分钟内不自动重试（`sync now --force` 可穿透）。
 - WinUI 外壳当前只注册了推送服务，不启动后台循环；自动推送依赖 `monitor` 命令运行的 ConsoleHost 实例。
 

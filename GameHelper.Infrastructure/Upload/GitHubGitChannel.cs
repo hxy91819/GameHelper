@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,13 +15,22 @@ namespace GameHelper.Infrastructure.Upload;
 
 /// <summary>
 /// 基于 git.exe 的 GitHub 上传渠道：在数据目录维护一个专属克隆工作副本，
-/// 每次上传对齐远端后整目录重写、按需提交并推送。
+/// 每次上传对齐远端后重写受管文件、按需提交并推送。
 /// 凭据复用本机 git 凭据管理器，无需在配置中保存 token。
+/// 只管理 <see cref="ManagedFileNames"/> 列出的文件；sync.directory 内用户自放文件不会被推送或删除。
 /// </summary>
 public sealed class GitHubGitChannel : IStatsUploadChannel
 {
     private const string CommitterName = "GameHelper";
     private const string CommitterEmail = "gamehelper@users.noreply.github.com";
+
+    /// <summary>GameHelper 在远端目录内托管的文件（相对 sync.directory）；其余文件不受推送影响。</summary>
+    private static readonly string[] ManagedFileNames =
+    [
+        "README.md",
+        "daily.csv",
+        "raw/playtime.csv"
+    ];
 
     private readonly IGitRunner _git;
     private readonly string _cloneRoot;
@@ -61,15 +71,15 @@ public sealed class GitHubGitChannel : IStatsUploadChannel
         var repoDir = await EnsureCloneAsync(settings, cancellationToken).ConfigureAwait(false);
         var targetDir = ResolveSafeTargetDirectory(repoDir, settings.NormalizedDirectory);
 
-        WriteFiles(targetDir, files);
+        WriteManagedFiles(targetDir, files);
 
         var add = await _git
-            .RunAsync(repoDir, new[] { "add", "-A", "--", settings.NormalizedDirectory }, cancellationToken)
+            .RunAsync(repoDir, BuildPathspecArguments("add", "-A", settings.NormalizedDirectory), cancellationToken)
             .ConfigureAwait(false);
         EnsureSucceeded(add, "git add");
 
         var status = await _git
-            .RunAsync(repoDir, new[] { "status", "--porcelain", "--", settings.NormalizedDirectory }, cancellationToken)
+            .RunAsync(repoDir, BuildPathspecArguments("status", "--porcelain", settings.NormalizedDirectory), cancellationToken)
             .ConfigureAwait(false);
         EnsureSucceeded(status, "git status");
         if (string.IsNullOrWhiteSpace(status.StandardOutput))
@@ -101,7 +111,7 @@ public sealed class GitHubGitChannel : IStatsUploadChannel
         return new StatsUploadResult(commitId, NoChanges: false);
     }
 
-    /// <summary>确保工作副本存在且与远端对齐，返回仓库工作目录。</summary>
+    /// <summary>确保工作副本存在、与远端对齐，返回仓库工作目录。</summary>
     private async Task<string> EnsureCloneAsync(SyncSettings settings, CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(_cloneRoot);
@@ -124,7 +134,10 @@ public sealed class GitHubGitChannel : IStatsUploadChannel
             }
 
             var clone = await _git
-                .RunAsync(_cloneRoot, new[] { "clone", CloneUrl(settings.NormalizedRepo), dirName }, cancellationToken)
+                .RunAsync(
+                    _cloneRoot,
+                    new[] { "clone", "--depth", "1", CloneUrl(settings.NormalizedRepo), dirName },
+                    cancellationToken)
                 .ConfigureAwait(false);
             if (!clone.Succeeded)
             {
@@ -144,13 +157,29 @@ public sealed class GitHubGitChannel : IStatsUploadChannel
             }
         }
 
-        var branch = settings.NormalizedBranch;
+        // 显式指定分支或使用克隆当前分支，都强制对齐到对应远端分支，
+        // 避免远端被他人推进后本地提交因非快进被拒。
+        var branch = settings.NormalizedBranch ?? await ResolveCurrentBranchAsync(repoDir, cancellationToken).ConfigureAwait(false);
         if (branch is not null)
         {
             await CheckoutBranchAsync(repoDir, branch, cancellationToken).ConfigureAwait(false);
         }
 
         return repoDir;
+    }
+
+    private async Task<string?> ResolveCurrentBranchAsync(string repoDir, CancellationToken cancellationToken)
+    {
+        var current = await _git
+            .RunAsync(repoDir, new[] { "symbolic-ref", "--short", "HEAD" }, cancellationToken)
+            .ConfigureAwait(false);
+        if (!current.Succeeded)
+        {
+            return null;
+        }
+
+        var branch = current.StandardOutput.Trim();
+        return branch.Length == 0 ? null : branch;
     }
 
     private async Task CheckoutBranchAsync(string repoDir, string branch, CancellationToken cancellationToken)
@@ -171,11 +200,32 @@ public sealed class GitHubGitChannel : IStatsUploadChannel
         }
     }
 
-    private static void WriteFiles(string targetDirectory, IReadOnlyList<StatsUploadFile> files)
+    private static IReadOnlyList<string> BuildPathspecArguments(
+        string command,
+        string option,
+        string normalizedDirectory)
     {
-        if (Directory.Exists(targetDirectory))
+        var arguments = new List<string> { command, option };
+        arguments.AddRange(ManagedFileNames.Select(file => $"{normalizedDirectory}/{file}"));
+        return arguments;
+    }
+
+    /// <summary>重写受管文件：仅删除 GameHelper 托管且本次不再上传的文件，不动目录内用户自放文件。</summary>
+    private static void WriteManagedFiles(string targetDirectory, IReadOnlyList<StatsUploadFile> files)
+    {
+        var uploaded = new HashSet<string>(files.Select(file => file.RelativePath.Replace('\\', '/')), StringComparer.OrdinalIgnoreCase);
+        foreach (var managed in ManagedFileNames)
         {
-            Directory.Delete(targetDirectory, recursive: true);
+            if (uploaded.Contains(managed))
+            {
+                continue;
+            }
+
+            var stalePath = Path.Combine(targetDirectory, managed.Replace('/', Path.DirectorySeparatorChar));
+            if (File.Exists(stalePath))
+            {
+                File.Delete(stalePath);
+            }
         }
 
         Directory.CreateDirectory(targetDirectory);
@@ -183,6 +233,11 @@ public sealed class GitHubGitChannel : IStatsUploadChannel
         foreach (var file in files)
         {
             var relative = file.RelativePath.Replace('\\', '/');
+            if (!ManagedFileNames.Contains(relative, StringComparer.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"试图推送未托管文件：{relative}");
+            }
+
             var fullPath = Path.GetFullPath(
                 Path.Combine(targetDirectory, relative.Replace('/', Path.DirectorySeparatorChar)));
             if (!fullPath.StartsWith(targetDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
