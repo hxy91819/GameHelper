@@ -191,9 +191,35 @@ namespace GameHelper.Infrastructure.Providers
                 ProcessMonitorType = storedConfig.Monitor ?? ProcessMonitorType.ETW,
                 AutoStartInteractiveMonitor = storedConfig.Startup?.AutoStartMonitor ?? false,
                 LaunchOnSystemStartup = storedConfig.Startup?.LaunchOnStartup ?? false,
+                SyncSettings = ToSyncSettings(storedConfig.Sync),
                 Games = storedConfig.Games?
                     .Select(ToGameConfig)
                     .ToList() ?? new List<GameConfig>()
+            };
+        }
+
+        private static SyncSettings? ToSyncSettings(StoredSyncConfig? sync)
+        {
+            if (sync is null)
+            {
+                return null;
+            }
+
+            return new SyncSettings
+            {
+                Enabled = sync.Enabled ?? false,
+                Provider = sync.Provider ?? "github",
+                Method = sync.Method ?? "git",
+                Repo = sync.Repo ?? string.Empty,
+                Branch = sync.Branch,
+                Token = sync.Token,
+                Directory = string.IsNullOrWhiteSpace(sync.Directory)
+                    ? SyncSettings.DefaultDirectory
+                    : sync.Directory!,
+                IntervalMinutes = sync.IntervalMinutes is > 0
+                    ? sync.IntervalMinutes.Value
+                    : SyncSettings.DefaultIntervalMinutes,
+                IncludeRawCsv = sync.IncludeRawCsv ?? false
             };
         }
 
@@ -214,11 +240,33 @@ namespace GameHelper.Infrastructure.Providers
                 AutoStartMonitor = appConfig.AutoStartInteractiveMonitor,
                 LaunchOnStartup = appConfig.LaunchOnSystemStartup
             },
+            Sync = ToStoredSync(appConfig.SyncSettings),
             Games = appConfig.Games
                 .Select(ToStoredGameConfig)
                 .OrderBy(game => game.DataKey, StringComparer.OrdinalIgnoreCase)
                 .ToList()
         };
+
+        private static StoredSyncConfig? ToStoredSync(SyncSettings? sync)
+        {
+            if (sync is null)
+            {
+                return null;
+            }
+
+            return new StoredSyncConfig
+            {
+                Enabled = sync.Enabled,
+                Provider = sync.Provider,
+                Method = sync.NormalizedMethod,
+                Repo = sync.NormalizedRepo,
+                Branch = sync.NormalizedBranch,
+                Token = string.IsNullOrWhiteSpace(sync.Token) ? null : sync.Token,
+                Directory = sync.NormalizedDirectory,
+                IntervalMinutes = sync.IntervalMinutes,
+                IncludeRawCsv = sync.IncludeRawCsv
+            };
+        }
 
         private static StoredGameConfig ToStoredGameConfig(GameConfig gameConfig) => new()
         {
@@ -235,6 +283,8 @@ namespace GameHelper.Infrastructure.Providers
 
             public StoredStartupConfig? Startup { get; set; }
 
+            public StoredSyncConfig? Sync { get; set; }
+
             public List<StoredGameConfig>? Games { get; set; }
         }
 
@@ -243,6 +293,27 @@ namespace GameHelper.Infrastructure.Providers
             public bool AutoStartMonitor { get; set; }
 
             public bool LaunchOnStartup { get; set; }
+        }
+
+        private sealed class StoredSyncConfig
+        {
+            public bool? Enabled { get; set; }
+
+            public string? Provider { get; set; }
+
+            public string? Method { get; set; }
+
+            public string? Repo { get; set; }
+
+            public string? Branch { get; set; }
+
+            public string? Token { get; set; }
+
+            public string? Directory { get; set; }
+
+            public int? IntervalMinutes { get; set; }
+
+            public bool? IncludeRawCsv { get; set; }
         }
 
         private sealed class StoredGameConfig
