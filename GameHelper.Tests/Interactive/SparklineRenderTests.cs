@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Threading.Tasks;
 using GameHelper.Core.Models;
 using Spectre.Console;
@@ -78,6 +80,12 @@ namespace GameHelper.Tests.Interactive
             var out1 = RenderWithTimeout(chart, "chart markup alone");
             _output.WriteLine("[1 chart]\n" + out1);
 
+            // 内容断言：sparkline 图形、总时长标注、起止日期轴都要出现
+            Assert.Contains("█", out1);
+            Assert.Contains("每日游玩时长", out1);
+            Assert.Contains(preview.DailyTrend[0].Date.ToString("MM-dd", CultureInfo.InvariantCulture), out1);
+            Assert.Contains(preview.DailyTrend[^1].Date.ToString("MM-dd", CultureInfo.InvariantCulture), out1);
+
             // 2. 表格单独入 Panel
             var out2 = RenderWithTimeout(new Panel(table) { Header = new PanelHeader("历史记录预览"), Border = BoxBorder.Rounded }, "panel(table)");
             _output.WriteLine("[2 panel]\n" + out2);
@@ -96,6 +104,29 @@ namespace GameHelper.Tests.Interactive
                 throw new TimeoutException("Rendering hung at step: final composition");
             }
             _output.WriteLine("[3 final]\n" + console3.Output);
+            Assert.Contains("历史记录预览", console3.Output);
+            Assert.Contains("近 14 天", console3.Output);
+        }
+
+        [Fact]
+        public void Render_AllZeroTrend_NoDivideByZero()
+        {
+            // 全 0 天的窗口不能除零（maxMinutes=0），每天应渲染为最低块
+            var today = DateTime.Now.Date;
+            var trend = Enumerable.Range(0, 14)
+                .Select(i => new DailyPlaytimeSummary(today.AddDays(-(13 - i)), 0))
+                .ToList();
+            var preview = new SessionActivityPreview(
+                new List<SessionGameSummary>(), trend, 0, 14, "test.csv");
+
+            var uiType = typeof(GameHelper.ConsoleHost.Interactive.MonitorUI);
+            var chartMethod = uiType.GetMethod(
+                "BuildDailyTrendChart",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var chart = (IRenderable)chartMethod!.Invoke(null, new object[] { preview })!;
+
+            var output = RenderWithTimeout(chart, "all-zero trend");
+            Assert.Contains("0 min", output);
         }
     }
 }
