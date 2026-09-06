@@ -68,7 +68,7 @@
 - After development is complete, follow `docs/guides/verify-and-deploy-workflow.md` **in full**: build + test, publish, on-machine verification with an isolated test instance, then deploy to the local publish directory.
 - **Never stop, restart, or kill the user's running GameHelper instance.** The user may be monitoring at any time; verification must use a dedicated test instance that coexists with it.
 - Test instances must isolate data via `GAMEHELPER_DATA_DIR` (sandboxed data dir) and skip the single-instance mutex via `GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE=1` so the user's instance is never affected.
-- Deploy targets the shortcut path `GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish/` so the user's next launch picks up the new build. If files there are locked by a running instance, perform a partial deploy, keep the new build, and tell the user to re-run `scripts\verify-on-machine.ps1 -SkipVerify` after closing it.
+- Deploy targets the shortcut path `GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish/` so the user's next launch picks up the new build. If a running instance locks the publish directory, the script leaves the new build in a temp directory and prints the retry command; close the instance and re-run `scripts\verify-on-machine.ps1 -SkipVerify`. Deployment itself is an all-or-nothing directory swap with automatic rollback — never copy files individually into a publish directory (mixing framework-dependent and self-contained layouts breaks the next launch).
 - One-shot command: `powershell -File scripts\verify-on-machine.ps1` (append `-SkipVerify` to deploy only).
 
 ## Documentation Updates
