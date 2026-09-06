@@ -6,6 +6,7 @@ using GameHelper.Infrastructure.Processes;
 using GameHelper.Infrastructure.Providers;
 using GameHelper.Infrastructure.Resolvers;
 using GameHelper.Infrastructure.Startup;
+using GameHelper.Infrastructure.Upload;
 using GameHelper.WinUI.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -62,6 +63,13 @@ public static class ServiceLocator
                 services.AddSingleton<IGameCatalogService, GameCatalogService>();
                 services.AddSingleton<IPlaytimeSnapshotProvider, FilePlaytimeSnapshotProvider>();
                 services.AddSingleton<IStatisticsService, StatisticsService>();
+
+                // 统计推送：本轮仅注册服务（供后续 UI/手动触发使用），WinUI 不启动后台推送循环。
+                services.AddSingleton(TimeProvider.System);
+                services.AddSingleton<StatsReportBuilder>();
+                services.AddSingleton<GitHubUploadChannelProvider>();
+                services.AddSingleton<IStatsUploadChannelProvider>(sp => sp.GetRequiredService<GitHubUploadChannelProvider>());
+                services.AddSingleton<ISyncService, SyncService>();
 
                 services.AddSingleton<ShellViewModel>();
                 services.AddSingleton<SettingsViewModel>();

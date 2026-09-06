@@ -3,6 +3,14 @@ monitor: ETW
 startup:
   autoStartMonitor: false
   launchOnStartup: false
+# 统计推送示例（默认关闭；完整字段见 docs/guides/sync.md）
+sync:
+  enabled: false
+  provider: github
+  method: git
+  repo: yourname/game-stats
+  directory: game-stats
+  intervalMinutes: 1440
 games:
   - dataKey: notepad
     executable: notepad.exe
