@@ -12,6 +12,7 @@ GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、
 ## 快速开始
 
 ### 环境要求
+- 项目仅支持 Windows，开发、测试和 CI 均以 Windows 为准；不提供 Linux/macOS 兼容性支持。
 - Windows 10 (19041+) / Windows 11
 - .NET 8 SDK（当前仓库通过 `global.json` 锁定 `8.0.417`，允许 `latestPatch` 滚动）
 - （仅 WinUI 运行）Windows App SDK 1.6+（当前项目引用 `Microsoft.WindowsAppSDK` `1.6.250205002`）
