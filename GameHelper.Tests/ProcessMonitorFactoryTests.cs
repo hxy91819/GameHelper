@@ -68,15 +68,15 @@ namespace GameHelper.Tests
         }
 
         [WindowsOnlyFact]
-        public void Create_WithLogger_ShouldNotThrow()
+        public void Create_WithLoggerFactory_ShouldNotThrow()
         {
             // Arrange
-            var mockLogger = new Mock<ILogger>();
+            var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
 
             // Act & Assert
-            var wmiMonitor = ProcessMonitorFactory.Create(ProcessMonitorType.WMI, null, mockLogger.Object);
-            var etwMonitor = ProcessMonitorFactory.Create(ProcessMonitorType.ETW, null, mockLogger.Object);
-            
+            var wmiMonitor = ProcessMonitorFactory.Create(ProcessMonitorType.WMI, null, loggerFactory);
+            var etwMonitor = ProcessMonitorFactory.Create(ProcessMonitorType.ETW, null, loggerFactory);
+
             Assert.NotNull(wmiMonitor);
             Assert.NotNull(etwMonitor);
         }

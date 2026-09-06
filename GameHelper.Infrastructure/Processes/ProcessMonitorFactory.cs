@@ -17,18 +17,19 @@ namespace GameHelper.Infrastructure.Processes
         /// </summary>
         /// <param name="type">The type of process monitor to create.</param>
         /// <param name="allowedProcessNames">Optional whitelist of process names to monitor.</param>
-        /// <param name="logger">Optional logger for diagnostic information.</param>
+        /// <param name="loggerFactory">Optional logger factory; the monitor creates its own typed logger from it.</param>
         /// <returns>A configured process monitor instance.</returns>
         /// <exception cref="ArgumentException">Thrown when an unsupported monitor type is specified.</exception>
         /// <exception cref="InsufficientPrivilegesException">Thrown when ETW monitor requires administrator privileges.</exception>
         public static IProcessMonitor Create(
             ProcessMonitorType type,
             IEnumerable<string>? allowedProcessNames = null,
-            ILogger? logger = null)
+            ILoggerFactory? loggerFactory = null)
         {
             var monitor = type switch
             {
-                ProcessMonitorType.ETW => (IProcessMonitor)new EtwProcessMonitor(logger: logger as ILogger<EtwProcessMonitor>),
+                ProcessMonitorType.ETW => (IProcessMonitor)new EtwProcessMonitor(
+                    logger: loggerFactory?.CreateLogger<EtwProcessMonitor>()),
                 ProcessMonitorType.WMI => new WmiProcessMonitor(),
                 _ => throw new ArgumentException($"Unsupported monitor type: {type}", nameof(type))
             };
@@ -46,47 +47,49 @@ namespace GameHelper.Infrastructure.Processes
         /// </summary>
         /// <param name="preferredType">The preferred monitor type to try first.</param>
         /// <param name="allowedProcessNames">Optional whitelist of process names to monitor.</param>
-        /// <param name="logger">Optional logger for diagnostic information.</param>
+        /// <param name="loggerFactory">Optional logger factory for monitor diagnostics.</param>
         /// <returns>A configured process monitor instance, potentially with fallback applied.</returns>
         public static IProcessMonitor CreateWithFallback(
             ProcessMonitorType preferredType,
             IEnumerable<string>? allowedProcessNames = null,
-            ILogger? logger = null)
+            ILoggerFactory? loggerFactory = null)
         {
+            var logger = loggerFactory?.CreateLogger("GameHelper.Infrastructure.ProcessMonitorFactory");
+
             // If WMI is preferred, just create it directly
             if (preferredType == ProcessMonitorType.WMI)
             {
                 logger?.LogInformation("Creating WMI process monitor (preferred)");
-                return Create(ProcessMonitorType.WMI, allowedProcessNames, logger);
+                return Create(ProcessMonitorType.WMI, allowedProcessNames, loggerFactory);
             }
 
             // Try ETW first, fall back to WMI if it fails
             try
             {
                 logger?.LogInformation("Attempting to create ETW process monitor");
-                var etwMonitor = Create(ProcessMonitorType.ETW, allowedProcessNames, logger);
-                
+                var etwMonitor = Create(ProcessMonitorType.ETW, allowedProcessNames, loggerFactory);
+
                 // Test if we can actually start the ETW monitor
                 etwMonitor.Start();
                 etwMonitor.Stop();
-                
+
                 logger?.LogInformation("ETW process monitor created successfully");
                 return etwMonitor;
             }
             catch (InsufficientPrivilegesException ex)
             {
                 logger?.LogWarning(ex, "ETW monitor requires administrator privileges, falling back to WMI");
-                return Create(ProcessMonitorType.WMI, allowedProcessNames, logger);
+                return Create(ProcessMonitorType.WMI, allowedProcessNames, loggerFactory);
             }
             catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == unchecked((int)0x800705AA))
             {
                 logger?.LogInformation(ex, "ETW session limit reached (system resource exhaustion), using WMI fallback");
-                return Create(ProcessMonitorType.WMI, allowedProcessNames, logger);
+                return Create(ProcessMonitorType.WMI, allowedProcessNames, loggerFactory);
             }
             catch (Exception ex)
             {
                 logger?.LogWarning(ex, "Failed to create ETW monitor, falling back to WMI");
-                return Create(ProcessMonitorType.WMI, allowedProcessNames, logger);
+                return Create(ProcessMonitorType.WMI, allowedProcessNames, loggerFactory);
             }
         }
 

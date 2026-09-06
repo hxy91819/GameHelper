@@ -106,7 +106,7 @@ namespace GameHelper.Tests
             var safeCleanupMethod = typeof(EtwProcessMonitor).GetMethod("SafeCleanup", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             var cache = (ConcurrentDictionary<int, string>)cacheField!.GetValue(monitor)!;
             cache[123] = @"C:\Games\game.exe";
-            safeCleanupMethod!.Invoke(monitor, null);
+            safeCleanupMethod!.Invoke(monitor, new object[] { false });
             Assert.Empty(cache);
         }
 

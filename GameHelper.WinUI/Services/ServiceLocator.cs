@@ -40,7 +40,7 @@ public static class ServiceLocator
                 services.AddSingleton<IProcessMonitor>(sp =>
                 {
                     var appConfigProvider = sp.GetRequiredService<IGameConfiguration>();
-                    var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("WinUI.ProcessMonitor");
+                    var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
                     var appConfig = appConfigProvider.Read();
                     var preferredMonitor = appConfig.ProcessMonitorType;
                     var allowedProcesses = appConfig.Games
@@ -49,7 +49,7 @@ public static class ServiceLocator
                         .Select(name => name!)
                         .ToArray();
 
-                    return ProcessMonitorFactory.CreateWithFallback(preferredMonitor, allowedProcesses, logger);
+                    return ProcessMonitorFactory.CreateWithFallback(preferredMonitor, allowedProcesses, loggerFactory);
                 });
                 services.AddSingleton<IHdrController, WindowsHdrController>();
                 services.AddSingleton<IProcessPathResolver, WindowsProcessPathResolver>();
