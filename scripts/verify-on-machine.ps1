@@ -100,22 +100,18 @@ Write-Host "[3/3] Deploying to publish directory: $publishDir"
 $deployed = $false
 try {
     if (Test-Path $publishDir) {
-        # Directory-level swap: a running instance keeps its files open, so check lockability first.
-        $lockProbe = Join-Path $publishDir ("._lock_probe_" + [Guid]::NewGuid().ToString("N") + ".tmp")
-        try {
-            New-Item -ItemType File -Path $lockProbe | Out-Null
-            Remove-Item -Path $lockProbe -Force
-            $locked = $false
-        }
-        catch {
-            $locked = $true
-        }
+        # A running instance holds open handles on its exe/dll files; renaming the directory
+        # would fail or yank files from under it. Detect by process path, not by probing the
+        # directory (the directory itself stays writable while the exe is locked).
+        $runningInstances = @(Get-Process -Name GameHelper.ConsoleHost -ErrorAction SilentlyContinue | Where-Object {
+            $_.Path -eq (Join-Path $publishDir "GameHelper.ConsoleHost.exe")
+        })
 
-        if ($locked) {
+        if ($runningInstances.Count -gt 0) {
             Write-Host "Publish directory is in use by a running GameHelper (PID list below); keeping new build at:"
             Write-Host "  $tempPublish"
-            Get-Process -Name GameHelper.ConsoleHost -ErrorAction SilentlyContinue | ForEach-Object {
-                Write-Host ("  running instance: PID " + $_.Id)
+            foreach ($inst in $runningInstances) {
+                Write-Host ("  running instance: PID " + $inst.Id)
             }
             Write-Host 'Close it, then re-run: powershell -File scripts\verify-on-machine.ps1 -SkipVerify'
             $deployed = $false
