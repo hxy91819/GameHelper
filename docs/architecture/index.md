@@ -22,13 +22,15 @@ GameHelper.ConsoleHost    GameHelper.WinUI
 ## Primary Runtime Flows
 
 - **Configuration**: shells call core catalog/settings services; infrastructure persists the compact `config.yml` shape (`monitor`, `startup`, and `games`).
-- **Monitoring**: `MonitorControlService` starts the process monitor and `GameAutomationService` as a lifecycle pair. Runtime process filters are derived from enabled game candidates and refreshed on config reload. ETW and WMI both keep expensive event enrichment behind this candidate-name gate. The ETW monitor embeds its owner PID in the session name and self-recovers (with PID path-cache preserved) when its kernel session is stopped externally — without this, a dead session left the instance silently deaf and active playtime sessions were lost. Stale-session cleanup only removes sessions whose owner process is gone.
+- **Monitoring**: `MonitorControlService` starts the process monitor and `GameAutomationService` as a lifecycle pair. Runtime process filters are derived from enabled game candidates and refreshed on config reload. ETW and WMI both keep expensive event enrichment behind this candidate-name gate. ETW sessions embed their owner PID and recover after external loss. Recovery retains observed process identities, reconciles missed exits and PID reuse, and emits stop notifications to release playtime references. Cleanup preserves live, legacy, and unknown-owner sessions.
 - **Automation**: process events first pass a cheap executable-name candidate gate; full path resolution is lazy and only used for configured candidates that need path matching or disambiguation. WMI process detail lookup follows the same rule and is not performed for non-candidate start events. Metadata/fuzzy matching is limited to that candidate set. Active game sessions drive playtime tracking and HDR scheduling. HDR scheduling only rolls back HDR changes made by GameHelper itself.
 - **Statistics**: playtime records are read from local files and joined to current config by stable `DataKey`.
 - **Stats sync**: `SyncService` aggregates playtime into a report + daily CSV and pushes it through an upload channel (GitHub via local git.exe or REST API). A console background loop checks interval/mtime gates every 15 minutes; session-end paths perform no extra disk writes.
 - **File drop**: duplicate app launches forward dropped files to the running console process, which updates config and reloads automation.
 
 ## Key Modules And Seams
+
+ETW recovery owns a serialized lifecycle and process identity reconciliation, with an internal OS session/query boundary for deterministic testing. See [ETW recovery behaviour](../guides/etw-recovery.md) for timing, cancellation, isolation, and known observation gaps.
 
 - **Process Observation seam**: `IProcessMonitor` lets ETW, WMI, and no-op adapters satisfy one interface. `ProcessObservationPolicy` atomically configures candidate names and stop-event observation, so core automation never probes optional adapter capabilities. `IProcessPathResolver` keeps expensive live path lookup out of monitor callbacks.
 - **Game Configuration seam**: `IGameConfiguration` owns the complete `AppConfig` document through `Read` and atomic `Change`. YAML is the runtime adapter; JSON is a legacy conversion adapter. Catalog and settings changes cannot overwrite unrelated document fields.
