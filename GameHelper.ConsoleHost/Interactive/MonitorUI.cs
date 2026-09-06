@@ -270,7 +270,7 @@ namespace GameHelper.ConsoleHost.Interactive
             if (preview.Games.Count == 0)
             {
                 _console.Write(new Panel(
-                    new Markup("[italic grey]近 14 天暂无游玩记录。更早的会话不参与预览统计。[/]"))
+                    new Markup($"[italic grey]近 {preview.WindowDays} 天暂无游玩记录。更早的会话不参与预览统计。[/]"))
                 {
                     Header = new PanelHeader("历史记录预览"),
                     Border = BoxBorder.Rounded
