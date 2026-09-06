@@ -6,7 +6,7 @@ namespace GameHelper.Core.Services;
 public sealed class StatisticsService : IStatisticsService
 {
     /// <summary>历史记录预览覆盖的最近自然日数量（含今天）。</summary>
-    public const int PreviewWindowDays = 7;
+    public const int PreviewWindowDays = 14;
 
     private readonly IPlaytimeSnapshotProvider _playtimeSnapshotProvider;
     private readonly IGameConfiguration _gameConfiguration;

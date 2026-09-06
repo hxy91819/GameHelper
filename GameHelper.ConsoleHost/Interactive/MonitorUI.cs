@@ -267,20 +267,27 @@ namespace GameHelper.ConsoleHost.Interactive
 
             var preview = _statisticsService.GetSessionActivityPreview();
 
-            var content = preview.Games.Count == 0
-                ? new Markup("[italic grey]近 7 天暂无游玩记录。更早的会话不参与预览统计。[/]")
-                : BuildPreviewContent(preview);
+            if (preview.Games.Count == 0)
+            {
+                _console.Write(new Panel(
+                    new Markup($"[italic grey]近 {preview.WindowDays} 天暂无游玩记录。更早的会话不参与预览统计。[/]"))
+                {
+                    Header = new PanelHeader("历史记录预览"),
+                    Border = BoxBorder.Rounded
+                });
+                return;
+            }
 
-            _console.Write(new Panel(content)
+            // 注意：表格必须单独放进 Panel。Spectre 0.47 的 Rows 在 Panel 内测量
+            // 会把表格塌缩成省略号（Rows 里是 Markup/空 Text 时甚至测量死循环），
+            // 因此趋势迷你图在 Panel 外逐行输出。
+            _console.Write(new Panel(BuildGameSummaryTable(preview))
             {
                 Header = new PanelHeader("历史记录预览"),
                 Border = BoxBorder.Rounded
             });
-        }
 
-        private static IRenderable BuildPreviewContent(SessionActivityPreview preview)
-        {
-            return new Rows(BuildGameSummaryTable(preview), BuildDailyTrendChart(preview));
+            _console.Write(BuildDailyTrendChart(preview));
         }
 
         private static Table BuildGameSummaryTable(SessionActivityPreview preview)
@@ -304,23 +311,42 @@ namespace GameHelper.ConsoleHost.Interactive
             return table;
         }
 
-        private static BarChart BuildDailyTrendChart(SessionActivityPreview preview)
+        private static IRenderable BuildDailyTrendChart(SessionActivityPreview preview)
         {
-            var chart = new BarChart
+            // 14 天的趋势一行放不下 14 条横向条形；改用单行块字符迷你图：日期横向排列，
+            // 每天一格，高度正比于当日分钟数，下方标注起止日期。
+            var trend = preview.DailyTrend;
+            if (trend.Count == 0)
             {
-                Width = 60,
-                Label = $"近 {preview.WindowDays} 天每日游玩时长（分钟）"
-            };
-
-            foreach (var day in preview.DailyTrend)
-            {
-                chart.AddItem(
-                    day.Date.ToString("MM-dd", CultureInfo.InvariantCulture),
-                    day.Minutes,
-                    Color.Green);
+                return new Markup(string.Empty);
             }
 
-            return chart;
+            var maxMinutes = trend.Max(day => day.Minutes);
+            const string blocks = "▁▂▃▄▅▆▇█";
+
+            var sparkline = string.Concat(trend.Select(day =>
+            {
+                if (day.Minutes <= 0)
+                {
+                    return "▁";
+                }
+
+                var level = (int)Math.Ceiling(day.Minutes * (double)(blocks.Length - 1) / maxMinutes);
+                return blocks[level].ToString(CultureInfo.InvariantCulture);
+            }));
+
+            var firstDay = trend[0].Date.ToString("MM-dd", CultureInfo.InvariantCulture);
+            var lastDay = trend[^1].Date.ToString("MM-dd", CultureInfo.InvariantCulture);
+            var padding = Math.Max(1, sparkline.Length - firstDay.Length - lastDay.Length);
+            var totalMinutes = trend.Sum(day => day.Minutes);
+
+            // 多行 Markup 直接写控制台是安全的；此前挂死只发生在它被 Rows/Panel 嵌套时。
+            var headerLine = $"[grey]近 {preview.WindowDays} 天每日游玩时长（{DurationFormatter.Format(totalMinutes)}）[/]";
+            var axisLine = $"[grey]{firstDay}{new string(' ', padding)}{lastDay}[/]";
+            return new Markup(
+                headerLine + Environment.NewLine +
+                $"[green]{Markup.Escape(sparkline)}[/]" + Environment.NewLine +
+                axisLine + Environment.NewLine);
         }
 
         private void RenderSessionSummary(SessionActivitySnapshot before, SessionActivitySnapshot after)
