@@ -92,8 +92,10 @@ namespace GameHelper.Tests.EndToEnd
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                StandardOutputEncoding = System.Text.Encoding.UTF8,
-                StandardErrorEncoding = System.Text.Encoding.UTF8
+                // 子进程经 ConsoleEncoding.EnsureUtf8 以 UTF-8 输出；父端不显式声明时
+                // zh-CN 控制台会按 GBK 解码，中文断言就会出现乱码。
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
             };
             startInfo.EnvironmentVariables["GAMEHELPER_DATA_DIR"] = sandbox.RootDir;
             startInfo.EnvironmentVariables["GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE"] = "1";

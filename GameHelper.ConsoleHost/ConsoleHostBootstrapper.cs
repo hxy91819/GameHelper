@@ -9,6 +9,7 @@ using GameHelper.Infrastructure.Processes;
 using GameHelper.Infrastructure.Providers;
 using GameHelper.Infrastructure.Resolvers;
 using GameHelper.Infrastructure.Startup;
+using GameHelper.Infrastructure.Upload;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -115,6 +116,13 @@ public static class ConsoleHostBootstrapper
         services.AddSingleton<IPlaytimeSnapshotProvider, FilePlaytimeSnapshotProvider>();
         services.AddSingleton<IStatisticsService, StatisticsService>();
         services.AddSingleton<ISteamGameResolver, SteamGameResolver>();
+
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddSingleton<StatsReportBuilder>();
+        services.AddSingleton<GitHubUploadChannelProvider>();
+        services.AddSingleton<IStatsUploadChannelProvider>(sp => sp.GetRequiredService<GitHubUploadChannelProvider>());
+        services.AddSingleton<ISyncService, SyncService>();
+        services.AddSingleton<IHostedService, SyncBackgroundService>();
 
         services.AddSingleton<IConfigPathProvider>(sp => (IConfigPathProvider)sp.GetRequiredService<IGameConfiguration>());
         services.AddSingleton<FileDropIntake>();
