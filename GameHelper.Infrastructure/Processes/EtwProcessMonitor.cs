@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -25,13 +26,24 @@ namespace GameHelper.Infrastructure.Processes
     /// </summary>
     public sealed class EtwProcessMonitor : IProcessMonitor
     {
+        private const string SessionNamePrefix = "GameHelper-ETW-";
+
+        /// <summary>会话丢失后的自动恢复尝试次数。</summary>
+        public const int SessionRecoveryAttempts = 3;
+
         private TraceEventSession? _session;
         private Thread? _processingThread;
         private volatile bool _isRunning;
         private volatile bool _disposed;
+        private volatile bool _stopRequested;
         private ProcessObservationPolicy _policy = ProcessObservationPolicy.ObserveAll();
         private readonly ILogger<EtwProcessMonitor>? _logger;
-        private readonly string _sessionName;
+        private string _sessionName;
+
+        /// <summary>0 = 空闲；1 = 恢复流程进行中（Interlocked）。</summary>
+        private int _recovering;
+        private Timer? _healthCheckTimer;
+        private readonly object _lifecycleLock = new();
 
         private readonly ConcurrentDictionary<int, string> _startPathCache = new();
 
@@ -48,7 +60,7 @@ namespace GameHelper.Infrastructure.Processes
         public EtwProcessMonitor(IEnumerable<string>? allowedProcessNames = null, ILogger<EtwProcessMonitor>? logger = null)
         {
             _logger = logger;
-            _sessionName = $"GameHelper-ETW-{Guid.NewGuid():N}";
+            _sessionName = NewSessionName();
             
             if (allowedProcessNames != null)
             {
@@ -66,48 +78,57 @@ namespace GameHelper.Infrastructure.Processes
             if (_disposed)
                 throw new ObjectDisposedException(nameof(EtwProcessMonitor));
 
-            if (_isRunning)
+            lock (_lifecycleLock)
             {
-                _logger?.LogDebug("ETW monitor already running");
-                return;
-            }
+                if (_disposed)
+                    throw new ObjectDisposedException(nameof(EtwProcessMonitor));
 
-            if (!IsRunningAsAdministrator())
-            {
-                throw new InsufficientPrivilegesException();
-            }
+                if (_isRunning)
+                {
+                    _logger?.LogDebug("ETW monitor already running");
+                    return;
+                }
 
-            try
-            {
-                InitializeEtwSession();
-                PrefillRunningProcesses();
-                _isRunning = true;
-                _logger?.LogInformation("ETW process monitor started successfully");
-            }
-            catch (Exception ex) when (IsResourceExhausted(ex))
-            {
-                _logger?.LogWarning(ex, "ETW session resource exhausted. Cleaning up stale sessions and retrying.");
-                SafeCleanup();
-                CleanupStaleSessions();
+                if (!IsRunningAsAdministrator())
+                {
+                    throw new InsufficientPrivilegesException();
+                }
+
+                _stopRequested = false;
                 try
                 {
                     InitializeEtwSession();
                     PrefillRunningProcesses();
                     _isRunning = true;
-                    _logger?.LogInformation("ETW process monitor started successfully after cleanup");
+                    StartHealthCheckTimer();
+                    _logger?.LogInformation("ETW process monitor started successfully");
                 }
-                catch (Exception retryEx)
+                catch (Exception ex) when (IsResourceExhausted(ex))
                 {
-                    _logger?.LogError(retryEx, "Failed to start ETW monitor even after cleanup");
+                    _logger?.LogWarning(ex, "ETW session resource exhausted. Cleaning up stale sessions and retrying.");
                     SafeCleanup();
-                    throw new EtwMonitorException("Failed to initialize ETW session after cleanup", retryEx);
+                    CleanupStaleSessions();
+                    try
+                    {
+                        InitializeEtwSession();
+                        PrefillRunningProcesses();
+                        _isRunning = true;
+                        StartHealthCheckTimer();
+                        _logger?.LogInformation("ETW process monitor started successfully after cleanup");
+                    }
+                    catch (Exception retryEx)
+                    {
+                        _logger?.LogError(retryEx, "Failed to start ETW monitor even after cleanup");
+                        SafeCleanup();
+                        throw new EtwMonitorException("Failed to initialize ETW session after cleanup", retryEx);
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Failed to start ETW process monitor");
-                SafeCleanup();
-                throw new EtwMonitorException("Failed to initialize ETW session", ex);
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Failed to start ETW process monitor");
+                    SafeCleanup();
+                    throw new EtwMonitorException("Failed to initialize ETW session", ex);
+                }
             }
         }
 
@@ -118,7 +139,13 @@ namespace GameHelper.Infrastructure.Processes
                 return;
 
             _logger?.LogDebug("Stopping ETW process monitor");
-            SafeCleanup();
+            lock (_lifecycleLock)
+            {
+                // 正常停止：处理线程退出后不得触发恢复。
+                _stopRequested = true;
+                StopHealthCheckTimer();
+                SafeCleanup();
+            }
             _logger?.LogInformation("ETW process monitor stopped");
         }
 
@@ -142,14 +169,24 @@ namespace GameHelper.Infrastructure.Processes
                 return;
 
             _disposed = true;
-            SafeCleanup();
+            lock (_lifecycleLock)
+            {
+                StopHealthCheckTimer();
+                SafeCleanup();
+            }
             _logger?.LogDebug("EtwProcessMonitor disposed");
         }
 
+        /// <summary>会话名带进程 PID，供陈旧会话清理时区分"死者残留"与"活跃实例"。</summary>
+        private static string NewSessionName() =>
+            $"{SessionNamePrefix}{Environment.ProcessId}-{Guid.NewGuid():N}";
+
         private void InitializeEtwSession()
         {
+            // 每次初始化都生成新名字：恢复场景下旧名字可能已被外部停止但尚未完全释放。
+            _sessionName = NewSessionName();
             _session = new TraceEventSession(_sessionName);
-            
+
             // Enable kernel process events
             _session.EnableKernelProvider(KernelTraceEventParser.Keywords.Process);
 
@@ -183,6 +220,129 @@ namespace GameHelper.Infrastructure.Processes
             finally
             {
                 _logger?.LogDebug("ETW event processing thread ended");
+                // 非 Stop/Dispose 主动退出（_isRunning 仍为 true）意味着事件流意外中断：
+                // 若不恢复，实例会变成"僵尸监控"——进程照常运行但 start/stop 全部失聪，
+                // 活跃会话的 stop 事件永远收不到，游玩时长静默丢失。
+                if (Volatile.Read(ref _isRunning) && !_disposed && !_stopRequested
+                    && Interlocked.CompareExchange(ref _recovering, 0, 0) == 0)
+                {
+                    _logger?.LogError("ETW event stream ended unexpectedly; scheduling session recovery");
+                    ScheduleRecovery();
+                }
+            }
+        }
+
+        /// <summary>周期性自检：活跃会话列表里找不到自己的会话即触发恢复。</summary>
+        private void StartHealthCheckTimer()
+        {
+            StopHealthCheckTimer();
+            // 检查间隔远小于一次游玩会话的量级，且单次检查只是读取会话名列表，开销可忽略。
+            _healthCheckTimer = new Timer(
+                _ => CheckSessionHealth(),
+                null,
+                TimeSpan.FromSeconds(30),
+                TimeSpan.FromSeconds(30));
+        }
+
+        private void StopHealthCheckTimer()
+        {
+            _healthCheckTimer?.Dispose();
+            _healthCheckTimer = null;
+        }
+
+        private void CheckSessionHealth()
+        {
+            if (!_isRunning || _disposed || _stopRequested)
+            {
+                return;
+            }
+
+            try
+            {
+                var sessionName = _sessionName;
+                var active = TraceEventSession.GetActiveSessionNames();
+                if (!active.Contains(sessionName, StringComparer.OrdinalIgnoreCase))
+                {
+                    _logger?.LogError(
+                        "ETW session {SessionName} disappeared from active sessions; scheduling session recovery",
+                        sessionName);
+                    ScheduleRecovery();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "ETW session health check failed");
+            }
+        }
+
+        /// <summary>调度一次恢复（幂等：恢复进行中时忽略后续触发）。</summary>
+        private void ScheduleRecovery()
+        {
+            if (Interlocked.CompareExchange(ref _recovering, 1, 0) != 0)
+            {
+                return;
+            }
+
+            _ = Task.Run(RunSessionRecovery);
+        }
+
+        private void RunSessionRecovery()
+        {
+            try
+            {
+                for (var attempt = 1; attempt <= SessionRecoveryAttempts; attempt++)
+                {
+                    lock (_lifecycleLock)
+                    {
+                        if (_disposed || _stopRequested)
+                        {
+                            return;
+                        }
+
+                        // 保留 PID→路径缓存：活跃游戏进程并未退出，恢复后它的 stop 事件
+                        // 需要缓存命中来通过名字门控，会话时长才能追回。
+                        SafeCleanup(preservePathCache: true);
+                    }
+
+                    // 退避放在锁外，避免阻塞并发的 Stop/Dispose。
+                    Thread.Sleep(TimeSpan.FromSeconds(attempt));
+
+                    lock (_lifecycleLock)
+                    {
+                        if (_disposed || _stopRequested)
+                        {
+                            return;
+                        }
+
+                        try
+                        {
+                            InitializeEtwSession();
+                            PrefillRunningProcesses();
+                            _isRunning = true;
+                            _logger?.LogInformation(
+                                "ETW session recovered on attempt {Attempt}; process monitoring resumed",
+                                attempt);
+                            return;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.LogWarning(
+                                ex,
+                                "ETW session recovery attempt {Attempt}/{Attempts} failed",
+                                attempt,
+                                SessionRecoveryAttempts);
+                        }
+                    }
+                }
+
+                _logger?.LogError(
+                    "ETW session recovery failed after {Attempts} attempts; process monitoring is DOWN. "
+                    + "Game sessions will not be tracked until GameHelper is restarted.",
+                    SessionRecoveryAttempts);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _recovering, 0);
             }
         }
 
@@ -333,15 +493,17 @@ namespace GameHelper.Infrastructure.Processes
         }
 
         /// <summary>
-        /// Finds and stops any stale GameHelper ETW sessions left behind by previous
-        /// process crashes or test interruptions.
+        /// Finds and stops stale GameHelper ETW sessions left behind by crashed or
+        /// killed processes. Sessions owned by a live process are left alone — the
+        /// session name embeds the owning PID, so another instance starting up can
+        /// no longer accidentally kill a running instance's active session.
         /// </summary>
         private void CleanupStaleSessions()
         {
             try
             {
                 var staleSessions = TraceEventSession.GetActiveSessionNames()
-                    .Where(name => name.StartsWith("GameHelper-ETW-", StringComparison.OrdinalIgnoreCase))
+                    .Where(name => ShouldCleanupSession(name, IsProcessAlive))
                     .ToList();
 
                 if (staleSessions.Count == 0)
@@ -369,6 +531,44 @@ namespace GameHelper.Infrastructure.Processes
             catch (Exception cleanupEx)
             {
                 _logger?.LogDebug(cleanupEx, "Error during stale ETW session cleanup");
+            }
+        }
+
+        /// <summary>
+        /// 决定一个 GameHelper ETW 会话是否可以清理。纯函数便于单元测试。
+        /// 新格式（含 PID）且属主进程仍存活 → 保留；属主已死或旧格式（无法判定）→ 清理。
+        /// </summary>
+        internal static bool ShouldCleanupSession(string sessionName, Func<int, bool> isProcessAlive)
+        {
+            ArgumentNullException.ThrowIfNull(isProcessAlive);
+            if (!sessionName.StartsWith(SessionNamePrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var remainder = sessionName[SessionNamePrefix.Length..];
+            var separator = remainder.IndexOf('-');
+            if (separator <= 0
+                || !int.TryParse(remainder[..separator], NumberStyles.Integer, CultureInfo.InvariantCulture, out var ownerPid))
+            {
+                // 旧格式（GameHelper-ETW-{guid}）：无法判定属主，保持既有清理行为。
+                return true;
+            }
+
+            return !isProcessAlive(ownerPid);
+        }
+
+        private static bool IsProcessAlive(int pid)
+        {
+            try
+            {
+                using var process = Process.GetProcessById(pid);
+                return !process.HasExited;
+            }
+            catch
+            {
+                // 进程已退出时 GetProcessById 抛异常。
+                return false;
             }
         }
 
@@ -517,10 +717,13 @@ namespace GameHelper.Infrastructure.Processes
 
         private readonly record struct RunningProcessInfo(int Id, string ProcessName, string? Path);
 
-        private void SafeCleanup()
+        private void SafeCleanup(bool preservePathCache = false)
         {
             _isRunning = false;
-            _startPathCache.Clear();
+            if (!preservePathCache)
+            {
+                _startPathCache.Clear();
+            }
 
             // 1) Break the processing loop so the thread exits Process() first
             if (_session != null)

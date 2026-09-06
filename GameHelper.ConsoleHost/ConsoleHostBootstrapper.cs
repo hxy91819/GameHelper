@@ -48,7 +48,8 @@ public static class ConsoleHostBootstrapper
         });
         services.AddSingleton<IProcessMonitor>(sp =>
         {
-            var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("GameHelper.ConsoleHost.ProcessMonitor");
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var logger = loggerFactory.CreateLogger("GameHelper.ConsoleHost.ProcessMonitor");
             var monitorMode = parsedArgs.MonitorDryRun
                 ? MonitorModeSelection.Resolve(parsedArgs, null)
                 : MonitorModeSelection.Resolve(
@@ -79,7 +80,7 @@ public static class ConsoleHostBootstrapper
 
             try
             {
-                return ProcessMonitorFactory.CreateWithFallback(monitorMode.MonitorType, null, logger);
+                return ProcessMonitorFactory.CreateWithFallback(monitorMode.MonitorType, null, loggerFactory);
             }
             catch (Exception ex)
             {
