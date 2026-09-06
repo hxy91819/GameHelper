@@ -313,40 +313,60 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private static IRenderable BuildDailyTrendChart(SessionActivityPreview preview)
         {
-            // 14 天的趋势一行放不下 14 条横向条形；改用单行块字符迷你图：日期横向排列，
-            // 每天一格，高度正比于当日分钟数，下方标注起止日期。
+            // 14 天的趋势一行放不下 14 条横向条形；改用 4 行纵向块字符柱状迷你图：
+            // 每天一列自底向上填充，高度正比当日分钟数，底行零值天标灰点，下方标注起止日期。
+            // 整体缩进 2 空格与上方 Panel 内容左对齐（边框 1 列 + 内边距 1 列）。
             var trend = preview.DailyTrend;
             if (trend.Count == 0)
             {
                 return new Markup(string.Empty);
             }
 
-            var maxMinutes = trend.Max(day => day.Minutes);
-            const string blocks = "▁▂▃▄▅▆▇█";
-
-            var sparkline = string.Concat(trend.Select(day =>
-            {
-                if (day.Minutes <= 0)
-                {
-                    return "▁";
-                }
-
-                var level = (int)Math.Ceiling(day.Minutes * (double)(blocks.Length - 1) / maxMinutes);
-                return blocks[level].ToString(CultureInfo.InvariantCulture);
-            }));
-
+            var rows = DailyTrendChartRenderer.BuildBarRows(trend.Select(day => day.Minutes).ToArray());
             var firstDay = trend[0].Date.ToString("MM-dd", CultureInfo.InvariantCulture);
             var lastDay = trend[^1].Date.ToString("MM-dd", CultureInfo.InvariantCulture);
-            var padding = Math.Max(1, sparkline.Length - firstDay.Length - lastDay.Length);
+            var padding = Math.Max(1, trend.Count - firstDay.Length - lastDay.Length);
             var totalMinutes = trend.Sum(day => day.Minutes);
 
             // 多行 Markup 直接写控制台是安全的；此前挂死只发生在它被 Rows/Panel 嵌套时。
-            var headerLine = $"[grey]近 {preview.WindowDays} 天每日游玩时长（{DurationFormatter.Format(totalMinutes)}）[/]";
-            var axisLine = $"[grey]{firstDay}{new string(' ', padding)}{lastDay}[/]";
-            return new Markup(
-                headerLine + Environment.NewLine +
-                $"[green]{Markup.Escape(sparkline)}[/]" + Environment.NewLine +
-                axisLine + Environment.NewLine);
+            var lines = new List<string>
+            {
+                ChartIndent + $"[grey]近 {preview.WindowDays} 天每日游玩时长（{DurationFormatter.Format(totalMinutes)}）[/]",
+            };
+            for (var i = 0; i < rows.Count; i++)
+            {
+                var row = i == rows.Count - 1
+                    ? ColorizeBaselineRow(rows[i])
+                    : $"[green]{Markup.Escape(rows[i])}[/]";
+                lines.Add(ChartIndent + row);
+            }
+
+            lines.Add(ChartIndent + $"[grey]{firstDay}{new string(' ', padding)}{lastDay}[/]");
+            return new Markup(string.Join(Environment.NewLine, lines) + Environment.NewLine);
+        }
+
+        private const string ChartIndent = "  ";
+
+        private static string ColorizeBaselineRow(string row)
+        {
+            // 底行混合绿色柱体与灰色零值占位点，按连续同色段分色输出。
+            var segments = new List<string>();
+            var i = 0;
+            while (i < row.Length)
+            {
+                var isZero = row[i] == DailyTrendChartRenderer.ZeroMark;
+                var j = i + 1;
+                while (j < row.Length && (row[j] == DailyTrendChartRenderer.ZeroMark) == isZero)
+                {
+                    j++;
+                }
+
+                var text = Markup.Escape(row[i..j]);
+                segments.Add(isZero ? $"[grey]{text}[/]" : $"[green]{text}[/]");
+                i = j;
+            }
+
+            return string.Concat(segments);
         }
 
         private void RenderSessionSummary(SessionActivitySnapshot before, SessionActivitySnapshot after)
