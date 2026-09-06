@@ -161,6 +161,7 @@ public class GitHubApiChannelTests
     {
         // 基础树里包含上一轮推送过的 raw/playtime.csv；本次 payload 未包含它，
         // 必须生成 sha=null 的删除条目，否则含精确时间戳的文件残留在远端。
+        // 用户自放文件（game-stats/user-notes.md）即使位于推送目录内也必须保留。
         var handler = new FakeGitHubHandler((request, body) =>
         {
             if (request.Method == HttpMethod.Get
@@ -170,6 +171,7 @@ public class GitHubApiChannelTests
                     {"tree":[
                         {"path":"game-stats/README.md","type":"blob"},
                         {"path":"game-stats/raw/playtime.csv","type":"blob"},
+                        {"path":"game-stats/user-notes.md","type":"blob"},
                         {"path":"outside/keep.txt","type":"blob"}
                     ]}
                     """);
@@ -184,7 +186,8 @@ public class GitHubApiChannelTests
         var treeBody = handler.Bodies.First(body => body.Contains("base_tree"));
         Assert.Contains("game-stats/raw/playtime.csv", treeBody);
         Assert.Contains("\"sha\":null", treeBody);
-        // 目录外的文件不受影响。
+        // 目录内的用户自放文件与目录外的文件都不受影响。
+        Assert.DoesNotContain("user-notes.md", treeBody);
         Assert.DoesNotContain("outside/keep.txt", treeBody);
     }
 
