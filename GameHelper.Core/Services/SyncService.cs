@@ -55,7 +55,9 @@ public sealed class SyncService : ISyncService
         _reportBuilder = reportBuilder ?? throw new ArgumentNullException(nameof(reportBuilder));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _playtimeCsvPath = playtimeCsvPath;
+        // 生产 DI 注册不传可选参数：两个路径都必须回退到默认数据目录，
+        // 否则 mtime 脏检查对 playtime.csv 恒为 false，自动推送永远不会触发。
+        _playtimeCsvPath = playtimeCsvPath ?? AppDataPath.GetPlaytimeCsvPath();
         _configPath = configuration is IConfigPathProvider pathProvider ? pathProvider.ConfigPath : null;
         _statePath = statePath ?? AppDataPath.GetSyncStatePath();
     }
