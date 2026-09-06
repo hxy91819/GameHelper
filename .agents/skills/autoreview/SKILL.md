@@ -41,6 +41,14 @@ Use when:
 - If Gitcrawl reports a portable manifest mismatch, source/runtime DB health error, or stale portable-store checkout, run `gitcrawl doctor --json` and inspect `source_db_health`, `runtime_db_health`, and `portable_store_status` before falling back to live GitHub.
 - Do not push just to review. Push only when the user requested push/ship/PR update.
 
+## Subagent Mode (`AUTOREVIEW_ENGINE=subagent`)
+
+This machine sets `AUTOREVIEW_ENGINE=subagent` because no review-engine CLI is installed. `subagent` is not a built-in helper engine — do not invoke the helper's engine path; check this env var before reaching for the helper and take the subagent path directly:
+
+- Run one read-only general-purpose subagent with the full Contract section above as its review basis: structured findings with `file:line` evidence, verified against real code paths and dependency sources (package XML docs, upstream issue trackers) before reporting, speculative risks rejected, no nested reviewers, no test runs — the main agent owns tests.
+- Fix every accepted finding, rerun focused tests, then send the fix diff back to the same subagent for re-review. Iterate until the subagent reports no accepted/actionable findings; that report is the clean closeout result.
+- The main agent still verifies every finding before fixing and owns the final report: review mode used, findings accepted/rejected with one-line why, test evidence, and the exact clean run.
+
 ## Pick Target
 
 Dirty local work:
