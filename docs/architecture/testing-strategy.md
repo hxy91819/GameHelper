@@ -2,6 +2,8 @@
 
 The test suite should protect observable behaviour before large refactors. Tests should target stable interfaces and seams rather than private implementation details.
 
+Windows is the sole supported platform. Local build/test gates and CI run on Windows; Linux/macOS compatibility and runners are outside scope. Permission-free unit tests isolate OS dependencies without implying support for other operating systems.
+
 ## Required Gates
 
 Run these before committing code changes:
