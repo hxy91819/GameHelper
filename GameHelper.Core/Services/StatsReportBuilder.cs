@@ -18,6 +18,13 @@ public sealed class StatsReportBuilder
     private const string RawCsvFileName = "raw/playtime.csv";
 
     /// <summary>
+    /// GameHelper 在远端推送目录内托管的文件（相对 sync.directory）。
+    /// 上传渠道只允许写入/删除这份清单内的文件；目录内用户自放的文件不受推送影响。
+    /// </summary>
+    public static readonly IReadOnlyList<string> ManagedFileNames =
+        [ReportFileName, DailyCsvFileName, RawCsvFileName];
+
+    /// <summary>
     /// 构建推送内容。
     /// </summary>
     /// <param name="records">全部游玩记录。</param>

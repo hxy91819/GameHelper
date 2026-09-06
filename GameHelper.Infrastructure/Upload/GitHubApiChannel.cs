@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -124,9 +125,9 @@ public sealed class GitHubApiChannel : IStatsUploadChannel
             });
         }
 
-        // base_tree 只增不删：目标目录下先前推送过、本次不再上传的文件（例如关闭
+        // base_tree 只增不删：目标目录内先前推送过、本次不再上传的托管文件（例如关闭
         // includeRawCsv 后的 raw/playtime.csv）必须显式生成删除条目，否则含精确时间戳的
-        // 隐私文件会永远残留在远端。
+        // 隐私文件会永远残留在远端。只清理托管清单内的文件，用户自放文件不动。
         foreach (var stalePath in await ListStaleManagedPathsAsync(
                 owner,
                 name,
@@ -166,7 +167,9 @@ public sealed class GitHubApiChannel : IStatsUploadChannel
         return commitSha.Length > 10 ? commitSha[..10] : commitSha;
     }
 
-    /// <summary>列出基础树中位于推送目录内、本次未再上传的 blob 路径（需要删除的残留文件）。</summary>
+    /// <summary>
+    /// 列出基础树中位于推送目录内、属于托管清单、且本次未再上传的 blob 路径（需要删除的残留文件）。
+    /// </summary>
     private async Task<IReadOnlyList<string>> ListStaleManagedPathsAsync(
         string owner,
         string name,
@@ -203,6 +206,12 @@ public sealed class GitHubApiChannel : IStatsUploadChannel
                 || !path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
                 || uploadedPaths.Contains(path)
                 || !string.Equals(typeElement.GetString(), "blob", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var relativePath = path[prefix.Length..].Replace('\\', '/');
+            if (!StatsReportBuilder.ManagedFileNames.Contains(relativePath, StringComparer.OrdinalIgnoreCase))
             {
                 continue;
             }

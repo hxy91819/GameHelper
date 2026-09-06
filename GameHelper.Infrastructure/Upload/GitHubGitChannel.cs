@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Services;
 using GameHelper.Core.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -17,20 +18,12 @@ namespace GameHelper.Infrastructure.Upload;
 /// 基于 git.exe 的 GitHub 上传渠道：在数据目录维护一个专属克隆工作副本，
 /// 每次上传对齐远端后重写受管文件、按需提交并推送。
 /// 凭据复用本机 git 凭据管理器，无需在配置中保存 token。
-/// 只管理 <see cref="ManagedFileNames"/> 列出的文件；sync.directory 内用户自放文件不会被推送或删除。
+/// 只管理 <see cref="StatsReportBuilder.ManagedFileNames"/> 列出的文件；sync.directory 内用户自放文件不会被推送或删除。
 /// </summary>
 public sealed class GitHubGitChannel : IStatsUploadChannel
 {
     private const string CommitterName = "GameHelper";
     private const string CommitterEmail = "gamehelper@users.noreply.github.com";
-
-    /// <summary>GameHelper 在远端目录内托管的文件（相对 sync.directory）；其余文件不受推送影响。</summary>
-    private static readonly string[] ManagedFileNames =
-    [
-        "README.md",
-        "daily.csv",
-        "raw/playtime.csv"
-    ];
 
     private readonly IGitRunner _git;
     private readonly string _cloneRoot;
@@ -206,7 +199,7 @@ public sealed class GitHubGitChannel : IStatsUploadChannel
         string normalizedDirectory)
     {
         var arguments = new List<string> { command, option };
-        arguments.AddRange(ManagedFileNames.Select(file => $"{normalizedDirectory}/{file}"));
+        arguments.AddRange(StatsReportBuilder.ManagedFileNames.Select(file => $"{normalizedDirectory}/{file}"));
         return arguments;
     }
 
@@ -214,7 +207,7 @@ public sealed class GitHubGitChannel : IStatsUploadChannel
     private static void WriteManagedFiles(string targetDirectory, IReadOnlyList<StatsUploadFile> files)
     {
         var uploaded = new HashSet<string>(files.Select(file => file.RelativePath.Replace('\\', '/')), StringComparer.OrdinalIgnoreCase);
-        foreach (var managed in ManagedFileNames)
+        foreach (var managed in StatsReportBuilder.ManagedFileNames)
         {
             if (uploaded.Contains(managed))
             {
@@ -233,7 +226,7 @@ public sealed class GitHubGitChannel : IStatsUploadChannel
         foreach (var file in files)
         {
             var relative = file.RelativePath.Replace('\\', '/');
-            if (!ManagedFileNames.Contains(relative, StringComparer.OrdinalIgnoreCase))
+            if (!StatsReportBuilder.ManagedFileNames.Contains(relative, StringComparer.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException($"试图推送未托管文件：{relative}");
             }
