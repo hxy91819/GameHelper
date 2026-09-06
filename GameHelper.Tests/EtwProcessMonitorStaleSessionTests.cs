@@ -14,23 +14,23 @@ public class EtwProcessMonitorStaleSessionTests
     [Fact]
     public void ShouldCleanupSession_LiveOwnerPid_IsKept()
     {
-        var sessionName = $"{Prefix}{Environment.ProcessId}-0123abcd";
+        var sessionName = $"{Prefix}{Environment.ProcessId}-0123abcd0123abcd0123abcd0123abcd";
         Assert.False(EtwProcessMonitor.ShouldCleanupSession(sessionName, pid => pid == Environment.ProcessId));
     }
 
     [Fact]
     public void ShouldCleanupSession_DeadOwnerPid_IsCleaned()
     {
-        var sessionName = $"{Prefix}999999-0123abcd";
+        var sessionName = $"{Prefix}999999-0123abcd0123abcd0123abcd0123abcd";
         Assert.True(EtwProcessMonitor.ShouldCleanupSession(sessionName, pid => pid != 999999));
     }
 
     [Fact]
-    public void ShouldCleanupSession_LegacyFormatWithoutPid_IsCleaned()
+    public void ShouldCleanupSession_LegacyFormatWithoutPid_IsKept()
     {
-        // 旧版本会话名无 PID，无法判定属主，保持既有清理行为。
+        // 旧版本会话名无 PID，无法判定属主，不得停止可能仍在运行的用户实例。
         var sessionName = $"{Prefix}0123abcd5678ef90";
-        Assert.True(EtwProcessMonitor.ShouldCleanupSession(sessionName, _ => true));
+        Assert.False(EtwProcessMonitor.ShouldCleanupSession(sessionName, _ => true));
     }
 
     [Fact]
@@ -42,9 +42,15 @@ public class EtwProcessMonitorStaleSessionTests
     }
 
     [Fact]
-    public void ShouldCleanupSession_MalformedPid_IsCleaned()
+    public void ShouldCleanupSession_MalformedPid_IsKept()
     {
         var sessionName = $"{Prefix}notapid-0123abcd";
-        Assert.True(EtwProcessMonitor.ShouldCleanupSession(sessionName, _ => true));
+        Assert.False(EtwProcessMonitor.ShouldCleanupSession(sessionName, _ => true));
+    }
+
+    [Fact]
+    public void ShouldCleanupSession_UnknownSuffix_IsKeptEvenWhenPidIsGone()
+    {
+        Assert.False(EtwProcessMonitor.ShouldCleanupSession($"{Prefix}999999-unknown", _ => false));
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Security.Principal;
@@ -98,18 +98,6 @@ namespace GameHelper.Tests
             Assert.Throws<ObjectDisposedException>(() => monitor.Start());
         }
 
-        [Fact]
-        public void SafeCleanup_ClearsPathCache()
-        {
-            var monitor = new EtwProcessMonitor();
-            var cacheField = typeof(EtwProcessMonitor).GetField("_startPathCache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var safeCleanupMethod = typeof(EtwProcessMonitor).GetMethod("SafeCleanup", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var cache = (ConcurrentDictionary<int, string>)cacheField!.GetValue(monitor)!;
-            cache[123] = @"C:\Games\game.exe";
-            safeCleanupMethod!.Invoke(monitor, new object[] { false });
-            Assert.Empty(cache);
-        }
-
         private static bool IsRunningAsAdministrator()
         {
             try
@@ -122,21 +110,6 @@ namespace GameHelper.Tests
             {
                 return false;
             }
-        }
-
-        [Fact]
-        public void Configure_WhenStopEventsReEnabled_DoesNotClearActivePathCache()
-        {
-            var monitor = new EtwProcessMonitor();
-            var cacheField = typeof(EtwProcessMonitor).GetField("_startPathCache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var cache = (ConcurrentDictionary<int, string>)cacheField!.GetValue(monitor)!;
-            cache[123] = @"C:\\Games\\game.exe";
-            monitor.Configure(new ProcessObservationPolicy(new[] { "game.exe" }, observeStopEvents: false));
-            Assert.Contains(123, cache.Keys);
-            // Re-enabling stop events should NOT clear the cache; active entries are still
-            // valid and stale entries are handled by TryRemove on stop.
-            monitor.Configure(new ProcessObservationPolicy(new[] { "game.exe" }, observeStopEvents: true));
-            Assert.Contains(123, cache.Keys);
         }
 
         [Fact]

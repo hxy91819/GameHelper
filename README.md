@@ -51,6 +51,8 @@ dotnet run --project .\GameHelper.ConsoleHost -- sync status
 
 更多 CLI 说明见 `docs/guides/cli.md`。
 
+ETW 会话意外中断时会自动尝试恢复，并核对已观察到的游戏进程，补结算中断期间退出的游戏，避免影响下一局计时。准确退出时间无法追回时按核对时刻结算并记录警告；连续恢复失败会明确报错。详见 [ETW 恢复行为与限制](docs/guides/etw-recovery.md)。
+
 ### 统计推送到 GitHub（已支持）
 
 把游戏时长统计自动推送到你指定的 GitHub 仓库（公开展示或私有备份）：
