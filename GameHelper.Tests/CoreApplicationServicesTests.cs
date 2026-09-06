@@ -300,8 +300,8 @@ public sealed class CoreApplicationServicesTests
                         new PlaySession("game-key", today.AddDays(-4).AddHours(20), today.AddDays(-4).AddHours(20).AddMinutes(45), TimeSpan.FromMinutes(45), 45),
                         // UTC 会话：昨天中午 UTC 在任何真实时区下都落在预览窗口内
                         new PlaySession("game-key", DateTime.UtcNow.Date.AddDays(-1).AddHours(11), DateTime.UtcNow.Date.AddDays(-1).AddHours(12), TimeSpan.FromMinutes(30), 30),
-                        // 窗口外的旧会话应被排除
-                        new PlaySession("game-key", today.AddDays(-10).AddHours(20), today.AddDays(-10).AddHours(21).AddMinutes(30), TimeSpan.FromMinutes(90), 90)
+                        // 窗口外的旧会话应被排除（窗口为 14 天，-10 天已在窗口内，改用 -20 天）
+                        new PlaySession("game-key", today.AddDays(-20).AddHours(20), today.AddDays(-20).AddHours(21).AddMinutes(30), TimeSpan.FromMinutes(90), 90)
                     }
                 },
                 new()

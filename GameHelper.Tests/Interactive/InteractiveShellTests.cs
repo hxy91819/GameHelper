@@ -276,7 +276,7 @@ namespace GameHelper.Tests.Interactive
             _output.WriteLine("[Monitor Snapshot]\n" + snapshot);
 
             Assert.Contains("历史记录预览", snapshot);
-            Assert.Contains("近 7 天暂无游玩记录", snapshot); // 窗口外的 2024 历史不参与预览
+            Assert.Contains("近 14 天暂无游玩记录", snapshot); // 窗口外的 2024 历史不参与预览
             Assert.Contains("2024-02-02 22:00", snapshot); // 21:15 + 45 min
             Assert.Contains("45 min", snapshot);
             Assert.Contains("TOTAL", snapshot);
@@ -317,7 +317,7 @@ namespace GameHelper.Tests.Interactive
             Assert.Contains("历史记录预览", snapshot);
             Assert.Contains("艾尔登法环", snapshot);
             Assert.Contains("1.5 h", snapshot);
-            Assert.Contains("近 7 天 · 2 次会话 · 1 款游戏", snapshot);
+            Assert.Contains("近 14 天 · 2 次会话 · 1 款游戏", snapshot);
             Assert.Contains("每日游玩时长", snapshot);
         }
 
