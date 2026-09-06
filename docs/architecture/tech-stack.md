@@ -8,7 +8,7 @@
 
 | 组件 | 版本/平台 | 说明 |
 | --- | --- | --- |
-| .NET 运行时 | **.NET 8.0** (`net8.0-windows`) | 强制目标框架。核心功能依赖 Windows API（WMI/ETW），非 Windows 环境仅支持 `--monitor-dry-run` 模式。|
+| .NET 运行时 | **.NET 8.0** (`net8.0-windows`) | 强制目标框架。仅支持 Windows，核心功能依赖 Windows API（WMI/ETW）；dry-run 用于 Windows 上的演练和测试。|
 | 操作系统 | Windows 11 (64-bit) | 开发、测试、发布默认平台；ETW 监控需管理员权限。|
 | 编译工具链 | `dotnet sdk 8.0.417` (`global.json`, `latestPatch`) | VS 2022、VS Code + C# 扩展兼容。|
 

@@ -23,7 +23,7 @@
 
 ## Tooling & Environment
 - Requires the .NET 8 SDK for development, testing, and publishing. Install the SDK in the container when it is missing before running solution commands.
-- Local testing assumes Windows for ETW coverage, but most unit tests should run cross-platform.
+- Windows is the only supported platform. Develop, build, test, and run CI on Windows; Linux/macOS compatibility is outside the project scope.
 - Publishing instructions use `dotnet publish` targeting `win-x64`.
 
 ## Communication
