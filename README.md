@@ -12,6 +12,7 @@ GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、
 ## 快速开始
 
 ### 环境要求
+- 项目仅支持 Windows，开发、测试和 CI 均以 Windows 为准；不提供 Linux/macOS 兼容性支持。
 - Windows 10 (19041+) / Windows 11
 - .NET 8 SDK（当前仓库通过 `global.json` 锁定 `8.0.417`，允许 `latestPatch` 滚动）
 - （仅 WinUI 运行）Windows App SDK 1.6+（当前项目引用 `Microsoft.WindowsAppSDK` `1.6.250205002`）
@@ -50,6 +51,8 @@ dotnet run --project .\GameHelper.ConsoleHost -- sync status
 `config import-steam` 会扫描本机 Steam 的所有游戏库，并批量添加已安装且可定位到主可执行文件的游戏。
 
 更多 CLI 说明见 `docs/guides/cli.md`。
+
+ETW 会话意外中断时会自动尝试恢复，并核对已观察到的游戏进程，补结算中断期间退出的游戏，避免影响下一局计时。准确退出时间无法追回时按核对时刻结算并记录警告；连续恢复失败会明确报错。详见 [ETW 恢复行为与限制](docs/guides/etw-recovery.md)。
 
 ### 统计推送到 GitHub（已支持）
 

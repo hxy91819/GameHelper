@@ -1,595 +1,344 @@
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
-using System.Linq;
+using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Security.Principal;
-using System.Text;
-using System.Threading;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
-
 using GameHelper.Infrastructure.Exceptions;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Parsers;
-using Microsoft.Diagnostics.Tracing.Session;
 using Microsoft.Extensions.Logging;
 
-namespace GameHelper.Infrastructure.Processes
+namespace GameHelper.Infrastructure.Processes;
+
+/// <summary>ETW process observation with isolated session ownership and bounded recovery.</summary>
+public sealed class EtwProcessMonitor : IProcessMonitor
 {
-    /// <summary>
-    /// ETW-based process monitor that provides low-latency process lifecycle notifications.
-    /// Requires administrator privileges to access kernel ETW providers.
-    /// </summary>
-    public sealed class EtwProcessMonitor : IProcessMonitor
+    private const string SessionNamePrefix = "GameHelper-ETW-";
+    /// <summary>Maximum consecutive attempts to rebuild a lost session.</summary>
+    public const int SessionRecoveryAttempts = 3;
+    private readonly object _lifecycleLock = new();
+    private readonly IEtwRuntime _runtime;
+    private readonly TimeProvider _timeProvider;
+    private readonly ILogger<EtwProcessMonitor>? _logger;
+    private readonly Dictionary<int, EtwProcessEvent> _observedProcesses = new();
+    private ProcessObservationPolicy _policy = ProcessObservationPolicy.ObserveAll();
+    private IEtwSession? _session;
+    private string _sessionName = "";
+    private bool _isRunning;
+    private bool _disposed;
+    private bool _stopRequested = true;
+    private bool _recovering;
+    private long _generation;
+    private CancellationTokenSource? _runCancellation;
+    private ITimer? _healthCheckTimer;
+    private Task _recoveryTask = Task.CompletedTask;
+
+    /// <summary>Creates a monitor with optional candidate names and diagnostics.</summary>
+    public EtwProcessMonitor(IEnumerable<string>? allowedProcessNames = null, ILogger<EtwProcessMonitor>? logger = null)
+        : this(new EtwRuntime(logger), allowedProcessNames, logger) { }
+
+    internal EtwProcessMonitor(IEtwRuntime runtime, IEnumerable<string>? allowedProcessNames = null,
+        ILogger<EtwProcessMonitor>? logger = null, TimeProvider? timeProvider = null)
     {
-        private TraceEventSession? _session;
-        private Thread? _processingThread;
-        private volatile bool _isRunning;
-        private volatile bool _disposed;
-        private ProcessObservationPolicy _policy = ProcessObservationPolicy.ObserveAll();
-        private readonly ILogger<EtwProcessMonitor>? _logger;
-        private readonly string _sessionName;
+        _runtime = runtime;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _logger = logger;
+        if (allowedProcessNames is not null) Configure(new ProcessObservationPolicy(allowedProcessNames));
+    }
 
-        private readonly ConcurrentDictionary<int, string> _startPathCache = new();
+    /// <inheritdoc />
+    public event Action<ProcessEventInfo>? ProcessStarted;
+    /// <inheritdoc />
+    public event Action<ProcessEventInfo>? ProcessStopped;
 
-        /// <inheritdoc />
-        public event Action<ProcessEventInfo>? ProcessStarted;
-        /// <inheritdoc />
-        public event Action<ProcessEventInfo>? ProcessStopped;
+    internal Task RecoveryTask { get { lock (_lifecycleLock) return _recoveryTask; } }
 
-        /// <summary>
-        /// Creates a new ETW process monitor with optional process filtering.
-        /// </summary>
-        /// <param name="allowedProcessNames">Optional whitelist of process names to monitor. If null, monitors all processes.</param>
-        /// <param name="logger">Optional logger for diagnostic information.</param>
-        public EtwProcessMonitor(IEnumerable<string>? allowedProcessNames = null, ILogger<EtwProcessMonitor>? logger = null)
+    /// <inheritdoc />
+    public void Start()
+    {
+        lock (_lifecycleLock)
         {
-            _logger = logger;
-            _sessionName = $"GameHelper-ETW-{Guid.NewGuid():N}";
-            
-            if (allowedProcessNames != null)
-            {
-                Configure(new ProcessObservationPolicy(allowedProcessNames));
-            }
-
-            _logger?.LogDebug(
-                "EtwProcessMonitor created with {Count} candidate processes",
-                CurrentPolicy.CandidateProcessNames.Count);
-        }
-
-        /// <inheritdoc />
-        public void Start()
-        {
-            if (_disposed)
-                throw new ObjectDisposedException(nameof(EtwProcessMonitor));
-
-            if (_isRunning)
-            {
-                _logger?.LogDebug("ETW monitor already running");
-                return;
-            }
-
-            if (!IsRunningAsAdministrator())
-            {
-                throw new InsufficientPrivilegesException();
-            }
-
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_stopRequested && (_isRunning || _recovering)) return;
+            _runtime.EnsureElevated();
+            CancelRun();
+            SafeCleanup();
+            _recovering = false;
+            _runCancellation = new CancellationTokenSource();
+            _stopRequested = false;
+            var generation = ++_generation;
             try
             {
-                InitializeEtwSession();
-                PrefillRunningProcesses();
-                _isRunning = true;
-                _logger?.LogInformation("ETW process monitor started successfully");
-            }
-            catch (Exception ex) when (IsResourceExhausted(ex))
-            {
-                _logger?.LogWarning(ex, "ETW session resource exhausted. Cleaning up stale sessions and retrying.");
-                SafeCleanup();
-                CleanupStaleSessions();
-                try
+                try { InitializeEtwSession(generation); }
+                catch (Exception ex) when (IsResourceExhausted(ex))
                 {
-                    InitializeEtwSession();
-                    PrefillRunningProcesses();
-                    _isRunning = true;
-                    _logger?.LogInformation("ETW process monitor started successfully after cleanup");
-                }
-                catch (Exception retryEx)
-                {
-                    _logger?.LogError(retryEx, "Failed to start ETW monitor even after cleanup");
                     SafeCleanup();
-                    throw new EtwMonitorException("Failed to initialize ETW session after cleanup", retryEx);
+                    CleanupStaleSessions();
+                    InitializeEtwSession(generation);
                 }
+                _healthCheckTimer = _timeProvider.CreateTimer(_ => CheckSessionHealth(generation), null,
+                    TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+                _logger?.LogInformation("ETW process monitor started successfully");
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Failed to start ETW process monitor");
+                _stopRequested = true;
+                CancelRun();
                 SafeCleanup();
                 throw new EtwMonitorException("Failed to initialize ETW session", ex);
             }
         }
+    }
 
-        /// <inheritdoc />
-        public void Stop()
+    /// <inheritdoc />
+    public void Stop()
+    {
+        lock (_lifecycleLock)
         {
-            if (_disposed || !_isRunning)
-                return;
-
-            _logger?.LogDebug("Stopping ETW process monitor");
+            _stopRequested = true;
+            ++_generation;
+            _recovering = false;
+            CancelRun();
             SafeCleanup();
-            _logger?.LogInformation("ETW process monitor stopped");
         }
+    }
 
-        /// <inheritdoc />
-        public void Configure(ProcessObservationPolicy policy)
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        lock (_lifecycleLock)
         {
-            ArgumentNullException.ThrowIfNull(policy);
-            Volatile.Write(ref _policy, policy);
-
-            _logger?.LogDebug(
-                "ETW observation policy updated: {Count} candidates, all={ObserveAll}, stop={ObserveStopEvents}",
-                policy.CandidateProcessNames.Count,
-                policy.ObservesAllProcessNames,
-                policy.ObserveStopEvents);
-        }
-
-        /// <inheritdoc />
-        public void Dispose()
-        {
-            if (_disposed)
-                return;
-
+            if (_disposed) return;
             _disposed = true;
-            SafeCleanup();
-            _logger?.LogDebug("EtwProcessMonitor disposed");
+            Stop();
         }
+    }
 
-        private void InitializeEtwSession()
+    /// <inheritdoc />
+    public void Configure(ProcessObservationPolicy policy)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        Volatile.Write(ref _policy, policy);
+    }
+
+    private void CancelRun()
+    {
+        _healthCheckTimer?.Dispose();
+        _healthCheckTimer = null;
+        _runCancellation?.Cancel();
+        _runCancellation?.Dispose();
+        _runCancellation = null;
+    }
+
+    private bool IsCurrent(long generation) => !_disposed && !_stopRequested && generation == _generation;
+
+    private void InitializeEtwSession(long generation)
+    {
+        // Every assignment follows cleanup, including partial initialization.
+        SafeCleanup(preserveProcesses: true);
+        _sessionName = $"{SessionNamePrefix}{Environment.ProcessId}-{Guid.NewGuid():N}";
+        var session = _runtime.CreateSession(_sessionName);
+        _session = session;
+        _isRunning = true;
+        session.Start(
+            data => Dispatch(session, generation, () => OnProcessStart(data)),
+            data => Dispatch(session, generation, () => OnProcessStop(data)),
+            () => Dispatch(session, generation, () => ScheduleRecovery(generation)));
+    }
+
+    private void Dispatch(IEtwSession session, long generation, Action callback)
+    {
+        lock (_lifecycleLock)
         {
-            _session = new TraceEventSession(_sessionName);
-            
-            // Enable kernel process events
-            _session.EnableKernelProvider(KernelTraceEventParser.Keywords.Process);
-
-            // Set up event handlers
-            _session.Source.Kernel.ProcessStart += OnProcessStart;
-            _session.Source.Kernel.ProcessStop += OnProcessStop;
-
-            // Start processing events in a background thread
-            _processingThread = new Thread(ProcessEvents)
-            {
-                Name = "ETW-ProcessMonitor",
-                IsBackground = true
-            };
-            _processingThread.Start();
+            if (!IsCurrent(generation) || !ReferenceEquals(session, _session)) return;
+            try { callback(); }
+            catch (Exception ex) { _logger?.LogWarning(ex, "Error processing ETW notification"); }
         }
+    }
 
-        private void ProcessEvents()
+    private void CheckSessionHealth(long generation)
+    {
+        lock (_lifecycleLock)
         {
+            if (!IsCurrent(generation) || _recovering || !_isRunning) return;
             try
             {
-                _logger?.LogDebug("ETW event processing thread started");
-                _session?.Source.Process();
+                if (_session?.IsAlive != true ||
+                    !_runtime.GetActiveSessionNames().Contains(_sessionName, StringComparer.OrdinalIgnoreCase))
+                    ScheduleRecovery(generation);
+                else ReconcileObservedProcesses();
             }
-            catch (Exception ex)
-            {
-                if (!_disposed && _isRunning)
-                {
-                    _logger?.LogError(ex, "ETW event processing thread encountered an error");
-                }
-            }
-            finally
-            {
-                _logger?.LogDebug("ETW event processing thread ended");
-            }
+            catch (Exception ex) { _logger?.LogWarning(ex, "ETW session health check failed"); }
         }
+    }
 
-        private void OnProcessStart(TraceEvent data)
+    private void ScheduleRecovery(long generation)
+    {
+        if (!IsCurrent(generation) || _recovering) return;
+        _recovering = true;
+        var token = _runCancellation!.Token;
+        _logger?.LogWarning("ETW event stream ended unexpectedly; scheduling session recovery");
+        _recoveryTask = Task.Run(() => RunSessionRecoveryAsync(generation, token));
+    }
+
+    private async Task RunSessionRecoveryAsync(long generation, CancellationToken cancellationToken)
+    {
+        try
         {
-            try
+            for (var attempt = 1; attempt <= SessionRecoveryAttempts; attempt++)
             {
-                var processName = GetProcessName(data);
-                if (string.IsNullOrWhiteSpace(processName))
-                    return;
-
-                var imageFileName = data.PayloadByName("ImageFileName") as string;
-                if (IsAllowedProcessStart(processName, imageFileName))
+                lock (_lifecycleLock)
                 {
-                    var pathHint = imageFileName;
-                    var cached = false;
-                    if (!string.IsNullOrWhiteSpace(pathHint))
-                    {
-                        _startPathCache[data.ProcessID] = pathHint;
-                        cached = true;
-                    }
-
-                    _logger?.LogDebug(
-                        "Process started: {ProcessName} (PID: {ProcessId}, ImageFileName={ImageFileName}, Cached={Cached})",
-                        processName, data.ProcessID, imageFileName, cached);
-
-                    var info = new ProcessEventInfo(processName, pathHint, data.ProcessID);
-                    ProcessStarted?.Invoke(info);
+                    if (!IsCurrent(generation)) return;
+                    SafeCleanup(preserveProcesses: true);
+                    ReconcileObservedProcesses();
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning(ex, "Error processing ProcessStart event");
-            }
-        }
-
-        private void OnProcessStop(TraceEvent data)
-        {
-            // Remove the cached path for this PID regardless of stop-events being enabled,
-            // so stale entries don't accumulate while stop events are disabled.
-            bool hadCache = _startPathCache.TryRemove(data.ProcessID, out var cachedPath);
-
-            try
-            {
-                var processName = GetProcessName(data);
-
-                // If the ETW stop event doesn't carry a clear name but we had cached
-                // this PID from a prior start, derive the name from the cached path.
-                if (string.IsNullOrWhiteSpace(processName) && hadCache && !string.IsNullOrWhiteSpace(cachedPath))
+                await _runtime.DelayAsync(TimeSpan.FromSeconds(attempt), cancellationToken).ConfigureAwait(false);
+                lock (_lifecycleLock)
                 {
-                    processName = Path.GetFileName(cachedPath);
-                }
-
-                // If this PID was previously cached (meaning it passed the start filter),
-                // always allow the stop event regardless of whether the stop payload's
-                // name matches the current filter. The process may have changed its
-                // displayed name between start and stop.
-                if (!IsAllowedProcessStop(processName, hadCache))
-                {
-                    return;
-                }
-
-                var fallbackImageFileName = data.PayloadByName("ImageFileName") as string;
-                var realPath = hadCache ? cachedPath : fallbackImageFileName;
-                var executableName = processName!;
-
-                _logger?.LogDebug(
-                    "Process stopped: {ProcessName} (PID: {ProcessId}, CacheHit={CacheHit}, CachedPath={CachedPath}, Fallback={Fallback})",
-                    executableName, data.ProcessID, hadCache, realPath, fallbackImageFileName);
-
-                var info = new ProcessEventInfo(executableName, realPath, data.ProcessID);
-                ProcessStopped?.Invoke(info);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning(ex, "Error processing ProcessStop event");
-            }
-        }
-
-        private static string? GetProcessName(TraceEvent data)
-        {
-            // Try to get the image file name from the event
-            if (data.PayloadByName("ImageFileName") is string imageFileName && !string.IsNullOrWhiteSpace(imageFileName))
-            {
-                try
-                {
-                    return Path.GetFileName(imageFileName);
-                }
-                catch
-                {
-                    // Fall back to process name if path parsing fails
-                }
-            }
-
-            // Fall back to process name
-            if (data.PayloadByName("ProcessName") is string processName && !string.IsNullOrWhiteSpace(processName))
-            {
-                return processName;
-            }
-
-            return null;
-        }
-
-        internal bool IsAllowedProcessStart(string processName, string? pathHint)
-        {
-            var policy = CurrentPolicy;
-            if (policy.Includes(processName))
-            {
-                return true;
-            }
-
-            if (string.IsNullOrWhiteSpace(pathHint))
-            {
-                return false;
-            }
-
-            try
-            {
-                // The ETW callback must stay cheap: do not open every non-candidate
-                // process here just to recover rare bad name/path payloads.
-                var hintName = Path.GetFileName(pathHint);
-                return !string.IsNullOrWhiteSpace(hintName) && policy.Includes(hintName);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        internal bool IsAllowedProcessStop(string? processName, bool hadCachedStart)
-        {
-            var policy = CurrentPolicy;
-            return policy.ObserveStopEvents &&
-                !string.IsNullOrWhiteSpace(processName) &&
-                (hadCachedStart || policy.Includes(processName));
-        }
-
-        private ProcessObservationPolicy CurrentPolicy => Volatile.Read(ref _policy);
-
-        /// <summary>
-        /// Checks whether an exception indicates ETW session resource exhaustion (0x800705AA).
-        /// </summary>
-        private static bool IsResourceExhausted(Exception ex)
-        {
-            // 0x800705AA = ERROR_NO_SYSTEM_RESOURCES
-            return ex is COMException comEx
-                && unchecked((uint)comEx.HResult) == 0x800705AA;
-        }
-
-        /// <summary>
-        /// Finds and stops any stale GameHelper ETW sessions left behind by previous
-        /// process crashes or test interruptions.
-        /// </summary>
-        private void CleanupStaleSessions()
-        {
-            try
-            {
-                var staleSessions = TraceEventSession.GetActiveSessionNames()
-                    .Where(name => name.StartsWith("GameHelper-ETW-", StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                if (staleSessions.Count == 0)
-                {
-                    _logger?.LogDebug("No stale GameHelper ETW sessions found");
-                    return;
-                }
-
-                _logger?.LogWarning("Found {Count} stale GameHelper ETW sessions, cleaning up", staleSessions.Count);
-
-                foreach (var name in staleSessions)
-                {
+                    if (!IsCurrent(generation)) return;
                     try
                     {
-                        using var session = new TraceEventSession(name);
-                        session.Stop();
-                        _logger?.LogDebug("Stopped stale ETW session: {SessionName}", name);
+                        InitializeEtwSession(generation);
+                        ReconcileObservedProcesses();
+                        if (!IsCurrent(generation)) return;
+                        if (_session?.IsAlive != true)
+                            throw new InvalidOperationException("Replacement ETW reader has already ended");
+                        _logger?.LogInformation("ETW session recovered on attempt {Attempt}; process monitoring resumed", attempt);
+                        return;
                     }
-                    catch (Exception stopEx)
+                    catch (Exception ex)
                     {
-                        _logger?.LogDebug(stopEx, "Failed to stop stale ETW session: {SessionName}", name);
+                        // Clean immediately, including the final failed attempt.
+                        SafeCleanup(preserveProcesses: true);
+                        _logger?.LogWarning(ex, "ETW session recovery attempt {Attempt}/{Attempts} failed", attempt, SessionRecoveryAttempts);
                     }
                 }
             }
-            catch (Exception cleanupEx)
+            lock (_lifecycleLock)
             {
-                _logger?.LogDebug(cleanupEx, "Error during stale ETW session cleanup");
+                if (!IsCurrent(generation)) return;
+                ReconcileObservedProcesses();
+                _stopRequested = true;
+                CancelRun();
+                _logger?.LogError("ETW session recovery failed after {Attempts} attempts; process monitoring is DOWN. Restart monitoring to resume.", SessionRecoveryAttempts);
             }
         }
-
-        /// <summary>
-        /// Gets the real executable path for a process, resolving inaccurate paths from shortcut launches.
-        /// </summary>
-        /// <param name="processId">Process ID</param>
-        /// <returns>The real executable path, or null if retrieval fails.</returns>
-        private string? GetRealProcessPath(int processId)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception ex)
         {
-            try
+            lock (_lifecycleLock)
             {
-                using var process = Process.GetProcessById(processId);
-                return QueryFullProcessImageName(process.Handle);
-            }
-            catch (Exception ex)
-            {
-                // Process may have already exited, or insufficient privileges.
-                _logger?.LogDebug(ex, "Unable to get real path for process {ProcessId}", processId);
-                return null;
+                if (IsCurrent(generation))
+                {
+                    SafeCleanup(preserveProcesses: true);
+                    _stopRequested = true;
+                    CancelRun();
+                    _logger?.LogError(ex, "ETW recovery aborted; restart monitoring to resume");
+                }
             }
         }
-
-        /// <summary>
-        /// Uses Win32 API QueryFullProcessImageName to obtain the full image path for a process.
-        /// This method is more reliable than ETW's ImageFileName for correctly handling shortcut-launched processes.
-        /// </summary>
-        /// <param name="processHandle">Process handle</param>
-        /// <returns>The full executable path, or null if retrieval fails.</returns>
-        private static string? QueryFullProcessImageName(IntPtr processHandle)
+        finally
         {
-            const uint maxPath = 1024;
-            uint size = maxPath;
-            var sb = new StringBuilder((int)size);
-
-            if (NativeMethods.QueryFullProcessImageNameNative(processHandle, 0, sb, ref size))
+            lock (_lifecycleLock)
             {
-                return sb.ToString();
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// Win32 API declarations
-        /// </summary>
-        private static class NativeMethods
-        {
-            /// <summary>
-            /// Retrieves the full image file name for a process.
-            /// See: https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamea
-            /// </summary>
-            [DllImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", SetLastError = true, CharSet = CharSet.Unicode)]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool QueryFullProcessImageNameNative(
-                IntPtr hProcess,
-                uint dwFlags,
-                StringBuilder lpExeName,
-                ref uint lpdwSize);
-        }
-
-        private static bool IsRunningAsAdministrator()
-        {
-            try
-            {
-                using var identity = WindowsIdentity.GetCurrent();
-                var principal = new WindowsPrincipal(identity);
-                return principal.IsInRole(WindowsBuiltInRole.Administrator);
-            }
-            catch
-            {
-                return false;
+                if (generation == _generation) _recovering = false;
             }
         }
+    }
 
-        private void PrefillRunningProcesses()
+    private void OnProcessStart(EtwProcessEvent data)
+    {
+        if (data.Info.ProcessId is not int pid) return;
+        if (_observedProcesses.TryGetValue(pid, out var previous))
         {
-            try
+            if (data.TimestampUtc <= previous.TimestampUtc) return;
+            CompleteObservedProcess(pid, previous, reconciled: true);
+        }
+        if (!IsAllowedProcessStart(data.Info.ExecutableName, data.Info.ExecutablePath)) return;
+        _observedProcesses[pid] = data;
+        ProcessStarted?.Invoke(data.Info);
+    }
+
+    private void OnProcessStop(EtwProcessEvent data)
+    {
+        if (data.Info.ProcessId is not int pid || !_observedProcesses.TryGetValue(pid, out var previous)) return;
+        // A queued stop from before reconciliation/PID reuse cannot end the new incarnation.
+        if (data.TimestampUtc < previous.TimestampUtc) return;
+        CompleteObservedProcess(pid, previous, reconciled: false);
+    }
+
+    private void CompleteObservedProcess(int pid, EtwProcessEvent previous, bool reconciled)
+    {
+        _observedProcesses.Remove(pid);
+        if (!IsAllowedProcessStop(previous.Info.ExecutableName, hadCachedStart: true)) return;
+        if (reconciled)
+            _logger?.LogWarning("Reconciling missing process stop for PID {ProcessId}; exact exit time unavailable, playtime ends at reconciliation time", pid);
+        try { ProcessStopped?.Invoke(previous.Info); }
+        catch (Exception ex) { _logger?.LogWarning(ex, "Error delivering process stop for PID {ProcessId}", pid); }
+    }
+
+    private void ReconcileObservedProcesses()
+    {
+        foreach (var (pid, previous) in _observedProcesses.ToArray())
+        {
+            var process = _runtime.InspectProcess(pid);
+            if (process.HasExited || process.StartTimeUtc > previous.TimestampUtc)
+                CompleteObservedProcess(pid, previous, reconciled: true);
+        }
+    }
+
+    internal bool IsAllowedProcessStart(string processName, string? pathHint)
+    {
+        var policy = CurrentPolicy;
+        if (policy.Includes(processName)) return true;
+        if (string.IsNullOrWhiteSpace(pathHint)) return false;
+        try { return policy.Includes(Path.GetFileName(pathHint)); }
+        catch (ArgumentException) { return false; }
+    }
+
+    internal bool IsAllowedProcessStop(string? processName, bool hadCachedStart) =>
+        CurrentPolicy.ObserveStopEvents && !string.IsNullOrWhiteSpace(processName) &&
+        (hadCachedStart || CurrentPolicy.Includes(processName));
+
+    private ProcessObservationPolicy CurrentPolicy => Volatile.Read(ref _policy);
+    private static bool IsResourceExhausted(Exception ex) =>
+        ex is COMException && unchecked((uint)ex.HResult) == 0x800705AA;
+
+    private void CleanupStaleSessions()
+    {
+        try
+        {
+            foreach (var name in _runtime.GetActiveSessionNames())
             {
-                var policy = CurrentPolicy;
-                if (policy.ObservesAllProcessNames || policy.CandidateProcessNames.Count == 0)
-                {
-                    _logger?.LogDebug("No process-name candidates configured, skipping pre-fill scan");
-                    return;
-                }
-
-                var processes = new List<RunningProcessInfo>();
-                foreach (var process in Process.GetProcesses())
-                {
-                    using (process)
-                    {
-                        try
-                        {
-                            processes.Add(new RunningProcessInfo(
-                                process.Id,
-                                process.ProcessName,
-                                GetRealProcessPath(process.Id)));
-                        }
-                        catch
-                        {
-                            // Process may exit while being enumerated; skip it.
-                        }
-                    }
-                }
-
-                int prefillCount = 0;
-                foreach (var proc in processes)
-                {
-                    if (!policy.Includes(proc.ProcessName))
-                    {
-                        continue;
-                    }
-
-                    var fullPath = proc.Path;
-                    if (string.IsNullOrWhiteSpace(fullPath))
-                    {
-                        // Even if we can't get the live path, prefill with the process name
-                        // so that we have at least some record. ETW stop will still fall back.
-                        _logger?.LogWarning(
-                            "Pre-fill unable to resolve full path for running process {ProcessName} (PID: {ProcessId})",
-                            proc.ProcessName, proc.Id);
-                    }
-                    else
-                    {
-                        _startPathCache[proc.Id] = fullPath;
-                        prefillCount++;
-                    }
-                }
-
-                if (prefillCount > 0)
-                {
-                    _logger?.LogInformation(
-                        "Pre-filled {Count} running process entries into ETW path cache",
-                        prefillCount);
-                }
-                else
-                {
-                    _logger?.LogDebug("No matching running processes found to pre-fill");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning(ex, "Failed to pre-fill running process path cache");
+                if (!ShouldCleanupSession(name, pid => !_runtime.InspectProcess(pid).HasExited)) continue;
+                try { _runtime.StopSession(name); }
+                catch (Exception ex) { _logger?.LogWarning(ex, "Unable to clean stale ETW session {SessionName}", name); }
             }
         }
+        catch (Exception ex) { _logger?.LogWarning(ex, "Unable to enumerate stale ETW sessions"); }
+    }
 
-        private readonly record struct RunningProcessInfo(int Id, string ProcessName, string? Path);
+    internal static bool ShouldCleanupSession(string sessionName, Func<int, bool> isProcessAlive)
+    {
+        ArgumentNullException.ThrowIfNull(isProcessAlive);
+        if (!sessionName.StartsWith(SessionNamePrefix, StringComparison.OrdinalIgnoreCase)) return false;
+        var remainder = sessionName[SessionNamePrefix.Length..];
+        var separator = remainder.IndexOf('-');
+        // Legacy/unknown names may belong to a live old instance; leave them alone.
+        if (separator <= 0 || !int.TryParse(remainder[..separator], NumberStyles.None,
+                CultureInfo.InvariantCulture, out var ownerPid) || ownerPid <= 0 ||
+            !Guid.TryParseExact(remainder[(separator + 1)..], "N", out _)) return false;
+        return !isProcessAlive(ownerPid);
+    }
 
-        private void SafeCleanup()
+    private void SafeCleanup(bool preserveProcesses = false)
+    {
+        _isRunning = false;
+        var session = _session;
+        _session = null;
+        try { session?.Dispose(); }
+        catch (Exception ex) { _logger?.LogWarning(ex, "Error cleaning up ETW session"); }
+        if (!preserveProcesses)
         {
-            _isRunning = false;
-            _startPathCache.Clear();
-
-            // 1) Break the processing loop so the thread exits Process() first
-            if (_session != null)
-            {
-                try
-                {
-                    _session.Source.StopProcessing();
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogWarning(ex, "Error stopping ETW source processing");
-                }
-            }
-
-            // 2) Unsubscribe from events
-            if (_session != null)
-            {
-                try
-                {
-                    _session.Source.Kernel.ProcessStart -= OnProcessStart;
-                    _session.Source.Kernel.ProcessStop -= OnProcessStop;
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogWarning(ex, "Error unsubscribing from ETW events");
-                }
-            }
-
-            // 3) Stop and dispose the session
-            if (_session != null)
-            {
-                try
-                {
-                    _session.Stop();
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogWarning(ex, "Error stopping ETW session");
-                }
-
-                try
-                {
-                    _session.Dispose();
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogWarning(ex, "Error disposing ETW session");
-                }
-
-                _session = null;
-            }
-
-            // 4) Wait for the processing thread to finish
-            if (_processingThread != null)
-            {
-                try
-                {
-                    if (_processingThread.IsAlive)
-                    {
-                        _processingThread.Join(TimeSpan.FromSeconds(5));
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogWarning(ex, "Error waiting for ETW processing thread to complete");
-                }
-
-                _processingThread = null;
-            }
+            _observedProcesses.Clear();
         }
     }
 }
