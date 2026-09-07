@@ -313,8 +313,9 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private static IRenderable BuildDailyTrendChart(SessionActivityPreview preview)
         {
-            // 14 天的趋势一行放不下 14 条横向条形；改用 4 行纵向块字符柱状迷你图：
-            // 每天一列自底向上填充，高度正比当日分钟数，底行零值天标灰点，下方标注起止日期。
+            // 几十天的趋势一行放不下同数量的横向条形；改用 8 行纵向块字符柱状迷你图：
+            // 每天一列自底向上填充，高度正比当日分钟数，底行零值天标灰点，
+            // 日期轴每 14 天一个刻度并固定标注末端日期。
             // 整体缩进 2 空格与上方 Panel 内容左对齐（边框 1 列 + 内边距 1 列）。
             var trend = preview.DailyTrend;
             if (trend.Count == 0)
@@ -323,9 +324,6 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             var rows = DailyTrendChartRenderer.BuildBarRows(trend.Select(day => day.Minutes).ToArray());
-            var firstDay = trend[0].Date.ToString("MM-dd", CultureInfo.InvariantCulture);
-            var lastDay = trend[^1].Date.ToString("MM-dd", CultureInfo.InvariantCulture);
-            var padding = Math.Max(1, trend.Count - firstDay.Length - lastDay.Length);
             var totalMinutes = trend.Sum(day => day.Minutes);
 
             // 多行 Markup 直接写控制台是安全的；此前挂死只发生在它被 Rows/Panel 嵌套时。
@@ -341,7 +339,15 @@ namespace GameHelper.ConsoleHost.Interactive
                 lines.Add(ChartIndent + row);
             }
 
-            lines.Add(ChartIndent + $"[grey]{firstDay}{new string(' ', padding)}{lastDay}[/]");
+            var axisChars = new char[trend.Count];
+            Array.Fill(axisChars, ' ');
+            foreach (var tick in DailyTrendChartRenderer.GetAxisTicks(trend.Count))
+            {
+                var label = trend[tick.DayIndex].Date.ToString("MM-dd", CultureInfo.InvariantCulture);
+                label.CopyTo(0, axisChars, tick.Column, label.Length);
+            }
+
+            lines.Add(ChartIndent + $"[grey]{Markup.Escape(new string(axisChars).TrimEnd())}[/]");
             return new Markup(string.Join(Environment.NewLine, lines) + Environment.NewLine);
         }
 
