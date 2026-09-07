@@ -12,12 +12,20 @@ namespace GameHelper.ConsoleHost.Interactive
     internal static class DailyTrendChartRenderer
     {
         /// <summary>柱体总行数（含底行）。</summary>
-        public const int BarRows = 4;
+        public const int BarRows = 8;
 
         /// <summary>底行中零值天的占位字符（渲染为灰色）。</summary>
         public const char ZeroMark = '·';
 
+        /// <summary>日期轴刻度间隔（天）。窗口拉长后仅标注起止两端无法定位中间日期。</summary>
+        public const int AxisTickDays = 14;
+
         private const string Blocks = "▁▂▃▄▅▆▇█";
+
+        private const int AxisLabelWidth = 5; // "MM-dd" 固定 5 字符宽
+
+        /// <summary>日期轴上的一个标签：起始字符列与它表达的日期下标。</summary>
+        public readonly record struct AxisTick(int Column, int DayIndex);
 
         /// <summary>
         /// 生成自顶向下的 <see cref="BarRows"/> 行柱体文本，每行长度等于天数。
@@ -54,6 +62,32 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             return rows;
+        }
+
+        /// <summary>
+        /// 计算日期轴标签的位置：每 <paramref name="tickEvery"/> 天一个刻度；
+        /// 末端日期固定右对齐标注，与其重叠的刻度让位；窗口容纳不下两个标签时
+        /// 只保留首个刻度。<see cref="AxisTick.Column"/> 是标签起始字符列，
+        /// <see cref="AxisTick.DayIndex"/> 是该标签表达的日期下标（末端标签与
+        /// 右缘相差 4 列，两者不相等）。
+        /// </summary>
+        public static IReadOnlyList<AxisTick> GetAxisTicks(int dayCount, int tickEvery = AxisTickDays)
+        {
+            var ticks = new List<AxisTick>();
+            for (var column = 0; column + AxisLabelWidth <= dayCount; column += tickEvery)
+            {
+                ticks.Add(new AxisTick(column, column));
+            }
+
+            if (dayCount < AxisLabelWidth * 2)
+            {
+                return ticks;
+            }
+
+            var endLabelStart = dayCount - AxisLabelWidth;
+            ticks.RemoveAll(tick => tick.Column + AxisLabelWidth > endLabelStart);
+            ticks.Add(new AxisTick(endLabelStart, dayCount - 1));
+            return ticks;
         }
     }
 }
