@@ -265,7 +265,8 @@ namespace GameHelper.ConsoleHost.Interactive
                 return;
             }
 
-            var preview = _statisticsService.GetSessionActivityPreview();
+            // 复用监控启动前捕获的快照构建预览，避免同一份数据再次全量读取解析。
+            var preview = _statisticsService.GetSessionActivityPreview(snapshot);
 
             if (preview.Games.Count == 0)
             {

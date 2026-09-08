@@ -93,37 +93,68 @@ public sealed class StatisticsService : IStatisticsService
 
     public SessionActivityPreview GetSessionActivityPreview()
     {
-        var snapshot = GetSessionActivitySnapshot();
+        return GetSessionActivityPreview(GetSessionActivitySnapshot());
+    }
+
+    public SessionActivityPreview GetSessionActivityPreview(SessionActivitySnapshot snapshot)
+    {
         var today = DateTime.Now.Date;
         var windowStart = today.AddDays(-(PreviewWindowDays - 1));
 
-        var windowSessions = snapshot.Records
-            .Where(record => ToLocalTime(record.End) >= windowStart)
-            .ToList();
-
-        var games = windowSessions
-            .GroupBy(record => record.Key.Game, StringComparer.OrdinalIgnoreCase)
-            .Select(group => new SessionGameSummary(
-                group.Key,
-                group.First().DisplayName,
-                group.Count(),
-                group.Sum(record => record.DurationMinutes),
-                group.Max(record => record.End)))
-            .OrderByDescending(item => item.TotalMinutes)
-            .ThenByDescending(item => item.LastEnd)
-            .ToList();
-
-        var dailyTrend = new List<DailyPlaytimeSummary>();
-        for (var day = windowStart; day <= today; day = day.AddDays(1))
+        // 窗口过滤后再聚合；单遍分桶避免对同一集合做 O(窗口) 次全量扫描。
+        var windowMinutes = new long[PreviewWindowDays];
+        var games = new Dictionary<string, SessionGameSummary>(StringComparer.OrdinalIgnoreCase);
+        var windowSessionCount = 0;
+        foreach (var record in snapshot.Records)
         {
-            var currentDay = day;
-            var minutes = windowSessions
-                .Where(record => ToLocalTime(record.End).Date == currentDay)
-                .Sum(record => record.DurationMinutes);
-            dailyTrend.Add(new DailyPlaytimeSummary(currentDay, minutes));
+            var endLocal = ToLocalTime(record.End);
+            if (endLocal < windowStart)
+            {
+                continue;
+            }
+
+            windowSessionCount++;
+            var dayIndex = (endLocal.Date - windowStart).Days;
+            if (dayIndex >= 0 && dayIndex < PreviewWindowDays)
+            {
+                windowMinutes[dayIndex] += record.DurationMinutes;
+            }
+
+            if (games.TryGetValue(record.Key.Game, out var summary))
+            {
+                games[record.Key.Game] = summary with
+                {
+                    SessionCount = summary.SessionCount + 1,
+                    TotalMinutes = summary.TotalMinutes + record.DurationMinutes,
+                    LastEnd = endLocal > summary.LastEnd ? endLocal : summary.LastEnd
+                };
+            }
+            else
+            {
+                games[record.Key.Game] = new SessionGameSummary(
+                    record.Key.Game,
+                    record.DisplayName,
+                    1,
+                    record.DurationMinutes,
+                    endLocal);
+            }
         }
 
-        return new SessionActivityPreview(games, dailyTrend, windowSessions.Count, PreviewWindowDays, snapshot.Source);
+        var dailyTrend = new List<DailyPlaytimeSummary>(PreviewWindowDays);
+        for (var i = 0; i < PreviewWindowDays; i++)
+        {
+            dailyTrend.Add(new DailyPlaytimeSummary(windowStart.AddDays(i), windowMinutes[i]));
+        }
+
+        return new SessionActivityPreview(
+            games.Values
+                .OrderByDescending(item => item.TotalMinutes)
+                .ThenByDescending(item => item.LastEnd)
+                .ToList(),
+            dailyTrend,
+            windowSessionCount,
+            PreviewWindowDays,
+            snapshot.Source);
     }
 
     private static DateTime ToLocalTime(DateTime timestamp)

@@ -1,4 +1,6 @@
 using GameHelper.Core.Abstractions;
+using GameHelper.WinUI.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.WinUI.ViewModels;
 
@@ -62,7 +64,8 @@ public sealed class WinUiViewModelTests
     public void ShellViewModel_ToggleMonitor_ShouldSwitchText()
     {
         var service = new FakeMonitorControlService();
-        var viewModel = new ShellViewModel(service);
+        var viewModel = new ShellViewModel(
+            service, new FakeProcessMonitor(), NullLogger<ShellViewModel>.Instance, UiLogSink.Instance);
 
         Assert.Equal("Start Monitor", viewModel.MonitorButtonText);
         viewModel.ToggleMonitorCommand.Execute(null);
@@ -160,6 +163,24 @@ public sealed class WinUiViewModelTests
             new HashSet<SessionActivityKey>(),
             Array.Empty<SessionActivityRecord>(),
             string.Empty);
+
+        public SessionActivityPreview GetSessionActivityPreview() => new(
+            Array.Empty<SessionGameSummary>(),
+            Array.Empty<DailyPlaytimeSummary>(),
+            0,
+            GameHelper.Core.Services.StatisticsService.PreviewWindowDays,
+            string.Empty);
+    }
+
+    private sealed class FakeProcessMonitor : IProcessMonitor
+    {
+        public event Action<ProcessEventInfo>? ProcessStarted { add { } remove { } }
+        public event Action<ProcessEventInfo>? ProcessStopped { add { } remove { } }
+
+        public void Start() { }
+        public void Stop() { }
+        public void Configure(ProcessObservationPolicy policy) { }
+        public void Dispose() { }
     }
 
     private sealed class FakeMonitorControlService : IMonitorControlService

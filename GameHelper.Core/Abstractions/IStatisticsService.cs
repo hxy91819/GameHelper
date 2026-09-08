@@ -15,4 +15,11 @@ public interface IStatisticsService
     /// 供监控启动前的历史记录预览使用。
     /// </summary>
     SessionActivityPreview GetSessionActivityPreview();
+
+    /// <summary>
+    /// 基于<paramref name="snapshot"/>（应为刚捕获的会话快照）构建近期游玩预览，
+    /// 避免同一份数据被再次全量读取解析。
+    /// </summary>
+    SessionActivityPreview GetSessionActivityPreview(SessionActivitySnapshot snapshot)
+        => GetSessionActivityPreview();
 }
