@@ -101,6 +101,10 @@ dotnet publish .\GameHelper.WinUI -p:PublishProfile=WinUI-SelfContained
 
 ## 配置文件
 
+### 连续游戏休息提醒
+
+在 `config.yml` 添加 `breakReminder: { enabled: true }`，启动监控后累计前台游戏40分钟提醒休息，之后每10分钟再提醒；跨游戏累计，连续离开游戏满5分钟清零。默认关闭，使用系统通知及提示音，时间可配置。详情见[休息提醒指南](docs/guides/break-reminder.md)。
+
 默认路径：`%AppData%\GameHelper\config.yml`
 
 示例：
@@ -110,12 +114,15 @@ monitor: ETW
 startup:
   autoStartMonitor: false
   launchOnStartup: false
+cheatEngine:
+  executable: "C:\\Program Files\\Cheat Engine\\cheatengine-x86_64-SSE4-AVX2.exe"
 games:
   - dataKey: witcher3
     executable: "D:\\Games\\The Witcher 3\\bin\\x64\\witcher3.exe"
     displayName: 巫师3
     enabled: true
     hdr: false
+    speed: 2.0
 ```
 
 说明：
@@ -123,9 +130,13 @@ games:
 - `executable`：可执行文件路径或进程文件名；路径会用于精确匹配，文件名会自动从路径派生。
 - `enabled`：是否参与监控、时长统计和自动化。
 - `hdr`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
+- `speed`：可选的游戏倍速，必须大于 `0`；省略时不修改速度。GameHelper 会按游戏 PID 动态生成临时 CE 表，无需维护 `.CT`。
+- `cheatEngine.executable`：Cheat Engine 可执行文件的绝对路径；只在至少一款游戏配置了 `speed` 时使用。
 - `startup.autoStartMonitor`：交互模式启动后是否自动进入实时监控。
 - `startup.launchOnStartup`：是否随系统启动 GameHelper。
 - `sync`：统计推送到 GitHub 的配置（省略整段表示未配置；完整字段见 `docs/guides/sync.md`）。
+
+首次使用倍速前，需要在 Cheat Engine 的设置中允许受信任表执行 Lua；否则 CE 会在每次加载 GameHelper 生成的表时询问。完整说明与注意事项见 [游戏倍速配置](docs/guides/game-speed.md)。该功能只适合离线单机游戏，不要用于联网或带反作弊的游戏。
 
 CLI `config add` 可接收可执行文件名或 `.exe` 路径。传入路径时会保存到 `executable`，运行时从中派生路径与候选进程名。
 

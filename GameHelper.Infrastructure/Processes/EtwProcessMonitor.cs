@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO;
 using System.Runtime.InteropServices;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
@@ -17,6 +18,7 @@ public sealed class EtwProcessMonitor : IProcessMonitor
     private readonly IEtwRuntime _runtime;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<EtwProcessMonitor>? _logger;
+    private readonly IProcessPathResolver? _pathResolver;
     private readonly Dictionary<int, EtwProcessEvent> _observedProcesses = new();
     private ProcessObservationPolicy _policy = ProcessObservationPolicy.ObserveAll();
     private IEtwSession? _session;
@@ -31,15 +33,18 @@ public sealed class EtwProcessMonitor : IProcessMonitor
     private Task _recoveryTask = Task.CompletedTask;
 
     /// <summary>Creates a monitor with optional candidate names and diagnostics.</summary>
-    public EtwProcessMonitor(IEnumerable<string>? allowedProcessNames = null, ILogger<EtwProcessMonitor>? logger = null)
-        : this(new EtwRuntime(logger), allowedProcessNames, logger) { }
+    public EtwProcessMonitor(IEnumerable<string>? allowedProcessNames = null, ILogger<EtwProcessMonitor>? logger = null,
+        IProcessPathResolver? pathResolver = null)
+        : this(new EtwRuntime(logger), allowedProcessNames, logger, null, pathResolver) { }
 
     internal EtwProcessMonitor(IEtwRuntime runtime, IEnumerable<string>? allowedProcessNames = null,
-        ILogger<EtwProcessMonitor>? logger = null, TimeProvider? timeProvider = null)
+        ILogger<EtwProcessMonitor>? logger = null, TimeProvider? timeProvider = null,
+        IProcessPathResolver? pathResolver = null)
     {
         _runtime = runtime;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger;
+        _pathResolver = pathResolver;
         if (allowedProcessNames is not null) Configure(new ProcessObservationPolicy(allowedProcessNames));
     }
 
@@ -252,9 +257,10 @@ public sealed class EtwProcessMonitor : IProcessMonitor
             if (data.TimestampUtc <= previous.TimestampUtc) return;
             CompleteObservedProcess(pid, previous, reconciled: true);
         }
-        if (!IsAllowedProcessStart(data.Info.ExecutableName, data.Info.ExecutablePath)) return;
-        _observedProcesses[pid] = data;
-        ProcessStarted?.Invoke(data.Info);
+        var acceptedInfo = AcceptStartInfo(data.Info, pid);
+        if (acceptedInfo is null) return;
+        _observedProcesses[pid] = data with { Info = acceptedInfo.Value };
+        ProcessStarted?.Invoke(acceptedInfo.Value);
     }
 
     private void OnProcessStop(EtwProcessEvent data)
@@ -285,12 +291,31 @@ public sealed class EtwProcessMonitor : IProcessMonitor
         }
     }
 
-    internal bool IsAllowedProcessStart(string processName, string? pathHint)
+    internal bool IsAllowedProcessStart(string processName, string? pathHint) =>
+        AcceptStartInfo(new ProcessEventInfo(processName, pathHint), processId: 0) is not null;
+
+    /// <summary>
+    /// Decides whether a start event is observable and normalizes the event handed downstream.
+    /// The kernel ProcessStart/ProcessStop payload carries only an ANSI-truncated image name
+    /// and no path; non-ASCII image names cannot survive that decode, so path-identified games
+    /// with such names fall back to a live path lookup by PID.
+    /// Returns the (possibly path-corrected) event info, or null when the process is not observed.
+    /// </summary>
+    internal ProcessEventInfo? AcceptStartInfo(ProcessEventInfo info, int processId)
     {
         var policy = CurrentPolicy;
-        if (policy.Includes(processName)) return true;
-        if (string.IsNullOrWhiteSpace(pathHint)) return false;
-        try { return policy.Includes(Path.GetFileName(pathHint)); }
+        if (policy.Includes(info.ExecutableName)) return info;
+        if (PolicyIncludesPathFileName(policy, info.ExecutablePath)) return info;
+
+        var livePath = _pathResolver?.TryResolveExecutablePath(processId);
+        if (!PolicyIncludesPathFileName(policy, livePath) || livePath is null) return null;
+        return info with { ExecutableName = Path.GetFileName(livePath), ExecutablePath = livePath };
+    }
+
+    private static bool PolicyIncludesPathFileName(ProcessObservationPolicy policy, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        try { return policy.Includes(Path.GetFileName(path)); }
         catch (ArgumentException) { return false; }
     }
 

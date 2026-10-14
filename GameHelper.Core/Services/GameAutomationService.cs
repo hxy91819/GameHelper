@@ -21,12 +21,16 @@ public sealed class GameAutomationService : IGameAutomationService
     private readonly IProcessPathResolver? _pathResolver;
     private readonly HdrScheduler _hdrScheduler = new();
     private readonly IPlayTimeService _playTime;
+    private readonly IGameSpeedController? _speedController;
+    private readonly IBreakReminderService? _breakReminder;
     private readonly ILogger<GameAutomationService> _logger;
     private readonly object _stateLock = new();
 
     private readonly SessionTracker _sessionTracker = new();
 
     private AutomationConfigIndex _configIndex = AutomationConfigIndex.Empty;
+    private GameProcessMatcher _processMatcher;
+    private bool _started;
 
     public GameAutomationService(
         IProcessMonitor monitor,
@@ -34,26 +38,35 @@ public sealed class GameAutomationService : IGameAutomationService
         IHdrController hdr,
         IPlayTimeService playTime,
         ILogger<GameAutomationService> logger,
-        IProcessPathResolver? pathResolver = null)
+        IProcessPathResolver? pathResolver = null,
+        IGameSpeedController? speedController = null,
+        IBreakReminderService? breakReminder = null)
     {
         _monitor = monitor;
         _gameConfiguration = gameConfiguration;
         _hdr = hdr;
         _pathResolver = pathResolver;
         _playTime = playTime;
+        _speedController = speedController;
+        _breakReminder = breakReminder;
         _logger = logger;
+        _processMatcher = new GameProcessMatcher(_configIndex, _pathResolver, _logger);
     }
 
     public void Start()
     {
         lock (_stateLock)
         {
-            LoadAndBuildIndexes();
+            if (_started) return;
+            var configuration = LoadAndBuildIndexes();
             _sessionTracker.Clear();
             ConfigureProcessObservation();
 
             _monitor.ProcessStarted += OnProcessStarted;
             _monitor.ProcessStopped += OnProcessStopped;
+            _started = true;
+            try { _breakReminder?.Start(configuration); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to start break reminders"); }
 
             _logger.LogInformation(
                 "GameAutomationService started: {Total} configs ({PathCount} path, {ExactNameCount} exact-name, {NameCount} fuzzy-name)",
@@ -68,8 +81,9 @@ public sealed class GameAutomationService : IGameAutomationService
     {
         lock (_stateLock)
         {
-            LoadAndBuildIndexes();
+            var configuration = LoadAndBuildIndexes();
             ConfigureProcessObservation();
+            _breakReminder?.ReloadConfig(configuration);
             _logger.LogInformation(
                 "GameAutomationService config reloaded: {Total} configs ({PathCount} path, {ExactNameCount} exact-name, {NameCount} fuzzy-name)",
                 _configIndex.All.Count,
@@ -83,6 +97,9 @@ public sealed class GameAutomationService : IGameAutomationService
     {
         lock (_stateLock)
         {
+            try { _breakReminder?.Stop(); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to stop break reminders"); }
+            _started = false;
             _monitor.ProcessStarted -= OnProcessStarted;
             _monitor.ProcessStopped -= OnProcessStopped;
 
@@ -161,6 +178,8 @@ public sealed class GameAutomationService : IGameAutomationService
                 {
                     _logger.LogError(ex, "Failed to start tracking for {DataKey}", config.DataKey);
                 }
+
+                ApplyConfiguredSpeed(config, processInfo.ProcessId);
             }
 
             ConfigureProcessObservation();
@@ -170,6 +189,31 @@ public sealed class GameAutomationService : IGameAutomationService
             {
                 _logger.LogDebug("Stop events enabled (first active)");
             }
+        }
+    }
+
+    private void ApplyConfiguredSpeed(GameConfig config, int? processId)
+    {
+        if (!config.SpeedMultiplier.HasValue || _speedController is null)
+        {
+            return;
+        }
+
+        if (!processId.HasValue)
+        {
+            _logger.LogWarning(
+                "Cannot apply configured speed for {DataKey}: process ID is unavailable",
+                config.DataKey);
+            return;
+        }
+
+        try
+        {
+            _speedController.ApplySpeed(processId.Value, config.SpeedMultiplier.Value);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to apply configured speed for {DataKey}", config.DataKey);
         }
     }
 
@@ -233,137 +277,18 @@ public sealed class GameAutomationService : IGameAutomationService
         ProcessEventInfo processInfo,
         string? normalizedName,
         out string? normalizedPath,
-        out string matchLabel)
+        out string matchLabel) =>
+        _processMatcher.Match(processInfo, normalizedName, out normalizedPath, out matchLabel);
+
+    private AppConfig LoadAndBuildIndexes()
     {
-        normalizedPath = null;
-        matchLabel = "not matched";
-
-        var pathHint = PathNormalizer.NormalizePath(processInfo.ExecutablePath);
-        var pathHintConfig = GameMatcher.MatchByPath(pathHint, _configIndex.ByPath, _logger);
-        if (pathHintConfig is not null)
-        {
-            normalizedPath = pathHint;
-            matchLabel = "path-hint";
-            return pathHintConfig;
-        }
-
-        // Every monitor is configured with the same candidate-name gate before events are subscribed.
-        var resolvedPath = ResolvePathByPid(processInfo.ProcessId);
-        var resolvedPathConfig = GameMatcher.MatchByPath(resolvedPath, _configIndex.ByPath, _logger);
-        if (resolvedPathConfig is not null)
-        {
-            normalizedPath = resolvedPath;
-            matchLabel = "path-resolved";
-            return resolvedPathConfig;
-        }
-
-        if (normalizedName is null ||
-            !_configIndex.ByExactName.TryGetValue(normalizedName, out var exactCandidates) ||
-            exactCandidates.Length == 0)
-        {
-            _logger.LogDebug(
-                "Start ignored before path/metadata lookup: {Executable} is not a configured candidate",
-                processInfo.ExecutableName);
-            return null;
-        }
-
-        normalizedPath = ResolvePathForCandidate(processInfo, exactCandidates, resolvedPath);
-
-        var config = GameMatcher.MatchByPath(normalizedPath, _configIndex.ByPath, _logger);
-        if (config is not null)
-        {
-            matchLabel = "path";
-            return config;
-        }
-
-        if (!string.IsNullOrWhiteSpace(normalizedPath) && GameMatcher.IsSystemPath(normalizedPath, _logger))
-        {
-            _logger.LogDebug("Start rejected before name fallback: system path {Path}", normalizedPath);
-            return null;
-        }
-
-        if (exactCandidates.Length == 1 &&
-            string.IsNullOrWhiteSpace(exactCandidates[0].ExecutablePath) &&
-            IsExplicitNameMatch(exactCandidates[0], normalizedName))
-        {
-            matchLabel = "executable-name";
-            return exactCandidates[0];
-        }
-
-        var metadataCandidates = GetMetadataCandidates(exactCandidates);
-        if (metadataCandidates.Length > 0)
-        {
-            config = GameMatcher.MatchByMetadata(processInfo, normalizedPath, metadataCandidates, _logger, out matchLabel);
-            if (config is not null)
-            {
-                return config;
-            }
-        }
-
-        if (exactCandidates.Length == 1 &&
-            normalizedPath is null &&
-            IsExplicitNameMatch(exactCandidates[0], normalizedName))
-        {
-            matchLabel = "executable-name (path unavailable)";
-            return exactCandidates[0];
-        }
-
-        return null;
-    }
-
-    private static bool IsExplicitNameMatch(GameConfig config, string? normalizedName)
-    {
-        return normalizedName is not null &&
-            string.Equals(
-                PathNormalizer.NormalizeName(config.ExecutableName),
-                normalizedName,
-                StringComparison.OrdinalIgnoreCase);
-    }
-
-    private string? ResolvePathForCandidate(
-        ProcessEventInfo processInfo,
-        IReadOnlyCollection<GameConfig> exactCandidates,
-        string? resolvedPath)
-    {
-        if (resolvedPath is not null)
-        {
-            return resolvedPath;
-        }
-
-        if (processInfo.ProcessId.HasValue &&
-            _pathResolver is not null &&
-            exactCandidates.Any(config => !string.IsNullOrWhiteSpace(config.ExecutablePath)))
-        {
-            return ResolvePathByPid(processInfo.ProcessId);
-        }
-
-        return PathNormalizer.NormalizePath(processInfo.ExecutablePath);
-    }
-
-    private string? ResolvePathByPid(int? processId)
-    {
-        if (!processId.HasValue || _pathResolver is null || _configIndex.ByPath.Count == 0)
-        {
-            return null;
-        }
-
-        return PathNormalizer.NormalizePath(_pathResolver.TryResolveExecutablePath(processId.Value));
-    }
-
-    private NameConfigEntry[] GetMetadataCandidates(IReadOnlyCollection<GameConfig> exactCandidates)
-    {
-        var candidateSet = new HashSet<GameConfig>(exactCandidates);
-        return _configIndex.ByName
-            .Where(entry => candidateSet.Contains(entry.Config))
-            .ToArray();
-    }
-
-    private void LoadAndBuildIndexes()
-    {
-        var configs = (_gameConfiguration.Read().Games ?? new List<GameConfig>())
+        var configuration = _gameConfiguration.Read();
+        var configs = (configuration.Games ?? new List<GameConfig>())
             .Where(static config => !string.IsNullOrWhiteSpace(config.DataKey))
             .ToDictionary(static config => config.DataKey, StringComparer.OrdinalIgnoreCase);
         _configIndex = AutomationConfigIndex.Build(configs, _logger);
+        _processMatcher = new GameProcessMatcher(_configIndex, _pathResolver, _logger);
+        return configuration;
     }
 
     private void ConfigureProcessObservation()

@@ -11,4 +11,8 @@ public sealed record GameCatalogUpdateRequest
     public bool? IsEnabled { get; init; }
 
     public bool? HdrEnabled { get; init; }
+
+    public double? SpeedMultiplier { get; init; }
+
+    public bool ClearSpeedMultiplier { get; init; }
 }

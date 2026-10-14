@@ -19,7 +19,7 @@ namespace GameHelper.Infrastructure.Validators
 
     public static class YamlConfigValidator
     {
-        private enum FieldType { String, Bool }
+        private enum FieldType { String, Bool, Number }
 
         private sealed class FieldSpec
         {
@@ -59,7 +59,15 @@ namespace GameHelper.Infrastructure.Validators
 
                 bool required = val.EndsWith("!", StringComparison.Ordinal);
                 var core = required ? val[..^1] : val;
-                FieldType type = core.Equals("bool", StringComparison.OrdinalIgnoreCase) ? FieldType.Bool : FieldType.String;
+                var type = FieldType.String;
+                if (core.Equals("bool", StringComparison.OrdinalIgnoreCase))
+                {
+                    type = FieldType.Bool;
+                }
+                else if (core.Equals("number", StringComparison.OrdinalIgnoreCase))
+                {
+                    type = FieldType.Number;
+                }
 
                 dict[key] = new FieldSpec { Name = key, Type = type, Required = required };
             }
@@ -91,10 +99,11 @@ namespace GameHelper.Infrastructure.Validators
                     return result;
                 }
 
+                ValidateBreakReminder(root, result);
                 if (!root.Children.TryGetValue(new YamlScalarNode("games"), out var gamesNode))
                 {
                     result.Warnings.Add("Missing 'games' section. Nothing to validate.");
-                    result.IsValid = true;
+                    result.IsValid = result.Errors.Count == 0;
                     return result;
                 }
 
@@ -153,6 +162,14 @@ namespace GameHelper.Infrastructure.Validators
                                 result.Errors.Add($"games[{idx}] '{field.Name}' must be a boolean (true/false).");
                             }
                         }
+                        else if (field.Type == FieldType.Number)
+                        {
+                            if (!double.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var number) ||
+                                !double.IsFinite(number) || number <= 0)
+                            {
+                                result.Errors.Add($"games[{idx}] '{field.Name}' must be a number greater than zero.");
+                            }
+                        }
                         else
                         {
                             // String: allow empty except when required
@@ -195,6 +212,35 @@ namespace GameHelper.Infrastructure.Validators
                 result.Errors.Add($"Exception: {ex.Message}");
                 result.IsValid = false;
                 return result;
+            }
+        }
+
+        private static void ValidateBreakReminder(YamlMappingNode root, ValidationResult result)
+        {
+            if (!root.Children.TryGetValue(new YamlScalarNode("breakReminder"), out var section)) return;
+            if (section is not YamlMappingNode mapping)
+            {
+                result.Errors.Add("'breakReminder' must be a mapping (object).");
+                return;
+            }
+            foreach (var entry in mapping.Children)
+            {
+                var name = (entry.Key as YamlScalarNode)?.Value ?? string.Empty;
+                if (name is not ("enabled" or "sound" or "playMinutes" or "breakMinutes" or "repeatMinutes"))
+                {
+                    result.Warnings.Add($"breakReminder unknown field: '{name}'");
+                    continue;
+                }
+                var value = (entry.Value as YamlScalarNode)?.Value;
+                if (name is "enabled" or "sound")
+                {
+                    if (!IsBoolString(value ?? string.Empty)) result.Errors.Add($"breakReminder.{name} must be a boolean (true/false).");
+                }
+                else if (!int.TryParse(value, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out var minutes) || minutes <= 0)
+                {
+                    result.Errors.Add($"breakReminder.{name} must be a positive integer.");
+                }
             }
         }
 

@@ -37,6 +37,11 @@ namespace GameHelper.Core.Models
         public bool HdrEnabled { get; set; } = false;
 
         /// <summary>
+        /// Optional Cheat Engine speed multiplier. A null value leaves the game speed unchanged.
+        /// </summary>
+        public double? SpeedMultiplier { get; set; }
+
+        /// <summary>
         /// Immutable identity view derived from <see cref="Executable"/>.
         /// </summary>
         [JsonIgnore]

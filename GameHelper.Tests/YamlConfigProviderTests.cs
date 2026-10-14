@@ -67,6 +67,36 @@ public class YamlConfigProviderTests : IDisposable
     }
 
     [Fact]
+    public void Save_Then_Load_Roundtrip_PreservesCheatEngineAndGameSpeed()
+    {
+        var provider = new YamlConfigProvider(_configPath);
+        provider.Change(config =>
+        {
+            config.CheatEngine = new CheatEngineSettings
+            {
+                Executable = @"C:\Tools\Cheat Engine\cheatengine-x86_64.exe"
+            };
+            config.Games = new List<GameConfig>
+            {
+                new()
+                {
+                    DataKey = "game",
+                    Executable = "game.exe",
+                    SpeedMultiplier = 2.5
+                }
+            };
+        });
+
+        var yaml = File.ReadAllText(_configPath);
+        var loaded = provider.Read();
+
+        Assert.Contains("cheatEngine:", yaml);
+        Assert.Contains("speed: 2.5", yaml);
+        Assert.Equal(@"C:\Tools\Cheat Engine\cheatengine-x86_64.exe", loaded.CheatEngine?.Executable);
+        Assert.Equal(2.5, Assert.Single(loaded.Games).SpeedMultiplier);
+    }
+
+    [Fact]
     public void Load_WhenGameMissingDataKey_SkipsEntry()
     {
         File.WriteAllText(_configPath, """

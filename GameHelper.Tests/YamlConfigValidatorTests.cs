@@ -34,6 +34,25 @@ games:
         Assert.Contains("quote string values", error, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("2.5", true)]
+    [InlineData("0", false)]
+    [InlineData("fast", false)]
+    public void Validate_GameSpeed_RequiresPositiveNumber(string speed, bool expectedValid)
+    {
+        File.WriteAllText(_configPath, $$"""
+monitor: ETW
+games:
+  - dataKey: game
+    executable: game.exe
+    speed: {{speed}}
+""");
+
+        var result = YamlConfigValidator.Validate(_configPath);
+
+        Assert.Equal(expectedValid, result.IsValid);
+    }
+
     public void Dispose()
     {
         try

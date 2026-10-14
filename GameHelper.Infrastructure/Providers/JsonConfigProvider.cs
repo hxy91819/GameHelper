@@ -92,7 +92,11 @@ namespace GameHelper.Infrastructure.Providers
                     Games = configs,
                     ProcessMonitorType = ReadProcessMonitorType(root),
                     AutoStartInteractiveMonitor = ReadBoolean(root, "autoStartInteractiveMonitor"),
-                    LaunchOnSystemStartup = ReadBoolean(root, "launchOnSystemStartup")
+                    LaunchOnSystemStartup = ReadBoolean(root, "launchOnSystemStartup"),
+                    CheatEngine = ReadCheatEngineSettings(root),
+                    BreakReminder = TryGetProperty(root, "breakReminder", out var reminder) && reminder.ValueKind == JsonValueKind.Object
+                        ? JsonSerializer.Deserialize<BreakReminderSettings>(reminder.GetRawText(), JsonOptions)
+                        : null
                 };
             }
             catch (InvalidDataException)
@@ -107,6 +111,7 @@ namespace GameHelper.Infrastructure.Providers
 
         private void WriteCore(AppConfig appConfig)
         {
+            appConfig.BreakReminder?.Validate();
             var dir = Path.GetDirectoryName(_configFilePath);
             if (!string.IsNullOrEmpty(dir))
             {
@@ -120,7 +125,9 @@ namespace GameHelper.Infrastructure.Providers
                     .ToList(),
                 ProcessMonitorType = appConfig.ProcessMonitorType,
                 AutoStartInteractiveMonitor = appConfig.AutoStartInteractiveMonitor,
-                LaunchOnSystemStartup = appConfig.LaunchOnSystemStartup
+                LaunchOnSystemStartup = appConfig.LaunchOnSystemStartup,
+                CheatEngine = appConfig.CheatEngine,
+                BreakReminder = appConfig.BreakReminder
             };
 
             var serialized = JsonSerializer.Serialize(payload, JsonOptions);
@@ -198,6 +205,20 @@ namespace GameHelper.Infrastructure.Providers
                 : ProcessMonitorType.ETW;
         }
 
+        private static CheatEngineSettings? ReadCheatEngineSettings(JsonElement root)
+        {
+            if (!TryGetProperty(root, "cheatEngine", out var value) || value.ValueKind != JsonValueKind.Object ||
+                !TryGetProperty(value, "executable", out var executableNode) || executableNode.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            var executable = executableNode.GetString()?.Trim();
+            return string.IsNullOrWhiteSpace(executable)
+                ? null
+                : new CheatEngineSettings { Executable = executable };
+        }
+
         private sealed class JsonGameConfigDocument
         {
             public string DataKey { get; set; } = string.Empty;
@@ -214,13 +235,16 @@ namespace GameHelper.Infrastructure.Providers
 
             public bool HdrEnabled { get; set; }
 
+            public double? SpeedMultiplier { get; set; }
+
             public GameConfig ToGameConfig() => new()
             {
                 DataKey = DataKey,
                 Executable = FirstNonEmpty(Executable, ExecutablePath, ExecutableName),
                 DisplayName = DisplayName,
                 IsEnabled = IsEnabled,
-                HdrEnabled = HdrEnabled
+                HdrEnabled = HdrEnabled,
+                SpeedMultiplier = SpeedMultiplier
             };
 
             private static string? FirstNonEmpty(params string?[] values) =>

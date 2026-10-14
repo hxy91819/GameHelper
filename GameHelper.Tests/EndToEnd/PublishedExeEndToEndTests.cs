@@ -25,6 +25,15 @@ namespace GameHelper.Tests.EndToEnd
 
         public static string? ResolvePublishExePath()
         {
+            // Verify a freshly published build while the user's instance locks the normal directory.
+            var overridePath = Environment.GetEnvironmentVariable("GAMEHELPER_TEST_PUBLISH_EXE");
+            if (!string.IsNullOrWhiteSpace(overridePath))
+            {
+                var fullPath = Path.GetFullPath(overridePath);
+                Assert.True(File.Exists(fullPath), $"Explicit test executable not found: {fullPath}");
+                return fullPath;
+            }
+
             var exePath = Path.Combine(
                 AppContext.BaseDirectory,
                 "..", "..", "..", "..",

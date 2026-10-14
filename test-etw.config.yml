@@ -3,6 +3,9 @@ monitor: ETW
 startup:
   autoStartMonitor: false
   launchOnStartup: false
+# Optional; required only when a game entry sets speed.
+# cheatEngine:
+#   executable: C:\Program Files\Cheat Engine\cheatengine-x86_64-SSE4-AVX2.exe
 # 统计推送示例（默认关闭；完整字段见 docs/guides/sync.md）
 sync:
   enabled: false
@@ -11,12 +14,20 @@ sync:
   repo: yourname/game-stats
   directory: game-stats
   intervalMinutes: 1440
+# 休息提醒默认关闭；完整规则见 docs/guides/break-reminder.md。
+breakReminder:
+  enabled: false
+  playMinutes: 40
+  breakMinutes: 5
+  repeatMinutes: 10
+  sound: true
 games:
   - dataKey: notepad
     executable: notepad.exe
     displayName: Notepad
     enabled: true
     hdr: false
+    # speed: 2.0
   - dataKey: cmd
     executable: cmd.exe
     displayName: Command Prompt

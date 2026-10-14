@@ -15,4 +15,6 @@ public sealed record GameEntry
     public bool IsEnabled { get; init; } = true;
 
     public bool HdrEnabled { get; init; }
+
+    public double? SpeedMultiplier { get; init; }
 }

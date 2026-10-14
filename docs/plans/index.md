@@ -4,7 +4,7 @@ This directory only keeps proposals that are not yet implemented, not yet accept
 
 ## Active Plans
 
-- [speed.md](./speed.md): speed-control research and implementation proposal; not part of the current product baseline.
+None. Shipped work is documented under `docs/guides/` and `docs/prd/`.
 
 ## Archive Policy
 

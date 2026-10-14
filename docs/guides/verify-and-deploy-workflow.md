@@ -41,7 +41,7 @@ powershell -File scripts\verify-on-machine.ps1
 2. **实机验证**：以隔离环境变量启动发布产物（独立测试实例），运行 `validate-config`、`config list` 冒烟断言。
 3. **部署**：目录级原子替换快捷方式指向的 `GameHelper.ConsoleHost\bin\Release\net8.0-windows\win-x64\publish\`。
    - 无实例运行 → 旧目录先移走再换入新目录；换入失败自动回滚旧目录。
-   - 实例运行中、发布目录 exe 被锁（按运行实例进程路径判定）→ **整体跳过**：新产物保留在临时目录，脚本打印运行中实例 PID 与重试命令；关闭实例后重跑：
+   - 实例运行中、发布目录 exe 被锁（按运行实例进程路径判定；无法读取路径时保守视为占用）→ **整体跳过**：新产物保留在临时目录，脚本打印运行中实例 PID 与重试命令；关闭实例后重跑：
 
 ```powershell
 powershell -File scripts\verify-on-machine.ps1 -SkipVerify
@@ -56,6 +56,16 @@ powershell -File scripts\verify-on-machine.ps1 -SkipVerify
 `GameHelper.Tests\EndToEnd\PublishedExeEndToEndTests.cs` 在发布产物存在时自动执行：
 以独立测试实例 + 沙盒数据目录运行真实 exe，验证配置校验、统计数据读取、与主实例共存。
 若发布产物不存在则跳过（因此 workflow 中应先跑第 2 步再跑测试）。
+
+若用户实例占用正式发布目录，可让端到端测试直接验证脚本保留的临时新产物，避免验证到旧版本：
+
+```powershell
+$env:GAMEHELPER_TEST_PUBLISH_EXE = '<脚本输出的临时目录>\GameHelper.ConsoleHost.exe'
+dotnet test GameHelper.sln --filter FullyQualifiedName~EndToEnd.Published
+Remove-Item Env:GAMEHELPER_TEST_PUBLISH_EXE
+```
+
+该变量只用于测试选择产物；指定路径不存在时测试失败。
 
 ### 4. 用户生效确认
 

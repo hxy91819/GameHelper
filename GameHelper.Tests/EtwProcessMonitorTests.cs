@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Security.Principal;
 using GameHelper.Core.Abstractions;
+using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Exceptions;
 using GameHelper.Infrastructure.Processes;
 using Microsoft.Extensions.Logging;
@@ -17,7 +18,7 @@ namespace GameHelper.Tests
         public void Constructor_WithNullAllowedProcessNames_ShouldNotThrow()
         {
             // Arrange & Act & Assert
-            var monitor = new EtwProcessMonitor(null, null);
+            var monitor = new EtwProcessMonitor((IEnumerable<string>?)null, null);
             Assert.NotNull(monitor);
         }
 
@@ -138,6 +139,46 @@ namespace GameHelper.Tests
 
             Assert.True(allowedByPath);
             Assert.False(rejected);
+        }
+
+        [Fact]
+        public void AcceptStartInfo_WhenKernelNameUnreadable_RecoversIdentityFromLivePath()
+        {
+            // The kernel ProcessStart payload holds only an ANSI truncated image name; non-ASCII
+            // names (Chinese executables) arrive as unrecoverable mojibake with no path payload.
+            const string gamePath = @"C:\Games\情感反诈模拟器\情感反诈模拟器.exe";
+            var monitor = new EtwProcessMonitor(new[] { "情感反诈模拟器.exe" }, null, new StubPathResolver(processId =>
+                processId == 99 ? gamePath : null));
+
+            var recovered = monitor.AcceptStartInfo(new ProcessEventInfo("\uFFFD\uFFFD\uFFFD.exe", null), 99);
+            var unrelated = monitor.AcceptStartInfo(new ProcessEventInfo("\uFFFD\uFFFD\uFFFD.exe", null), 7);
+
+            Assert.True(recovered.HasValue);
+            Assert.Equal("情感反诈模拟器.exe", recovered!.Value.ExecutableName);
+            Assert.Equal(gamePath, recovered!.Value.ExecutablePath);
+            Assert.False(unrelated.HasValue);
+        }
+
+        [Fact]
+        public void AcceptStartInfo_WhenPolicyMatchesName_ReturnsInfoUnchanged()
+        {
+            var monitor = new EtwProcessMonitor(new[] { "game.exe" }, null, new ThrowingPathResolver());
+
+            var info = monitor.AcceptStartInfo(new ProcessEventInfo("launcher.exe", @"C:\Steam\game.exe"), 12);
+
+            Assert.True(info.HasValue);
+            Assert.Equal("launcher.exe", info!.Value.ExecutableName);
+            Assert.Equal(@"C:\Steam\game.exe", info!.Value.ExecutablePath);
+        }
+
+        private sealed class StubPathResolver(Func<int, string?> resolver) : GameHelper.Core.Abstractions.IProcessPathResolver
+        {
+            public string? TryResolveExecutablePath(int processId) => resolver(processId);
+        }
+
+        private sealed class ThrowingPathResolver : GameHelper.Core.Abstractions.IProcessPathResolver
+        {
+            public string? TryResolveExecutablePath(int processId) => throw new InvalidOperationException("must not be called");
         }
 
         [Fact]

@@ -5,6 +5,7 @@ using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Services;
 using GameHelper.Infrastructure.Controllers;
+using GameHelper.Infrastructure.Notifications;
 using GameHelper.Infrastructure.Processes;
 using GameHelper.Infrastructure.Providers;
 using GameHelper.Infrastructure.Resolvers;
@@ -80,7 +81,9 @@ public static class ConsoleHostBootstrapper
 
             try
             {
-                return ProcessMonitorFactory.CreateWithFallback(monitorMode.MonitorType, null, loggerFactory);
+                return ProcessMonitorFactory.CreateWithFallback(
+                    monitorMode.MonitorType, null, loggerFactory,
+                    sp.GetRequiredService<IProcessPathResolver>());
             }
             catch (Exception ex)
             {
@@ -101,6 +104,10 @@ public static class ConsoleHostBootstrapper
         }
 
         services.AddSingleton<IPlayTimeService, CsvBackedPlayTimeService>();
+        services.AddSingleton<IGameSpeedController, CheatEngineSpeedController>();
+        services.AddSingleton<IForegroundActivityProvider, WindowsForegroundActivityProvider>();
+        services.AddSingleton<IBreakReminderNotifier, WindowsBreakReminderNotifier>();
+        services.AddSingleton<IBreakReminderService, BreakReminderService>();
         services.AddSingleton<IAutoStartManager>(sp =>
         {
             if (OperatingSystem.IsWindows())

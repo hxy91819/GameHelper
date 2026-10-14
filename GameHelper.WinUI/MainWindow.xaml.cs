@@ -15,5 +15,6 @@ public sealed partial class MainWindow : Window
             Services.ServiceLocator.GetRequiredService<GamesViewModel>(),
             Services.ServiceLocator.GetRequiredService<StatsViewModel>());
         InitializeComponent();
+        Closed += (_, _) => Services.ServiceLocator.Shutdown();
     }
 }

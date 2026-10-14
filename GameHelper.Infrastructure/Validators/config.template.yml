@@ -2,9 +2,16 @@ monitor: ETW
 startup:
   autoStartMonitor: bool
   launchOnStartup: bool
+breakReminder:
+  enabled: bool
+  playMinutes: integer
+  breakMinutes: integer
+  repeatMinutes: integer
+  sound: bool
 games:
   - dataKey: string!
     executable: string!
     displayName: string
     enabled: bool
     hdr: bool
+    speed: number

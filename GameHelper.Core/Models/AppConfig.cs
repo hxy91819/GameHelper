@@ -30,6 +30,14 @@ namespace GameHelper.Core.Models
         public bool LaunchOnSystemStartup { get; set; }
 
         /// <summary>
+        /// Optional Cheat Engine integration settings.
+        /// </summary>
+        public CheatEngineSettings? CheatEngine { get; set; }
+
+        /// <summary>Optional global foreground-game break reminder configuration.</summary>
+        public BreakReminderSettings? BreakReminder { get; set; }
+
+        /// <summary>
         /// 统计自动推送配置；null 表示未配置（config.yml 无 sync 段）。
         /// </summary>
         public SyncSettings? SyncSettings { get; set; }

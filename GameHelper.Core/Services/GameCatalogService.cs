@@ -121,7 +121,10 @@ public sealed class GameCatalogService : IGameCatalogService
                 Executable = identity.Value,
                 DisplayName = request.ClearDisplayName ? null : request.DisplayName ?? existing.DisplayName,
                 IsEnabled = request.IsEnabled ?? existing.IsEnabled,
-                HdrEnabled = request.HdrEnabled ?? existing.HdrEnabled
+                HdrEnabled = request.HdrEnabled ?? existing.HdrEnabled,
+                SpeedMultiplier = request.ClearSpeedMultiplier
+                    ? null
+                    : request.SpeedMultiplier ?? existing.SpeedMultiplier
             };
 
             configs[updated.DataKey] = updated;
@@ -168,7 +171,8 @@ public sealed class GameCatalogService : IGameCatalogService
             Executable = request.Executable.Value,
             DisplayName = request.DisplayName ?? existing?.DisplayName,
             IsEnabled = request.IsEnabled,
-            HdrEnabled = request.HdrEnabled ?? existing?.HdrEnabled ?? false
+            HdrEnabled = request.HdrEnabled ?? existing?.HdrEnabled ?? false,
+            SpeedMultiplier = request.SpeedMultiplier ?? existing?.SpeedMultiplier
         };
 
         if (existing is not null &&
@@ -234,7 +238,8 @@ public sealed class GameCatalogService : IGameCatalogService
             throw new InvalidOperationException($"Game '{config.DataKey}' has no executable identity."),
         DisplayName = config.DisplayName,
         IsEnabled = config.IsEnabled,
-        HdrEnabled = config.HdrEnabled
+        HdrEnabled = config.HdrEnabled,
+        SpeedMultiplier = config.SpeedMultiplier
     };
 
     private static Dictionary<string, GameConfig> CreateWorkingMapByDataKey(IEnumerable<GameConfig> configs)
@@ -250,7 +255,8 @@ public sealed class GameCatalogService : IGameCatalogService
                 Executable = config.Executable,
                 DisplayName = config.DisplayName,
                 IsEnabled = config.IsEnabled,
-                HdrEnabled = config.HdrEnabled
+                HdrEnabled = config.HdrEnabled,
+                SpeedMultiplier = config.SpeedMultiplier
             };
         }
 

@@ -2,6 +2,7 @@ using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Services;
 using GameHelper.Infrastructure.Controllers;
+using GameHelper.Infrastructure.Notifications;
 using GameHelper.Infrastructure.Processes;
 using GameHelper.Infrastructure.Providers;
 using GameHelper.Infrastructure.Resolvers;
@@ -18,6 +19,7 @@ namespace GameHelper.WinUI.Services;
 public static class ServiceLocator
 {
     private static IServiceProvider? _provider;
+    private static IHost? _host;
 
     public static void Initialize()
     {
@@ -49,11 +51,17 @@ public static class ServiceLocator
                         .Select(name => name!)
                         .ToArray();
 
-                    return ProcessMonitorFactory.CreateWithFallback(preferredMonitor, allowedProcesses, loggerFactory);
+                    return ProcessMonitorFactory.CreateWithFallback(
+                        preferredMonitor, allowedProcesses, loggerFactory,
+                        sp.GetRequiredService<IProcessPathResolver>());
                 });
                 services.AddSingleton<IHdrController, WindowsHdrController>();
                 services.AddSingleton<IProcessPathResolver, WindowsProcessPathResolver>();
                 services.AddSingleton<IPlayTimeService, CsvBackedPlayTimeService>();
+                services.AddSingleton<IGameSpeedController, CheatEngineSpeedController>();
+                services.AddSingleton<IForegroundActivityProvider, WindowsForegroundActivityProvider>();
+                services.AddSingleton<IBreakReminderNotifier, WindowsBreakReminderNotifier>();
+                services.AddSingleton<IBreakReminderService, BreakReminderService>();
                 services.AddSingleton<IAutoStartManager>(sp =>
                     new WindowsAutoStartManager(sp.GetRequiredService<ILogger<WindowsAutoStartManager>>()));
                 services.AddSingleton<ISteamGameResolver, SteamGameResolver>();
@@ -78,7 +86,19 @@ public static class ServiceLocator
             })
             .Build();
 
+        _host = host;
         _provider = host.Services;
+    }
+
+    /// <summary>Stops monitoring and releases desktop resources when the shell closes.</summary>
+    public static void Shutdown()
+    {
+        try { _provider?.GetService<IMonitorControlService>()?.Stop(); }
+        finally
+        {
+            try { _host?.Dispose(); }
+            finally { _host = null; _provider = null; }
+        }
     }
 
     public static T GetRequiredService<T>() where T : notnull

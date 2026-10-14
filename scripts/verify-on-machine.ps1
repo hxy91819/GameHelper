@@ -2,12 +2,12 @@
 #
 # 前置条件：
 #   - 用户可能正开着 GameHelper 实例（快捷方式指向 publish 目录），绝不能停止或杀死它。
-#   - 发布目录可能被运行实例锁定，因此先发布到独立临时目录，再尝试镜像覆盖 publish 目录。
+#   - 发布目录可能被运行实例锁定，因此先发布到独立临时目录，再尝试整体替换 publish 目录。
 #
 # 步骤：
 #   1. dotnet publish 到独立临时目录（不被运行实例锁定）。
 #   2. 启动独立测试实例（GAMEHELPER_DATA_DIR 沙盒 + 禁用单实例互斥），执行实机验证命令。
-#   3. 验证通过后，尝试把新产物镜像覆盖到快捷方式指向的 publish 目录；
+#   3. 验证通过后，尝试把新产物目录整体替换到快捷方式指向的 publish 目录；
 #      若文件被运行实例锁定，保留临时产物并提示用户下次启动前重试。
 #
 # 用法：
@@ -104,7 +104,8 @@ try {
         # would fail or yank files from under it. Detect by process path, not by probing the
         # directory (the directory itself stays writable while the exe is locked).
         $runningInstances = @(Get-Process -Name GameHelper.ConsoleHost -ErrorAction SilentlyContinue | Where-Object {
-            $_.Path -eq (Join-Path $publishDir "GameHelper.ConsoleHost.exe")
+            # An elevated instance may hide its path from this verifier. Preserve it conservatively.
+            [string]::IsNullOrWhiteSpace($_.Path) -or $_.Path -eq (Join-Path $publishDir "GameHelper.ConsoleHost.exe")
         })
 
         if ($runningInstances.Count -gt 0) {
@@ -133,8 +134,8 @@ try {
         }
     }
     else {
-        New-Item -ItemType Directory -Path $publishDir -Force | Out-Null
-        Copy-Item -Path (Join-Path $tempPublish "*") -Destination $publishDir -Recurse -Force
+        New-Item -ItemType Directory -Path (Split-Path -Parent $publishDir) -Force | Out-Null
+        Move-Item -LiteralPath $tempPublish -Destination $publishDir
         $deployed = $true
     }
 }

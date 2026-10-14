@@ -1,4 +1,5 @@
 using System.IO;
+using GameHelper.Core.Utilities;
 using GameHelper.WinUI.Services;
 using Microsoft.UI.Xaml;
 
@@ -12,8 +13,7 @@ public partial class App : Application
     public App()
     {
         _logPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "GameHelper",
+            AppDataPath.GetGameHelperDirectory(),
             "winui-errors.log");
 
         InitializeComponent();

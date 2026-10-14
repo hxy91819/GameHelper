@@ -348,6 +348,57 @@ public sealed class CoreApplicationServicesTests
     }
 
     [Fact]
+    public void StatisticsService_GetSessionActivityPreview_ShouldOrderByLastPlayedThenTotalMinutes()
+    {
+        var provider = new FakeGameConfiguration(new AppConfig
+        {
+            Games =
+            [
+                new() { DataKey = "recent-short", Executable = "recent-short.exe", DisplayName = "Recent Short" },
+                new() { DataKey = "middle-long", Executable = "middle-long.exe", DisplayName = "Middle Long" },
+                new() { DataKey = "oldest", Executable = "oldest.exe", DisplayName = "Oldest" }
+            ]
+        });
+
+        var today = DateTime.Now.Date;
+        var snapshot = new FakePlaytimeSnapshotProvider
+        {
+            Records = new List<GamePlaytimeRecord>
+            {
+                // 最近游玩时间最晚但总时长最短 → 应排第一
+                new()
+                {
+                    GameName = "recent-short",
+                    Sessions = { new PlaySession("recent-short", today.AddHours(-3), today.AddHours(-2), TimeSpan.FromHours(1), 60) }
+                },
+                // 最近游玩时间居中但总时长最长 → 应排第二
+                new()
+                {
+                    GameName = "middle-long",
+                    Sessions =
+                    {
+                        new PlaySession("middle-long", today.AddDays(-2).AddHours(20), today.AddDays(-2).AddHours(23), TimeSpan.FromHours(3), 180),
+                        new PlaySession("middle-long", today.AddDays(-3).AddHours(20), today.AddDays(-3).AddHours(23), TimeSpan.FromHours(3), 180)
+                    }
+                },
+                // 最近游玩时间最早 → 应排最后
+                new()
+                {
+                    GameName = "oldest",
+                    Sessions = { new PlaySession("oldest", today.AddDays(-5).AddHours(20), today.AddDays(-5).AddHours(21), TimeSpan.FromHours(1), 60) }
+                }
+            }
+        };
+
+        var service = new StatisticsService(snapshot, provider);
+        var preview = service.GetSessionActivityPreview();
+
+        Assert.Equal(
+            new[] { "recent-short", "middle-long", "oldest" },
+            preview.Games.Select(game => game.GameName).ToArray());
+    }
+
+    [Fact]
     public void StatisticsService_GetSessionActivityPreview_ShouldReturnEmptyGames_WhenAllSessionsOutOfWindow()
     {
         var provider = new FakeGameConfiguration(new AppConfig

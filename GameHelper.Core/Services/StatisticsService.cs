@@ -148,8 +148,8 @@ public sealed class StatisticsService : IStatisticsService
 
         return new SessionActivityPreview(
             games.Values
-                .OrderByDescending(item => item.TotalMinutes)
-                .ThenByDescending(item => item.LastEnd)
+                .OrderByDescending(item => item.LastEnd)
+                .ThenByDescending(item => item.TotalMinutes)
                 .ToList(),
             dailyTrend,
             windowSessionCount,

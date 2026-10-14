@@ -42,6 +42,10 @@ public sealed class ConsoleHostBootstrapperTests : IDisposable
         AssertRegistered<IMonitorControlService>(services);
         AssertRegistered<ISettingsService>(services);
         AssertRegistered<IGameCatalogService>(services);
+        AssertRegistered<IGameSpeedController>(services);
+        AssertRegistered<IForegroundActivityProvider>(services);
+        AssertRegistered<IBreakReminderNotifier>(services);
+        AssertRegistered<IBreakReminderService>(services);
         AssertRegistered<IStatisticsService>(services);
         AssertRegistered<FileDropIntake>(services);
         AssertRegistered<IFileDropIpcServer>(services);

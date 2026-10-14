@@ -50,6 +50,14 @@ namespace GameHelper.Tests
         }
     }
 
+    file sealed class FakeSpeedController : IGameSpeedController
+    {
+        public List<(int ProcessId, double Speed)> Applied { get; } = new();
+
+        public void ApplySpeed(int processId, double speedMultiplier) =>
+            Applied.Add((processId, speedMultiplier));
+    }
+
     file sealed class FakePlayTimeWithDuration : IPlayTimeService
     {
         private readonly DateTime _startTime;
@@ -106,7 +114,8 @@ namespace GameHelper.Tests
             Games = source.Games.Select(CloneGame).ToList(),
             ProcessMonitorType = source.ProcessMonitorType,
             AutoStartInteractiveMonitor = source.AutoStartInteractiveMonitor,
-            LaunchOnSystemStartup = source.LaunchOnSystemStartup
+            LaunchOnSystemStartup = source.LaunchOnSystemStartup,
+            CheatEngine = source.CheatEngine
         };
 
         private static CoreGameConfig CloneGame(CoreGameConfig game) => new()
@@ -115,7 +124,8 @@ namespace GameHelper.Tests
             Executable = game.Executable,
             DisplayName = game.DisplayName,
             IsEnabled = game.IsEnabled,
-            HdrEnabled = game.HdrEnabled
+            HdrEnabled = game.HdrEnabled,
+            SpeedMultiplier = game.SpeedMultiplier
         };
     }
 
@@ -158,7 +168,8 @@ namespace GameHelper.Tests
                 Executable = game.Executable,
                 DisplayName = game.DisplayName,
                 IsEnabled = game.IsEnabled,
-                HdrEnabled = game.HdrEnabled
+                HdrEnabled = game.HdrEnabled,
+                SpeedMultiplier = game.SpeedMultiplier
             }).ToList());
         }
     }
@@ -205,6 +216,35 @@ namespace GameHelper.Tests
             Assert.Equal(1, play.StopCalls);
             Assert.Equal(1, hdr.DisableCalls);
             Assert.False(hdr.IsEnabled);
+        }
+
+        [Fact]
+        public void ConfiguredSpeed_AppliesOnceForFirstMatchedProcess()
+        {
+            var monitor = new FakeMonitor();
+            var config = new CoreGameConfig
+            {
+                DataKey = "game",
+                Executable = "game.exe",
+                IsEnabled = true,
+                SpeedMultiplier = 2.5
+            };
+            var speed = new FakeSpeedController();
+            var service = new GameAutomationService(
+                monitor,
+                new FakeConfig(new Dictionary<string, CoreGameConfig> { ["game"] = config }),
+                new FakeHdr(),
+                new FakePlayTime(),
+                NullLogger<GameAutomationService>.Instance,
+                speedController: speed);
+
+            service.Start();
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 1234));
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 5678));
+
+            var applied = Assert.Single(speed.Applied);
+            Assert.Equal(1234, applied.ProcessId);
+            Assert.Equal(2.5, applied.Speed);
         }
 
         [Fact]

@@ -117,6 +117,7 @@ namespace GameHelper.Infrastructure.Providers
 
         private AppConfig Normalize(AppConfig appConfig, bool forSave = false)
         {
+            if (forSave) appConfig.BreakReminder?.Validate();
             var normalizedGames = new List<GameConfig>();
             foreach (var source in appConfig.Games ?? Enumerable.Empty<GameConfig>())
             {
@@ -191,11 +192,23 @@ namespace GameHelper.Infrastructure.Providers
                 ProcessMonitorType = storedConfig.Monitor ?? ProcessMonitorType.ETW,
                 AutoStartInteractiveMonitor = storedConfig.Startup?.AutoStartMonitor ?? false,
                 LaunchOnSystemStartup = storedConfig.Startup?.LaunchOnStartup ?? false,
+                CheatEngine = ToCheatEngineSettings(storedConfig.CheatEngine),
+                BreakReminder = storedConfig.BreakReminder,
                 SyncSettings = ToSyncSettings(storedConfig.Sync),
                 Games = storedConfig.Games?
                     .Select(ToGameConfig)
                     .ToList() ?? new List<GameConfig>()
             };
+        }
+
+        private static CheatEngineSettings? ToCheatEngineSettings(StoredCheatEngineConfig? cheatEngine)
+        {
+            if (cheatEngine is null || string.IsNullOrWhiteSpace(cheatEngine.Executable))
+            {
+                return null;
+            }
+
+            return new CheatEngineSettings { Executable = cheatEngine.Executable.Trim() };
         }
 
         private static SyncSettings? ToSyncSettings(StoredSyncConfig? sync)
@@ -229,7 +242,8 @@ namespace GameHelper.Infrastructure.Providers
             Executable = storedGameConfig.Executable,
             DisplayName = storedGameConfig.DisplayName,
             IsEnabled = storedGameConfig.Enabled ?? true,
-            HdrEnabled = storedGameConfig.Hdr ?? false
+            HdrEnabled = storedGameConfig.Hdr ?? false,
+            SpeedMultiplier = storedGameConfig.Speed
         };
 
         private static StoredAppConfig ToStoredAppConfig(AppConfig appConfig) => new()
@@ -240,12 +254,22 @@ namespace GameHelper.Infrastructure.Providers
                 AutoStartMonitor = appConfig.AutoStartInteractiveMonitor,
                 LaunchOnStartup = appConfig.LaunchOnSystemStartup
             },
+            CheatEngine = ToStoredCheatEngine(appConfig.CheatEngine),
+            BreakReminder = appConfig.BreakReminder,
             Sync = ToStoredSync(appConfig.SyncSettings),
             Games = appConfig.Games
                 .Select(ToStoredGameConfig)
                 .OrderBy(game => game.DataKey, StringComparer.OrdinalIgnoreCase)
                 .ToList()
         };
+
+        private static StoredCheatEngineConfig? ToStoredCheatEngine(CheatEngineSettings? cheatEngine)
+        {
+            var executable = cheatEngine?.Executable?.Trim();
+            return string.IsNullOrWhiteSpace(executable)
+                ? null
+                : new StoredCheatEngineConfig { Executable = executable };
+        }
 
         private static StoredSyncConfig? ToStoredSync(SyncSettings? sync)
         {
@@ -274,7 +298,8 @@ namespace GameHelper.Infrastructure.Providers
             Executable = gameConfig.Executable,
             DisplayName = gameConfig.DisplayName,
             Enabled = gameConfig.IsEnabled,
-            Hdr = gameConfig.HdrEnabled
+            Hdr = gameConfig.HdrEnabled,
+            Speed = gameConfig.SpeedMultiplier
         };
 
         private sealed class StoredAppConfig
@@ -283,9 +308,18 @@ namespace GameHelper.Infrastructure.Providers
 
             public StoredStartupConfig? Startup { get; set; }
 
+            public StoredCheatEngineConfig? CheatEngine { get; set; }
+
+            public BreakReminderSettings? BreakReminder { get; set; }
+
             public StoredSyncConfig? Sync { get; set; }
 
             public List<StoredGameConfig>? Games { get; set; }
+        }
+
+        private sealed class StoredCheatEngineConfig
+        {
+            public string? Executable { get; set; }
         }
 
         private sealed class StoredStartupConfig
@@ -327,6 +361,8 @@ namespace GameHelper.Infrastructure.Providers
             public bool? Enabled { get; set; }
 
             public bool? Hdr { get; set; }
+
+            public double? Speed { get; set; }
         }
     }
 }

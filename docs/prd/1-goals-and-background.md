@@ -15,4 +15,3 @@ These goals are implemented and are now maintained as baseline behaviour. Histor
 ## Deferred
 
 - Monitor pre-filtering remains a performance optimization, not a correctness dependency.
-- Speed-control work remains a separate proposal under `docs/plans/`.

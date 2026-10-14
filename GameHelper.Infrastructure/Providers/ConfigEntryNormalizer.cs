@@ -54,7 +54,7 @@ internal static class ConfigEntryNormalizer
             return null;
         }
 
-        return CreateNormalized(source, dataKey, executable, displayName);
+        return CreateNormalized(source, dataKey, executable, displayName, logger, rejectInvalidSpeed: false);
     }
 
     public static GameConfig NormalizeForSave(GameConfig source, ILogger? logger = null)
@@ -77,7 +77,7 @@ internal static class ConfigEntryNormalizer
         }
 
         var displayName = (source.DisplayName ?? string.Empty).Trim();
-        return CreateNormalized(source, dataKey, executable, displayName);
+        return CreateNormalized(source, dataKey, executable, displayName, logger, rejectInvalidSpeed: true);
     }
 
     public static void RepairDuplicateDataKeys(IReadOnlyList<GameConfig> configs, ILogger? logger = null, string? logContext = null)
@@ -99,15 +99,35 @@ internal static class ConfigEntryNormalizer
         GameConfig source,
         string dataKey,
         string executable,
-        string displayName)
+        string displayName,
+        ILogger? logger,
+        bool rejectInvalidSpeed)
     {
+        var speedMultiplier = source.SpeedMultiplier;
+        if (speedMultiplier.HasValue &&
+            (!double.IsFinite(speedMultiplier.Value) || speedMultiplier.Value <= 0))
+        {
+            if (rejectInvalidSpeed)
+            {
+                throw new InvalidDataException(
+                    $"Cannot save config entry '{dataKey}' with speed '{speedMultiplier.Value}'. Speed must be greater than zero.");
+            }
+
+            logger?.LogWarning(
+                "Ignore invalid speed {Speed} for config entry '{DataKey}'; speed must be greater than zero.",
+                speedMultiplier.Value,
+                dataKey);
+            speedMultiplier = null;
+        }
+
         return new GameConfig
         {
             DataKey = dataKey,
             Executable = executable,
             DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
             IsEnabled = source.IsEnabled,
-            HdrEnabled = source.HdrEnabled
+            HdrEnabled = source.HdrEnabled,
+            SpeedMultiplier = speedMultiplier
         };
     }
 }

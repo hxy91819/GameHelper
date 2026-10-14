@@ -6,6 +6,8 @@
 
 - [Architecture](./architecture/index.md): current repository design, module seams, dependency direction, and testing strategy.
 - [CLI Guide](./guides/cli.md): user-facing command-line usage.
+- [Game Speed](./guides/game-speed.md): per-game Cheat Engine speed configuration and safety boundary.
+- [Break Reminder](./guides/break-reminder.md): foreground gaming time, continuous breaks, and system notifications.
 - [PRD](./prd/index.md): product goals and current scope.
 - [Refactor Safety Plan](./refactor-safety.md): decisions and test gaps for the current large refactor.
 - [Plans](./plans/index.md): only active, not-yet-landed proposals.

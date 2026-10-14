@@ -19,4 +19,9 @@ public sealed record GameCatalogIntakeRequest
     /// Explicit HDR choice. When omitted for an existing entry, its current choice is preserved.
     /// </summary>
     public bool? HdrEnabled { get; init; }
+
+    /// <summary>
+    /// Explicit speed choice. When omitted for an existing entry, its current choice is preserved.
+    /// </summary>
+    public double? SpeedMultiplier { get; init; }
 }

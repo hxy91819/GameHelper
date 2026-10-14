@@ -11,6 +11,10 @@ ETW 内核会话可能在 GameHelper 仍运行时被外部停止。事件处理�
 - 未收到启动事件的进程不自动补造会话；完全发生于观察空窗内的启动/退出无法还原。本机制也不会修改历史上已经丢失的会话。
 - 连续恢复失败会输出 `process monitoring is DOWN` 错误。用户可以停止后重新启动监控；GameHelper 不会自动重启用户实例。
 
+## 进程身份与事件名
+
+内核 ProcessStart/ProcessStop 事件的 payload 只有一个 ANSI 截断的映像名（`ImageFileName`），没有全路径；经 TraceEvent 解码后非 ASCII 文件名（如中文 exe）会变成不可逆的乱码。ETW 监视器的候选名门在名字和事件路径都不可用时，会用 `IProcessPathResolver` 按 PID 解析存活进程的完整路径并以其文件名过门，同时用解析结果替换下游事件的 ExecutableName/ExecutablePath。进程在启动事件到达前就已退出时会保持旧行为（丢弃事件），与"未收到启动事件的进程不自动补造会话"一致。非 ASCII 命名与 ASCII 命名游戏的端到端回归见 `EtwNonAsciiNamePlaytimeEndToEndTests`。
+
 ## 生命周期与隔离
 
 恢复属于当前一次启动请求。恢复退避期间再次调用 Start 不会另建竞争会话；Stop/Dispose 会取消恢复。随后重新 Start 会创建新的运行世代，旧恢复任务、旧读取线程和已经排队的旧定时器回调均不能影响新会话。
