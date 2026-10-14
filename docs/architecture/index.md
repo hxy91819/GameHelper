@@ -1,17 +1,16 @@
 # GameHelper Architecture
 
-GameHelper is a Windows-focused .NET 8 application for game process monitoring, playtime tracking, and configuration-driven automation. The repository has two shells over the same core behaviour: a console host and a WinUI desktop shell.
+GameHelper is a Windows-focused .NET 8 application for game process monitoring, playtime tracking, and configuration-driven automation. The repository has one shell over the core behaviour: the console host. A former WinUI desktop shell was removed and archived at tag `archive/winui`.
 
 ## System Shape
 
 ```text
-GameHelper.ConsoleHost    GameHelper.WinUI
-          |                    |
-          +--------+-----------+
-                   |
-             GameHelper.Core
-                   |
-         GameHelper.Infrastructure
+GameHelper.ConsoleHost
+          |
+          |
+    GameHelper.Core
+          |
+ GameHelper.Infrastructure
 ```
 
 - Shells own presentation, command routing, and desktop-specific user experience.
@@ -30,7 +29,7 @@ GameHelper.ConsoleHost    GameHelper.WinUI
 
 ## Key Modules And Seams
 
-Foreground break reminders have a separate in-memory clock from persisted process-session playtime. `GameProcessMatcher` provides read-only classification shared with automation. `BreakReminderService` uses `TimeProvider`, a foreground activity provider, and a notification seam; automation start/stop/reload drives its lifecycle. Sampling is serialized, matching caches include process creation identity and expire on configuration reload, and unavailable observations cannot establish a completed break. The Windows adapter checks the input desktop and compares uptime with unbiased interrupt time to exclude suspend intervals. Native system notifications own a background message loop and transient tray icons, released on reset and shutdown. Both shells register the same services; WinUI disposes its host on window close. See [Break Reminder](../guides/break-reminder.md).
+Foreground break reminders have a separate in-memory clock from persisted process-session playtime. `GameProcessMatcher` provides read-only classification shared with automation. `BreakReminderService` uses `TimeProvider`, a foreground activity provider, and a notification seam; automation start/stop/reload drives its lifecycle. Sampling is serialized, matching caches include process creation identity and expire on configuration reload, and unavailable observations cannot establish a completed break. The Windows adapter checks the input desktop and compares uptime with unbiased interrupt time to exclude suspend intervals. Native system notifications own a background message loop and transient tray icons, released on reset and shutdown. ConsoleHost registers these services when it composes automation. See [Break Reminder](../guides/break-reminder.md).
 
 ETW recovery owns a serialized lifecycle and process identity reconciliation, with an internal OS session/query boundary for deterministic testing. See [ETW recovery behaviour](../guides/etw-recovery.md) for timing, cancellation, isolation, and known observation gaps.
 
@@ -41,7 +40,7 @@ ETW recovery owns a serialized lifecycle and process identity reconciliation, wi
 - **File-drop Intake module**: Console file drops are validated, resolved, batch-committed through Game Catalog Intake, and followed by one automation reload. It uses explicit dependencies and does not construct storage or catalog implementations itself.
 - **Automation module**: `GameAutomationService` coordinates matching, session tracking, playtime, HDR, optional speed control, and stop-event control.
 - **Stats sync module**: `ISyncService`/`SyncService` own interval debouncing, mtime-based dirty checks, content hashing, and state persistence; `IStatsUploadChannel` implementations (git.exe runner and GitHub Git Data API client, both in Infrastructure) only write inside the configured remote subdirectory.
-- **Shell modules**: CLI commands and WinUI view models should call core services rather than duplicate domain logic; interactive shell composition lives in a dedicated module so routing stays separate from module construction.
+- **Shell modules**: CLI commands should call core services rather than duplicate domain logic; interactive shell composition lives in a dedicated module so routing stays separate from module construction.
 
 ## Persistence Model
 
@@ -67,6 +66,5 @@ dotnet test GameHelper.sln
 - [Encoding](./encoding.md)
 - [Tech Stack](./tech-stack.md)
 - [Dependency Direction Rules](./dependency-direction.md)
-- [WinUI Shell Design](./ui-shell-design.md)
 
-Historical brownfield architecture chapters are archived under `docs/archives/architecture/brownfield/`.
+Historical brownfield architecture chapters are archived under `docs/archives/architecture/brownfield/`; the retired WinUI shell design lives at `docs/archives/architecture/ui-shell-design.md`.

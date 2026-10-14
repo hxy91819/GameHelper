@@ -9,12 +9,11 @@
 
 ## Repository Overview
 - GameHelper is a .NET 8.0 solution for Windows game monitoring and playtime management.
-- Main shells are `GameHelper.ConsoleHost` and `GameHelper.WinUI`.
+- Main shell is `GameHelper.ConsoleHost`; the former `GameHelper.WinUI` shell was removed and archived at tag `archive/winui`.
 - Shared logic lives in `GameHelper.Core` and `GameHelper.Infrastructure`.
 
 ## Project Layout
 - `GameHelper.ConsoleHost/`: Entry-point console application exposing CLI commands.
-- `GameHelper.WinUI/`: WinUI shell that reuses the same core services.
 - `GameHelper.Core/`: Core abstractions, domain logic, and shared utilities.
 - `GameHelper.Infrastructure/`: Concrete infrastructure (process monitors, configuration, HDR control stubs, persistence helpers).
 - `GameHelper.Tests/`: xUnit-based unit and integration tests covering the solution.

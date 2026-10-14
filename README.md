@@ -1,6 +1,6 @@
 ﻿# GameHelper
 
-GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、游戏时长统计和 YAML 配置管理，并同时提供 CLI 与 WinUI 两个入口。
+GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、游戏时长统计和 YAML 配置管理，通过 CLI 入口使用。原 WinUI 桌面入口已停止维护并移出仓库，代码备份在 tag `archive/winui`。
 
 `README.md` 的职责是：
 - 指导用户如何安装、运行和使用项目。
@@ -15,7 +15,7 @@ GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、
 - 项目仅支持 Windows，开发、测试和 CI 均以 Windows 为准；不提供 Linux/macOS 兼容性支持。
 - Windows 10 (19041+) / Windows 11
 - .NET 8 SDK（当前仓库通过 `global.json` 锁定 `8.0.417`，允许 `latestPatch` 滚动）
-- （仅 WinUI 运行）Windows App SDK 1.6+（当前项目引用 `Microsoft.WindowsAppSDK` `1.6.250205002`）
+- 使用 Cheat Engine 变速时需本机安装 Cheat Engine（仅离线单机游戏）
 
 ### 常用 CLI 命令
 
@@ -93,12 +93,6 @@ dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release
 
 该脚本会发布 ConsoleHost，并用临时 YAML 配置运行发布目录中的 `validate-config` 和 `config list`，用于提前发现发布产物缺文件、嵌入资源异常或配置解析失败。
 
-### 发布 WinUI
-
-```powershell
-dotnet publish .\GameHelper.WinUI -p:PublishProfile=WinUI-SelfContained
-```
-
 ## 配置文件
 
 ### 连续游戏休息提醒
@@ -147,7 +141,6 @@ CLI `config add` 可接收可执行文件名或 `.exe` 路径。传入路径时�
 - 完整路径只在候选进程需要路径消歧时解析；非候选进程不会触发路径查询、WMI 详情查询、ProductName 读取或模糊匹配。
 
 ## 项目结构
-- `GameHelper.WinUI`：WinUI 桌面入口
 - `GameHelper.ConsoleHost`：CLI 入口
 - `GameHelper.Core`：核心模型与业务逻辑
 - `GameHelper.Infrastructure`：平台集成与持久化

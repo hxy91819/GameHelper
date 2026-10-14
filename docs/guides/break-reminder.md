@@ -1,6 +1,6 @@
 # 连续游戏休息提醒
 
-ConsoleHost 和 WinUI 在启动监控后，可以按游戏处于前台的时间提醒休息。先把游戏加入配置并保持 `enabled: true`，再在 `config.yml` 添加：
+ConsoleHost 在启动监控后，可以按游戏处于前台的时间提醒休息。先把游戏加入配置并保持 `enabled: true`，再在 `config.yml` 添加：
 
 ```yaml
 breakReminder:

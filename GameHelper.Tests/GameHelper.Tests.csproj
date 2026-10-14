@@ -5,7 +5,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
-    <EnableWinUITests Condition="'$(EnableWinUITests)' == ''">false</EnableWinUITests>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,16 +29,6 @@
 
   <ItemGroup>
     <Compile Remove="GamePlayTimeManagerTests.cs" />
-    <Compile Remove="WinUiViewModelTests.cs" />
-    <Compile Remove="Desktop/**/*.cs" />
-  </ItemGroup>
-
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(EnableWinUITests)' == 'true'">
-    <PackageReference Include="FlaUI.Core" Version="5.0.0" />
-    <PackageReference Include="FlaUI.UIA3" Version="5.0.0" />
-    <ProjectReference Include="..\GameHelper.WinUI\GameHelper.WinUI.csproj" />
-    <Compile Include="WinUiViewModelTests.cs" />
-    <Compile Include="Desktop/**/*.cs" />
   </ItemGroup>
 
 </Project>

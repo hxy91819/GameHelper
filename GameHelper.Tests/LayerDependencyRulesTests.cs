@@ -12,7 +12,6 @@ public sealed class LayerDependencyRulesTests
         var references = ReadProjectReferences(coreProjectPath);
 
         Assert.DoesNotContain(references, reference => reference.Contains("GameHelper.ConsoleHost", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(references, reference => reference.Contains("GameHelper.WinUI", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(references, reference => reference.Contains("GameHelper.Web", StringComparison.OrdinalIgnoreCase));
     }
 

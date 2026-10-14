@@ -43,7 +43,7 @@ CI runs the same script on Windows to publish ConsoleHost and execute the publis
 
 - WMI and ETW integration tests are Windows-only.
 - ETW tests that require administrator privileges should skip or self-report when not elevated.
-- WinUI desktop smoke tests are opt-in through the existing test project settings.
+- Former WinUI desktop smoke/FlaUI suites were removed with the shell; they remain recoverable at tag `archive/winui`.
 
 ## Known Gaps
 

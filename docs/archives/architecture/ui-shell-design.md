@@ -1,5 +1,7 @@
 # GameHelper WinUI 设计说明
 
+> **已归档**：WinUI 壳层已移出仓库并停止维护，代码备份于 tag `archive/winui`。本文仅作历史设计参考。
+
 本文档替代旧 Web UI 设计文档，描述 WinUI 3 壳层的界面约束与自动化约束。
 
 ## 页面结构
