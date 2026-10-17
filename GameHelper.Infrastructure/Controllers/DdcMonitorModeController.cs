@@ -428,8 +428,15 @@ public sealed class DdcMonitorModeController : IMonitorModeController
                     monitorHandles[index] = Marshal.ReadIntPtr(buffer, index * slotSize);
                 }
 
-                var description = Marshal.PtrToStringUni(buffer + IntPtr.Size, PhysicalMonitorDescriptionLength)
-                    ?.TrimEnd('\0').Trim() ?? string.Empty;
+                var slotChars = new char[PhysicalMonitorDescriptionLength];
+                for (var charIndex = 0; charIndex < slotChars.Length; charIndex++)
+                {
+                    slotChars[charIndex] = (char)Marshal.ReadInt16(buffer, IntPtr.Size + charIndex * 2);
+                }
+
+                var description = new string(slotChars);
+                var terminator = description.IndexOf('\0');
+                description = (terminator >= 0 ? description[..terminator] : description).Trim();
 
                 if (monitorHandles[0] == IntPtr.Zero)
                 {

@@ -44,15 +44,13 @@ public sealed class MonitorModeScheduler
             return;
         }
 
-        var reasons = isDaylight
+        var reason = isDaylight
             ? (anyGameActive ? "daylight with an active game" : "daylight without an active game")
             : "after sunset";
         logger.LogInformation(
             "Switching monitor preset to {Mode} ({Reason}); writing DDC/CI recipe {Recipe}.",
             desiredMode,
-            anyGameActive,
-            isDaylight,
-            reasons,
+            reason,
             string.Join(", ", targetWrites));
 
         controller.Apply(targetWrites);
