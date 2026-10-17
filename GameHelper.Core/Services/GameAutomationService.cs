@@ -31,7 +31,10 @@ public sealed class GameAutomationService : IGameAutomationService
     private readonly ILocationCacheStore? _locationCacheStore;
     private readonly MonitorModeScheduler _monitorModeScheduler = new();
     private MonitorModePlan? _monitorModePlan;
+    private MonitorModeSettings? _monitorModeSettings;
     private UserCoordinate? _monitorModeCoordinates;
+    private int _locationBootstrapInFlight;
+    private int _locationBootstrapKickTick;
     private Timer? _monitorModeTimer;
     private bool? _lastMonitorModeAnyGameActive;
     private bool? _lastMonitorModeDaylight;
@@ -96,23 +99,11 @@ public sealed class GameAutomationService : IGameAutomationService
             {
                 try
                 {
-                    _monitorModeTimer = new Timer(OnMonitorModeTick, null, TimeSpan.FromSeconds(15), TimeSpan.FromMinutes(1));
+                    _monitorModeTimer = new Timer(OnMonitorModeTick, null, TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(1));
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to start the monitor mode timer; preset switching will only follow game events.");
-                }
-            }
-
-            if (_monitorModePlan is not null && NeedsAutoLocation(configuration.MonitorMode) && _locationCacheStore is not null)
-            {
-                try
-                {
-                    _ = Task.Run(() => BootstrapMonitorModeLocation(configuration.MonitorMode!));
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to kick off the monitor mode location bootstrap; the daylight window falls back to fixed times.");
                 }
             }
 
@@ -374,6 +365,7 @@ public sealed class GameAutomationService : IGameAutomationService
     private AppConfig LoadAndBuildIndexes()
     {
         var configuration = _gameConfiguration.Read();
+        _monitorModeSettings = configuration.MonitorMode;
         _monitorModePlan = MonitorModePlan.TryCreate(configuration.MonitorMode, _logger, ResolveMonitorModeCoordinates);
         var configs = (configuration.Games ?? new List<GameConfig>())
             .Where(static config => !string.IsNullOrWhiteSpace(config.DataKey))
@@ -431,6 +423,31 @@ public sealed class GameAutomationService : IGameAutomationService
 
             anyGameActive = _sessionTracker.ActiveCount > 0;
             var daylight = plan.Daylight.IsDaylight(DateTimeOffset.Now);
+
+            // location=auto 且还没有坐标时，随 tick 自愈式重试坐标引导：
+            // 用户事后在系统设置里打开“定位”无需重启即可拿到日出日落判定。
+            if (NeedsAutoLocation(_monitorModeSettings)
+                && !_monitorModeCoordinates.HasValue
+                && _locationCacheStore is not null
+                && _locationSource is not null)
+            {
+                var nowTickCount = Environment.TickCount;
+                if (Interlocked.CompareExchange(ref _locationBootstrapInFlight, 1, 0) == 0
+                    && unchecked(nowTickCount - _locationBootstrapKickTick) >= LocationBootstrapKickCooldownMs)
+                {
+                    _locationBootstrapKickTick = nowTickCount;
+                    var settingsSnapshot = _monitorModeSettings!;
+                    try
+                    {
+                        _ = Task.Run(() => BootstrapMonitorModeLocation(settingsSnapshot));
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to kick off the monitor mode location bootstrap.");
+                        Interlocked.Exchange(ref _locationBootstrapInFlight, 0);
+                    }
+                }
+            }
 
             if (!forced
                 && _lastMonitorModeAnyGameActive == anyGameActive
@@ -659,87 +676,104 @@ public sealed class GameAutomationService : IGameAutomationService
     private void BootstrapMonitorModeLocation(MonitorModeSettings settings)
     {
         var cache = _locationCacheStore;
-        var source = _locationSource;
         if (cache is null)
         {
             return;
         }
 
-        var cached = cache.Load();
-        var stale = cached is null || (DateTime.Now - cached.UpdatedAt) > LocationCacheMaxAge;
-
-        UserCoordinate? live = null;
-        if (stale && source is not null)
-        {
-            try
-            {
-                live = source.TryGetLocation();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Automatic location failed during the monitor mode location bootstrap.");
-            }
-        }
-
-        UserCoordinate publish;
-        if (live is not null)
-        {
-            try
-            {
-                cache.Save(live.Value);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to persist the detected location; it will be re-detected next time.");
-            }
-
-            publish = live.Value;
-        }
-        else if (cached is not null)
-        {
-            if (stale)
-            {
-                _logger.LogInformation(
-                    "monitorMode location=auto could not refresh coordinates (cache age {Age}); using the cached coordinate.",
-                    DateTime.Now - cached.UpdatedAt);
-            }
-
-            publish = new UserCoordinate(cached.Latitude, cached.Longitude);
-        }
-        else
-        {
-            _logger.LogInformation(
-                "monitorMode location=auto obtained no coordinates (the system 'Location' switch is off or no fix); the daylight window falls back to daylightStart/daylightEnd, or set latitude/longitude manually.");
-            return;
-        }
-
-        lock (_stateLock)
-        {
-            _monitorModeCoordinates = publish;
-        }
-
         try
         {
-            ReloadConfig();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to rebuild the monitor mode plan after acquiring coordinates.");
-            return;
-        }
-
-        lock (_stateLock)
-        {
-            if (!_started)
+            lock (_stateLock)
             {
+                if (_monitorModeCoordinates.HasValue)
+                {
+                    return;
+                }
+            }
+
+            var cached = cache.Load();
+            var stale = cached is null || (DateTime.Now - cached.UpdatedAt) > LocationCacheMaxAge;
+
+            UserCoordinate? live = null;
+            if (stale && _locationSource is not null)
+            {
+                try
+                {
+                    live = _locationSource.TryGetLocation();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Automatic location failed during the monitor mode location bootstrap.");
+                }
+            }
+
+            UserCoordinate publish;
+            if (live is not null)
+            {
+                try
+                {
+                    cache.Save(live.Value);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to persist the detected location; it will be re-detected next time.");
+                }
+
+                publish = live.Value;
+            }
+            else if (cached is not null)
+            {
+                if (stale)
+                {
+                    _logger.LogInformation(
+                        "monitorMode location=auto could not refresh coordinates (cache age {Age}); using the cached coordinate.",
+                        DateTime.Now - cached.UpdatedAt);
+                }
+
+                publish = new UserCoordinate(cached.Latitude, cached.Longitude);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "monitorMode location=auto obtained no coordinates (the system 'Location' switch may still be off or no fix yet); daylight falls back to fixed times. Retrying every 60 seconds until coordinates are cached or latitude/longitude is set manually.");
                 return;
             }
-        }
 
-        UpdateMonitorModeState(forced: true);
+            lock (_stateLock)
+            {
+                _monitorModeCoordinates = publish;
+            }
+
+            try
+            {
+                ReloadConfig();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to rebuild the monitor mode plan after acquiring coordinates.");
+                return;
+            }
+
+            lock (_stateLock)
+            {
+                if (!_started)
+                {
+                    return;
+                }
+            }
+
+            UpdateMonitorModeState(forced: true);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _locationBootstrapInFlight, 0);
+        }
     }
 
     private static readonly TimeSpan LocationCacheMaxAge = TimeSpan.FromHours(24);
+
+    /// <summary>定位引导失败后的重试冷却（随监视模式 tick 自愈重试）。</summary>
+    private const int LocationBootstrapKickCooldownMs = 60_000;
 
     private bool IsPersistedProcessStillSame(InFlightSession session)
     {
