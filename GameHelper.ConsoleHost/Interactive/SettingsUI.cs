@@ -36,7 +36,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 }
                 actions.Add(SettingsAction.Back);
 
-                var title = "[bold green]全局设置[/]";
+                var title = "[bold green]Global settings[/]";
                 var prompt = new SelectionPrompt<SettingsAction>
                 {
                     PageSize = actions.Count
@@ -49,10 +49,10 @@ namespace GameHelper.ConsoleHost.Interactive
                     actions,
                     action => action switch
                     {
-                        SettingsAction.ToggleMonitorAutoStart => "⚡️  启动后自动进入实时监控",
-                        SettingsAction.ToggleLaunchOnStartup when _autoStartManager.IsSupported => "🖥️  设置开机自启动",
-                        SettingsAction.ToggleLaunchOnStartup => "🖥️  开机自启动（当前环境不支持）",
-                        SettingsAction.Back => "⬅️  返回上一级",
+                        SettingsAction.ToggleMonitorAutoStart => "⚡️  Auto-enter live monitor on startup",
+                        SettingsAction.ToggleLaunchOnStartup when _autoStartManager.IsSupported => "🖥️  Configure auto-start at login",
+                        SettingsAction.ToggleLaunchOnStartup => "🖥️  Auto-start at login (not supported in this environment)",
+                        SettingsAction.Back => "⬅️  Back",
                         _ => action.ToString()
                     },
                     title);
@@ -70,7 +70,7 @@ namespace GameHelper.ConsoleHost.Interactive
                         }
                         else
                         {
-                            _console.MarkupLine("[yellow]当前平台不支持开机自启动设置。[/]");
+                            _console.MarkupLine("[yellow]Auto-start at login is not supported on this platform.[/]");
                         }
                         break;
 
@@ -89,16 +89,16 @@ namespace GameHelper.ConsoleHost.Interactive
             }
             catch (Exception ex)
             {
-                _console.MarkupLine($"[red]加载全局配置失败：{Markup.Escape(ex.Message)}[/]");
+                _console.MarkupLine($"[red]Failed to load global config: {Markup.Escape(ex.Message)}[/]");
                 return;
             }
 
             var current = appConfig.AutoStartInteractiveMonitor;
-            var enableOption = current ? "保持自动启动" : "开启自动启动";
-            var disableOption = current ? "改为手动启动" : "保持手动启动";
+            var enableOption = current ? "Keep auto-start" : "Enable auto-start";
+            var disableOption = current ? "Switch to manual start" : "Keep manual start";
             var options = new[] { enableOption, disableOption };
 
-            var title = "启动后是否自动进入实时监控？";
+            var title = "Automatically enter live monitor after startup?";
             var prompt = new SelectionPrompt<string>();
             prompt.Title(title);
             prompt.AddChoices(options);
@@ -108,7 +108,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
             if (newValue == current)
             {
-                _console.MarkupLine("[grey]设置保持不变。[/]");
+                _console.MarkupLine("[grey]Setting left unchanged.[/]");
                 return;
             }
 
@@ -118,13 +118,13 @@ namespace GameHelper.ConsoleHost.Interactive
             {
                 await Task.Run(() => _gameConfiguration.Change(current => CopySettings(appConfig, current))).ConfigureAwait(false);
                 var resultMessage = newValue
-                    ? "[green]已更新：启动后将自动进入实时监控。[/]"
-                    : "[green]已更新：启动后需手动选择监控。[/]";
+                    ? "[green]Updated: live monitor will start automatically on launch.[/]"
+                    : "[green]Updated: monitor must be selected manually on launch.[/]";
                 _console.MarkupLine(resultMessage);
             }
             catch (Exception ex)
             {
-                _console.MarkupLine($"[red]保存配置失败：{Markup.Escape(ex.Message)}[/]");
+                _console.MarkupLine($"[red]Failed to save config: {Markup.Escape(ex.Message)}[/]");
             }
         }
 
@@ -132,7 +132,7 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             if (!_autoStartManager.IsSupported)
             {
-                _console.MarkupLine("[yellow]当前平台不支持开机自启动设置。[/]");
+                _console.MarkupLine("[yellow]Auto-start at login is not supported on this platform.[/]");
                 return;
             }
 
@@ -143,7 +143,7 @@ namespace GameHelper.ConsoleHost.Interactive
             }
             catch (Exception ex)
             {
-                _console.MarkupLine($"[red]加载全局配置失败：{Markup.Escape(ex.Message)}[/]");
+                _console.MarkupLine($"[red]Failed to load global config: {Markup.Escape(ex.Message)}[/]");
                 return;
             }
 
@@ -156,23 +156,23 @@ namespace GameHelper.ConsoleHost.Interactive
                 if (systemState.HasValue)
                 {
                     var status = systemState.Value
-                        ? "[green]系统当前已启用。[/]"
-                        : "[yellow]系统当前未启用。[/]";
+                        ? "[green]System is currently enabled.[/]"
+                        : "[yellow]System is currently not enabled.[/]";
 
                     if (systemState.Value != currentConfigValue)
                     {
-                        status += "[yellow]（与配置记录不一致）[/]";
+                        status += "[yellow](mismatch with config)[/]";
                     }
 
                     _console.MarkupLine(status);
                 }
             }
 
-            var enableOption = currentConfigValue ? "保持开机自启动" : "开启开机自启动";
-            var disableOption = currentConfigValue ? "关闭开机自启动" : "保持不开启";
+            var enableOption = currentConfigValue ? "Keep auto-start at login" : "Enable auto-start at login";
+            var disableOption = currentConfigValue ? "Disable auto-start at login" : "Keep disabled";
             var options = new[] { enableOption, disableOption };
 
-            var title = "是否在开机时自动启动 GameHelper？";
+            var title = "Start GameHelper automatically at login?";
             var prompt = new SelectionPrompt<string>();
             prompt.Title(title);
             prompt.AddChoices(options);
@@ -185,7 +185,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
             if (!needsSystemUpdate && !needsConfigUpdate)
             {
-                _console.MarkupLine("[grey]设置保持不变。[/]");
+                _console.MarkupLine("[grey]Setting left unchanged.[/]");
                 return;
             }
 
@@ -197,7 +197,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 }
                 catch (Exception ex)
                 {
-                    _console.MarkupLine($"[red]更新系统自启动设置失败：{Markup.Escape(ex.Message)}[/]");
+                    _console.MarkupLine($"[red]Failed to update system auto-start setting: {Markup.Escape(ex.Message)}[/]");
                     return;
                 }
             }
@@ -210,20 +210,20 @@ namespace GameHelper.ConsoleHost.Interactive
                 {
                     await Task.Run(() => _gameConfiguration.Change(current => CopySettings(appConfig, current))).ConfigureAwait(false);
                     var resultMessage = newValue
-                        ? "[green]已更新：开机时将自动启动 GameHelper。[/]"
-                        : "[green]已更新：开机时不会自动启动 GameHelper。[/]";
+                        ? "[green]Updated: GameHelper will start automatically at login.[/]"
+                        : "[green]Updated: GameHelper will not start automatically at login.[/]";
                     _console.MarkupLine(resultMessage);
                 }
                 catch (Exception ex)
                 {
-                    _console.MarkupLine($"[red]保存配置失败：{Markup.Escape(ex.Message)}[/]");
+                    _console.MarkupLine($"[red]Failed to save config: {Markup.Escape(ex.Message)}[/]");
                 }
             }
             else
             {
                 var ensureMessage = newValue
-                    ? "[green]已确保系统开机自启动处于开启状态。[/]"
-                    : "[green]已确保系统开机自启动处于关闭状态。[/]";
+                    ? "[green]System auto-start is now enabled.[/]"
+                    : "[green]System auto-start is now disabled.[/]";
                 _console.MarkupLine(ensureMessage);
             }
         }
@@ -236,7 +236,7 @@ namespace GameHelper.ConsoleHost.Interactive
             }
             catch (Exception ex)
             {
-                _console.MarkupLine($"[yellow]无法读取系统自启动状态：{Markup.Escape(ex.Message)}[/]");
+                _console.MarkupLine($"[yellow]Failed to read system auto-start state: {Markup.Escape(ex.Message)}[/]");
                 return null;
             }
         }

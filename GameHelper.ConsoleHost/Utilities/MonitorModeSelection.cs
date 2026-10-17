@@ -55,11 +55,11 @@ internal sealed class MonitorModeSelection
     {
         return Source switch
         {
-            MonitorModeSource.DryRun => "Dry-run（仅演练）",
-            MonitorModeSource.CommandLine => $"{MonitorType}（命令行指定）",
-            MonitorModeSource.Config => $"{MonitorType}（配置文件）",
-            MonitorModeSource.InvalidCommandLine => $"{MonitorType}（命令行无效，使用默认）",
-            _ => $"{MonitorType}（默认）"
+            MonitorModeSource.DryRun => "Dry-run (rehearsal only)",
+            MonitorModeSource.CommandLine => $"{MonitorType} (from command line)",
+            MonitorModeSource.Config => $"{MonitorType} (from config)",
+            MonitorModeSource.InvalidCommandLine => $"{MonitorType} (invalid command line, using default)",
+            _ => $"{MonitorType} (default)"
         };
     }
 }

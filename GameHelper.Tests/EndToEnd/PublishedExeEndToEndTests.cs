@@ -88,7 +88,7 @@ namespace GameHelper.Tests.EndToEnd
             Assert.Contains("1 h", result.Output);
 
             // 3. 独立实例证据：测试实例能与主实例共存（互斥被环境变量关闭 + 数据目录隔离）
-            Assert.DoesNotContain("检测到 GameHelper 已在运行", result.Output);
+            Assert.DoesNotContain("GameHelper is already running", result.Output);
         }
 
         private static ProcessResult RunTestInstance(string exePath, DataDirSandbox sandbox, string arguments)

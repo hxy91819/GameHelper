@@ -58,7 +58,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
             while (true)
             {
-                var inputPrompt = new TextPrompt<string>("请输入选项序号（直接输入数字或按 Enter 使用方向键）")
+                var inputPrompt = new TextPrompt<string>("Enter a choice number (type digits, or press Enter to use arrow keys)")
                     .AllowEmpty()
                     .DefaultValue(string.Empty);
 
@@ -77,7 +77,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     return entries[index - 1].Value;
                 }
 
-                _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
+                _console.MarkupLine("[red]Invalid number, please try again.[/]");
             }
         }
 
@@ -113,7 +113,7 @@ namespace GameHelper.ConsoleHost.Interactive
         public void WaitForMenuReturn()
         {
             _console.WriteLine();
-            var prompt = new TextPrompt<string>("[grey]按下 Enter 返回主菜单[/]")
+            var prompt = new TextPrompt<string>("[grey]Press Enter to return to the main menu[/]")
                 .AllowEmpty()
                 .DefaultValue(string.Empty);
             Prompt(prompt);
@@ -140,7 +140,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
                 _console.Write(grid);
                 _console.WriteLine();
-                _console.MarkupLine("[grey]直接输入序号即可选择；按 Enter 使用方向键。[/]");
+                _console.MarkupLine("[grey]Type a number to select directly; press Enter to use arrow keys.[/]");
             }
 
             _console.WriteLine();
@@ -179,7 +179,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
                     buffer.Clear();
                     deadline = null;
-                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
+                    _console.MarkupLine("[red]Invalid number, please try again.[/]");
                     continue;
                 }
 
@@ -220,7 +220,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
                     buffer.Clear();
                     deadline = null;
-                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
+                    _console.MarkupLine("[red]Invalid number, please try again.[/]");
                     continue;
                 }
 
@@ -246,13 +246,13 @@ namespace GameHelper.ConsoleHost.Interactive
 
                     buffer.Clear();
                     deadline = null;
-                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
+                    _console.MarkupLine("[red]Invalid number, please try again.[/]");
                     continue;
                 }
 
                 if (buffer.Length == 0 && keyInfo.KeyChar == '0')
                 {
-                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
+                    _console.MarkupLine("[red]Invalid number, please try again.[/]");
                     continue;
                 }
 
@@ -263,7 +263,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 {
                     buffer.Clear();
                     deadline = null;
-                    _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
+                    _console.MarkupLine("[red]Invalid number, please try again.[/]");
                     continue;
                 }
 
@@ -280,7 +280,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
                 buffer.Clear();
                 deadline = null;
-                _console.MarkupLine("[red]无效的序号，请重新输入。[/]");
+                _console.MarkupLine("[red]Invalid number, please try again.[/]");
             }
         }
 

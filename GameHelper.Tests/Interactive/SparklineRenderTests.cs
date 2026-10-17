@@ -49,7 +49,9 @@ namespace GameHelper.Tests.Interactive
         {
             var console = new TestConsole();
             console.Profile.Capabilities.Ansi = false;
-            console.Profile.Width = 100;
+            // 宽度对齐 InteractiveShellTests 的 120 列：英文状态行更长，
+            // 100 列会把 "(2→4 games)" 这类断言目标折行拆开。
+            console.Profile.Width = 120;
 
             var renderTask = Task.Run(() => console.Write(renderable));
             if (!renderTask.Wait(TimeSpan.FromSeconds(10)))
@@ -84,25 +86,25 @@ namespace GameHelper.Tests.Interactive
             // 趋势状态：前半窗 0..6 共 613min、后半窗 7..13 共 272min → 近 7 天较前 7 天 -56%
             //（(272-613)/613*100 = -55.63，四舍五入 -56）；半窗游戏数 1→1 款持平。
             Assert.Contains("█", out1);
-            Assert.Contains("每日游玩时长", out1);
+            Assert.Contains("Daily playtime", out1);
             Assert.Contains(preview.DailyTrend[0].Date.ToString("MM-dd", CultureInfo.InvariantCulture), out1);
             Assert.Contains(preview.DailyTrend[^1].Date.ToString("MM-dd", CultureInfo.InvariantCulture), out1);
-            Assert.Contains("↓ 时长减少", out1);
-            Assert.Contains("较前 7 天 -56%", out1);
-            Assert.Contains("→ 游戏数量持平", out1);
-            Assert.Contains("（1 款）", out1);
+            Assert.Contains("↓ Playtime down", out1);
+            Assert.Contains("-56% vs previous 7 days", out1);
+            Assert.Contains("→ Game count steady", out1);
+            Assert.Contains("(1 game)", out1);
 
             // 2. 表格单独入 Panel
-            var out2 = RenderWithTimeout(new Panel(table) { Header = new PanelHeader("历史记录预览"), Border = BoxBorder.Rounded }, "panel(table)");
+            var out2 = RenderWithTimeout(new Panel(table) { Header = new PanelHeader("History preview"), Border = BoxBorder.Rounded }, "panel(table)");
             _output.WriteLine("[2 panel]\n" + out2);
 
             // 3. 最终组合：Panel(table) + 直接输出多行 Markup（MonitorUI 实际路径）
             var console3 = new TestConsole();
             console3.Profile.Capabilities.Ansi = false;
-            console3.Profile.Width = 100;
+            console3.Profile.Width = 120;
             var renderTask = Task.Run(() =>
             {
-                console3.Write(new Panel(table) { Header = new PanelHeader("历史记录预览"), Border = BoxBorder.Rounded });
+                console3.Write(new Panel(table) { Header = new PanelHeader("History preview"), Border = BoxBorder.Rounded });
                 console3.Write(chart);
             });
             if (!renderTask.Wait(TimeSpan.FromSeconds(10)))
@@ -110,8 +112,8 @@ namespace GameHelper.Tests.Interactive
                 throw new TimeoutException("Rendering hung at step: final composition");
             }
             _output.WriteLine("[3 final]\n" + console3.Output);
-            Assert.Contains("历史记录预览", console3.Output);
-            Assert.Contains("近 14 天", console3.Output);
+            Assert.Contains("History preview", console3.Output);
+            Assert.Contains("last 14 days", console3.Output);
         }
 
         [Fact]
@@ -134,8 +136,8 @@ namespace GameHelper.Tests.Interactive
             var output = RenderWithTimeout(chart, "all-zero trend");
             Assert.Contains("0 min", output);
             // 全零窗口无趋势信号，两个状态都不显示。
-            Assert.DoesNotContain("较前", output);
-            Assert.DoesNotContain("游戏数量", output);
+            Assert.DoesNotContain("vs previous", output);
+            Assert.DoesNotContain("Game count", output);
         }
 
         [Fact]
@@ -157,10 +159,10 @@ namespace GameHelper.Tests.Interactive
             var chart = (IRenderable)chartMethod!.Invoke(null, new object[] { preview })!;
 
             var output = RenderWithTimeout(chart, "increasing trend");
-            Assert.Contains("↑ 时长增加", output);
-            Assert.Contains("较前 7 天 +500%", output);
-            Assert.Contains("↑ 游戏数量增加", output);
-            Assert.Contains("（2→4 款）", output);
+            Assert.Contains("↑ Playtime up", output);
+            Assert.Contains("+500% vs previous 7 days", output);
+            Assert.Contains("↑ Game count up", output);
+            Assert.Contains("(2→4 games)", output);
         }
 
         [Fact]
@@ -182,10 +184,10 @@ namespace GameHelper.Tests.Interactive
             var chart = (IRenderable)chartMethod!.Invoke(null, new object[] { preview })!;
 
             var output = RenderWithTimeout(chart, "flat duration, decreasing games");
-            Assert.Contains("→ 时长基本持平", output);
+            Assert.Contains("→ Playtime steady", output);
             Assert.DoesNotContain("%", output);
-            Assert.Contains("↓ 游戏数量减少", output);
-            Assert.Contains("（3→1 款）", output);
+            Assert.Contains("↓ Game count down", output);
+            Assert.Contains("(3→1 games)", output);
         }
     }
 }

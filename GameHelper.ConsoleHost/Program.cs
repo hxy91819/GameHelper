@@ -28,7 +28,7 @@ if (startupMode == StartupMode.ForwardFileDropToRunningInstance)
     }
     catch (Exception ex)
     {
-        FileDropHandler.TryShowMessageBox($"转发到运行中实例失败: {ex.Message}", "GameHelper");
+        FileDropHandler.TryShowMessageBox($"Failed to forward to the running instance: {ex.Message}", "GameHelper");
         Environment.Exit(1);
     }
 
@@ -37,7 +37,7 @@ if (startupMode == StartupMode.ForwardFileDropToRunningInstance)
 
 if (startupMode == StartupMode.ExitAlreadyRunning)
 {
-    Console.WriteLine("检测到 GameHelper 已在运行，请勿重复启动。");
+    Console.WriteLine("GameHelper is already running; please do not start it again.");
     return;
 }
 
@@ -109,8 +109,8 @@ static string FormatDropResponse(DropAddResponse response)
 {
     if (!response.Success)
     {
-        return $"添加失败: {response.Error}";
+        return $"Add failed: {response.Error}";
     }
 
-    return $"已完成添加/更新\nAdded={response.Added}, Updated={response.Updated}, Skipped={response.Skipped}\n配置: {response.ConfigPath}";
+    return $"Add/update completed\nAdded={response.Added}, Updated={response.Updated}, Skipped={response.Skipped}\nConfig: {response.ConfigPath}";
 }

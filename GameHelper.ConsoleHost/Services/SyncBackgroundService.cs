@@ -47,7 +47,7 @@ internal sealed class SyncBackgroundService : IHostedService, IDisposable
             _loopTask = Task.Run(() => RunLoopAsync(_cts.Token), CancellationToken.None);
             _started = true;
             _logger.LogInformation(
-                "统计自动推送已启动（首次检查延迟 {InitialDelay}，检查周期 {CheckInterval}）",
+                "Stats sync loop started (first check delay {InitialDelay}, check interval {CheckInterval})",
                 InitialDelay,
                 CheckInterval);
             return Task.CompletedTask;
@@ -86,7 +86,7 @@ internal sealed class SyncBackgroundService : IHostedService, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "统计推送循环停止时出现非致命错误");
+                _logger.LogDebug(ex, "Non-fatal error while stopping the stats sync loop");
             }
         }
 
@@ -116,7 +116,7 @@ internal sealed class SyncBackgroundService : IHostedService, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "统计推送循环出现未预期错误");
+                _logger.LogError(ex, "Unexpected error in the stats sync loop");
                 try
                 {
                     await Task.Delay(TimeSpan.FromMinutes(1), cancellationToken).ConfigureAwait(false);
@@ -135,13 +135,13 @@ internal sealed class SyncBackgroundService : IHostedService, IDisposable
         switch (outcome.Status)
         {
             case SyncOutcomeStatus.Uploaded:
-                _logger.LogInformation("统计自动推送完成：{CommitId}", outcome.CommitId ?? "(unknown)");
+                _logger.LogInformation("Stats sync completed: {CommitId}", outcome.CommitId ?? "(unknown)");
                 break;
             case SyncOutcomeStatus.Skipped:
-                _logger.LogDebug("统计自动推送跳过：{Detail}", outcome.Detail);
+                _logger.LogDebug("Stats sync skipped: {Detail}", outcome.Detail);
                 break;
             case SyncOutcomeStatus.Failed:
-                _logger.LogWarning("统计自动推送失败：{Error}", outcome.Error);
+                _logger.LogWarning("Stats sync failed: {Error}", outcome.Error);
                 break;
         }
     }

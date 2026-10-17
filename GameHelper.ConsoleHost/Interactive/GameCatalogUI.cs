@@ -53,7 +53,7 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             while (true)
             {
-                var title = "[bold green]配置管理[/]";
+                var title = "[bold green]Config management[/]";
                 var choices = Enum.GetValues<ConfigAction>();
                 var prompt = new SelectionPrompt<ConfigAction>
                 {
@@ -67,12 +67,12 @@ namespace GameHelper.ConsoleHost.Interactive
                     choices,
                     action => action switch
                     {
-                        ConfigAction.View => "📋  查看当前配置",
-                        ConfigAction.Add => "➕  添加新游戏",
-                        ConfigAction.ImportSteam => "🎮  扫描并导入 Steam 游戏",
-                        ConfigAction.Edit => "✏️  修改现有游戏",
-                        ConfigAction.Remove => "🗑  删除游戏",
-                        ConfigAction.Back => "⬅️  返回上一级",
+                        ConfigAction.View => "📋  View current config",
+                        ConfigAction.Add => "➕  Add new game",
+                        ConfigAction.ImportSteam => "🎮  Import Steam games",
+                        ConfigAction.Edit => "✏️  Edit existing game",
+                        ConfigAction.Remove => "🗑  Remove game",
+                        ConfigAction.Back => "⬅️  Back",
                         _ => action.ToString()
                     },
                     title);
@@ -110,9 +110,9 @@ namespace GameHelper.ConsoleHost.Interactive
             }
             catch (Exception ex)
             {
-                _console.MarkupLine($"[red]无法加载全局配置：{Markup.Escape(ex.Message)}[/]");
+                _console.MarkupLine($"[red]Failed to load global config: {Markup.Escape(ex.Message)}[/]");
             }
-            var configRule = new Rule("[yellow]当前配置[/]")
+            var configRule = new Rule("[yellow]Current config[/]")
             {
                 Style = new Style(Color.Grey),
                 Justification = Justify.Left
@@ -121,16 +121,16 @@ namespace GameHelper.ConsoleHost.Interactive
 
             if (configs.Count == 0)
             {
-                _console.MarkupLine("[italic grey]当前没有配置任何游戏，马上添加一个吧！[/]");
+                _console.MarkupLine("[italic grey]No games configured yet. Add one now![/]");
                 return;
             }
 
             var table = new Table { Border = TableBorder.Rounded };
             table.AddColumn("DataKey");
-            table.AddColumn("可执行文件");
-            table.AddColumn("显示名称");
-            table.AddColumn("路径");
-            table.AddColumn("自动化");
+            table.AddColumn("Executable");
+            table.AddColumn("Display name");
+            table.AddColumn("Path");
+            table.AddColumn("Automation");
             table.AddColumn("HDR");
 
             foreach (var cfg in configs.OrderBy(e => e.DataKey, StringComparer.OrdinalIgnoreCase))
@@ -148,8 +148,8 @@ namespace GameHelper.ConsoleHost.Interactive
                     Markup.Escape(cfg.ExecutableName ?? "-"),
                     string.IsNullOrWhiteSpace(cfg.DisplayName) ? "-" : Markup.Escape(cfg.DisplayName!),
                     Markup.Escape(pathDisplay),
-                    cfg.IsEnabled ? "[green]启用[/]" : "[red]禁用[/]",
-                    cfg.HdrEnabled ? "[green]自动开启[/]" : "[yellow]不自动开启[/]");
+                    cfg.IsEnabled ? "[green]Enabled[/]" : "[red]Disabled[/]",
+                    cfg.HdrEnabled ? "[green]Auto enable[/]" : "[yellow]Do not auto enable[/]");
             }
 
             _console.Write(table);
@@ -157,21 +157,21 @@ namespace GameHelper.ConsoleHost.Interactive
             if (appConfig != null)
             {
                 var autoStartState = appConfig.AutoStartInteractiveMonitor
-                    ? "[green]启动后自动进入实时监控[/]"
-                    : "[yellow]启动后需要手动选择监控[/]";
+                    ? "[green]Enter live monitor automatically on startup[/]"
+                    : "[yellow]Manually select monitor after startup[/]";
                 _console.WriteLine();
-                _console.MarkupLine($"自动监控：{autoStartState}");
+                _console.MarkupLine($"Auto monitor: {autoStartState}");
 
                 var launchSegments = new List<string>
                 {
                     appConfig.LaunchOnSystemStartup
-                        ? "[green]开机时自动启动 GameHelper[/]"
-                        : "[yellow]开机时不会自动启动[/]"
+                        ? "[green]Auto-start GameHelper at login[/]"
+                        : "[yellow]Do not auto-start at login[/]"
                 };
 
                 if (!_autoStartManager.IsSupported)
                 {
-                    launchSegments.Add("（当前环境不支持自动配置）");
+                    launchSegments.Add("(not supported in this environment)");
                 }
                 else
                 {
@@ -179,20 +179,20 @@ namespace GameHelper.ConsoleHost.Interactive
                     if (systemState.HasValue)
                     {
                         var systemSegment = systemState.Value
-                            ? "[green]系统状态：已启用[/]"
-                            : "[yellow]系统状态：未启用[/]";
+                            ? "[green]system state: enabled[/]"
+                            : "[yellow]system state: not enabled[/]";
 
                         if (systemState.Value != appConfig.LaunchOnSystemStartup)
                         {
-                            systemSegment += "[red]（与配置不一致）[/]";
+                            systemSegment += "[red](mismatch with config)[/]";
                         }
 
-                        launchSegments.Add($"（{systemSegment}）");
+                        launchSegments.Add($"({systemSegment})");
                     }
                 }
 
                 var launchState = string.Concat(launchSegments);
-                _console.MarkupLine($"开机自启动：{launchState}");
+                _console.MarkupLine($"Auto-start at login: {launchState}");
             }
         }
 
@@ -204,7 +204,7 @@ namespace GameHelper.ConsoleHost.Interactive
             }
             catch (Exception ex)
             {
-                _console.MarkupLine($"[yellow]无法读取系统自启动状态：{Markup.Escape(ex.Message)}[/]");
+                _console.MarkupLine($"[yellow]Failed to read system auto-start state: {Markup.Escape(ex.Message)}[/]");
                 return null;
             }
         }
@@ -213,10 +213,10 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             // Prompt for input - can be file path or executable name
             var inputPrompt = new TextPrompt<string>(
-                "请输入游戏的可执行文件名或拖放 EXE/LNK 文件\n" +
-                "(例如 [green]game.exe[/] 或完整路径 [green]C:\\Games\\game.exe[/])")
+                "Enter the game's executable name, or drag & drop an EXE/LNK file\n" +
+                "(e.g. [green]game.exe[/] or full path [green]C:\\Games\\game.exe[/])")
                 .Validate(input => string.IsNullOrWhiteSpace(input)
-                    ? ConsoleValidationResult.Error("输入不能为空。")
+                    ? ConsoleValidationResult.Error("Input cannot be empty.")
                     : ConsoleValidationResult.Success());
 
             var input = _promptUI.Prompt(inputPrompt);
@@ -237,10 +237,10 @@ namespace GameHelper.ConsoleHost.Interactive
                     exePath = ExecutableResolver.TryResolveFromInput(input);
                     if (string.IsNullOrWhiteSpace(exePath))
                     {
-                        _console.MarkupLine("[red]无法解析快捷方式目标。[/]");
+                        _console.MarkupLine("[red]Failed to resolve shortcut target.[/]");
                         return Task.CompletedTask;
                     }
-                    _console.MarkupLine($"[grey]已解析快捷方式目标：{Markup.Escape(exePath)}[/]");
+                    _console.MarkupLine($"[grey]Resolved shortcut target: {Markup.Escape(exePath)}[/]");
                 }
                 else if (ext == ".exe")
                 {
@@ -248,7 +248,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 }
                 else
                 {
-                    _console.MarkupLine("[yellow]不支持的文件类型。请提供 .exe 或 .lnk 文件。[/]");
+                    _console.MarkupLine("[yellow]Unsupported file type. Provide a .exe or .lnk file.[/]");
                     return Task.CompletedTask;
                 }
 
@@ -257,12 +257,12 @@ namespace GameHelper.ConsoleHost.Interactive
                 executableName = Path.GetFileName(exePath);
 
                 // Display extracted information
-                _console.MarkupLine("[green]检测到游戏文件：[/]");
-                _console.MarkupLine($"  路径: {Markup.Escape(exePath)}");
-                _console.MarkupLine($"  可执行文件名: {Markup.Escape(executableName)}");
+                _console.MarkupLine("[green]Game file detected:[/]");
+                _console.MarkupLine($"  Path: {Markup.Escape(exePath)}");
+                _console.MarkupLine($"  Executable: {Markup.Escape(executableName)}");
                 if (!string.IsNullOrWhiteSpace(productName))
                 {
-                    _console.MarkupLine($"  产品名称: {Markup.Escape(productName)}");
+                    _console.MarkupLine($"  Product name: {Markup.Escape(productName)}");
                 }
                 _console.WriteLine();
             }
@@ -283,15 +283,15 @@ namespace GameHelper.ConsoleHost.Interactive
 
             // Prompt for DataKey
             var dataKeyPrompt = new TextPrompt<string>(
-                $"请输入 DataKey（用于数据关联的唯一标识符）\n" +
-                $"建议值: [green]{Markup.Escape(suggestedDataKey)}[/]")
+                $"Enter a DataKey (unique identifier used to link data)\n" +
+                $"Suggested value: [green]{Markup.Escape(suggestedDataKey)}[/]")
                 .AllowEmpty()
                 .DefaultValue(suggestedDataKey)
                 .Validate(key =>
                 {
                     if (string.IsNullOrWhiteSpace(key))
                     {
-                        return ConsoleValidationResult.Error("DataKey 不能为空。");
+                        return ConsoleValidationResult.Error("DataKey cannot be empty.");
                     }
                     var availability = _gameCatalogService.PreviewIntake(new GameCatalogIntakeRequest
                     {
@@ -301,7 +301,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     });
                     if (!availability.IsRequestedDataKeyAvailable)
                     {
-                        return ConsoleValidationResult.Error($"DataKey '{key}' 已被其他游戏使用。");
+                        return ConsoleValidationResult.Error($"DataKey '{key}' is already used by another game.");
                     }
                     return ConsoleValidationResult.Success();
                 });
@@ -317,27 +317,27 @@ namespace GameHelper.ConsoleHost.Interactive
                 ? existingConfig.DisplayName!
                 : productName ?? string.Empty;
 
-            var displayNamePrompt = new TextPrompt<string>("输入显示名称（可选，直接回车跳过）")
+            var displayNamePrompt = new TextPrompt<string>("Enter display name (optional, press Enter to skip)")
                 .AllowEmpty()
                 .DefaultValue(defaultDisplayName);
             var displayName = _promptUI.Prompt(displayNamePrompt);
 
             // Prompt for automation enable
-            var enableTitle = "是否启用自动化？";
+            var enableTitle = "Enable automation?";
             var enableChoices = existingConfig?.IsEnabled == false
-                ? new[] { "禁用", "启用" }
-                : new[] { "启用", "禁用" };
+                ? new[] { "Disabled", "Enabled" }
+                : new[] { "Enabled", "Disabled" };
             var enablePrompt = new SelectionPrompt<string>();
             enablePrompt.Title(enableTitle);
             enablePrompt.AddChoices(enableChoices);
             var enable = _promptUI.PromptSelection(enablePrompt, enableChoices, value => Markup.Escape(value), enableTitle);
 
             // Prompt for HDR
-            var hdrTitle = "在游戏运行时如何控制 HDR？";
+            var hdrTitle = "How to control HDR while a game is running?";
             var defaultHdrEnabled = existingConfig?.HdrEnabled ?? false;
             var hdrChoices = defaultHdrEnabled
-                ? new[] { "自动开启 HDR", "不自动开启" }
-                : new[] { "不自动开启", "自动开启 HDR" };
+                ? new[] { "Auto enable HDR", "Do not auto enable" }
+                : new[] { "Do not auto enable", "Auto enable HDR" };
             var hdrPrompt = new SelectionPrompt<string>();
             hdrPrompt.Title(hdrTitle);
             hdrPrompt.AddChoices(hdrChoices);
@@ -349,11 +349,11 @@ namespace GameHelper.ConsoleHost.Interactive
                 Executable = executableIdentity,
                 ProductName = productName,
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim(),
-                IsEnabled = string.Equals(enable, "启用", StringComparison.Ordinal),
-                HdrEnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal)
+                IsEnabled = string.Equals(enable, "Enabled", StringComparison.Ordinal),
+                HdrEnabled = string.Equals(hdr, "Auto enable HDR", StringComparison.Ordinal)
             }).Entry;
 
-            _console.MarkupLine($"[green]已保存[/]：{Markup.Escape(saved.ExecutableName)} (DataKey: {Markup.Escape(saved.DataKey)})");
+            _console.MarkupLine($"[green]Saved[/]: {Markup.Escape(saved.ExecutableName)} (DataKey: {Markup.Escape(saved.DataKey)})");
             return Task.CompletedTask;
         }
 
@@ -361,21 +361,21 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             if (_steamGameResolver is null)
             {
-                _console.MarkupLine("[yellow]当前环境未配置 Steam 扫描服务。[/]");
+                _console.MarkupLine("[yellow]Steam scan service is not configured in this environment.[/]");
                 return Task.CompletedTask;
             }
 
             var games = _steamGameResolver.TryEnumerateInstalledGames();
             if (games.Count == 0)
             {
-                _console.MarkupLine("[yellow]没有找到包含可执行文件的已安装 Steam 游戏。[/]");
+                _console.MarkupLine("[yellow]No installed Steam games with executables found.[/]");
                 return Task.CompletedTask;
             }
 
             var table = new Table { Border = TableBorder.Rounded };
             table.AddColumn("Steam AppId");
-            table.AddColumn("游戏");
-            table.AddColumn("可执行文件");
+            table.AddColumn("Game");
+            table.AddColumn("Executable");
             foreach (var game in games)
             {
                 table.AddRow(
@@ -385,9 +385,9 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             _console.Write(table);
-            if (!_promptUI.PromptConfirm($"导入以上 {games.Count} 个 Steam 游戏？现有相同可执行文件的条目会更新。"))
+            if (!_promptUI.PromptConfirm($"Import the {games.Count} Steam games above? Entries with the same executable will be updated."))
             {
-                _console.MarkupLine("[grey]已取消导入。[/]");
+                _console.MarkupLine("[grey]Import cancelled.[/]");
                 return Task.CompletedTask;
             }
 
@@ -399,7 +399,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 IsEnabled = true
             }));
             var added = results.Count(result => result.WasAdded);
-            _console.MarkupLine($"[green]Steam 导入完成[/]：新增 {added} 个，更新 {results.Count - added} 个。");
+            _console.MarkupLine($"[green]Steam import completed[/]: added {added}, updated {results.Count - added}.");
             return Task.CompletedTask;
         }
 
@@ -408,11 +408,11 @@ namespace GameHelper.ConsoleHost.Interactive
             var configs = _gameCatalogService.List();
             if (configs.Count == 0)
             {
-                _console.MarkupLine("[italic grey]没有可以修改的游戏。[/]");
+                _console.MarkupLine("[italic grey]No games to edit.[/]");
                 return Task.CompletedTask;
             }
 
-            var title = "选择需要修改的游戏";
+            var title = "Select a game to edit";
             var choices = configs
                 .Select(c => c.DataKey)
                 .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
@@ -428,28 +428,28 @@ namespace GameHelper.ConsoleHost.Interactive
             var cfg = configs.FirstOrDefault(entry => string.Equals(entry.DataKey, selectedDataKey, StringComparison.OrdinalIgnoreCase));
             if (cfg is null)
             {
-                _console.MarkupLine("[red]未找到对应的配置。[/]");
+                _console.MarkupLine("[red]Matching config not found.[/]");
                 return Task.CompletedTask;
             }
 
             // Display current configuration
-            _console.MarkupLine("[yellow]当前配置：[/]");
+            _console.MarkupLine("[yellow]Current config:[/]");
             _console.MarkupLine($"  DataKey: {Markup.Escape(cfg.DataKey)}");
-            _console.MarkupLine($"  可执行文件名: {Markup.Escape(cfg.ExecutableName ?? "-")}");
+            _console.MarkupLine($"  Executable: {Markup.Escape(cfg.ExecutableName ?? "-")}");
             if (!string.IsNullOrWhiteSpace(cfg.ExecutablePath))
             {
-                _console.MarkupLine($"  完整路径: {Markup.Escape(cfg.ExecutablePath)}");
+                _console.MarkupLine($"  Full path: {Markup.Escape(cfg.ExecutablePath)}");
             }
             if (!string.IsNullOrWhiteSpace(cfg.DisplayName))
             {
-                _console.MarkupLine($"  显示名称: {Markup.Escape(cfg.DisplayName)}");
+                _console.MarkupLine($"  Display name: {Markup.Escape(cfg.DisplayName)}");
             }
             _console.WriteLine();
 
             // Prompt for ExecutablePath update
             var pathPrompt = new TextPrompt<string>(
-                "更新可执行文件路径（可选，直接回车保持不变）\n" +
-                "可以拖放 EXE 或 LNK 文件")
+                "Update executable path (optional, press Enter to keep unchanged)\n" +
+                "You can drag & drop an EXE or LNK file")
                 .AllowEmpty()
                 .DefaultValue(cfg.ExecutablePath ?? string.Empty);
             var pathInput = _promptUI.Prompt(pathPrompt);
@@ -467,12 +467,12 @@ namespace GameHelper.ConsoleHost.Interactive
                         newExecutablePath = ExecutableResolver.TryResolveFromInput(pathInput);
                         if (string.IsNullOrWhiteSpace(newExecutablePath))
                         {
-                            _console.MarkupLine("[red]无法解析快捷方式目标，保持原路径不变。[/]");
+                            _console.MarkupLine("[red]Failed to resolve shortcut target; keeping the original path.[/]");
                             newExecutablePath = cfg.ExecutablePath;
                         }
                         else
                         {
-                            _console.MarkupLine($"[grey]已解析快捷方式目标：{Markup.Escape(newExecutablePath)}[/]");
+                            _console.MarkupLine($"[grey]Resolved shortcut target: {Markup.Escape(newExecutablePath)}[/]");
                         }
                     }
                     else if (ext == ".exe")
@@ -481,7 +481,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     }
                     else
                     {
-                        _console.MarkupLine("[yellow]不支持的文件类型，保持原路径不变。[/]");
+                        _console.MarkupLine("[yellow]Unsupported file type; keeping the original path.[/]");
                     }
                 }
                 else if (string.Equals(pathInput, "clear", StringComparison.OrdinalIgnoreCase) ||
@@ -489,35 +489,35 @@ namespace GameHelper.ConsoleHost.Interactive
                 {
                     newExecutablePath = null;
                     clearExecutablePath = true;
-                    _console.MarkupLine("[grey]已清除可执行文件路径。[/]");
+                    _console.MarkupLine("[grey]Executable path cleared.[/]");
                 }
                 else
                 {
-                    _console.MarkupLine("[yellow]文件不存在，保持原路径不变。输入 'clear' 可清除路径。[/]");
+                    _console.MarkupLine("[yellow]File not found; keeping the original path. Type 'clear' to clear the path.[/]");
                 }
             }
 
             // Prompt for DisplayName update
-            var displayNamePrompt = new TextPrompt<string>("更新显示名称（可留空）")
+            var displayNamePrompt = new TextPrompt<string>("Update display name (may be left empty)")
                 .AllowEmpty()
                 .DefaultValue(cfg.DisplayName ?? string.Empty);
             var displayName = _promptUI.Prompt(displayNamePrompt);
 
             // Prompt for automation enable
-            var enableTitle = "是否启用自动化？";
+            var enableTitle = "Enable automation?";
             var enableChoices = cfg.IsEnabled
-                ? new[] { "启用", "禁用" }
-                : new[] { "禁用", "启用" };
+                ? new[] { "Enabled", "Disabled" }
+                : new[] { "Disabled", "Enabled" };
             var enablePrompt = new SelectionPrompt<string>();
             enablePrompt.Title(enableTitle);
             enablePrompt.AddChoices(enableChoices);
             var enable = _promptUI.PromptSelection(enablePrompt, enableChoices, value => Markup.Escape(value), enableTitle);
 
             // Prompt for HDR
-            var hdrTitle = "在游戏运行时如何控制 HDR？";
+            var hdrTitle = "How to control HDR while a game is running?";
             var hdrChoices = cfg.HdrEnabled
-                ? new[] { "自动开启 HDR", "不自动开启" }
-                : new[] { "不自动开启", "自动开启 HDR" };
+                ? new[] { "Auto enable HDR", "Do not auto enable" }
+                : new[] { "Do not auto enable", "Auto enable HDR" };
             var hdrPrompt = new SelectionPrompt<string>();
             hdrPrompt.Title(hdrTitle);
             hdrPrompt.AddChoices(hdrChoices);
@@ -539,22 +539,22 @@ namespace GameHelper.ConsoleHost.Interactive
                 Executable = updatedIdentity,
                 DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim(),
                 ClearDisplayName = string.IsNullOrWhiteSpace(displayName),
-                IsEnabled = string.Equals(enable, "启用", StringComparison.Ordinal),
-                HdrEnabled = string.Equals(hdr, "自动开启 HDR", StringComparison.Ordinal)
+                IsEnabled = string.Equals(enable, "Enabled", StringComparison.Ordinal),
+                HdrEnabled = string.Equals(hdr, "Auto enable HDR", StringComparison.Ordinal)
             });
-            _console.MarkupLine("[green]配置已更新。[/]");
+            _console.MarkupLine("[green]Config updated.[/]");
 
             // Display updated configuration
             _console.WriteLine();
-            _console.MarkupLine("[yellow]更新后的配置：[/]");
+            _console.MarkupLine("[yellow]Updated config:[/]");
             _console.MarkupLine($"  DataKey: {Markup.Escape(updated.DataKey)}");
             if (!string.IsNullOrWhiteSpace(updated.ExecutablePath))
             {
-                _console.MarkupLine($"  完整路径: {Markup.Escape(updated.ExecutablePath)}");
+                _console.MarkupLine($"  Full path: {Markup.Escape(updated.ExecutablePath)}");
             }
             if (!string.IsNullOrWhiteSpace(updated.DisplayName))
             {
-                _console.MarkupLine($"  显示名称: {Markup.Escape(updated.DisplayName)}");
+                _console.MarkupLine($"  Display name: {Markup.Escape(updated.DisplayName)}");
             }
 
             return Task.CompletedTask;
@@ -567,11 +567,11 @@ namespace GameHelper.ConsoleHost.Interactive
             var configs = _gameCatalogService.List();
             if (configs.Count == 0)
             {
-                _console.MarkupLine("[italic grey]当前没有可删除的游戏。[/]");
+                _console.MarkupLine("[italic grey]No games to remove.[/]");
                 return;
             }
 
-            var title = "选择要删除的游戏";
+            var title = "Select a game to remove";
             var choices = configs
                 .Select(c => c.DataKey)
                 .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
@@ -586,18 +586,18 @@ namespace GameHelper.ConsoleHost.Interactive
             var selectedDataKey = _promptUI.PromptSelection(prompt, choices, value => Markup.Escape(value), title);
             if (!configs.Any(entry => string.Equals(entry.DataKey, selectedDataKey, StringComparison.OrdinalIgnoreCase)))
             {
-                _console.MarkupLine("[red]未找到对应的配置。[/]");
+                _console.MarkupLine("[red]Matching config not found.[/]");
                 return;
             }
 
-            var confirm = _promptUI.PromptConfirm($"确定要删除 [bold]{Markup.Escape(selectedDataKey)}[/] 吗？");
+            var confirm = _promptUI.PromptConfirm($"Remove [bold]{Markup.Escape(selectedDataKey)}[/]?");
             if (!confirm)
             {
                 return;
             }
 
             _gameCatalogService.Remove(selectedDataKey);
-            _console.MarkupLine("[yellow]已移除该游戏。[/]");
+            _console.MarkupLine("[yellow]Game removed.[/]");
         }
 
     }

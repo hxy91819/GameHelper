@@ -26,7 +26,7 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             while (true)
             {
-                var title = "[bold green]工具与诊断[/]";
+                var title = "[bold green]Tools & diagnostics[/]";
                 var choices = Enum.GetValues<ToolAction>();
                 var prompt = new SelectionPrompt<ToolAction>
                 {
@@ -40,9 +40,9 @@ namespace GameHelper.ConsoleHost.Interactive
                     choices,
                     action => action switch
                     {
-                        ToolAction.ConvertConfig => "🔄  将旧版 JSON 配置转换为 YAML",
-                        ToolAction.ValidateConfig => "✅  校验当前 YAML 配置",
-                        ToolAction.Back => "⬅️  返回上一级",
+                        ToolAction.ConvertConfig => "🔄  Convert legacy JSON config to YAML",
+                        ToolAction.ValidateConfig => "✅  Validate current YAML config",
+                        ToolAction.Back => "⬅️  Back",
                         _ => action.ToString()
                     },
                     title);
@@ -70,15 +70,15 @@ namespace GameHelper.ConsoleHost.Interactive
 
                 if (!File.Exists(jsonPath))
                 {
-                    _console.MarkupLine($"[yellow]未在 {Markup.Escape(jsonPath)} 找到旧版 JSON 配置。[/]");
+                    _console.MarkupLine($"[yellow]Legacy JSON config not found at {Markup.Escape(jsonPath)}.[/]");
                     return;
                 }
 
-                _console.Status().Start("转换配置中...", ctx =>
+                _console.Status().Start("Converting config...", ctx =>
                 {
                     var jsonProvider = new JsonConfigProvider(jsonPath);
                     var data = jsonProvider.Read();
-                    ctx.Status("写入 YAML...");
+                    ctx.Status("Writing YAML...");
                     var yamlProvider = new YamlConfigProvider(ymlPath);
                     yamlProvider.Change(config =>
                     {
@@ -89,11 +89,11 @@ namespace GameHelper.ConsoleHost.Interactive
                     });
                 });
 
-                _console.MarkupLine($"[green]转换完成[/]，YAML 已写入 {Markup.Escape(ymlPath)}。");
+                _console.MarkupLine($"[green]Conversion completed[/]; YAML written to {Markup.Escape(ymlPath)}.");
             }
             catch (Exception ex)
             {
-                _console.MarkupLine($"[red]转换失败：{Markup.Escape(ex.Message)}[/]");
+                _console.MarkupLine($"[red]Conversion failed: {Markup.Escape(ex.Message)}[/]");
             }
         }
 
@@ -106,18 +106,18 @@ namespace GameHelper.ConsoleHost.Interactive
                 var result = YamlConfigValidator.Validate(path);
 
                 var table = new Table { Border = TableBorder.Rounded };
-                table.AddColumn("指标");
-                table.AddColumn("数值");
-                table.AddRow("配置路径", Markup.Escape(path));
-                table.AddRow("游戏数量", result.GameCount.ToString());
-                table.AddRow("重复条目", result.DuplicateCount.ToString());
-                table.AddRow("状态", result.IsValid ? "[green]通过[/]" : "[red]存在错误[/]");
+                table.AddColumn("Metric");
+                table.AddColumn("Value");
+                table.AddRow("Config path", Markup.Escape(path));
+                table.AddRow("Game count", result.GameCount.ToString());
+                table.AddRow("Duplicate entries", result.DuplicateCount.ToString());
+                table.AddRow("Status", result.IsValid ? "[green]Passed[/]" : "[red]Errors found[/]");
 
                 _console.Write(table);
 
                 if (result.Warnings.Count > 0)
                 {
-                    _console.MarkupLine("[yellow]警告：[/]");
+                    _console.MarkupLine("[yellow]Warnings:[/]");
                     foreach (var warning in result.Warnings)
                     {
                         _console.MarkupLine($"  • {Markup.Escape(warning)}");
@@ -126,7 +126,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
                 if (result.Errors.Count > 0)
                 {
-                    _console.MarkupLine("[red]错误：[/]");
+                    _console.MarkupLine("[red]Errors:[/]");
                     foreach (var error in result.Errors)
                     {
                         _console.MarkupLine($"  • {Markup.Escape(error)}");
@@ -135,7 +135,7 @@ namespace GameHelper.ConsoleHost.Interactive
             }
             catch (Exception ex)
             {
-                _console.MarkupLine($"[red]验证失败：{Markup.Escape(ex.Message)}[/]");
+                _console.MarkupLine($"[red]Validation failed: {Markup.Escape(ex.Message)}[/]");
             }
         }
     }

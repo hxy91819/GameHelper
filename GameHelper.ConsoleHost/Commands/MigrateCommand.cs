@@ -66,11 +66,11 @@ namespace GameHelper.ConsoleHost.Commands
 
             if (dryRun)
             {
-                AnsiConsole.MarkupLine("[yellow]预览模式：不会修改任何文件[/]");
+                AnsiConsole.MarkupLine("[yellow]Preview mode: no files will be modified[/]");
             }
 
-            AnsiConsole.MarkupLine($"[blue]配置文件: {configPath}[/]");
-            AnsiConsole.MarkupLine($"[blue]CSV 文件: {csvPath}[/]");
+            AnsiConsole.MarkupLine($"[blue]Config file: {configPath}[/]");
+            AnsiConsole.MarkupLine($"[blue]CSV file: {csvPath}[/]");
             AnsiConsole.WriteLine();
 
             // Step 1: Load current configuration
@@ -82,14 +82,14 @@ namespace GameHelper.ConsoleHost.Commands
                 migratedConfig = MigrateConfiguration(configPath, out configMigrated);
                 if (migratedConfig == null)
                 {
-                    AnsiConsole.MarkupLine("[red]✗ 配置读取失败[/]");
+                    AnsiConsole.MarkupLine("[red]✗ Failed to read config[/]");
                     return;
                 }
             }
             else
             {
-                AnsiConsole.MarkupLine($"[yellow]⚠ 配置文件不存在: {configPath}[/]");
-                AnsiConsole.MarkupLine("[yellow]跳过配置读取[/]");
+                AnsiConsole.MarkupLine($"[yellow]⚠ Config file not found: {configPath}[/]");
+                AnsiConsole.MarkupLine("[yellow]Skipping config read[/]");
             }
 
             // Step 2: Ask if user wants to migrate CSV
@@ -98,9 +98,9 @@ namespace GameHelper.ConsoleHost.Commands
                 if (!force && !dryRun && configMigrated)
                 {
                     AnsiConsole.WriteLine();
-                    if (!AnsiConsole.Confirm("是否继续迁移 CSV 数据?", true))
+                    if (!AnsiConsole.Confirm("Continue migrating CSV data?", true))
                     {
-                        AnsiConsole.MarkupLine("[yellow]CSV 迁移已取消[/]");
+                        AnsiConsole.MarkupLine("[yellow]CSV migration cancelled[/]");
                         return;
                     }
                 }
@@ -111,18 +111,18 @@ namespace GameHelper.ConsoleHost.Commands
                 }
                 else
                 {
-                    AnsiConsole.MarkupLine("[yellow]⚠ 没有有效的配置，跳过 CSV 迁移[/]");
+                    AnsiConsole.MarkupLine("[yellow]⚠ No valid config; skipping CSV migration[/]");
                 }
             }
             else
             {
-                AnsiConsole.MarkupLine($"[yellow]⚠ CSV 文件不存在: {csvPath}[/]");
+                AnsiConsole.MarkupLine($"[yellow]⚠ CSV file not found: {csvPath}[/]");
             }
 
             if (dryRun)
             {
                 AnsiConsole.WriteLine();
-                AnsiConsole.MarkupLine("[yellow]预览模式完成 - 未修改任何文件[/]");
+                AnsiConsole.MarkupLine("[yellow]Preview mode completed - no files were modified[/]");
             }
         }
 
@@ -135,7 +135,7 @@ namespace GameHelper.ConsoleHost.Commands
         {
             migrated = false;
 
-            AnsiConsole.MarkupLine("[cyan]═══ 配置文件检查 ═══[/]");
+            AnsiConsole.MarkupLine("[cyan]═══ Config file check ═══[/]");
 
             try
             {
@@ -143,12 +143,12 @@ namespace GameHelper.ConsoleHost.Commands
                 var configs = provider.Read().Games.ToDictionary(
                     config => config.DataKey,
                     StringComparer.OrdinalIgnoreCase);
-                AnsiConsole.MarkupLine($"[green]✓ 已读取 {configs.Count} 个游戏配置[/]");
+                AnsiConsole.MarkupLine($"[green]✓ Read {configs.Count} game configs[/]");
                 return configs;
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[red]✗ 配置读取失败: {ex.Message}[/]");
+                AnsiConsole.MarkupLine($"[red]✗ Failed to read config: {ex.Message}[/]");
                 return null;
             }
         }
@@ -163,13 +163,13 @@ namespace GameHelper.ConsoleHost.Commands
             bool force)
         {
             AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[cyan]═══ CSV 数据迁移 ═══[/]");
+            AnsiConsole.MarkupLine("[cyan]═══ CSV data migration ═══[/]");
 
             try
             {
                 if (!File.Exists(csvPath))
                 {
-                    AnsiConsole.MarkupLine($"[yellow]⚠ CSV 文件不存在: {csvPath}[/]");
+                    AnsiConsole.MarkupLine($"[yellow]⚠ CSV file not found: {csvPath}[/]");
                     return;
                 }
 
@@ -177,7 +177,7 @@ namespace GameHelper.ConsoleHost.Commands
                 var lines = File.ReadAllLines(csvPath, Encoding.UTF8);
                 if (lines.Length == 0)
                 {
-                    AnsiConsole.MarkupLine("[yellow]⚠ CSV 文件为空[/]");
+                    AnsiConsole.MarkupLine("[yellow]⚠ CSV file is empty[/]");
                     return;
                 }
 
@@ -236,19 +236,19 @@ namespace GameHelper.ConsoleHost.Commands
                 }
 
                 // Show migration preview
-                AnsiConsole.MarkupLine($"扫描的总记录数:     [cyan]{totalRecords}[/]");
-                AnsiConsole.MarkupLine($"成功迁移的记录数:   [green]{migratedCount}[/]");
-                AnsiConsole.MarkupLine($"已是新格式（跳过）: [blue]{skippedCount}[/]");
-                AnsiConsole.MarkupLine($"无法匹配的记录数:   [yellow]{orphanedRecords.Count}[/]");
+                AnsiConsole.MarkupLine($"Total records scanned:      [cyan]{totalRecords}[/]");
+                AnsiConsole.MarkupLine($"Successfully migrated:      [green]{migratedCount}[/]");
+                AnsiConsole.MarkupLine($"Already in new format:      [blue]{skippedCount}[/]");
+                AnsiConsole.MarkupLine($"Unmatched records:          [yellow]{orphanedRecords.Count}[/]");
                 AnsiConsole.WriteLine();
 
                 // Show migration details (first 10)
                 if (migrationDetails.Any())
                 {
                     var detailTable = new Table();
-                    detailTable.AddColumn("原游戏名称");
-                    detailTable.AddColumn("新 DataKey");
-                    detailTable.AddColumn("匹配方式");
+                    detailTable.AddColumn("Original game");
+                    detailTable.AddColumn("New DataKey");
+                    detailTable.AddColumn("Match method");
 
                     foreach (var detail in migrationDetails.Take(10))
                     {
@@ -257,7 +257,7 @@ namespace GameHelper.ConsoleHost.Commands
 
                     if (migrationDetails.Count > 10)
                     {
-                        detailTable.AddRow("[dim]...[/]", $"[dim]（还有 {migrationDetails.Count - 10} 条）[/]", "[dim]...[/]");
+                        detailTable.AddRow("[dim]...[/]", $"[dim]({migrationDetails.Count - 10} more)[/]", "[dim]...[/]");
                     }
 
                     AnsiConsole.Write(detailTable);
@@ -267,19 +267,19 @@ namespace GameHelper.ConsoleHost.Commands
                 // Show orphaned records
                 if (orphanedRecords.Any())
                 {
-                    AnsiConsole.MarkupLine("[yellow]无法匹配的记录：[/]");
+                    AnsiConsole.MarkupLine("[yellow]Unmatched records:[/]");
                     var orphanTable = new Table();
-                    orphanTable.AddColumn("游戏名称");
-                    orphanTable.AddColumn("建议操作");
+                    orphanTable.AddColumn("Game name");
+                    orphanTable.AddColumn("Suggested action");
 
                     foreach (var orphan in orphanedRecords.Take(10))
                     {
-                        orphanTable.AddRow(orphan, "手动添加配置或编辑CSV");
+                        orphanTable.AddRow(orphan, "Add the config manually or edit the CSV");
                     }
 
                     if (orphanedRecords.Count > 10)
                     {
-                        orphanTable.AddRow($"[dim]...（还有 {orphanedRecords.Count - 10} 条）[/]", "[dim]...[/]");
+                        orphanTable.AddRow($"[dim]...({orphanedRecords.Count - 10} more)[/]", "[dim]...[/]");
                     }
 
                     AnsiConsole.Write(orphanTable);
@@ -288,22 +288,22 @@ namespace GameHelper.ConsoleHost.Commands
 
                 if (dryRun)
                 {
-                    AnsiConsole.MarkupLine("[yellow]预览模式：CSV 文件不会被修改[/]");
+                    AnsiConsole.MarkupLine("[yellow]Preview mode: the CSV file will not be modified[/]");
                     return;
                 }
 
                 if (migratedCount == 0)
                 {
-                    AnsiConsole.MarkupLine("[green]✓ 所有记录已是新格式或无法匹配，无需修改 CSV[/]");
+                    AnsiConsole.MarkupLine("[green]✓ All records are already in the new format or unmatched; no CSV changes needed[/]");
                     return;
                 }
 
                 // Confirm migration
                 if (!force)
                 {
-                    if (!AnsiConsole.Confirm($"确认迁移 {migratedCount} 条记录?", true))
+                    if (!AnsiConsole.Confirm($"Migrate {migratedCount} record(s)?", true))
                     {
-                        AnsiConsole.MarkupLine("[yellow]CSV 迁移已取消[/]");
+                        AnsiConsole.MarkupLine("[yellow]CSV migration cancelled[/]");
                         return;
                     }
                 }
@@ -312,7 +312,7 @@ namespace GameHelper.ConsoleHost.Commands
                 string timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
                 string backupPath = $"{csvPath}.backup.{timestamp}";
                 File.Copy(csvPath, backupPath);
-                AnsiConsole.MarkupLine($"[green]✓ 已备份 CSV 文件: {Path.GetFileName(backupPath)}[/]");
+                AnsiConsole.MarkupLine($"[green]✓ Backed up CSV file: {Path.GetFileName(backupPath)}[/]");
 
                 // Write migrated CSV
                 using (var writer = new StreamWriter(csvPath, false, Encoding.UTF8))
@@ -324,14 +324,14 @@ namespace GameHelper.ConsoleHost.Commands
                     }
                 }
 
-                AnsiConsole.MarkupLine($"[green]✓ 成功迁移 {migratedCount} 条 CSV 记录[/]");
+                AnsiConsole.MarkupLine($"[green]✓ Successfully migrated {migratedCount} CSV record(s)[/]");
                 AnsiConsole.WriteLine();
-                AnsiConsole.MarkupLine($"[dim]备份文件: {backupPath}[/]");
-                AnsiConsole.MarkupLine($"[dim]如需回滚，请运行: copy \"{backupPath}\" \"{csvPath}\"[/]");
+                AnsiConsole.MarkupLine($"[dim]Backup file: {backupPath}[/]");
+                AnsiConsole.MarkupLine($"[dim]To roll back, run: copy \"{backupPath}\" \"{csvPath}\"[/]");
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[red]✗ CSV 迁移失败: {ex.Message}[/]");
+                AnsiConsole.MarkupLine($"[red]✗ CSV migration failed: {ex.Message}[/]");
             }
         }
 
@@ -339,8 +339,8 @@ namespace GameHelper.ConsoleHost.Commands
         {
             return match.Kind switch
             {
-                PlaytimeMigrationMatchKind.ExactExecutableName => "精确匹配",
-                PlaytimeMigrationMatchKind.FuzzyExecutableName => $"模糊匹配 ({match.Score}%)",
+                PlaytimeMigrationMatchKind.ExactExecutableName => "Exact match",
+                PlaytimeMigrationMatchKind.FuzzyExecutableName => $"Fuzzy match ({match.Score}%)",
                 _ => match.Kind.ToString()
             };
         }

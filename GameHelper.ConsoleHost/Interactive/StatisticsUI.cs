@@ -23,14 +23,14 @@ internal sealed class StatisticsUI
 
     public void ShowStatistics()
     {
-        var statsRule = new Rule("[yellow]游戏时长统计[/]")
+        var statsRule = new Rule("[yellow]Playtime statistics[/]")
         {
             Style = new Style(Color.Grey),
             Justification = Justify.Left
         };
         _console.Write(statsRule);
 
-        var filterPrompt = new TextPrompt<string>("输入要筛选的游戏名称（留空表示全部）") { AllowEmpty = true };
+        var filterPrompt = new TextPrompt<string>("Enter a game name to filter (leave empty for all)") { AllowEmpty = true };
         var filter = _promptUI.Prompt(filterPrompt);
         filter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
 
@@ -39,11 +39,11 @@ internal sealed class StatisticsUI
         {
             if (string.IsNullOrWhiteSpace(filter))
             {
-                _console.MarkupLine("[italic grey]尚未生成任何游戏时长数据。[/]");
+                _console.MarkupLine("[italic grey]No playtime data has been generated yet.[/]");
             }
             else
             {
-                _console.MarkupLine($"[yellow]未找到与 [bold]{Markup.Escape(filter!)}[/] 匹配的记录。[/]");
+                _console.MarkupLine($"[yellow]No records found matching [bold]{Markup.Escape(filter!)}[/].[/]");
             }
 
             _promptUI.WaitForMenuReturn();
@@ -64,16 +64,16 @@ internal sealed class StatisticsUI
 
         if (projected.Count == 0)
         {
-            _console.MarkupLine("[italic grey]没有可展示的数据。[/]");
+            _console.MarkupLine("[italic grey]No data to display.[/]");
             _promptUI.WaitForMenuReturn();
             return;
         }
 
         var table = new Table { Border = TableBorder.Rounded };
-        table.AddColumn("游戏");
-        table.AddColumn("总时长");
-        table.AddColumn("近两周");
-        table.AddColumn("会话数");
+        table.AddColumn("Game");
+        table.AddColumn("Total time");
+        table.AddColumn("Last 2 weeks");
+        table.AddColumn("Sessions");
 
         foreach (var entry in projected)
         {

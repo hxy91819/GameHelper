@@ -54,7 +54,7 @@ namespace GameHelper.Tests.Interactive
 
             var updated = configProvider.Load();
             Assert.Empty(updated);
-            Assert.Contains("已移除", snapshot);
+            Assert.Contains("Game removed", snapshot);
         }
 
         [Fact]
@@ -148,7 +148,7 @@ namespace GameHelper.Tests.Interactive
             var snapshot = console.Output.ToString();
             _output.WriteLine("[Statistics NoMatch]\n" + snapshot);
 
-            Assert.Contains("未找到", snapshot);
+            Assert.Contains("not found", snapshot);
         }
 
         #endregion
@@ -178,8 +178,8 @@ namespace GameHelper.Tests.Interactive
             _output.WriteLine("[Monitor DryRun NoHistory]\n" + snapshot);
 
             // DryRun 不启动实际监控，但显示历史记录预览占位符
-            Assert.Contains("历史记录预览", snapshot);
-            Assert.Contains("最近暂无监控记录", snapshot);
+            Assert.Contains("History preview", snapshot);
+            Assert.Contains("No recent monitor sessions", snapshot);
         }
 
         #endregion

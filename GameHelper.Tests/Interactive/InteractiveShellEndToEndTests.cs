@@ -117,11 +117,11 @@ namespace GameHelper.Tests.Interactive
 
                 Assert.Equal(0, process.ExitCode);
                 Assert.Contains("GameHelper", combined);
-                Assert.Contains("当前配置", combined);
+                Assert.Contains("Current config", combined);
                 Assert.Contains("sample.exe", combined);
                 Assert.Contains("Sample Game", combined);
                 Assert.Contains("Dry-run", combined, StringComparison.OrdinalIgnoreCase);
-                Assert.Contains("返回上一级", combined);
+                Assert.Contains("Back", combined);
             }
             finally
             {

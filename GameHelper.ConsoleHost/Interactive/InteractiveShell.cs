@@ -57,7 +57,7 @@ namespace GameHelper.ConsoleHost.Interactive
             ConsoleEncoding.EnsureUtf8();
             try
             {
-                Console.Title = "GameHelper 互动命令行";
+                Console.Title = "GameHelper Interactive Console";
             }
             catch
             {
@@ -75,7 +75,7 @@ namespace GameHelper.ConsoleHost.Interactive
                 if (autoStartPending)
                 {
                     autoStartPending = false;
-                    _console.MarkupLine("[grey]检测到配置开启自动启动，将直接进入实时监控。[/]");
+                    _console.MarkupLine("[grey]Auto-start is enabled in config; entering live monitor directly.[/]");
                     _console.WriteLine();
                     action = MainMenuAction.Monitor;
                 }
@@ -107,7 +107,7 @@ namespace GameHelper.ConsoleHost.Interactive
                         break;
 
                     case MainMenuAction.Exit:
-                        _console.MarkupLine("[grey]再见，祝你游戏愉快！[/]");
+                        _console.MarkupLine("[grey]Goodbye, happy gaming![/]");
                         return;
                 }
             }
@@ -144,15 +144,15 @@ namespace GameHelper.ConsoleHost.Interactive
             };
             _console.Write(title);
             var infoTable = new Table { Border = TableBorder.Rounded };
-            infoTable.AddColumn(new TableColumn("当前上下文").Centered());
-            infoTable.AddColumn(new TableColumn("详情"));
-            infoTable.AddRow("配置文件", GetConfigPathDescription());
-            infoTable.AddRow("日志级别", _arguments.EnableDebug ? "Debug（命令行启用）" : "Information");
-            infoTable.AddRow("监控模式", GetMonitorModeDescription());
-            infoTable.AddRow("版本", BuildInfoHelper.GetVersionDescription());
-            infoTable.AddRow("构建日期", BuildInfoHelper.GetBuildTimeDescription());
+            infoTable.AddColumn(new TableColumn("Current context").Centered());
+            infoTable.AddColumn(new TableColumn("Details"));
+            infoTable.AddRow("Config file", GetConfigPathDescription());
+            infoTable.AddRow("Log level", _arguments.EnableDebug ? "Debug (enabled via command line)" : "Information");
+            infoTable.AddRow("Monitor mode", GetMonitorModeDescription());
+            infoTable.AddRow("Version", BuildInfoHelper.GetVersionDescription());
+            infoTable.AddRow("Build date", BuildInfoHelper.GetBuildTimeDescription());
             infoTable.AddRow("Commit", BuildInfoHelper.GetCommitId());
-            infoTable.Caption("输入序号或使用方向键选择功能，回车确认");
+            infoTable.Caption("Type a number or use arrow keys, then press Enter");
             _console.Write(infoTable);
 
             _console.WriteLine();
@@ -160,7 +160,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
         private MainMenuAction PromptMainMenu()
         {
-            var title = "[bold green]请选择要执行的操作：[/]";
+            var title = "[bold green]Select an action:[/]";
             var choices = Enum.GetValues<MainMenuAction>();
             var prompt = new SelectionPrompt<MainMenuAction>
             {
@@ -174,12 +174,12 @@ namespace GameHelper.ConsoleHost.Interactive
                 choices,
                     action => action switch
                     {
-                        MainMenuAction.Monitor => "🚀  启动实时监控",
-                        MainMenuAction.Configuration => "🛠   管理游戏配置",
-                        MainMenuAction.Settings => "⚙️   全局设置",
-                        MainMenuAction.Statistics => "📊  查看游戏时长统计",
-                        MainMenuAction.Tools => "🧰  工具与诊断",
-                        MainMenuAction.Exit => "⬅️   退出",
+                        MainMenuAction.Monitor => "🚀  Start live monitor",
+                        MainMenuAction.Configuration => "🛠   Manage game config",
+                        MainMenuAction.Settings => "⚙️   Global settings",
+                        MainMenuAction.Statistics => "📊  View playtime stats",
+                        MainMenuAction.Tools => "🧰  Tools & diagnostics",
+                        MainMenuAction.Exit => "⬅️   Exit",
                     _ => action.ToString()
                 },
                 title);
@@ -191,7 +191,7 @@ namespace GameHelper.ConsoleHost.Interactive
             {
                 return pathProvider.ConfigPath;
             }
-            return "默认 AppData 目录";
+            return "Default AppData directory";
         }
 
         private string GetMonitorModeDescription()

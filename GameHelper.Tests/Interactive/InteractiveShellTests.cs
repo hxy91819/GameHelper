@@ -76,8 +76,8 @@ namespace GameHelper.Tests.Interactive
                 .Enqueue("celeste.exe")
                 .Enqueue(string.Empty)
                 .Enqueue("Celeste")
-                .Enqueue("启用")
-                .Enqueue("自动开启 HDR")
+                .Enqueue("Enabled")
+                .Enqueue("Auto enable HDR")
                 .Enqueue("Back")
                 .Enqueue("Exit");
 
@@ -119,8 +119,8 @@ namespace GameHelper.Tests.Interactive
                 .Enqueue("same.exe")
                 .Enqueue(string.Empty)
                 .Enqueue("Same Updated")
-                .Enqueue("启用")
-                .Enqueue("保持关闭")
+                .Enqueue("Enabled")
+                .Enqueue("Do not auto enable")
                 .Enqueue("Back")
                 .Enqueue("Exit");
 
@@ -145,7 +145,7 @@ namespace GameHelper.Tests.Interactive
             var script = new InteractiveScript()
                 .Enqueue("Settings")
                 .Enqueue("ToggleMonitorAutoStart")
-                .Enqueue("开启自动启动")
+                .Enqueue("Enable auto-start")
                 .Enqueue("Back")
                 .Enqueue("Exit");
 
@@ -170,7 +170,7 @@ namespace GameHelper.Tests.Interactive
             var script = new InteractiveScript()
                 .Enqueue("Settings")
                 .Enqueue("ToggleLaunchOnStartup")
-                .Enqueue("开启开机自启动")
+                .Enqueue("Enable auto-start at login")
                 .Enqueue("Back")
                 .Enqueue("Exit");
 
@@ -196,7 +196,7 @@ namespace GameHelper.Tests.Interactive
             var script = new InteractiveScript()
                 .Enqueue("Settings")
                 .Enqueue("ToggleLaunchOnStartup")
-                .Enqueue("保持开机自启动")
+                .Enqueue("Keep auto-start at login")
                 .Enqueue("Back")
                 .Enqueue("Exit");
 
@@ -275,12 +275,12 @@ namespace GameHelper.Tests.Interactive
             var snapshot = console.Output.ToString();
             _output.WriteLine("[Monitor Snapshot]\n" + snapshot);
 
-            Assert.Contains("历史记录预览", snapshot);
-            Assert.Contains($"近 {StatisticsService.PreviewWindowDays} 天暂无游玩记录", snapshot); // 窗口外的 2024 历史不参与预览
+            Assert.Contains("History preview", snapshot);
+            Assert.Contains($"No playtime records in the last {StatisticsService.PreviewWindowDays} days", snapshot); // 窗口外的 2024 历史不参与预览
             Assert.Contains("2024-02-02 22:00", snapshot); // 21:15 + 45 min
             Assert.Contains("45 min", snapshot);
             Assert.Contains("TOTAL", snapshot);
-            Assert.Contains("本次共计 1 次游戏结束", snapshot);
+            Assert.Contains("Total of 1 session(s) ended", snapshot);
         }
 
         [Fact]
@@ -314,11 +314,11 @@ namespace GameHelper.Tests.Interactive
             var snapshot = console.Output.ToString();
             _output.WriteLine("[Monitor Preview Snapshot]\n" + snapshot);
 
-            Assert.Contains("历史记录预览", snapshot);
+            Assert.Contains("History preview", snapshot);
             Assert.Contains("艾尔登法环", snapshot);
             Assert.Contains("1.5 h", snapshot);
-            Assert.Contains($"近 {StatisticsService.PreviewWindowDays} 天 · 2 次会话 · 1 款游戏", snapshot);
-            Assert.Contains("每日游玩时长", snapshot);
+            Assert.Contains($"Last {StatisticsService.PreviewWindowDays} days · 2 sessions · 1 game", snapshot);
+            Assert.Contains("Daily playtime", snapshot);
         }
 
         [Fact]
@@ -358,7 +358,7 @@ namespace GameHelper.Tests.Interactive
             _output.WriteLine("[Monitor DryRun Snapshot]\n" + snapshot);
 
             Assert.Contains("Dry-run", snapshot, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("本次共计 1 次游戏结束", snapshot);
+            Assert.Contains("Total of 1 session(s) ended", snapshot);
             Assert.Equal(0, monitor.StartCalls);
             Assert.Equal(0, monitor.StopCalls);
             Assert.Equal(0, automation.StartCalls);
@@ -392,7 +392,7 @@ namespace GameHelper.Tests.Interactive
             var snapshot = console.Output.ToString();
             _output.WriteLine("[AutoStart Snapshot]\n" + snapshot);
 
-            Assert.Contains("自动启动", snapshot);
+            Assert.Contains("Auto-start is enabled in config", snapshot);
             Assert.Equal(1, monitor.StartCalls);
             Assert.Equal(1, monitor.StopCalls);
             Assert.Equal(1, automation.StartCalls);

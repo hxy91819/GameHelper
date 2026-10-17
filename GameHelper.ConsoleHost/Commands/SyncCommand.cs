@@ -41,16 +41,16 @@ public static class SyncCommand
         switch (outcome.Status)
         {
             case SyncOutcomeStatus.Uploaded:
-                Console.WriteLine($"✅ 已推送（提交 {outcome.CommitId ?? "unknown"}）");
+                Console.WriteLine($"✅ Pushed (commit {outcome.CommitId ?? "unknown"})");
                 break;
             case SyncOutcomeStatus.Skipped:
-                Console.WriteLine($"⏭️ 已跳过：{outcome.Detail}");
+                Console.WriteLine($"⏭️ Skipped: {outcome.Detail}");
                 break;
             case SyncOutcomeStatus.Validated:
                 Console.WriteLine(outcome.Detail);
                 break;
             case SyncOutcomeStatus.Failed:
-                Console.WriteLine($"❌ 推送失败：{outcome.Error}");
+                Console.WriteLine($"❌ Push failed: {outcome.Error}");
                 break;
         }
 
@@ -59,7 +59,7 @@ public static class SyncCommand
 
     private static async Task RunTestAsync(ISyncService syncService)
     {
-        Console.WriteLine("正在校验推送渠道…");
+        Console.WriteLine("Validating sync channel...");
         var outcome = await syncService.ValidateAsync().ConfigureAwait(false);
         switch (outcome.Status)
         {
@@ -71,7 +71,7 @@ public static class SyncCommand
                 Environment.ExitCode = 1;
                 break;
             case SyncOutcomeStatus.Failed:
-                Console.WriteLine($"❌ 校验失败：{outcome.Error}");
+                Console.WriteLine($"❌ Validation failed: {outcome.Error}");
                 Environment.ExitCode = 1;
                 break;
         }
@@ -82,38 +82,38 @@ public static class SyncCommand
         var status = syncService.GetStatus();
         if (!status.Configured)
         {
-            Console.WriteLine("尚未配置统计推送（config.yml 中无 sync 段）。");
+            Console.WriteLine("Stats sync is not configured (no 'sync' section in config.yml).");
             return;
         }
 
-        Console.WriteLine($"启用: {(status.Enabled ? "是" : "否")}");
-        Console.WriteLine($"渠道: {status.Provider}（method={status.Method}）");
-        Console.WriteLine($"仓库: {status.Repo}");
-        Console.WriteLine($"目录: {status.Directory}");
-        Console.WriteLine($"间隔: {status.IntervalMinutes} 分钟");
+        Console.WriteLine($"Enabled: {(status.Enabled ? "yes" : "no")}");
+        Console.WriteLine($"Channel: {status.Provider} (method={status.Method})");
+        Console.WriteLine($"Repo: {status.Repo}");
+        Console.WriteLine($"Directory: {status.Directory}");
+        Console.WriteLine($"Interval: {status.IntervalMinutes} min");
         if (status.ConfigError is not null)
         {
-            Console.WriteLine($"配置错误: {status.ConfigError}");
+            Console.WriteLine($"Config error: {status.ConfigError}");
         }
 
-        Console.WriteLine($"上次成功: {FormatTime(status.LastSuccessUtc)}");
-        Console.WriteLine($"上次尝试: {FormatTime(status.LastAttemptUtc)}");
+        Console.WriteLine($"Last success: {FormatTime(status.LastSuccessUtc)}");
+        Console.WriteLine($"Last attempt: {FormatTime(status.LastAttemptUtc)}");
         if (!string.IsNullOrEmpty(status.LastError))
         {
-            Console.WriteLine($"上次错误: {status.LastError}");
+            Console.WriteLine($"Last error: {status.LastError}");
         }
 
-        Console.WriteLine($"本地有新数据待推送: {(status.HasPendingData ? "是" : "否")}");
+        Console.WriteLine($"Pending local data to push: {(status.HasPendingData ? "yes" : "no")}");
     }
 
     private static string FormatTime(DateTime utc) =>
-        utc == default ? "从未" : utc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+        utc == default ? "never" : utc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
 
     private static void PrintUsage()
     {
-        Console.WriteLine("用法:");
-        Console.WriteLine("  sync now [--force]  立即执行一次推送（--force 跳过间隔与退避判断）");
-        Console.WriteLine("  sync test           校验渠道配置与凭据（不写入数据）");
-        Console.WriteLine("  sync status         查看推送状态");
+        Console.WriteLine("Usage:");
+        Console.WriteLine("  sync now [--force]  Run a sync immediately (--force skips interval and backoff checks)");
+        Console.WriteLine("  sync test           Validate channel config and credentials (writes no data)");
+        Console.WriteLine("  sync status         Show sync status");
     }
 }

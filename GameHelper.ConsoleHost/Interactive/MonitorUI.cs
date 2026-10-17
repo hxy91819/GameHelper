@@ -51,7 +51,7 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             var snapshotBefore = CaptureSessionSnapshot();
 
-            var monitorRule = new Rule("[yellow]实时监控[/]")
+            var monitorRule = new Rule("[yellow]Live monitor[/]")
             {
                 Style = new Style(Color.Grey),
                 Justification = Justify.Left
@@ -61,7 +61,7 @@ namespace GameHelper.ConsoleHost.Interactive
             RenderMonitorHistory(snapshotBefore);
             _console.WriteLine();
 
-            _console.MarkupLine("[bold green]正在启动监控... 按 Q 键可随时返回主菜单。[/]");
+            _console.MarkupLine("[bold green]Starting monitor... Press Q at any time to return to the main menu.[/]");
             _console.WriteLine();
 
             using var monitorCts = new CancellationTokenSource();
@@ -136,7 +136,7 @@ namespace GameHelper.ConsoleHost.Interactive
 
             if (startException != null)
             {
-                _console.MarkupLine($"[red]启动监控失败：{Markup.Escape(startException.Message)}[/]");
+                _console.MarkupLine($"[red]Failed to start monitor: {Markup.Escape(startException.Message)}[/]");
                 _console.WriteLine();
                 return;
             }
@@ -144,14 +144,14 @@ namespace GameHelper.ConsoleHost.Interactive
             if (runException != null)
             {
                 var message = exitSignalled
-                    ? $"监控已停止，但处理过程中出现异常：{runException.Message}"
-                    : $"监控过程中出现异常：{runException.Message}";
+                    ? $"Monitor stopped, but an exception occurred while handling it: {runException.Message}"
+                    : $"An exception occurred during monitoring: {runException.Message}";
                 _console.MarkupLine($"[red]{Markup.Escape(message)}[/]");
                 _console.WriteLine();
                 return;
             }
 
-            _console.MarkupLine("[grey]监控已停止，正在汇总本次游玩...[/]");
+            _console.MarkupLine("[grey]Monitor stopped; summarizing this session...[/]");
             _console.WriteLine();
 
             var snapshotAfter = CaptureSessionSnapshot();
@@ -230,7 +230,7 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                var prompt = new TextPrompt<string>("输入 [bold]Q[/] 并按 Enter 返回主菜单")
+                var prompt = new TextPrompt<string>("Type [bold]Q[/] and press Enter to return to the main menu")
                     .AllowEmpty()
                     .DefaultValue(string.Empty);
 
@@ -240,7 +240,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     break;
                 }
 
-                _console.MarkupLine("[yellow]请输入 Q 键以结束监控。[/]");
+                _console.MarkupLine("[yellow]Please enter Q to end monitoring.[/]");
             }
 
             return Task.CompletedTask;
@@ -256,9 +256,9 @@ namespace GameHelper.ConsoleHost.Interactive
         {
             if (snapshot.Records.Count == 0)
             {
-                var placeholder = new Panel(new Markup("[italic grey]最近暂无监控记录。完成一次会话后，会在此展示新增摘要。[/]"))
+                var placeholder = new Panel(new Markup("[italic grey]No recent monitor sessions. A summary of new sessions will appear here after one completes.[/]"))
                 {
-                    Header = new PanelHeader("历史记录预览"),
+                    Header = new PanelHeader("History preview"),
                     Border = BoxBorder.Rounded
                 };
                 _console.Write(placeholder);
@@ -271,9 +271,9 @@ namespace GameHelper.ConsoleHost.Interactive
             if (preview.Games.Count == 0)
             {
                 _console.Write(new Panel(
-                    new Markup($"[italic grey]近 {preview.WindowDays} 天暂无游玩记录。更早的会话不参与预览统计。[/]"))
+                    new Markup($"[italic grey]No playtime records in the last {preview.WindowDays} days. Older sessions are excluded from the preview.[/]"))
                 {
-                    Header = new PanelHeader("历史记录预览"),
+                    Header = new PanelHeader("History preview"),
                     Border = BoxBorder.Rounded
                 });
                 return;
@@ -284,7 +284,7 @@ namespace GameHelper.ConsoleHost.Interactive
             // 因此趋势迷你图在 Panel 外逐行输出。
             _console.Write(new Panel(BuildGameSummaryTable(preview))
             {
-                Header = new PanelHeader("历史记录预览"),
+                Header = new PanelHeader("History preview"),
                 Border = BoxBorder.Rounded
             });
 
@@ -294,10 +294,10 @@ namespace GameHelper.ConsoleHost.Interactive
         private static Table BuildGameSummaryTable(SessionActivityPreview preview)
         {
             var table = new Table { Border = TableBorder.Rounded };
-            table.AddColumn("游戏");
-            table.AddColumn("次数");
-            table.AddColumn("总时长");
-            table.AddColumn("最近游玩");
+            table.AddColumn("Game");
+            table.AddColumn("Sessions");
+            table.AddColumn("Total time");
+            table.AddColumn("Last played");
 
             foreach (var game in preview.Games)
             {
@@ -308,7 +308,7 @@ namespace GameHelper.ConsoleHost.Interactive
                     FormatRecentTimestamp(game.LastEnd));
             }
 
-            table.Caption($"近 {preview.WindowDays} 天 · {preview.SessionCount} 次会话 · {preview.Games.Count} 款游戏");
+            table.Caption($"Last {preview.WindowDays} days · {preview.SessionCount} sessions · {preview.Games.Count} games");
             return table;
         }
 
@@ -335,7 +335,7 @@ namespace GameHelper.ConsoleHost.Interactive
             // 多行 Markup 直接写控制台是安全的；此前挂死只发生在它被 Rows/Panel 嵌套时。
             var lines = new List<string>
             {
-                ChartIndent + $"[grey]近 {preview.WindowDays} 天每日游玩时长（{DurationFormatter.Format(totalMinutes)}）[/]" + trendStatus,
+                ChartIndent + $"[grey]Daily playtime, last {preview.WindowDays} days ({DurationFormatter.Format(totalMinutes)})[/]" + trendStatus,
             };
             for (var i = 0; i < rows.Count; i++)
             {
@@ -371,9 +371,9 @@ namespace GameHelper.ConsoleHost.Interactive
 
             var (arrow, color, word) = comparison.Direction switch
             {
-                TrendDirection.Increasing => ("↑", "red", "时长增加"),
-                TrendDirection.Decreasing => ("↓", "green", "时长减少"),
-                _ => ("→", "grey", "时长基本持平")
+                TrendDirection.Increasing => ("↑", "red", "Playtime up"),
+                TrendDirection.Decreasing => ("↓", "green", "Playtime down"),
+                _ => ("→", "grey", "Playtime steady")
             };
 
             // 持平不再标注幅度（阈值内的百分比与“基本持平”表述互相打架）；
@@ -381,8 +381,8 @@ namespace GameHelper.ConsoleHost.Interactive
             var detail = comparison.Direction switch
             {
                 TrendDirection.Steady => string.Empty,
-                TrendDirection.Increasing when double.IsNaN(comparison.ChangePercent) => "（此前无游玩）",
-                _ => $"（较前 {previousHalfDays} 天 {comparison.ChangePercent.ToString("+0;-0", CultureInfo.InvariantCulture)}%）"
+                TrendDirection.Increasing when double.IsNaN(comparison.ChangePercent) => "(no prior playtime)",
+                _ => $"({comparison.ChangePercent.ToString("+0;-0", CultureInfo.InvariantCulture)}% vs previous {previousHalfDays} days)"
             };
 
             return $" [{color}]{arrow} {word}[/][grey]{detail}[/]";
@@ -400,15 +400,15 @@ namespace GameHelper.ConsoleHost.Interactive
             }
 
             var (arrow, color, word) = recentGames > previousGames
-                ? ("↑", "red", "游戏数量增加")
+                ? ("↑", "red", "Game count up")
                 : recentGames < previousGames
-                    ? ("↓", "green", "游戏数量减少")
-                    : ("→", "grey", "游戏数量持平");
+                    ? ("↓", "green", "Game count down")
+                    : ("→", "grey", "Game count steady");
 
             // 持平时两半窗数量相同，只给单个数量，避免 "5→5 款" 的冗余。
             var detail = recentGames == previousGames
-                ? $"（{recentGames} 款）"
-                : $"（{previousGames}→{recentGames} 款）";
+                ? $"({recentGames} {(recentGames == 1 ? "game" : "games")})"
+                : $"({previousGames}→{recentGames} games)";
 
             return $" [{color}]{arrow} {word}[/][grey]{detail}[/]";
         }
@@ -446,15 +446,15 @@ namespace GameHelper.ConsoleHost.Interactive
 
             if (newSessions.Count == 0)
             {
-                _console.MarkupLine("[italic grey]本次会话没有产生新的游玩记录。[/]");
+                _console.MarkupLine("[italic grey]No new playtime records in this session.[/]");
                 return;
             }
 
             var table = new Table { Border = TableBorder.Rounded };
-            table.AddColumn("游戏");
-            table.AddColumn("开始");
-            table.AddColumn("结束");
-            table.AddColumn("本次时长");
+            table.AddColumn("Game");
+            table.AddColumn("Start");
+            table.AddColumn("End");
+            table.AddColumn("Duration");
 
             foreach (var record in newSessions)
             {
@@ -477,12 +477,12 @@ namespace GameHelper.ConsoleHost.Interactive
                 .OrderByDescending(x => x.Minutes)
                 .ToList();
 
-            var summaryText = string.Join("，", aggregated.Select(g => $"{g.Key} {DurationFormatter.Format(g.Minutes)}（{g.Count} 次）"));
-            _console.MarkupLine($"[grey]本次共计 {newSessions.Count} 次游戏结束：{summaryText}[/]");
+            var summaryText = string.Join(", ", aggregated.Select(g => $"{g.Key} {DurationFormatter.Format(g.Minutes)} ({g.Count} sessions)"));
+            _console.MarkupLine($"[grey]Total of {newSessions.Count} session(s) ended: {summaryText}[/]");
 
             if (!string.IsNullOrWhiteSpace(after.Source))
             {
-                _console.MarkupLine($"[grey]数据已写入：{Markup.Escape(after.Source)}[/]");
+                _console.MarkupLine($"[grey]Data written to: {Markup.Escape(after.Source)}[/]");
             }
         }
 
