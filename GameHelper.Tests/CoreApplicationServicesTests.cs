@@ -345,6 +345,68 @@ public sealed class CoreApplicationServicesTests
         // UTC 会话按本地日期归属，此处构造时即锚定在昨天
         Assert.Equal(30, Assert.Single(preview.DailyTrend, day => day.Date == utcSessionLocal.Date).Minutes);
         Assert.Equal(185, preview.DailyTrend.Sum(day => day.Minutes));
+
+        // 窗口内会话全部落在后半（近段），前半（早段）无游玩
+        Assert.Equal(0, preview.PreviousHalfGames);
+        Assert.Equal(2, preview.RecentHalfGames);
+    }
+
+    [Fact]
+    public void StatisticsService_GetSessionActivityPreview_ShouldCountDistinctGamesPerWindowHalf()
+    {
+        // 窗口 60 天对半分：早段=前 30 天，近段=后 30 天（与渲染端 CompareHalves 划分一致）。
+        // alpha 两半窗都玩；beta 只在早段；gamma 只在近段；窗口外的旧会话不参与分桶。
+        var provider = new FakeGameConfiguration(new AppConfig
+        {
+            Games =
+            [
+                new() { DataKey = "alpha", Executable = "alpha.exe", DisplayName = "Alpha" },
+                new() { DataKey = "beta", Executable = "beta.exe", DisplayName = "Beta" },
+                new() { DataKey = "gamma", Executable = "gamma.exe", DisplayName = "Gamma" },
+                new() { DataKey = "outside", Executable = "outside.exe", DisplayName = "Outside" }
+            ]
+        });
+
+        var today = DateTime.Now.Date;
+        var snapshot = new FakePlaytimeSnapshotProvider
+        {
+            Records = new List<GamePlaytimeRecord>
+            {
+                new()
+                {
+                    GameName = "alpha",
+                    Sessions =
+                    {
+                        new PlaySession("alpha", today.AddDays(-45).AddHours(20), today.AddDays(-45).AddHours(21), TimeSpan.FromHours(1), 60),
+                        new PlaySession("alpha", today.AddHours(-3), today.AddHours(-2), TimeSpan.FromHours(1), 60)
+                    }
+                },
+                new()
+                {
+                    GameName = "beta",
+                    Sessions = { new PlaySession("beta", today.AddDays(-45).AddHours(20), today.AddDays(-45).AddHours(21), TimeSpan.FromHours(1), 60) }
+                },
+                new()
+                {
+                    GameName = "gamma",
+                    Sessions = { new PlaySession("gamma", today.AddHours(-3), today.AddHours(-2), TimeSpan.FromHours(1), 60) }
+                },
+                new()
+                {
+                    GameName = "outside",
+                    Sessions = { new PlaySession("outside", today.AddDays(-90).AddHours(20), today.AddDays(-90).AddHours(21), TimeSpan.FromHours(1), 60) }
+                }
+            }
+        };
+
+        var service = new StatisticsService(snapshot, provider);
+        var preview = service.GetSessionActivityPreview();
+
+        Assert.Equal(4, preview.SessionCount);
+        Assert.Equal(2, preview.PreviousHalfGames);
+        Assert.Equal(2, preview.RecentHalfGames);
+        // 同一游戏跨半窗只计一次；全窗口 Game 表仍仅含 alpha/beta/gamma 三款（outside 全程窗口外，被排除）。
+        Assert.Equal(3, preview.Games.Count);
     }
 
     [Fact]

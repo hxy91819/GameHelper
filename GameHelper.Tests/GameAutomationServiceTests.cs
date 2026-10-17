@@ -42,6 +42,8 @@ namespace GameHelper.Tests
         public List<string> Started { get; } = new();
         public List<string> Stopped { get; } = new();
         public void StartTracking(string gameName) { StartCalls++; Started.Add(gameName); }
+        public void ResumeTracking(string gameName, DateTime startTime) { StartCalls++; Started.Add(gameName); }
+        public void WriteRecoveredSession(string gameName, DateTime startTime, DateTime endTime) { StopCalls++; Stopped.Add(gameName); }
         public PlaySession? StopTracking(string gameName)
         {
             StopCalls++;
@@ -70,6 +72,10 @@ namespace GameHelper.Tests
         }
 
         public void StartTracking(string gameName) { }
+
+        public void ResumeTracking(string gameName, DateTime startTime) { }
+
+        public void WriteRecoveredSession(string gameName, DateTime startTime, DateTime endTime) { }
 
         public PlaySession? StopTracking(string gameName)
         {

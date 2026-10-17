@@ -13,11 +13,15 @@
 # 用法：
 #   powershell -File scripts\verify-on-machine.ps1             完整发布 + 验证 + 部署
 #   powershell -File scripts\verify-on-machine.ps1 -SkipVerify 只发布 + 部署，跳过实机验证
+#   powershell -File scripts\verify-on-machine.ps1 -SkipVerify -Restart
+#       直接更新策略：运行中的实例会被强制结束（在途游戏会话由启动恢复机制续算，不丢数据）、
+#       清理孤儿 ETW 会话、原子换入新产物并重启确认存活。
 param(
     [string] $Configuration = "Release",
     [string] $Runtime = "win-x64",
     [switch] $SkipVerify,
-    [switch] $SkipDeploy
+    [switch] $SkipDeploy,
+    [switch] $Restart
 )
 
 Set-StrictMode -Version Latest
@@ -98,6 +102,7 @@ if ($SkipDeploy) {
 Write-Host "[3/3] Deploying to publish directory: $publishDir"
 
 $deployed = $false
+$relaunchAfterDeploy = $false
 try {
     if (Test-Path $publishDir) {
         # A running instance holds open handles on its exe/dll files; renaming the directory
@@ -109,13 +114,60 @@ try {
         })
 
         if ($runningInstances.Count -gt 0) {
-            Write-Host "Publish directory is in use by a running GameHelper (PID list below); keeping new build at:"
-            Write-Host "  $tempPublish"
-            foreach ($inst in $runningInstances) {
-                Write-Host ("  running instance: PID " + $inst.Id)
+            if (-not $Restart) {
+                Write-Host "Publish directory is in use by a running GameHelper (PID list below); keeping new build at:"
+                Write-Host "  $tempPublish"
+                foreach ($inst in $runningInstances) {
+                    Write-Host ("  running instance: PID " + $inst.Id)
+                }
+                Write-Host 'Close it, then re-run: powershell -File scripts\verify-on-machine.ps1 -SkipVerify'
+                $deployed = $false
             }
-            Write-Host 'Close it, then re-run: powershell -File scripts\verify-on-machine.ps1 -SkipVerify'
-            $deployed = $false
+            else {
+                # Standing direct-update policy: stop the instance, clean orphaned ETW sessions,
+                # swap the directory atomically, and relaunch. In-flight game sessions survive
+                # the restart via the in-flight snapshot recovery mechanism.
+                Write-Host "Direct update (-Restart): stopping running GameHelper instance(s); in-flight sessions are recovered on relaunch."
+                foreach ($inst in $runningInstances) {
+                    Write-Host ("  stopping PID " + $inst.Id)
+                    Stop-Process -Id $inst.Id -Force
+                }
+
+                $deadline = (Get-Date).AddSeconds(30)
+                do {
+                    Start-Sleep -Milliseconds 500
+                    $runningInstances = @(Get-Process -Name GameHelper.ConsoleHost -ErrorAction SilentlyContinue | Where-Object {
+                        [string]::IsNullOrWhiteSpace($_.Path) -or $_.Path -eq (Join-Path $publishDir "GameHelper.ConsoleHost.exe")
+                    })
+                } while ($runningInstances.Count -gt 0 -and (Get-Date) -lt $deadline)
+                if ($runningInstances.Count -gt 0) {
+                    throw "Running GameHelper instance(s) did not exit within 30s; aborting deploy."
+                }
+
+                # Force-killed ETW sessions do not die with the process; stop orphans by name.
+                $logmanList = & logman.exe -ets 2>$null
+                foreach ($line in @($logmanList)) {
+                    if ($line -match '^(GameHelper-ETW-\S+)') {
+                        Write-Host ("  stopping orphaned ETW session: " + $Matches[1])
+                        & logman.exe stop $Matches[1] -ets 2>$null | Out-Null
+                    }
+                }
+
+                $backupDir = "$publishDir.old-" + [Guid]::NewGuid().ToString("N")
+                Move-Item -Path $publishDir -Destination $backupDir -Force
+                try {
+                    # $publishDir no longer exists, so this moves the temp dir to that exact path.
+                    Move-Item -Path $tempPublish -Destination $publishDir -Force
+                    $deployed = $true
+                    $relaunchAfterDeploy = $true
+                    Remove-Item -Path $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+                }
+                catch {
+                    # Roll the old directory back if the swap of the new one fails.
+                    Move-Item -Path $backupDir -Destination $publishDir -Force
+                    throw
+                }
+            }
         }
         else {
             $backupDir = "$publishDir.old-" + [Guid]::NewGuid().ToString("N")
@@ -142,10 +194,21 @@ try {
 finally {
     if ($deployed) {
         Remove-Item -Path $tempPublish -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host "Deploy complete. Next launch of the shortcut picks up the new build."
+        Write-Host "Deploy complete."
     }
     else {
         Write-Host "New build kept at: $tempPublish"
         Write-Host "Close the running GameHelper, then re-run: powershell -File scripts\verify-on-machine.ps1 -SkipVerify"
     }
+}
+
+if ($relaunchAfterDeploy) {
+    # Launch without capturing stdout (a headless pipe-captured launch hangs at startup).
+    Write-Host "Relaunching GameHelper from the publish directory..."
+    $relaunched = Start-Process -FilePath (Join-Path $publishDir $exeName) -WorkingDirectory $publishDir -PassThru
+    Start-Sleep -Seconds 5
+    if ($relaunched.HasExited) {
+        throw "Relaunched GameHelper exited immediately (PID $($relaunched.Id)); check its logs."
+    }
+    Write-Host ("New GameHelper instance is running (PID " + $relaunched.Id + ").")
 }

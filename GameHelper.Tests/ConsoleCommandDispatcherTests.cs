@@ -1,4 +1,4 @@
-using GameHelper.ConsoleHost;
+﻿using GameHelper.ConsoleHost;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
@@ -190,6 +190,8 @@ games:
             Array.Empty<DailyPlaytimeSummary>(),
             0,
             StatisticsService.PreviewWindowDays,
-            string.Empty);
+            string.Empty,
+            0,
+            0);
     }
 }

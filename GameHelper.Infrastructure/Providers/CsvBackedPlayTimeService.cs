@@ -62,16 +62,28 @@ namespace GameHelper.Infrastructure.Providers
             }
         }
 
-        public void StartTracking(string gameName)
-        {
-            if (string.IsNullOrWhiteSpace(gameName)) return;
+    public void StartTracking(string gameName)
+    {
+        if (string.IsNullOrWhiteSpace(gameName)) return;
 
-            lock (_gate)
-            {
-                if (_activeSessions.ContainsKey(gameName)) return; // already tracking
-                _activeSessions[gameName] = DateTime.Now;
-            }
+        lock (_gate)
+        {
+            if (_activeSessions.ContainsKey(gameName)) return; // already tracking
+            _activeSessions[gameName] = DateTime.Now;
         }
+    }
+
+    /// <inheritdoc />
+    public void ResumeTracking(string gameName, DateTime startTime)
+    {
+        if (string.IsNullOrWhiteSpace(gameName)) return;
+
+        lock (_gate)
+        {
+            if (_activeSessions.ContainsKey(gameName)) return; // already tracking; keep the existing start
+            _activeSessions[gameName] = startTime;
+        }
+    }
 
         public PlaySession? StopTracking(string gameName)
         {
@@ -107,6 +119,27 @@ namespace GameHelper.Infrastructure.Providers
             }
 
             return session;
+        }
+
+        /// <summary>
+        /// Persists a completed row recovered from a prior run's in-flight snapshot. The
+        /// true exit time of a game that died while GameHelper was down has already been
+        /// capped by the caller; this method only writes what it is given.
+        /// </summary>
+        public void WriteRecoveredSession(string gameName, DateTime startTime, DateTime endTime)
+        {
+            if (string.IsNullOrWhiteSpace(gameName)) return;
+
+            var duration = endTime - startTime;
+            if (duration < TimeSpan.Zero)
+            {
+                duration = TimeSpan.Zero;
+            }
+
+            var durationMinutes = (long)duration.TotalMinutes;
+            if (durationMinutes < 0) durationMinutes = 0;
+
+            AppendSessionToCsv(gameName, startTime, endTime, durationMinutes);
         }
 
         private void AppendSessionToCsv(string gameName, DateTime startTime, DateTime endTime, long durationMinutes)

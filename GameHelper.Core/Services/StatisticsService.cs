@@ -105,6 +105,11 @@ public sealed class StatisticsService : IStatisticsService
         var windowMinutes = new long[PreviewWindowDays];
         var games = new Dictionary<string, SessionGameSummary>(StringComparer.OrdinalIgnoreCase);
         var windowSessionCount = 0;
+        // 半窗游玩游戏数：划分须与渲染端 DailyTrendChartRenderer.CompareHalves（窗口天数对半）一致，
+        // 会话按结束日期归属其所在半窗，用于"游戏数量"趋势状态。
+        var previousHalfDays = PreviewWindowDays / 2;
+        var previousHalfGames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var recentHalfGames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var record in snapshot.Records)
         {
             var endLocal = ToLocalTime(record.End);
@@ -118,6 +123,15 @@ public sealed class StatisticsService : IStatisticsService
             if (dayIndex >= 0 && dayIndex < PreviewWindowDays)
             {
                 windowMinutes[dayIndex] += record.DurationMinutes;
+            }
+
+            if (dayIndex >= previousHalfDays && dayIndex < PreviewWindowDays)
+            {
+                recentHalfGames.Add(record.Key.Game);
+            }
+            else if (dayIndex >= 0 && dayIndex < previousHalfDays)
+            {
+                previousHalfGames.Add(record.Key.Game);
             }
 
             if (games.TryGetValue(record.Key.Game, out var summary))
@@ -154,7 +168,9 @@ public sealed class StatisticsService : IStatisticsService
             dailyTrend,
             windowSessionCount,
             PreviewWindowDays,
-            snapshot.Source);
+            snapshot.Source,
+            previousHalfGames.Count,
+            recentHalfGames.Count);
     }
 
     private static DateTime ToLocalTime(DateTime timestamp)

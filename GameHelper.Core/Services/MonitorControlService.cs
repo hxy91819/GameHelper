@@ -6,11 +6,15 @@ public sealed class MonitorControlService : IMonitorControlService
 {
     private readonly IProcessMonitor _monitor;
     private readonly IGameAutomationService _automationService;
+    private readonly IConfigWatcher? _configWatcher;
+    private bool _configWatcherStarted;
 
-    public MonitorControlService(IProcessMonitor monitor, IGameAutomationService automationService)
+    public MonitorControlService(IProcessMonitor monitor, IGameAutomationService automationService,
+        IConfigWatcher? configWatcher = null)
     {
         _monitor = monitor;
         _automationService = automationService;
+        _configWatcher = configWatcher;
     }
 
     public bool IsRunning { get; private set; }
@@ -45,6 +49,23 @@ public sealed class MonitorControlService : IMonitorControlService
             }
 
             throw;
+        }
+
+        // Config hot reload is auxiliary: it must never put monitoring state at risk.
+        // The watcher's lifetime follows the host process, not monitor Stop(), so a
+        // stopped monitor can still pick up config edits and resume cleanly later.
+        if (!_configWatcherStarted)
+        {
+            try
+            {
+                _configWatcher?.Start();
+            }
+            catch
+            {
+                // Watcher failures are logged inside the implementation; hot reload degrades to a no-op.
+            }
+
+            _configWatcherStarted = true;
         }
     }
 

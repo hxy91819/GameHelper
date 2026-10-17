@@ -65,10 +65,16 @@
 
 ## Verification & Deployment Workflow (mandatory after every development task)
 - After development is complete, follow `docs/guides/verify-and-deploy-workflow.md` **in full**: build + test, publish, on-machine verification with an isolated test instance, then deploy to the local publish directory.
-- **Never stop, restart, or kill the user's running GameHelper instance.** The user may be monitoring at any time; verification must use a dedicated test instance that coexists with it.
+- **Direct update is a standing, pre-authorized policy.** The user has granted blanket authorization for "update directly after finishing changes": end every development task with `powershell -File scripts\verify-on-machine.ps1 -SkipVerify -Restart`, which stops the running GameHelper instance, cleans up orphaned ETW sessions, atomically swaps the publish directory, relaunches, and confirms the new PID stays alive — without asking per task. In-flight game sessions survive the restart via the in-flight snapshot recovery mechanism (see the workflow doc's "跨重启会话续算" section).
+- **The continuity mechanism is the safety net for direct update.** Only fall back to the conservative path (keep the retained build, let the user decide when to restart) when continuity cannot work — e.g., the running instance predates the mechanism (before 2026-10-17), or the recovery snapshot is unusable while a monitored game is active.
 - Test instances must isolate data via `GAMEHELPER_DATA_DIR` (sandboxed data dir) and skip the single-instance mutex via `GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE=1` so the user's instance is never affected.
-- Deploy targets the shortcut path `GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish/` so the user's next launch picks up the new build. If a running instance locks the publish directory, the script leaves the new build in a temp directory and prints the retry command; close the instance and re-run `scripts\verify-on-machine.ps1 -SkipVerify`. Deployment itself is an all-or-nothing directory swap with automatic rollback — never copy files individually into a publish directory (mixing framework-dependent and self-contained layouts breaks the next launch).
-- One-shot command: `powershell -File scripts\verify-on-machine.ps1` (append `-SkipVerify` to deploy only).
+- Deploy targets the shortcut path `GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish/`. Deployment itself is an all-or-nothing directory swap with automatic rollback — never copy files individually into a publish directory (mixing framework-dependent and self-contained layouts breaks the next launch).
+- One-shot command: `powershell -File scripts\verify-on-machine.ps1` (append `-SkipVerify` to deploy only, append `-SkipVerify -Restart` for the standard direct-update closeout).
+
+## Git: Commit & Push After Every Fully Completed Feature
+- "Fully completed" means the task closed the full loop: build + test green, docs updated, and the direct-update deploy succeeded. When a feature (or a coherent batch of completed features) reaches that state, **commit and push immediately** — do not leave completed work uncommitted waiting for further instruction.
+- Stage only the files belonging to the delivered work (check `git status`; do not sweep unrelated WIP into the commit). Commit messages are concise Chinese subject lines summarizing function + impacted components, consistent with existing history, optionally with a short body listing verification commands and outcomes (mirroring the PR message requirements above).
+- Push directly to the current branch (main). If the push is rejected (remote ahead), pull/rebase and retry; only skip committing when the deployment itself failed — an undeployed feature follows the normal workflow instead.
 
 ## Documentation Updates
 - Update `README.md` or relevant files under `docs/` whenever user-facing behavior, CLI arguments, or configuration formats change.

@@ -95,9 +95,27 @@ dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release
 
 ## 配置文件
 
+### 配置热重载
+
+在监控运行期间直接编辑 `%AppData%\GameHelper\config.yml`（文本编辑器保存即可），约 0.5 秒内自动生效，无需重启 GameHelper：
+
+- 新增 / 修改 / 删除游戏条目、`enabled`、`hdr`、`speed`、`breakReminder`、`monitorMode` 规则都会自动重载；对之后新匹配启动的进程生效。
+- 拖拽添加与 CLI 目录命令修改配置依旧立即重载，与文件监听路径互不冲突。
+- 以下项仍需重启进程才会生效：`monitor`（监控器类型，启动时创建）、`sync` 后台推送参数（循环启动时读取）。
+- 编辑器保存时文件会短暂处于“被替换/缺失”状态，监听器会跳过该窗口，不会把空配置读进运行中的服务；删除 `config.yml` 也不会清空当前监控状态。
+- 监听失败时只降级热重载（日志有提示），监控本身不受影响。
+
 ### 连续游戏休息提醒
 
 在 `config.yml` 添加 `breakReminder: { enabled: true }`，启动监控后累计前台游戏40分钟提醒休息，之后每10分钟再提醒；跨游戏累计，连续离开游戏满5分钟清零。默认关闭，使用系统通知及提示音，时间可配置。详情见[休息提醒指南](docs/guides/break-reminder.md)。
+
+### 显示器预设自动切换（游戏/护眼）
+
+在 `config.yml` 添加 `monitorMode: { enabled: true }` 后，GameHelper 通过 DDC/CI 直接切换显示器预设档位：白天打游戏切游戏模式（如 Dell Game），白天不玩、特别是日落后统一切护眼模式（如 Dell ComfortView）。日照窗口默认按固定时间（07:00–18:30）判定，配置经纬度则逐日按日出日落实时判定，也可以 `location: auto` 让 Windows 定位自动提供坐标（一次定位本地缓存，无第三方网络请求；需系统"定位"开关开启，拿不到就自动回落固定时间窗）。默认关闭；默认配方针对 Dell U2720QM 实测定标，其他显示器可覆盖。热重载可用，无需重启。详情见[显示器预设切换指南](docs/guides/monitor-mode.md)。
+
+### 更新重启不断计时（会话跨重启续算）
+
+GameHelper 更新替换重启（或异常崩溃）时，正在统计的游戏会话不再中断：重启后会检查在途游戏进程——还存活就按**原开始时间**续算，游戏退出时落一条连续记录；游戏在停机间隙退出的，按最后已知存活时间收尾落库，不丢数据。在途会话快照 `%AppData%\GameHelper\inflight-sessions.json` 随会话状态变化持续落盘，进程被强制结束也能恢复。这使"改完直接更新"的部署策略可以安全执行（部署脚本 `-Restart`）。详见[验证与部署工作流](docs/guides/verify-and-deploy-workflow.md)。
 
 默认路径：`%AppData%\GameHelper\config.yml`
 

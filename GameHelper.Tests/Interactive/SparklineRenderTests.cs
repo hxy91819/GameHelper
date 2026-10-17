@@ -42,7 +42,7 @@ namespace GameHelper.Tests.Interactive
 
             return new SessionActivityPreview(
                 new List<SessionGameSummary> { new("gulong", "古龙风云录", 2, 90, today) },
-                trend, 2, 14, "test.csv");
+                trend, 2, 14, "test.csv", 1, 1);
         }
 
         private static string RenderWithTimeout(IRenderable renderable, string stepName)
@@ -80,11 +80,17 @@ namespace GameHelper.Tests.Interactive
             var out1 = RenderWithTimeout(chart, "chart markup alone");
             _output.WriteLine("[1 chart]\n" + out1);
 
-            // 内容断言：sparkline 图形、总时长标注、起止日期轴都要出现
+            // 内容断言：sparkline 图形、总时长标注、起止日期轴都要出现。
+            // 趋势状态：前半窗 0..6 共 613min、后半窗 7..13 共 272min → 近 7 天较前 7 天 -56%
+            //（(272-613)/613*100 = -55.63，四舍五入 -56）；半窗游戏数 1→1 款持平。
             Assert.Contains("█", out1);
             Assert.Contains("每日游玩时长", out1);
             Assert.Contains(preview.DailyTrend[0].Date.ToString("MM-dd", CultureInfo.InvariantCulture), out1);
             Assert.Contains(preview.DailyTrend[^1].Date.ToString("MM-dd", CultureInfo.InvariantCulture), out1);
+            Assert.Contains("↓ 时长减少", out1);
+            Assert.Contains("较前 7 天 -56%", out1);
+            Assert.Contains("→ 游戏数量持平", out1);
+            Assert.Contains("（1 款）", out1);
 
             // 2. 表格单独入 Panel
             var out2 = RenderWithTimeout(new Panel(table) { Header = new PanelHeader("历史记录预览"), Border = BoxBorder.Rounded }, "panel(table)");
@@ -117,7 +123,7 @@ namespace GameHelper.Tests.Interactive
                 .Select(i => new DailyPlaytimeSummary(today.AddDays(-(13 - i)), 0))
                 .ToList();
             var preview = new SessionActivityPreview(
-                new List<SessionGameSummary>(), trend, 0, 14, "test.csv");
+                new List<SessionGameSummary>(), trend, 0, 14, "test.csv", 0, 0);
 
             var uiType = typeof(GameHelper.ConsoleHost.Interactive.MonitorUI);
             var chartMethod = uiType.GetMethod(
@@ -127,6 +133,59 @@ namespace GameHelper.Tests.Interactive
 
             var output = RenderWithTimeout(chart, "all-zero trend");
             Assert.Contains("0 min", output);
+            // 全零窗口无趋势信号，两个状态都不显示。
+            Assert.DoesNotContain("较前", output);
+            Assert.DoesNotContain("游戏数量", output);
+        }
+
+        [Fact]
+        public void Render_IncreasingTrend_ShowsIncreaseStatus()
+        {
+            // 前半窗全 10min、后半窗全 60min → 近 7 天较前 7 天 +500%；
+            // 半窗游戏数量 2→4 款（模拟 StatisticsService 分桶结果）。
+            var today = DateTime.Now.Date;
+            var trend = Enumerable.Range(0, 14)
+                .Select(i => new DailyPlaytimeSummary(today.AddDays(-(13 - i)), i < 7 ? 10L : 60L))
+                .ToList();
+            var preview = new SessionActivityPreview(
+                new List<SessionGameSummary>(), trend, 0, 14, "test.csv", 2, 4);
+
+            var uiType = typeof(GameHelper.ConsoleHost.Interactive.MonitorUI);
+            var chartMethod = uiType.GetMethod(
+                "BuildDailyTrendChart",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var chart = (IRenderable)chartMethod!.Invoke(null, new object[] { preview })!;
+
+            var output = RenderWithTimeout(chart, "increasing trend");
+            Assert.Contains("↑ 时长增加", output);
+            Assert.Contains("较前 7 天 +500%", output);
+            Assert.Contains("↑ 游戏数量增加", output);
+            Assert.Contains("（2→4 款）", output);
+        }
+
+        [Fact]
+        public void Render_GameCountDecreasingWhileDurationFlat_ShowsBothStatuses()
+        {
+            // 每天等量游玩（时长持平，不标注幅度）+ 前 3 → 近 1 款（数量减少），
+            // 验证两个状态并列且数量减少的方向断言。
+            var today = DateTime.Now.Date;
+            var trend = Enumerable.Range(0, 14)
+                .Select(i => new DailyPlaytimeSummary(today.AddDays(-(13 - i)), 60L))
+                .ToList();
+            var preview = new SessionActivityPreview(
+                new List<SessionGameSummary>(), trend, 0, 14, "test.csv", 3, 1);
+
+            var uiType = typeof(GameHelper.ConsoleHost.Interactive.MonitorUI);
+            var chartMethod = uiType.GetMethod(
+                "BuildDailyTrendChart",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var chart = (IRenderable)chartMethod!.Invoke(null, new object[] { preview })!;
+
+            var output = RenderWithTimeout(chart, "flat duration, decreasing games");
+            Assert.Contains("→ 时长基本持平", output);
+            Assert.DoesNotContain("%", output);
+            Assert.Contains("↓ 游戏数量减少", output);
+            Assert.Contains("（3→1 款）", output);
         }
     }
 }

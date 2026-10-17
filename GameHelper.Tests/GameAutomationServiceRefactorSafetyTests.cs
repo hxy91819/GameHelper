@@ -46,6 +46,16 @@ namespace GameHelper.Tests
                 StartCalls++;
                 Started.Add(gameName);
             }
+            public void ResumeTracking(string gameName, DateTime startTime)
+            {
+                StartCalls++;
+                Started.Add(gameName);
+            }
+            public void WriteRecoveredSession(string gameName, DateTime startTime, DateTime endTime)
+            {
+                StopCalls++;
+                Stopped.Add(gameName);
+            }
             public PlaySession? StopTracking(string gameName)
             {
                 StopCalls++;

@@ -1,4 +1,4 @@
-using GameHelper.ConsoleHost.Commands;
+﻿using GameHelper.ConsoleHost.Commands;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Services;
@@ -125,7 +125,9 @@ public sealed class StatsCommandTests
             Array.Empty<DailyPlaytimeSummary>(),
             0,
             StatisticsService.PreviewWindowDays,
-            string.Empty);
+            string.Empty,
+            0,
+            0);
     }
 
     private sealed class RecordingStatisticsService : IStatisticsService
@@ -163,6 +165,8 @@ public sealed class StatsCommandTests
             Array.Empty<DailyPlaytimeSummary>(),
             0,
             StatisticsService.PreviewWindowDays,
-            string.Empty);
+            string.Empty,
+            0,
+            0);
     }
 }

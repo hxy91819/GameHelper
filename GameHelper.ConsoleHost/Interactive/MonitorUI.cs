@@ -324,13 +324,18 @@ namespace GameHelper.ConsoleHost.Interactive
                 return new Markup(string.Empty);
             }
 
-            var rows = DailyTrendChartRenderer.BuildBarRows(trend.Select(day => day.Minutes).ToArray());
+            var trendMinutes = trend.Select(day => day.Minutes).ToArray();
+            var rows = DailyTrendChartRenderer.BuildBarRows(trendMinutes);
             var totalMinutes = trend.Sum(day => day.Minutes);
+            var trendStatus = FormatTrendStatus(
+                DailyTrendChartRenderer.CompareHalves(trendMinutes),
+                trend.Count / 2)
+                + FormatGameCountStatus(preview.PreviousHalfGames, preview.RecentHalfGames);
 
             // 多行 Markup 直接写控制台是安全的；此前挂死只发生在它被 Rows/Panel 嵌套时。
             var lines = new List<string>
             {
-                ChartIndent + $"[grey]近 {preview.WindowDays} 天每日游玩时长（{DurationFormatter.Format(totalMinutes)}）[/]",
+                ChartIndent + $"[grey]近 {preview.WindowDays} 天每日游玩时长（{DurationFormatter.Format(totalMinutes)}）[/]" + trendStatus,
             };
             for (var i = 0; i < rows.Count; i++)
             {
@@ -350,6 +355,62 @@ namespace GameHelper.ConsoleHost.Interactive
 
             lines.Add(ChartIndent + $"[grey]{Markup.Escape(new string(axisChars).TrimEnd())}[/]");
             return new Markup(string.Join(Environment.NewLine, lines) + Environment.NewLine);
+        }
+
+        /// <summary>
+        /// 把半窗对比结果格式化为标题行尾部的状态文案：箭头 + "时长增加/减少" + 变化幅度，
+        /// 增加/减少/基本持平分别着红/绿/灰（本面板服务于游玩管理，玩得更多越醒目）。
+        /// 窗口无任何游玩时返回空串，不显示状态。
+        /// </summary>
+        private static string FormatTrendStatus(HalfWindowTrend comparison, int previousHalfDays)
+        {
+            if (!comparison.HasSignal)
+            {
+                return string.Empty;
+            }
+
+            var (arrow, color, word) = comparison.Direction switch
+            {
+                TrendDirection.Increasing => ("↑", "red", "时长增加"),
+                TrendDirection.Decreasing => ("↓", "green", "时长减少"),
+                _ => ("→", "grey", "时长基本持平")
+            };
+
+            // 持平不再标注幅度（阈值内的百分比与“基本持平”表述互相打架）；
+            // 前半窗无任何游玩时百分比无定义，改用文字说明基线为零。
+            var detail = comparison.Direction switch
+            {
+                TrendDirection.Steady => string.Empty,
+                TrendDirection.Increasing when double.IsNaN(comparison.ChangePercent) => "（此前无游玩）",
+                _ => $"（较前 {previousHalfDays} 天 {comparison.ChangePercent.ToString("+0;-0", CultureInfo.InvariantCulture)}%）"
+            };
+
+            return $" [{color}]{arrow} {word}[/][grey]{detail}[/]";
+        }
+
+        /// <summary>
+        /// 把前后半窗的游玩游戏数量格式化为状态文案：箭头 + "游戏数量增加/减少" + 款数变化，
+        /// 配色与时长状态一致；数量按整数直接比较（无持平阈值）。两半窗均无游戏时返回空串。
+        /// </summary>
+        private static string FormatGameCountStatus(int previousGames, int recentGames)
+        {
+            if (previousGames == 0 && recentGames == 0)
+            {
+                return string.Empty;
+            }
+
+            var (arrow, color, word) = recentGames > previousGames
+                ? ("↑", "red", "游戏数量增加")
+                : recentGames < previousGames
+                    ? ("↓", "green", "游戏数量减少")
+                    : ("→", "grey", "游戏数量持平");
+
+            // 持平时两半窗数量相同，只给单个数量，避免 "5→5 款" 的冗余。
+            var detail = recentGames == previousGames
+                ? $"（{recentGames} 款）"
+                : $"（{previousGames}→{recentGames} 款）";
+
+            return $" [{color}]{arrow} {word}[/][grey]{detail}[/]";
         }
 
         private const string ChartIndent = "  ";

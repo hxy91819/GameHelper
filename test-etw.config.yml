@@ -21,6 +21,9 @@ breakReminder:
   breakMinutes: 5
   repeatMinutes: 10
   sound: true
+# 显示器预设自动切换默认关闭；完整规则见 docs/guides/monitor-mode.md。
+monitorMode:
+  enabled: false
 games:
   - dataKey: notepad
     executable: notepad.exe

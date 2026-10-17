@@ -20,6 +20,14 @@ breakReminder:
   breakMinutes: 5
   repeatMinutes: 10
   sound: true
+# 显示器预设自动切换默认关闭；完整规则见 docs/guides/monitor-mode.md。
+monitorMode:
+  enabled: false
+  # location: auto        # 自动定位取坐标（需系统“定位”开关开启；与经纬度二选一）
+  # latitude: 39.907      # 手动坐标优先级最高；两者都不配则用固定时间窗
+  # longitude: 116.391
+  # daylightStart: "07:00"
+  # daylightEnd: "18:30"
 games:
   - dataKey: cheatengine
     executable: Cheat Engine.exe

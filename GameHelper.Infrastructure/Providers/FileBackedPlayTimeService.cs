@@ -57,6 +57,51 @@ namespace GameHelper.Infrastructure.Providers
             }
         }
 
+        /// <inheritdoc />
+        public void ResumeTracking(string gameName, DateTime startTime)
+        {
+            if (string.IsNullOrWhiteSpace(gameName)) return;
+            lock (_gate)
+            {
+                if (_starts.ContainsKey(gameName)) return; // already tracking; keep the existing start
+                _starts[gameName] = startTime;
+                if (!_playTimes.ContainsKey(gameName))
+                {
+                    _playTimes[gameName] = new GamePlayTimeRecord { GameName = gameName };
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public void WriteRecoveredSession(string gameName, DateTime startTime, DateTime endTime)
+        {
+            if (string.IsNullOrWhiteSpace(gameName)) return;
+
+            var duration = endTime - startTime;
+            if (duration < TimeSpan.Zero)
+            {
+                duration = TimeSpan.Zero;
+            }
+
+            var minutes = (long)duration.TotalMinutes;
+            lock (_gate)
+            {
+                if (!_playTimes.TryGetValue(gameName, out var rec))
+                {
+                    rec = new GamePlayTimeRecord { GameName = gameName };
+                    _playTimes[gameName] = rec;
+                }
+
+                rec.Sessions.Add(new GameSessionRecord
+                {
+                    StartTime = startTime,
+                    EndTime = endTime,
+                    DurationMinutes = minutes
+                });
+                Save();
+            }
+        }
+
         public PlaySession? StopTracking(string gameName)
         {
             if (string.IsNullOrWhiteSpace(gameName)) return null;

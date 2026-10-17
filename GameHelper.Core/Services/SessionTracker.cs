@@ -163,6 +163,50 @@ internal sealed class SessionTracker
     }
 
     /// <summary>
+    /// Returns a deduplicated snapshot of the currently active process entries.
+    /// Used by automation to persist an in-flight session snapshot for restart recovery.
+    /// </summary>
+    public IReadOnlyList<ActiveProcessEntry> GetActiveEntriesSnapshot()
+    {
+        lock (_lock)
+        {
+            var entries = new List<ActiveProcessEntry>();
+            var seen = new HashSet<ActiveProcessEntry>();
+            foreach (var entry in _activeByProcessId.Values)
+            {
+                if (seen.Add(entry))
+                {
+                    entries.Add(entry);
+                }
+            }
+
+            foreach (var list in _activeByName.Values)
+            {
+                foreach (var entry in list)
+                {
+                    if (seen.Add(entry))
+                    {
+                        entries.Add(entry);
+                    }
+                }
+            }
+
+            foreach (var list in _activeByPath.Values)
+            {
+                foreach (var entry in list)
+                {
+                    if (seen.Add(entry))
+                    {
+                        entries.Add(entry);
+                    }
+                }
+            }
+
+            return entries;
+        }
+    }
+
+    /// <summary>
     /// Clears all active tracking state, used when the automation service stops.
     /// </summary>
     public void Clear()

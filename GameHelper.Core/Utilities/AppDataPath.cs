@@ -45,6 +45,12 @@ public static class AppDataPath
     /// <summary>统计推送状态文件路径（sync-state.json）。</summary>
     public static string GetSyncStatePath() => Path.Combine(GetGameHelperDirectory(), "sync-state.json");
 
+    /// <summary>重启前在途游戏会话快照（inflight-sessions.json），用于跨重启续算游玩时长。</summary>
+    public static string GetInFlightSessionsPath() => Path.Combine(GetGameHelperDirectory(), "inflight-sessions.json");
+
+    /// <summary>自动定位的坐标缓存（location-cache.json），供显示器预设的日照判定使用。</summary>
+    public static string GetLocationCachePath() => Path.Combine(GetGameHelperDirectory(), "location-cache.json");
+
     /// <summary>统计推送 git 方式的工作副本根目录。</summary>
     public static string GetSyncCloneRoot() => Path.Combine(GetGameHelperDirectory(), "sync");
 

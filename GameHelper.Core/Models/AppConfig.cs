@@ -38,6 +38,12 @@ namespace GameHelper.Core.Models
         public BreakReminderSettings? BreakReminder { get; set; }
 
         /// <summary>
+        /// Optional monitor preset-mode automation (DDC/CI switching between a game
+        /// preset during daylight play and a comfort preset otherwise); null means disabled.
+        /// </summary>
+        public MonitorModeSettings? MonitorMode { get; set; }
+
+        /// <summary>
         /// 统计自动推送配置；null 表示未配置（config.yml 无 sync 段）。
         /// </summary>
         public SyncSettings? SyncSettings { get; set; }

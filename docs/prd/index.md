@@ -15,6 +15,7 @@ The maintained baseline is:
 - Path-first game matching with metadata/name fallback for legacy configs.
 - CSV-backed playtime history and statistics display.
 - Optional foreground-game break reminders: cross-game accumulation, continuous-break reset, and repeat system notifications. Defaults are 40 minutes of play, 5 minutes of break, and 10 minutes between repeats; configuration is opt-in.
+- Optional monitor preset auto-switching over DDC/CI: game preset during daylight play, comfort preset otherwise and after sunset; solar sunrise/sunset or fixed time windows; opt-in configuration with per-monitor overridable recipes.
 - Interactive CLI and file-drop workflows for adding or updating games.
 - Optional per-game speed control through a user-installed Cheat Engine, configured entirely in `config.yml` without hand-maintained tables.
 

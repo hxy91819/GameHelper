@@ -105,5 +105,105 @@ namespace GameHelper.Tests.Interactive
                 new[] { (0, 0) },
                 ticks.Select(t => (t.Column, t.DayIndex)).ToArray());
         }
+
+        // ---------- 半窗对比趋势（CompareHalves） ----------
+
+        private static IReadOnlyList<long> TwoHalves(int previousDays, long previousMinutes, int recentDays, long recentMinutes)
+        {
+            return Enumerable.Range(0, previousDays).Select(_ => previousMinutes)
+                .Concat(Enumerable.Range(0, recentDays).Select(_ => recentMinutes))
+                .ToArray();
+        }
+
+        [Fact]
+        public void CompareHalves_IncreaseAboveThreshold_ReturnsDirectionAndPercent()
+        {
+            var trend = DailyTrendChartRenderer.CompareHalves(TwoHalves(30, 100, 30, 150));
+
+            Assert.True(trend.HasSignal);
+            Assert.Equal(TrendDirection.Increasing, trend.Direction);
+            Assert.Equal(100d, trend.PreviousDailyAvg);
+            Assert.Equal(150d, trend.RecentDailyAvg);
+            Assert.Equal(50d, trend.ChangePercent, 6);
+        }
+
+        [Fact]
+        public void CompareHalves_DecreaseAboveThreshold_ReturnsDirectionAndNegativePercent()
+        {
+            var trend = DailyTrendChartRenderer.CompareHalves(TwoHalves(30, 90, 30, 60));
+
+            Assert.True(trend.HasSignal);
+            Assert.Equal(TrendDirection.Decreasing, trend.Direction);
+            Assert.Equal(-33.3333d, trend.ChangePercent, 4);
+        }
+
+        [Fact]
+        public void CompareHalves_ChangeWithinThreshold_IsSteady()
+        {
+            var trend = DailyTrendChartRenderer.CompareHalves(TwoHalves(30, 100, 30, 108));
+
+            Assert.True(trend.HasSignal);
+            Assert.Equal(TrendDirection.Steady, trend.Direction);
+            Assert.Equal(8d, trend.ChangePercent, 6);
+        }
+
+        [Fact]
+        public void CompareHalves_ChangeExactlyAtDefaultThreshold_IsSteady()
+        {
+            // (110-100)/100*100 恰为 10.0；阈值按“大于”判定，恰好落在阈值上不算增加。
+            var trend = DailyTrendChartRenderer.CompareHalves(TwoHalves(30, 100, 30, 110));
+
+            Assert.Equal(TrendDirection.Steady, trend.Direction);
+        }
+
+        [Fact]
+        public void CompareHalves_CustomThreshold_DecidesDirection()
+        {
+            // (150-100)/100*100 = 50.0，二进制精确可整除，可用于边界断言。
+            var steady = DailyTrendChartRenderer.CompareHalves(TwoHalves(30, 100, 30, 150), 50.0);
+            var increase = DailyTrendChartRenderer.CompareHalves(TwoHalves(30, 100, 30, 151), 50.0);
+
+            Assert.Equal(TrendDirection.Steady, steady.Direction);
+            Assert.Equal(TrendDirection.Increasing, increase.Direction);
+        }
+
+        [Fact]
+        public void CompareHalves_PreviousHalfEmpty_IsIncreaseWithoutPercent()
+        {
+            var trend = DailyTrendChartRenderer.CompareHalves(TwoHalves(30, 0, 30, 120));
+
+            Assert.True(trend.HasSignal);
+            Assert.Equal(TrendDirection.Increasing, trend.Direction);
+            Assert.Equal(0d, trend.PreviousDailyAvg);
+            Assert.Equal(120d, trend.RecentDailyAvg);
+            Assert.True(double.IsNaN(trend.ChangePercent));
+        }
+
+        [Fact]
+        public void CompareHalves_RecentHalfEmpty_IsFullDecrease()
+        {
+            var trend = DailyTrendChartRenderer.CompareHalves(TwoHalves(30, 120, 30, 0));
+
+            Assert.True(trend.HasSignal);
+            Assert.Equal(TrendDirection.Decreasing, trend.Direction);
+            Assert.Equal(-100d, trend.ChangePercent, 6);
+        }
+
+        [Fact]
+        public void CompareHalves_BothHalvesEmpty_NoSignal()
+        {
+            var trend = DailyTrendChartRenderer.CompareHalves(TwoHalves(30, 0, 30, 0));
+
+            Assert.False(trend.HasSignal);
+            Assert.Equal(TrendDirection.Steady, trend.Direction);
+            Assert.True(double.IsNaN(trend.ChangePercent));
+        }
+
+        [Fact]
+        public void CompareHalves_WindowShorterThanTwoDays_NoSignal()
+        {
+            Assert.False(DailyTrendChartRenderer.CompareHalves(Array.Empty<long>()).HasSignal);
+            Assert.False(DailyTrendChartRenderer.CompareHalves(new long[] { 5 }).HasSignal);
+        }
     }
 }

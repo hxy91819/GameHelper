@@ -4,6 +4,7 @@ using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Services;
+using GameHelper.Core.Utilities;
 using GameHelper.Infrastructure.Controllers;
 using GameHelper.Infrastructure.Notifications;
 using GameHelper.Infrastructure.Processes;
@@ -96,11 +97,21 @@ public static class ConsoleHostBootstrapper
         {
             services.AddSingleton<IHdrController, WindowsHdrController>();
             services.AddSingleton<IProcessPathResolver, WindowsProcessPathResolver>();
+            services.AddSingleton<IMonitorModeController, DdcMonitorModeController>();
+            services.AddSingleton<IProcessIdentityProbe, WindowsProcessIdentityProbe>();
+            services.AddSingleton<IUserLocationSource, WindowsLocationProvider>();
+            services.AddSingleton<ILocationCacheStore>(_ => new JsonLocationCacheStore(
+                AppDataPath.GetLocationCachePath(),
+                _.GetRequiredService<ILoggerFactory>().CreateLogger<JsonLocationCacheStore>()));
+            services.AddSingleton<IInFlightSessionStore>(_ => new JsonInFlightSessionStore(
+                AppDataPath.GetInFlightSessionsPath(),
+                _.GetRequiredService<ILoggerFactory>().CreateLogger<JsonInFlightSessionStore>()));
         }
         else
         {
             services.AddSingleton<IHdrController, NoOpHdrController>();
             services.AddSingleton<IProcessPathResolver, NoOpProcessPathResolver>();
+            services.AddSingleton<IMonitorModeController, NoOpMonitorModeController>();
         }
 
         services.AddSingleton<IPlayTimeService, CsvBackedPlayTimeService>();
@@ -118,6 +129,15 @@ public static class ConsoleHostBootstrapper
             return new NoOpAutoStartManager();
         });
         services.AddSingleton<IGameAutomationService, GameAutomationService>();
+        services.AddSingleton<IConfigWatcher>(sp =>
+        {
+            var configPath = ((IConfigPathProvider)sp.GetRequiredService<IGameConfiguration>()).ConfigPath;
+            var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("GameHelper.ConfigFileWatcher");
+            return new ConfigFileWatcher(
+                configPath,
+                () => sp.GetRequiredService<IGameAutomationService>().ReloadConfig(),
+                logger);
+        });
         services.AddSingleton<IMonitorControlService, MonitorControlService>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IGameCatalogService, GameCatalogService>();
