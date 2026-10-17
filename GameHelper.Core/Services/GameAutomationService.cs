@@ -33,6 +33,7 @@ public sealed class GameAutomationService : IGameAutomationService
     private MonitorModePlan? _monitorModePlan;
     private MonitorModeSettings? _monitorModeSettings;
     private UserCoordinate? _monitorModeCoordinates;
+    private bool? _lastMonitorModeControllerAvailable;
     private int _locationBootstrapInFlight;
     private int _locationBootstrapKickTick;
     private Timer? _monitorModeTimer;
@@ -150,6 +151,7 @@ public sealed class GameAutomationService : IGameAutomationService
                 _monitorModeTimer = null;
                 _lastMonitorModeAnyGameActive = null;
                 _lastMonitorModeDaylight = null;
+                _lastMonitorModeControllerAvailable = null;
             }
 
             try { _breakReminder?.Stop(); }
@@ -424,6 +426,10 @@ public sealed class GameAutomationService : IGameAutomationService
             anyGameActive = _sessionTracker.ActiveCount > 0;
             var daylight = plan.Daylight.IsDaylight(DateTimeOffset.Now);
 
+            // 显示器从系统消失/回来会改变控制器可用性：这属于必须重新评估的变化
+            // （显示器离线期间档位可能停在被强制写入过的状态，回来需要对齐）。
+            var controllerAvailable = controller.IsAvailable;
+
             // location=auto 且还没有坐标时，随 tick 自愈式重试坐标引导：
             // 用户事后在系统设置里打开“定位”无需重启即可拿到日出日落判定。
             if (NeedsAutoLocation(_monitorModeSettings)
@@ -451,13 +457,15 @@ public sealed class GameAutomationService : IGameAutomationService
 
             if (!forced
                 && _lastMonitorModeAnyGameActive == anyGameActive
-                && _lastMonitorModeDaylight == daylight)
+                && _lastMonitorModeDaylight == daylight
+                && _lastMonitorModeControllerAvailable == controllerAvailable)
             {
                 return;
             }
 
             _lastMonitorModeAnyGameActive = anyGameActive;
             _lastMonitorModeDaylight = daylight;
+            _lastMonitorModeControllerAvailable = controllerAvailable;
         }
 
         try
@@ -471,6 +479,7 @@ public sealed class GameAutomationService : IGameAutomationService
             {
                 // Invalidate the change gate so subsequent ticks retry even without a state change.
                 _lastMonitorModeDaylight = null;
+                _lastMonitorModeControllerAvailable = null;
             }
         }
     }
