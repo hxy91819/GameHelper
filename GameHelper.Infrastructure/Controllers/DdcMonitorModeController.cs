@@ -37,6 +37,8 @@ public sealed class DdcMonitorModeController : IMonitorModeController
     private readonly ILogger<DdcMonitorModeController> _logger;
     private readonly object _busLock = new();
     private readonly object _availabilityLock = new();
+    private readonly Func<(bool Available, string Description)> _availabilityProbe;
+    private readonly Func<int> _tickCount;
     private bool _detectedAvailable;
     private int _lastAvailabilityProbeTick;
 
@@ -196,20 +198,30 @@ public sealed class DdcMonitorModeController : IMonitorModeController
     }
 
     public DdcMonitorModeController(ILogger<DdcMonitorModeController> logger)
+        : this(logger, null, null)
+    {
+    }
+
+    internal DdcMonitorModeController(
+        ILogger<DdcMonitorModeController> logger,
+        Func<(bool Available, string Description)>? availabilityProbe,
+        Func<int>? tickCount)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _availabilityProbe = availabilityProbe ?? (() => RunOnSta(ProbeControllableMonitor));
+        _tickCount = tickCount ?? (() => Environment.TickCount);
         _detectedAvailable = false;
 
         if (!OperatingSystem.IsWindows())
         {
-            _lastAvailabilityProbeTick = Environment.TickCount;
+            _lastAvailabilityProbeTick = _tickCount();
             _logger.LogInformation("DDC/CI monitor preset automation requires Windows; controller disabled.");
             return;
         }
 
-        var probe = RunOnSta(ProbeControllableMonitor);
+        var probe = _availabilityProbe();
         _detectedAvailable = probe.Available;
-        _lastAvailabilityProbeTick = Environment.TickCount;
+        _lastAvailabilityProbeTick = _tickCount();
         if (_detectedAvailable)
         {
             _logger.LogInformation("DDC/CI monitor preset automation controller ready ({Monitor}).", probe.Description);
@@ -234,21 +246,25 @@ public sealed class DdcMonitorModeController : IMonitorModeController
 
             lock (_availabilityLock)
             {
-                // 构造期探测失败时按冷却间隔重试：宿主环境下首次枚举拿零句柄的原因
-                // 与普通进程上下文不同，但后续线程上重试可以成功。
-                if (Environment.TickCount - _lastAvailabilityProbeTick < AvailabilityReProbeCooldownMs)
+                // Continue probing online monitors too, so disconnects and recovery remain observable.
+                if (_tickCount() - _lastAvailabilityProbeTick < AvailabilityReProbeCooldownMs)
                 {
                     return _detectedAvailable;
                 }
 
-                var probe = RunOnSta(ProbeControllableMonitor);
+                var probe = _availabilityProbe();
+                var wasAvailable = _detectedAvailable;
                 _detectedAvailable = probe.Available;
-                _lastAvailabilityProbeTick = Environment.TickCount;
-                if (_detectedAvailable)
+                _lastAvailabilityProbeTick = _tickCount();
+                if (_detectedAvailable && !wasAvailable)
                 {
                     _logger.LogInformation("DDC/CI monitor became available ({Monitor}); preset automation enabled.", probe.Description);
                 }
-                else
+                else if (!_detectedAvailable && wasAvailable)
+                {
+                    _logger.LogWarning("DDC/CI monitor became unavailable; preset automation paused until recovery.");
+                }
+                else if (!_detectedAvailable)
                 {
                     _logger.LogDebug("DDC/CI monitor still not detectable; will retry after cooldown.");
                 }

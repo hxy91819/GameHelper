@@ -116,6 +116,8 @@ dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release
 
 在 `config.yml` 添加 `monitorMode: { enabled: true }` 后，GameHelper 通过 DDC/CI 直接切换显示器预设档位：白天打游戏切游戏模式（如 Dell Game），白天不玩、特别是日落后统一切护眼模式（如 Dell ComfortView）。日照窗口默认按固定时间（07:00–18:30）判定，配置经纬度则逐日按日出日落实时判定，也可以 `location: auto` 让 Windows 定位自动提供坐标（一次定位本地缓存，无第三方网络请求；需系统"定位"开关开启，拿不到就自动回落固定时间窗）。默认关闭；默认配方针对 Dell U2720QM 实测定标，其他显示器可覆盖。热重载可用，无需重启。详情见[显示器预设切换指南](docs/guides/monitor-mode.md)。
 
+显示器每 10 秒仍会检查连接状态；连接提示仅在启动、断开或恢复时输出，持续在线不会反复刷“恢复可用”日志。
+
 ### 更新重启不断计时（会话跨重启续算）
 
 GameHelper 更新替换重启（或异常崩溃）时，正在统计的游戏会话按**原开始时间**续算，游戏退出时落一条连续记录；游戏在停机间隙退出的，按最后已知存活时间收尾落库。在途快照 `%AppData%\GameHelper\inflight-sessions.json` 记录全部游戏进程，随每次进程变化及每 10 秒刷新；恢复后立即原子重写，连续多次更新也能接续。进程创建时间用于防止同一程序复用 PID 时串局，恢复落库失败则保留快照重试。部署脚本 `-Restart` 只清理已退出属主的 ETW 会话，且新实例启动失败会恢复旧产物和旧实例。详见[验证与部署工作流](docs/guides/verify-and-deploy-workflow.md)。

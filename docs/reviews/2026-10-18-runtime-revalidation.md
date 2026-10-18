@@ -112,3 +112,22 @@ AGENTS、README 和部署指南同步明确每次功能或修复都须更新本�
 - 指向正式部署目录执行 `dotnet test GameHelper.sln --no-build --filter FullyQualifiedName~PublishedInteractiveStartupTests --nologo`：3 通过、0 跳过、0 失败。
 
 此前另已按用户授权完成公司提交身份的历史清理；本次启动修复沿用已批准个人身份。
+
+## 后续修正：DDC 可用性提示刷屏
+
+用户报告持续刷 `DDC/CI monitor became available`。最小回归确认：单个控制器、显示器始终在线，
+每次 10 秒冷却结束后的成功探测都被误记为“刚恢复”。现仅在不可用变为可用时提示恢复，可用变为不可用时警告一次；
+持续在线仍定期探测，持续离线仍保留自愈重试。
+
+- `dotnet test GameHelper.sln --filter FullyQualifiedName~DdcMonitorModeControllerTests --nologo -v quiet`：
+  原行为 3 项失败，修复后 3 项通过，覆盖持续在线、首次恢复和断开重连。
+- 使用临时只读 .NET 探针调用真实发布 DLL 的公开构造器及 `IsAvailable`，对 Dell U2720QM 各做四次检查（间隔 11 秒）：
+  旧版本始终在线但重复恢复提示 3 次；新版本始终在线、初始就绪提示 1 次、恢复提示 0 次。未写入显示器寄存器。
+- `dotnet build GameHelper.sln --nologo -v quiet`：成功，0 错误；
+  `powershell -File scripts/verify-on-machine.ps1 -SkipDeploy`：隔离发布验证通过。
+- `autoreview` 使用 subagent 模式，当前修复无 accepted/actionable findings。README 与显示器切换指南同步更新日志语义。
+- 指向新发布 exe、启用 `GAMEHELPER_VERIFY_BREAK_NOTIFICATIONS=1` 执行
+  `dotnet test GameHelper.sln --nologo --logger 'trx;LogFileName=ddc-log-fix.trx'`：583 通过、2 个既有跳过、0 失败。
+- `powershell -File scripts/verify-on-machine.ps1 -SkipVerify -Restart`：更新本机并重启成功，正式 PID 14752，窗口可见、ETW 运行。
+  脚本本次枚举 ETW 失败而保留旧会话；随后用 `logman query -ets` 核对，确认旧属主 PID 30724 已退出，
+  仅停止其确切会话 `GameHelper-ETW-30724-9aa8f8c56af04ede960ed5da06d06fc8`，保留新实例会话。
