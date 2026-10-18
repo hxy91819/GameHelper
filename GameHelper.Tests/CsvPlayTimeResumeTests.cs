@@ -65,6 +65,29 @@ public class CsvPlayTimeResumeTests : IDisposable
     }
 
     [Fact]
+    public void StopTracking_LockedHistory_ReportsFailureSoAutomationCanRetainSnapshot()
+    {
+        var start = DateTime.Now.AddMinutes(-2);
+        _service.ResumeTracking("game", start);
+        File.WriteAllText(CsvPath, "game,start_time,end_time,duration_minutes\n");
+        using (var locked = new FileStream(CsvPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            Assert.ThrowsAny<IOException>(() => _service.StopTracking("game"));
+        _service.WriteRecoveredSession("game", start, DateTime.Now);
+        Assert.Equal(1, DataRowCount);
+    }
+
+    [Fact]
+    public void WriteRecoveredSession_ReplayedSnapshotAcrossServiceRestarts_DoesNotDuplicateRow()
+    {
+        var start = new DateTime(2026, 10, 17, 9, 0, 0).AddTicks(12345);
+        var end = start.AddMinutes(20);
+        _service.WriteRecoveredSession("witcher3", start, end);
+        var restarted = new CsvBackedPlayTimeService(_tempDir);
+        restarted.WriteRecoveredSession("WITCHER3", start, end);
+        Assert.Equal(1, DataRowCount);
+    }
+
+    [Fact]
     public void WriteRecoveredSession_ClampsNegativeDurationToZero()
     {
         _service.WriteRecoveredSession("witcher3", new DateTime(2026, 10, 17, 10, 0, 0), new DateTime(2026, 10, 17, 9, 0, 0));

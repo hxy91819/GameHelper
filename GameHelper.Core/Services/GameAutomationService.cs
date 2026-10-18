@@ -30,16 +30,21 @@ public sealed class GameAutomationService : IGameAutomationService
     private readonly IUserLocationSource? _locationSource;
     private readonly ILocationCacheStore? _locationCacheStore;
     private readonly MonitorModeScheduler _monitorModeScheduler = new();
+    private readonly TimeProvider _timeProvider;
+    private readonly object _monitorModeUpdateLock = new();
     private MonitorModePlan? _monitorModePlan;
     private MonitorModeSettings? _monitorModeSettings;
     private UserCoordinate? _monitorModeCoordinates;
+    private DateTime? _monitorModeCoordinatesAt;
     private bool? _lastMonitorModeControllerAvailable;
     private int _locationBootstrapInFlight;
-    private int _locationBootstrapKickTick;
-    private Timer? _monitorModeTimer;
+    private long? _locationBootstrapKickTimestamp;
+    private ITimer? _monitorModeTimer;
     private bool? _lastMonitorModeAnyGameActive;
     private bool? _lastMonitorModeDaylight;
     private readonly Dictionary<string, DateTime> _inFlightStarts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<int, DateTime> _inFlightProcessStarts = new();
+    private readonly List<InFlightSession> _pendingRecoveredSessions = new();
     private readonly ILogger<GameAutomationService> _logger;
     private readonly object _stateLock = new();
 
@@ -62,7 +67,8 @@ public sealed class GameAutomationService : IGameAutomationService
         IInFlightSessionStore? inFlightSessionStore = null,
         IProcessIdentityProbe? processIdentityProbe = null,
         IUserLocationSource? locationSource = null,
-        ILocationCacheStore? locationCacheStore = null)
+        ILocationCacheStore? locationCacheStore = null,
+        TimeProvider? timeProvider = null)
     {
         _monitor = monitor;
         _gameConfiguration = gameConfiguration;
@@ -76,6 +82,7 @@ public sealed class GameAutomationService : IGameAutomationService
         _processIdentityProbe = processIdentityProbe;
         _locationSource = locationSource;
         _locationCacheStore = locationCacheStore;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger;
         _processMatcher = new GameProcessMatcher(_configIndex, _pathResolver, _logger);
     }
@@ -96,11 +103,11 @@ public sealed class GameAutomationService : IGameAutomationService
             try { _breakReminder?.Start(configuration); }
             catch (Exception ex) { _logger.LogWarning(ex, "Failed to start break reminders"); }
 
-            if (_monitorModeController is not null)
+            if (_monitorModeController is not null || _inFlightSessionStore is not null)
             {
                 try
                 {
-                    _monitorModeTimer = new Timer(OnMonitorModeTick, null, TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(1));
+                    _monitorModeTimer = _timeProvider.CreateTimer(OnMonitorModeTick, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
                 }
                 catch (Exception ex)
                 {
@@ -138,62 +145,69 @@ public sealed class GameAutomationService : IGameAutomationService
                 _configIndex.ByExactName.Count,
                 _configIndex.ByName.Length);
         }
+        UpdateMonitorModeState(forced: true);
     }
 
     public void Stop()
     {
-        lock (_stateLock)
+        lock (_monitorModeUpdateLock)
         {
-            if (_monitorModeTimer is not null)
+            lock (_stateLock)
             {
-                try { _monitorModeTimer.Dispose(); }
-                catch (Exception ex) { _logger.LogDebug(ex, "Failed to dispose the monitor mode timer"); }
-                _monitorModeTimer = null;
-                _lastMonitorModeAnyGameActive = null;
-                _lastMonitorModeDaylight = null;
-                _lastMonitorModeControllerAvailable = null;
-            }
+                if (_monitorModeTimer is not null)
+                {
+                    try { _monitorModeTimer.Dispose(); }
+                    catch (Exception ex) { _logger.LogDebug(ex, "Failed to dispose the monitor mode timer"); }
+                    _monitorModeTimer = null;
+                    _lastMonitorModeAnyGameActive = null;
+                    _lastMonitorModeDaylight = null;
+                    _lastMonitorModeControllerAvailable = null;
+                }
 
-            try { _breakReminder?.Stop(); }
-            catch (Exception ex) { _logger.LogWarning(ex, "Failed to stop break reminders"); }
-            _started = false;
-            _monitor.ProcessStarted -= OnProcessStarted;
-            _monitor.ProcessStopped -= OnProcessStopped;
+                try { _breakReminder?.Stop(); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Failed to stop break reminders"); }
+                _started = false;
+                _monitor.ProcessStarted -= OnProcessStarted;
+                _monitor.ProcessStopped -= OnProcessStopped;
 
-            foreach (var dataKey in _sessionTracker.GetActiveDataKeysSnapshot())
-            {
+                foreach (var dataKey in _sessionTracker.GetActiveDataKeysSnapshot())
+                {
+                    try
+                    {
+                        _playTime.StopTracking(dataKey);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to flush session for {DataKey}", dataKey);
+                        RetainCompletedSession(dataKey);
+                    }
+                }
+
+                _sessionTracker.Clear();
+                _inFlightStarts.Clear();
+                _inFlightProcessStarts.Clear();
+
                 try
                 {
-                    _playTime.StopTracking(dataKey);
+                    if (_pendingRecoveredSessions.Count > 0) PersistInFlightSnapshot();
+                    else _inFlightSessionStore?.Clear();
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to flush session for {DataKey}", dataKey);
+                    _logger.LogWarning(ex, "Failed to clear the in-flight session snapshot after stopping");
                 }
-            }
 
-            _sessionTracker.Clear();
-            _inFlightStarts.Clear();
+                try
+                {
+                    ConfigureProcessObservation();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to disable stop events during shutdown");
+                }
 
-            try
-            {
-                _inFlightSessionStore?.Clear();
+                _logger.LogInformation("GameAutomationService stopped");
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to clear the in-flight session snapshot after stopping");
-            }
-
-            try
-            {
-                ConfigureProcessObservation();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to disable stop events during shutdown");
-            }
-
-            _logger.LogInformation("GameAutomationService stopped");
         }
     }
 
@@ -226,6 +240,9 @@ public sealed class GameAutomationService : IGameAutomationService
                 normalizedName,
                 normalizedPath,
                 processInfo.ProcessId);
+            if (processInfo.ProcessId is int startedPid
+                && _processIdentityProbe?.TryGetStartTimeUtc(startedPid, out var processStart) == true)
+                _inFlightProcessStarts[startedPid] = processStart;
 
             _logger.LogInformation(
                 "Process start: DataKey={DataKey}, Via={Match}, Executable={Executable}, Path={Path}, PID={ProcessId}",
@@ -251,8 +268,9 @@ public sealed class GameAutomationService : IGameAutomationService
                 // Persist the in-flight snapshot so a restart (deploy or crash) can
                 // resume this session instead of losing it.
                 _inFlightStarts[config.DataKey] = DateTime.Now;
-                PersistInFlightSnapshot();
             }
+
+            PersistInFlightSnapshot();
 
             ConfigureProcessObservation();
             UpdateHdrState();
@@ -309,6 +327,7 @@ public sealed class GameAutomationService : IGameAutomationService
             }
 
             var isLastForDataKey = _sessionTracker.Release(entry.DataKey);
+            if (entry.ProcessId is int stoppedPid) _inFlightProcessStarts.Remove(stoppedPid);
             ConfigureProcessObservation();
 
             _logger.LogInformation(
@@ -336,14 +355,15 @@ public sealed class GameAutomationService : IGameAutomationService
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to stop tracking for {DataKey}", entry.DataKey);
+                    RetainCompletedSession(entry.DataKey);
                 }
             }
 
             if (isLastForDataKey)
             {
                 _inFlightStarts.Remove(entry.DataKey);
-                PersistInFlightSnapshot();
             }
+            PersistInFlightSnapshot();
 
             UpdateHdrState();
 
@@ -397,6 +417,12 @@ public sealed class GameAutomationService : IGameAutomationService
 
     private void OnMonitorModeTick(object? state)
     {
+        lock (_stateLock)
+        {
+            if (!_started) return;
+            RetryPendingRecoveredSessions();
+            if (_sessionTracker.ActiveCount > 0 || _pendingRecoveredSessions.Count > 0) PersistInFlightSnapshot();
+        }
         UpdateMonitorModeState(forced: false);
     }
 
@@ -407,79 +433,90 @@ public sealed class GameAutomationService : IGameAutomationService
     /// </summary>
     private void UpdateMonitorModeState(bool forced)
     {
-        var controller = _monitorModeController;
-        if (controller is null)
+        lock (_monitorModeUpdateLock)
         {
-            return;
-        }
-
-        MonitorModePlan? plan;
-        var anyGameActive = false;
-        lock (_stateLock)
-        {
-            plan = _monitorModePlan;
-            if (plan is null)
+            var controller = _monitorModeController;
+            if (controller is null)
             {
                 return;
             }
 
-            anyGameActive = _sessionTracker.ActiveCount > 0;
-            var daylight = plan.Daylight.IsDaylight(DateTimeOffset.Now);
-
-            // 显示器从系统消失/回来会改变控制器可用性：这属于必须重新评估的变化
-            // （显示器离线期间档位可能停在被强制写入过的状态，回来需要对齐）。
-            var controllerAvailable = controller.IsAvailable;
-
-            // location=auto 且还没有坐标时，随 tick 自愈式重试坐标引导：
-            // 用户事后在系统设置里打开“定位”无需重启即可拿到日出日落判定。
-            if (NeedsAutoLocation(_monitorModeSettings)
-                && !_monitorModeCoordinates.HasValue
-                && _locationCacheStore is not null
-                && _locationSource is not null)
-            {
-                var nowTickCount = Environment.TickCount;
-                if (Interlocked.CompareExchange(ref _locationBootstrapInFlight, 1, 0) == 0
-                    && unchecked(nowTickCount - _locationBootstrapKickTick) >= LocationBootstrapKickCooldownMs)
-                {
-                    _locationBootstrapKickTick = nowTickCount;
-                    var settingsSnapshot = _monitorModeSettings!;
-                    try
-                    {
-                        _ = Task.Run(() => BootstrapMonitorModeLocation(settingsSnapshot));
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to kick off the monitor mode location bootstrap.");
-                        Interlocked.Exchange(ref _locationBootstrapInFlight, 0);
-                    }
-                }
-            }
-
-            if (!forced
-                && _lastMonitorModeAnyGameActive == anyGameActive
-                && _lastMonitorModeDaylight == daylight
-                && _lastMonitorModeControllerAvailable == controllerAvailable)
-            {
-                return;
-            }
-
-            _lastMonitorModeAnyGameActive = anyGameActive;
-            _lastMonitorModeDaylight = daylight;
-            _lastMonitorModeControllerAvailable = controllerAvailable;
-        }
-
-        try
-        {
-            _monitorModeScheduler.Update(plan, anyGameActive, controller, _logger, DateTimeOffset.Now);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Monitor mode update failed; the next event or tick will retry.");
+            MonitorModePlan? plan;
+            var anyGameActive = false;
             lock (_stateLock)
             {
-                // Invalidate the change gate so subsequent ticks retry even without a state change.
-                _lastMonitorModeDaylight = null;
-                _lastMonitorModeControllerAvailable = null;
+                plan = _monitorModePlan;
+                if (!_started || plan is null)
+                {
+                    return;
+                }
+
+                anyGameActive = _sessionTracker.ActiveCount > 0;
+                // 显示器从系统消失/回来会改变控制器可用性：这属于必须重新评估的变化
+                // （显示器离线期间档位可能停在被强制写入过的状态，回来需要对齐）。
+                // location=auto 且还没有坐标时，随 tick 自愈式重试坐标引导：
+                // 用户事后在系统设置里打开“定位”无需重启即可拿到日出日落判定。
+                if (NeedsAutoLocation(_monitorModeSettings)
+                    && (!_monitorModeCoordinatesAt.HasValue || _timeProvider.GetLocalNow().DateTime - _monitorModeCoordinatesAt.Value > LocationCacheMaxAge)
+                    && _locationCacheStore is not null
+                    && _locationSource is not null)
+                {
+                    var nowTimestamp = _timeProvider.GetTimestamp();
+                    if ((!_locationBootstrapKickTimestamp.HasValue
+                         || _timeProvider.GetElapsedTime(_locationBootstrapKickTimestamp.Value, nowTimestamp).TotalMilliseconds >= LocationBootstrapKickCooldownMs)
+                        && Interlocked.CompareExchange(ref _locationBootstrapInFlight, 1, 0) == 0)
+                    {
+                        _locationBootstrapKickTimestamp = nowTimestamp;
+                        var settingsSnapshot = _monitorModeSettings!;
+                        try
+                        {
+                            _ = Task.Run(() => BootstrapMonitorModeLocation(settingsSnapshot));
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to kick off the monitor mode location bootstrap.");
+                            Interlocked.Exchange(ref _locationBootstrapInFlight, 0);
+                        }
+                    }
+                }
+
+            }
+
+            try
+            {
+                // Availability probing can perform DDC I/O; never hold the session state lock.
+                var controllerAvailable = controller.IsAvailable;
+                lock (_stateLock)
+                {
+                    if (!_started) return;
+                    var daylight = plan.Daylight.IsDaylight(_timeProvider.GetLocalNow());
+                    if (!forced
+                        && _lastMonitorModeAnyGameActive == anyGameActive
+                        && _lastMonitorModeDaylight == daylight
+                        && _lastMonitorModeControllerAvailable == controllerAvailable)
+                    {
+                        return;
+                    }
+
+                    _lastMonitorModeAnyGameActive = anyGameActive;
+                    _lastMonitorModeDaylight = daylight;
+                    _lastMonitorModeControllerAvailable = controllerAvailable;
+                }
+
+                if (!_monitorModeScheduler.Update(plan, anyGameActive, controller, _logger, _timeProvider.GetLocalNow()))
+                {
+                    lock (_stateLock) _lastMonitorModeDaylight = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Monitor mode update failed; the next event or tick will retry.");
+                lock (_stateLock)
+                {
+                    // Invalidate the change gate so subsequent ticks retry even without a state change.
+                    _lastMonitorModeDaylight = null;
+                    _lastMonitorModeControllerAvailable = null;
+                }
             }
         }
     }
@@ -517,9 +554,11 @@ public sealed class GameAutomationService : IGameAutomationService
                 ProcessId = entry.ProcessId,
                 NormalizedName = entry.NormalizedName,
                 NormalizedPath = entry.NormalizedPath,
+                ProcessStartedAtUtc = entry.ProcessId is int pid && _inFlightProcessStarts.TryGetValue(pid, out var created) ? created : null,
                 StartedAt = _inFlightStarts.TryGetValue(entry.DataKey, out var startedAt) ? startedAt : snapshot.SnapshotAt
             });
         }
+        snapshot.Sessions.AddRange(_pendingRecoveredSessions);
 
         return snapshot;
     }
@@ -556,14 +595,25 @@ public sealed class GameAutomationService : IGameAutomationService
 
         var resumedCount = 0;
         var closedCount = 0;
-        foreach (var group in snapshot.Sessions.GroupBy(session => session.DataKey, StringComparer.OrdinalIgnoreCase))
+        foreach (var group in snapshot.Sessions.GroupBy(session =>
+                     (session.DataKey.ToUpperInvariant(), session.StartedAt, session.RecoveryEndAt)))
         {
+            var dataKey = group.First().DataKey;
             var liveSessions = new List<InFlightSession>();
             foreach (var session in group)
             {
-                if (session.ProcessId.HasValue && IsPersistedProcessStillSame(session))
+                if (!session.RecoveryEndAt.HasValue && session.ProcessId.HasValue && IsPersistedProcessStillSame(session, snapshot.SnapshotAt))
                 {
                     _sessionTracker.Register(session.DataKey, session.NormalizedName, session.NormalizedPath, session.ProcessId);
+                    if (session.ProcessStartedAtUtc is DateTime created) _inFlightProcessStarts[session.ProcessId.Value] = created;
+                    // 把接管进程登记为监控层的"已观察"进程：它在本会话里没出现过 START 事件,
+                    // 不登记则停止事件与 30 秒漏退出补偿都会无视它,退出即丢时长(曾导致丢失)。
+                    _monitor.AssumeRunning(
+                        new ProcessEventInfo(
+                            session.NormalizedName ?? session.DataKey,
+                            session.NormalizedPath,
+                            session.ProcessId),
+                        snapshot.SnapshotAt.ToUniversalTime());
                     liveSessions.Add(session);
                 }
                 else
@@ -579,24 +629,24 @@ public sealed class GameAutomationService : IGameAutomationService
                 var startedAt = liveSessions[0].StartedAt;
                 try
                 {
-                    _playTime.ResumeTracking(group.Key, startedAt);
-                    _inFlightStarts[group.Key] = startedAt;
+                    _playTime.ResumeTracking(dataKey, startedAt);
+                    _inFlightStarts[dataKey] = startedAt;
                     resumedCount++;
                     _logger.LogInformation(
                         "Resumed in-flight session for {DataKey}: start {StartTime:t}, {ProcessCount} live process(es).",
-                        group.Key,
+                        dataKey,
                         startedAt,
                         liveSessions.Count);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to resume in-flight session for {DataKey}.", group.Key);
+                    _logger.LogWarning(ex, "Failed to resume in-flight session for {DataKey}.", dataKey);
                 }
             }
             else
             {
                 var startedAt = group.First().StartedAt;
-                var endTime = snapshot.SnapshotAt;
+                var endTime = group.First().RecoveryEndAt ?? snapshot.SnapshotAt;
                 // When GameHelper stayed down for a long time the true exit time is
                 // unknowable; cap the recovered duration so a stale snapshot cannot
                 // inflate playtime unboundedly.
@@ -604,7 +654,7 @@ public sealed class GameAutomationService : IGameAutomationService
                 {
                     _logger.LogWarning(
                         "In-flight session for {DataKey} spans {Span}; capping the recovered duration at {Cap}.",
-                        group.Key,
+                        dataKey,
                         endTime - startedAt,
                         MaxRecoveredSessionDuration);
                     endTime = startedAt + MaxRecoveredSessionDuration;
@@ -612,36 +662,42 @@ public sealed class GameAutomationService : IGameAutomationService
 
                 try
                 {
-                    _playTime.WriteRecoveredSession(group.Key, startedAt, endTime);
+                    _playTime.WriteRecoveredSession(dataKey, startedAt, endTime);
                     closedCount++;
                     _logger.LogInformation(
                         "Closed interrupted session for {DataKey}: start {StartTime:t}, end {EndTime:t}.",
-                        group.Key,
+                        dataKey,
                         startedAt,
                         endTime);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to persist interrupted session for {DataKey}.", group.Key);
+                    _logger.LogWarning(ex, "Failed to persist interrupted session for {DataKey}.", dataKey);
+                    foreach (var pending in group)
+                    {
+                        pending.RecoveryEndAt = endTime;
+                        _pendingRecoveredSessions.Add(pending);
+                    }
                 }
             }
         }
 
-        try
-        {
-            store.Clear();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to clear the in-flight session snapshot after recovery.");
-        }
-
-        if (resumedCount > 0)
+        if (resumedCount > 0 || _pendingRecoveredSessions.Count > 0)
         {
             // 关键自愈兜底：接管来的会话必须立即重写为新快照。否则下一次
             // 强杀/部署重启时磁盘上没有这份会话，它会被第二次丢失。
             PersistInFlightSnapshot();
             _logger.LogInformation("In-flight snapshot rewritten after recovery with {Count} adopted session(s).", resumedCount);
+        }
+        else
+        {
+            try
+            {
+                // Replace before deleting: a failed delete must not replay completed rows.
+                store.Save(BuildInFlightSnapshot());
+                store.Clear();
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to clear the completed recovery snapshot; monitoring will continue."); }
         }
 
         _logger.LogInformation(
@@ -662,26 +718,31 @@ public sealed class GameAutomationService : IGameAutomationService
     /// </summary>
     private UserCoordinate? ResolveMonitorModeCoordinates()
     {
-        if (_monitorModeCoordinates.HasValue)
+        lock (_stateLock)
         {
-            return _monitorModeCoordinates;
-        }
+            if (!NeedsAutoLocation(_monitorModeSettings)) return null;
+            if (_monitorModeCoordinates.HasValue)
+            {
+                return _monitorModeCoordinates;
+            }
 
-        var cache = _locationCacheStore;
-        if (cache is null || _monitorModePlan is null)
-        {
+            var cache = _locationCacheStore;
+            if (cache is null || _monitorModePlan is null)
+            {
+                return null;
+            }
+
+            var cached = cache.Load();
+            if (cached is not null)
+            {
+                var coordinate = new UserCoordinate(cached.Latitude, cached.Longitude);
+                _monitorModeCoordinates = coordinate;
+                _monitorModeCoordinatesAt = cached.UpdatedAt;
+                return coordinate;
+            }
+
             return null;
         }
-
-        var cached = cache.Load();
-        if (cached is not null)
-        {
-            var coordinate = new UserCoordinate(cached.Latitude, cached.Longitude);
-            _monitorModeCoordinates = coordinate;
-            return coordinate;
-        }
-
-        return null;
     }
 
     /// <summary>
@@ -700,16 +761,8 @@ public sealed class GameAutomationService : IGameAutomationService
 
         try
         {
-            lock (_stateLock)
-            {
-                if (_monitorModeCoordinates.HasValue)
-                {
-                    return;
-                }
-            }
-
             var cached = cache.Load();
-            var stale = cached is null || (DateTime.Now - cached.UpdatedAt) > LocationCacheMaxAge;
+            var stale = cached is null || (_timeProvider.GetLocalNow().DateTime - cached.UpdatedAt) > LocationCacheMaxAge;
 
             UserCoordinate? live = null;
             if (stale && _locationSource is not null)
@@ -758,27 +811,10 @@ public sealed class GameAutomationService : IGameAutomationService
 
             lock (_stateLock)
             {
+                if (!_started || !ReferenceEquals(settings, _monitorModeSettings) || !NeedsAutoLocation(settings)) return;
                 _monitorModeCoordinates = publish;
+                _monitorModeCoordinatesAt = live.HasValue ? _timeProvider.GetLocalNow().DateTime : cached!.UpdatedAt;
             }
-
-            try
-            {
-                ReloadConfig();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to rebuild the monitor mode plan after acquiring coordinates.");
-                return;
-            }
-
-            lock (_stateLock)
-            {
-                if (!_started)
-                {
-                    return;
-                }
-            }
-
             UpdateMonitorModeState(forced: true);
         }
         finally
@@ -792,7 +828,36 @@ public sealed class GameAutomationService : IGameAutomationService
     /// <summary>定位引导失败后的重试冷却（随监视模式 tick 自愈重试）。</summary>
     private const int LocationBootstrapKickCooldownMs = 60_000;
 
-    private bool IsPersistedProcessStillSame(InFlightSession session)
+    private void RetainCompletedSession(string dataKey)
+    {
+        if (_inFlightStarts.TryGetValue(dataKey, out var start))
+            _pendingRecoveredSessions.Add(new InFlightSession
+            {
+                DataKey = dataKey,
+                StartedAt = start,
+                RecoveryEndAt = DateTime.Now
+            });
+    }
+
+    private void RetryPendingRecoveredSessions()
+    {
+        var completed = new List<InFlightSession>();
+        foreach (var group in _pendingRecoveredSessions.GroupBy(s =>
+                     (s.DataKey.ToUpperInvariant(), s.StartedAt, s.RecoveryEndAt)))
+        {
+            var first = group.First();
+            try
+            {
+                _playTime.WriteRecoveredSession(first.DataKey, first.StartedAt, first.RecoveryEndAt!.Value);
+                completed.AddRange(group);
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "Still unable to persist interrupted session for {DataKey}; retaining snapshot.", first.DataKey); }
+        }
+        _pendingRecoveredSessions.RemoveAll(completed.Contains);
+        if (completed.Count > 0) PersistInFlightSnapshot();
+    }
+
+    private bool IsPersistedProcessStillSame(InFlightSession session, DateTime snapshotAt)
     {
         var probe = _processIdentityProbe;
         if (probe is null || !session.ProcessId.HasValue)
@@ -804,6 +869,11 @@ public sealed class GameAutomationService : IGameAutomationService
         {
             return false;
         }
+
+        if (probe.TryGetStartTimeUtc(session.ProcessId.Value, out var created)
+            && (created > snapshotAt.ToUniversalTime()
+                || (session.ProcessStartedAtUtc.HasValue && created != session.ProcessStartedAtUtc.Value)))
+            return false;
 
         var normalizedImage = PathNormalizer.NormalizePath(imagePath);
         if (session.NormalizedPath is not null && normalizedImage is not null)

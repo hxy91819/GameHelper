@@ -121,7 +121,7 @@ public static class ConsoleHostBootstrapper
         services.AddSingleton<IBreakReminderService, BreakReminderService>();
         services.AddSingleton<IAutoStartManager>(sp =>
         {
-            if (OperatingSystem.IsWindows())
+            if (OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GAMEHELPER_DATA_DIR")))
             {
                 return new WindowsAutoStartManager(sp.GetRequiredService<ILogger<WindowsAutoStartManager>>());
             }

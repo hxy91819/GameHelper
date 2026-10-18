@@ -28,7 +28,7 @@ internal sealed class GameProcessMatcher
         normalizedPath = null;
         matchLabel = "not matched";
 
-        var pathHint = PathNormalizer.NormalizePath(processInfo.ExecutablePath);
+        var pathHint = NormalizeProcessPath(processInfo.ExecutablePath);
         var pathHintConfig = GameMatcher.MatchByPath(pathHint, _configIndex.ByPath, _logger);
         if (pathHintConfig is not null)
         {
@@ -127,8 +127,15 @@ internal sealed class GameProcessMatcher
             return ResolvePathByPid(processInfo.ProcessId);
         }
 
-        return PathNormalizer.NormalizePath(processInfo.ExecutablePath);
+        return NormalizeProcessPath(processInfo.ExecutablePath);
     }
+
+    // Kernel ETW can supply only "game.exe" as its image hint. Resolving that
+    // against our working directory invents an identity and breaks crash recovery.
+    private static string? NormalizeProcessPath(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && Path.IsPathFullyQualified(path)
+            ? PathNormalizer.NormalizePath(path)
+            : null;
 
     private string? ResolvePathByPid(int? processId)
     {

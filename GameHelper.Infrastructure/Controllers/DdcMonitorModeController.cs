@@ -234,16 +234,11 @@ public sealed class DdcMonitorModeController : IMonitorModeController
 
             lock (_availabilityLock)
             {
-                if (_detectedAvailable)
-                {
-                    return true;
-                }
-
                 // 构造期探测失败时按冷却间隔重试：宿主环境下首次枚举拿零句柄的原因
                 // 与普通进程上下文不同，但后续线程上重试可以成功。
                 if (Environment.TickCount - _lastAvailabilityProbeTick < AvailabilityReProbeCooldownMs)
                 {
-                    return false;
+                    return _detectedAvailable;
                 }
 
                 var probe = RunOnSta(ProbeControllableMonitor);
@@ -349,11 +344,13 @@ public sealed class DdcMonitorModeController : IMonitorModeController
             return;
         }
 
+        var allWritten = true;
         for (var index = 0; index < writes.Count; index++)
         {
             var write = writes[index];
             if (!SetVCPFeature(session.Handle, write.Code, write.Value))
             {
+                allWritten = false;
                 _logger.LogWarning(
                     "Failed to write VCP 0x{Code:X2}=0x{Value:X2} to {Monitor} ({Index}/{Total}).",
                     write.Code,
@@ -371,7 +368,7 @@ public sealed class DdcMonitorModeController : IMonitorModeController
         }
 
         Thread.Sleep(WriteSettleDelayMs);
-        _logger.LogInformation(
+        if (allWritten) _logger.LogInformation(
             "DDC/CI preset recipe applied to {Monitor}: {Writes}.",
             session.Description,
             string.Join(", ", writes));

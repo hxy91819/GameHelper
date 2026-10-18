@@ -22,20 +22,26 @@
 | `GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE` | 设为 `1` 时跳过全局单实例互斥，允许测试实例与用户正在运行的主实例共存。 |
 
 测试实例启动时同时设置这两个变量；数据沙盒目录在验证结束后删除。
+设置 `GAMEHELPER_DATA_DIR` 的实例使用无操作开机启动适配器，不会修改用户 HKCU Run 项；一次性 CLI 命令也不会应用开机启动偏好。
 
 ## 跨重启会话续算（in-flight sessions）
 
 部署的强制重启（或异常崩溃）不再中断游戏时长统计，机制如下：
 
-- **快照落盘**：`GameAutomationService` 在每次会话状态变化（游戏首进程注册 / 末进程退出）时，把全部在途
+- **快照落盘**：`GameAutomationService` 在每次进程注册/退出以及每 10 秒心跳时，把全部在途
   会话原子写入 `%AppData%\GameHelper\inflight-sessions.json`（进程 id + 归一化名/路径 + 原始开始时间 +
-  快照时间）。快照随状态持续刷新，因此进程被强杀（`Stop-Process -Force`）后快照仍然可用。
-- **启动恢复**（`GameAutomationService.Start` 内一次性执行，随后删除快照文件）：
-  - 快照内进程仍在运行、且映像路径/文件名与快照身份一致（`IProcessIdentityProbe` 读取进程映像路径比对，
-    防止 PID 复用误认）→ 视为游戏从未停止：`ResumeTracking` 以**原开始时间**续算，游戏真正退出时落
+  快照时间与进程创建时间）。多进程共享原会话起点，任何一个仍运行就继续计时。快照随状态持续刷新，因此进程被强杀（`Stop-Process -Force`）后快照仍然可用。
+- **启动恢复**（`GameAutomationService.Start` 内一次性执行）：
+  - 快照内进程仍在运行、且映像路径/文件名和创建时间与快照身份一致（旧快照无创建时间时要求进程早于快照存在，
+    防止同一 exe 复用 PID 误认）→ 视为游戏从未停止：`ResumeTracking` 以**原开始时间**续算，游戏真正退出时落
     一条连续记录，计时不割裂；
+  - 接管进程同时登记到 ETW 观察表，并保留至 ETW 启动完成；真实停止事件与每 30 秒漏退出补偿均可结算；
+  - 接管后直接原子替换快照，避免先删除再保存的空窗，支持连续多次强杀/更新；
   - 进程已退出或身份不符 → `WriteRecoveredSession` 以"最后已知存活时刻"（快照时间）收尾落库；恢复的
     时长跨度超过 12 小时按上限封顶并记录告警（真实退出时间在停机期间不可知，封顶防止陈旧快照无限膨胀）。
+  - 恢复写入失败时保留条目及固定结束时间，随心跳和下次启动重试；全部结算成功且无在途进程后才清空。
+    同一游戏的多局待补录按起止时间分别处理；CSV 重放同一恢复记录时去重，避免清理快照前再次崩溃产生重复行。
+    正常游戏退出时 CSV 被占用而写入失败，也会转为待补录快照。
 - **正常停止语义不变**：用户主动停止监控时依旧逐会话即时落库并清空快照文件；快照恢复只在监控启动时执行一次。
 - 快照内无 pid（历史极端数据）的会话按"未存活"收尾处理。
 
@@ -69,7 +75,7 @@ powershell -File scripts\verify-on-machine.ps1
 powershell -File scripts\verify-on-machine.ps1 -SkipVerify
 ```
 
-   - `-SkipVerify -Restart`（常驻直接更新策略的标准收尾命令）：按进程路径判定运行实例 → `Stop-Process -Force` 结束 → `logman -ets` 清理 `GameHelper-ETW-*` 孤儿 ETW 会话 → 原子换入 → 从发布目录 `Start-Process` 重启（不经管道 stdout），5 秒后确认新 PID 存活。在途会话由跨重启续算机制接续。
+   - `-SkipVerify -Restart`（常驻直接更新策略的标准收尾命令）：按进程路径判定运行实例 → `Stop-Process -Force` 结束 → 只清理属主 PID 确认已退出的新版 ETW 会话 → 原子换入 → 从发布目录隐藏重启（不经管道 stdout），5 秒后确认新 PID 存活；无旧实例时也启动确认。旧产物保留至新实例确认存活，启动失败会恢复旧目录并重新启动旧实例。无法读取实例路径时保守中止，保留新产物，不强杀未知实例。在途会话由跨重启续算机制接续。
 
 > 注意：禁止逐文件覆盖发布目录——framework-dependent 产物覆盖 self-contained 布局（或反之）会混装运行时文件，导致下一次启动报 "No frameworks were found"。锁定检测不能只用目录探针：运行实例锁的是 exe/dll 文件本身，目录仍可写。
 
@@ -80,6 +86,10 @@ powershell -File scripts\verify-on-machine.ps1 -SkipVerify
 `GameHelper.Tests\EndToEnd\PublishedExeEndToEndTests.cs` 在发布产物存在时自动执行：
 以独立测试实例 + 沙盒数据目录运行真实 exe，验证配置校验、统计数据读取、与主实例共存。
 若发布产物不存在则跳过（因此 workflow 中应先跑第 2 步再跑测试）。
+
+`PublishedMonitorEndToEndTests` 还在管理员 Windows 上启动真实 ETW 和独立探针，验证连续两次强杀重启后
+原始起点不变、每次快照重写、游戏最后退出仅产生一条连续记录。显示器真实寄存器的显式验证见
+[monitorMode 硬件回归](./monitor-mode.md#发布产物与真实硬件回归)。
 
 若实例锁定正式发布目录（未用 `-Restart` 时常见），可让端到端测试直接验证脚本保留的临时新产物，避免验证到旧版本：
 

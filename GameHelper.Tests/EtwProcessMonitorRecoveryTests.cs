@@ -51,6 +51,49 @@ public sealed class EtwProcessMonitorRecoveryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task AssumeRunning_HealthCheckReconcileEmitsStopWhenAssumedProcessDies(bool beforeStart)
+    {
+        var runtime = new FakeRuntime { HoldRecovery = false };
+        var clock = new ManualClock();
+        using var monitor = new EtwProcessMonitor(runtime, new[] { "game.exe" }, timeProvider: clock);
+        var stopped = new List<ProcessEventInfo>();
+        monitor.ProcessStopped += stopped.Add;
+        if (!beforeStart) monitor.Start();
+
+        // 恢复接管路径:进程在本会话启动前就已存在,注册为"已观察"后必须与
+        // 亲眼见过 START 的进程享受同等待遇(30 秒健康检查补偿 + 停止事件)。
+        // 注意 ManualClock 下伪造会话总被视为缺失,健康检查会走向恢复路径,
+        // 补偿在恢复任务收尾执行,因此必须等 RecoveryTask。
+        var assumedAt = new DateTime(2026, 9, 6, 12, 0, 0, DateTimeKind.Utc);
+        monitor.AssumeRunning(new ProcessEventInfo("game.exe", null, 500), assumedAt);
+        if (beforeStart) monitor.Start();
+        monitor.Configure(new ProcessObservationPolicy(new[] { "game.exe" }, observeStopEvents: true));
+
+        runtime.Processes[500] = new ProcessProbe(true, null);
+        clock.Tick();
+        await monitor.RecoveryTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var info = Assert.Single(stopped);
+        Assert.Equal(500, info.ProcessId);
+        Assert.Equal("game.exe", info.ExecutableName);
+    }
+
+    [Fact]
+    public void AssumeRunning_BeforeStart_ReceivesRealStopEvent()
+    {
+        var runtime = new FakeRuntime();
+        using var monitor = new EtwProcessMonitor(runtime, new[] { "game.exe" });
+        var stopped = new List<ProcessEventInfo>();
+        monitor.ProcessStopped += stopped.Add;
+        monitor.AssumeRunning(new ProcessEventInfo("game.exe", null, 500), StartTime);
+        monitor.Start();
+        runtime.Sessions.Single().StopProcess(500);
+        Assert.Equal(500, Assert.Single(stopped).ProcessId);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Recovery_StopOrDisposeDuringBackoff_DoesNotRestart(bool dispose)
     {
         var runtime = new FakeRuntime();

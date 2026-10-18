@@ -57,12 +57,18 @@ try
 
     try
     {
-        var autoStartManager = host.Services.GetRequiredService<IAutoStartManager>();
-        if (autoStartManager.IsSupported)
+        var persistentHost = !isFileDropRequest && (parsedArgs.UseInteractiveShell || parsedArgs.EffectiveArgs.Length == 0
+            || parsedArgs.EffectiveArgs[0].Equals("monitor", StringComparison.OrdinalIgnoreCase)
+            || parsedArgs.EffectiveArgs[0].Equals("interactive", StringComparison.OrdinalIgnoreCase));
+        if (persistentHost)
         {
-            var appConfigProvider = host.Services.GetRequiredService<IGameConfiguration>();
-            var appConfig = appConfigProvider.Read();
-            autoStartManager.SetEnabled(appConfig.LaunchOnSystemStartup);
+            var autoStartManager = host.Services.GetRequiredService<IAutoStartManager>();
+            if (autoStartManager.IsSupported)
+            {
+                var appConfigProvider = host.Services.GetRequiredService<IGameConfiguration>();
+                var appConfig = appConfigProvider.Read();
+                autoStartManager.SetEnabled(appConfig.LaunchOnSystemStartup);
+            }
         }
     }
     catch (InvalidDataException)

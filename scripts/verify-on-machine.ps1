@@ -1,7 +1,7 @@
 ﻿# GameHelper 实机验证 workflow（开发完成后执行）
 #
 # 前置条件：
-#   - 用户可能正开着 GameHelper 实例（快捷方式指向 publish 目录），绝不能停止或杀死它。
+#   - 默认保留运行中的实例；-Restart 只停止能确认来自目标发布目录的实例。
 #   - 发布目录可能被运行实例锁定，因此先发布到独立临时目录，再尝试整体替换 publish 目录。
 #
 # 步骤：
@@ -27,9 +27,92 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $projectPath = Join-Path $repoRoot "GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj"
 $publishDir = Join-Path $repoRoot "GameHelper.ConsoleHost\bin\$Configuration\net8.0-windows\$Runtime\publish"
+$tempRoot = [IO.Path]::GetTempPath()
+
+function Assert-ContainedDirectory([string] $Path, [string] $Root) {
+    $absolutePath = [IO.Path]::GetFullPath($Path).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $absoluteRoot = [IO.Path]::GetFullPath($Root).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    if (-not $absolutePath.StartsWith($absoluteRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing directory operation outside '$absoluteRoot': $absolutePath"
+    }
+
+    # Resolve existing path components too: a junction must not redirect a destructive
+    # operation outside the checked workspace/temp root.
+    $ancestor = $absolutePath
+    while (-not [string]::IsNullOrEmpty($ancestor)) {
+        if (Test-Path -LiteralPath $ancestor) {
+            $item = Get-Item -LiteralPath $ancestor -Force
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Refusing directory operation through a reparse point: $ancestor"
+            }
+        }
+        $parent = Split-Path -Parent $ancestor
+        if ([string]::IsNullOrEmpty($parent) -or $parent -eq $ancestor) { break }
+        $ancestor = $parent
+    }
+}
+
+function Remove-CheckedDirectory([string] $Path, [string] $Root) {
+    Assert-ContainedDirectory $Path $Root
+    if (Test-Path -LiteralPath $Path) {
+        Remove-Item -LiteralPath $Path -Recurse -Force
+    }
+}
+
+function Move-CheckedDirectory([string] $Source, [string] $Destination, [string] $SourceRoot, [string] $DestinationRoot) {
+    Assert-ContainedDirectory $Source $SourceRoot
+    Assert-ContainedDirectory $Destination $DestinationRoot
+    Move-Item -LiteralPath $Source -Destination $Destination
+}
+
+function Start-CheckedInstance([string] $Directory, [ref] $StartedProcess) {
+    $instance = Start-Process -FilePath (Join-Path $Directory "GameHelper.ConsoleHost.exe") `
+        -WorkingDirectory $Directory -WindowStyle Hidden -PassThru
+    $StartedProcess.Value = $instance
+    Start-Sleep -Seconds 5
+    $instance.Refresh()
+    if ($instance.HasExited) {
+        throw "GameHelper exited immediately after launch (PID $($instance.Id)); check its logs."
+    }
+    return $instance
+}
+
+function Stop-OrphanedEtwSessions {
+    $logmanList = & logman.exe -ets 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Could not enumerate ETW sessions; leaving them untouched."
+        return
+    }
+
+    foreach ($line in @($logmanList)) {
+        # Only the current owner-PID + GUID format proves which process owns the
+        # session. Preserve legacy/unknown sessions and every live owner, including
+        # isolated verification instances.
+        if ($line -notmatch '^\s*(GameHelper-ETW-([1-9][0-9]*)-[0-9a-fA-F]{32})(?:\s|$)') { continue }
+        $sessionName = $Matches[1]
+        $ownerProcessId = 0
+        if (-not [int]::TryParse($Matches[2], [ref] $ownerProcessId)) { continue }
+        try {
+            $owner = [Diagnostics.Process]::GetProcessById($ownerProcessId)
+            $owner.Dispose()
+            continue
+        }
+        catch [ArgumentException] {
+            # Only a missing PID establishes that the owner is dead. Other errors
+            # (e.g. access denied) leave the session untouched.
+        }
+        catch { continue }
+
+        Write-Host "  stopping orphaned ETW session: $sessionName"
+        & logman.exe stop $sessionName -ets 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Warning "Could not stop orphaned ETW session: $sessionName" }
+    }
+}
+
+Assert-ContainedDirectory $publishDir $repoRoot
 
 # ---- 1. Publish to a standalone temp directory (never locked by a running instance) ----
 $tempPublish = Join-Path ([IO.Path]::GetTempPath()) ("GameHelper.Verify." + [Guid]::NewGuid().ToString("N"))
@@ -38,13 +121,13 @@ New-Item -ItemType Directory -Path $tempPublish | Out-Null
 Write-Host "[1/3] Publishing ConsoleHost to temp directory..."
 & dotnet publish $projectPath -c $Configuration -r $Runtime --self-contained true -o $tempPublish --nologo
 if ($LASTEXITCODE -ne 0) {
-    Remove-Item -Path $tempPublish -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-CheckedDirectory $tempPublish $tempRoot
     throw "dotnet publish failed with exit code $LASTEXITCODE."
 }
 
 $exeName = "GameHelper.ConsoleHost.exe"
 $tempExe = Join-Path $tempPublish $exeName
-if (-not (Test-Path $tempExe)) {
+if (-not (Test-Path -LiteralPath $tempExe)) {
     throw "Published executable not found: $tempExe"
 }
 
@@ -68,6 +151,8 @@ games:
     hdr: false
 "@ | Set-Content -Path $configPath -Encoding UTF8
 
+    $previousDataDirectory = $env:GAMEHELPER_DATA_DIR
+    $previousDisableSingleInstance = $env:GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE
     $env:GAMEHELPER_DATA_DIR = $sandbox
     $env:GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE = "1"
     try {
@@ -84,9 +169,9 @@ games:
         Write-Host "Test instance verification passed (data dir sandboxed at $sandbox)."
     }
     finally {
-        Remove-Item Env:GAMEHELPER_DATA_DIR -ErrorAction SilentlyContinue
-        Remove-Item Env:GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE -ErrorAction SilentlyContinue
-        Remove-Item -Path $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+        $env:GAMEHELPER_DATA_DIR = $previousDataDirectory
+        $env:GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE = $previousDisableSingleInstance
+        Remove-CheckedDirectory $sandbox $tempRoot
     }
 }
 else {
@@ -102,113 +187,88 @@ if ($SkipDeploy) {
 Write-Host "[3/3] Deploying to publish directory: $publishDir"
 
 $deployed = $false
-$relaunchAfterDeploy = $false
+$backupDir = $null
+$newDirectoryInstalled = $false
+$stoppedOldInstance = $false
+$relaunched = $null
 try {
-    if (Test-Path $publishDir) {
-        # A running instance holds open handles on its exe/dll files; renaming the directory
-        # would fail or yank files from under it. Detect by process path, not by probing the
-        # directory (the directory itself stays writable while the exe is locked).
-        $runningInstances = @(Get-Process -Name GameHelper.ConsoleHost -ErrorAction SilentlyContinue | Where-Object {
-            # An elevated instance may hide its path from this verifier. Preserve it conservatively.
-            [string]::IsNullOrWhiteSpace($_.Path) -or $_.Path -eq (Join-Path $publishDir "GameHelper.ConsoleHost.exe")
-        })
+    $instances = @(Get-Process -Name GameHelper.ConsoleHost -ErrorAction SilentlyContinue)
+    $unknownInstances = @($instances | Where-Object { [string]::IsNullOrWhiteSpace($_.Path) })
+    if ($unknownInstances.Count -gt 0) {
+        throw "Cannot verify the executable path of GameHelper PID(s) $($unknownInstances.Id -join ', '); preserving all instances and the existing deployment."
+    }
+    $runningInstances = @($instances | Where-Object { $_.Path -eq (Join-Path $publishDir $exeName) })
+    if ($runningInstances.Count -gt 0 -and -not $Restart) {
+        Write-Host "Publish directory is in use by GameHelper PID(s) $($runningInstances.Id -join ', '); keeping the existing deployment."
+        return
+    }
 
-        if ($runningInstances.Count -gt 0) {
-            if (-not $Restart) {
-                Write-Host "Publish directory is in use by a running GameHelper (PID list below); keeping new build at:"
-                Write-Host "  $tempPublish"
-                foreach ($inst in $runningInstances) {
-                    Write-Host ("  running instance: PID " + $inst.Id)
-                }
-                Write-Host 'Close it, then re-run: powershell -File scripts\verify-on-machine.ps1 -SkipVerify'
-                $deployed = $false
+    foreach ($inst in $runningInstances) {
+        Write-Host "  stopping target instance PID $($inst.Id)"
+        Stop-Process -InputObject $inst -Force
+        $stoppedOldInstance = $true
+        if (-not $inst.WaitForExit(30000)) { throw "GameHelper PID $($inst.Id) did not exit within 30s; aborting deploy." }
+    }
+    if ($Restart) { Stop-OrphanedEtwSessions }
+
+    if (Test-Path -LiteralPath $publishDir) {
+        $backupDir = "$publishDir.old-" + [Guid]::NewGuid().ToString("N")
+        Move-CheckedDirectory $publishDir $backupDir $repoRoot $repoRoot
+    }
+    else { New-Item -ItemType Directory -Path (Split-Path -Parent $publishDir) -Force | Out-Null }
+
+    Move-CheckedDirectory $tempPublish $publishDir $tempRoot $repoRoot
+    $newDirectoryInstalled = $true
+    if ($Restart) {
+        Write-Host "Launching GameHelper from the updated publish directory..."
+        $relaunched = Start-CheckedInstance $publishDir ([ref] $relaunched)
+        Write-Host "New GameHelper instance is running (PID $($relaunched.Id))."
+    }
+    $deployed = $true
+
+    # Keep the backup until startup has passed. Cleanup failure is harmless after a
+    # successful deploy and must not trigger rollback of a running new instance.
+    if ($backupDir) {
+        try { Remove-CheckedDirectory $backupDir $repoRoot }
+        catch { Write-Warning "Deployment succeeded; old build retained at ${backupDir}: $_" }
+    }
+}
+catch {
+    $deployFailure = $_
+    try {
+        if ($newDirectoryInstalled) {
+            if ($null -ne $relaunched -and -not $relaunched.HasExited) {
+                Stop-Process -InputObject $relaunched -Force
+                if (-not $relaunched.WaitForExit(30000)) { throw "Failed new instance did not exit; rollback directory remains at $backupDir" }
             }
-            else {
-                # Standing direct-update policy: stop the instance, clean orphaned ETW sessions,
-                # swap the directory atomically, and relaunch. In-flight game sessions survive
-                # the restart via the in-flight snapshot recovery mechanism.
-                Write-Host "Direct update (-Restart): stopping running GameHelper instance(s); in-flight sessions are recovered on relaunch."
-                foreach ($inst in $runningInstances) {
-                    Write-Host ("  stopping PID " + $inst.Id)
-                    Stop-Process -Id $inst.Id -Force
-                }
-
-                $deadline = (Get-Date).AddSeconds(30)
-                do {
-                    Start-Sleep -Milliseconds 500
-                    $runningInstances = @(Get-Process -Name GameHelper.ConsoleHost -ErrorAction SilentlyContinue | Where-Object {
-                        [string]::IsNullOrWhiteSpace($_.Path) -or $_.Path -eq (Join-Path $publishDir "GameHelper.ConsoleHost.exe")
-                    })
-                } while ($runningInstances.Count -gt 0 -and (Get-Date) -lt $deadline)
-                if ($runningInstances.Count -gt 0) {
-                    throw "Running GameHelper instance(s) did not exit within 30s; aborting deploy."
-                }
-
-                # Force-killed ETW sessions do not die with the process; stop orphans by name.
-                $logmanList = & logman.exe -ets 2>$null
-                foreach ($line in @($logmanList)) {
-                    if ($line -match '^(GameHelper-ETW-\S+)') {
-                        Write-Host ("  stopping orphaned ETW session: " + $Matches[1])
-                        & logman.exe stop $Matches[1] -ets 2>$null | Out-Null
-                    }
-                }
-
-                $backupDir = "$publishDir.old-" + [Guid]::NewGuid().ToString("N")
-                Move-Item -Path $publishDir -Destination $backupDir -Force
-                try {
-                    # $publishDir no longer exists, so this moves the temp dir to that exact path.
-                    Move-Item -Path $tempPublish -Destination $publishDir -Force
-                    $deployed = $true
-                    $relaunchAfterDeploy = $true
-                    Remove-Item -Path $backupDir -Recurse -Force -ErrorAction SilentlyContinue
-                }
-                catch {
-                    # Roll the old directory back if the swap of the new one fails.
-                    Move-Item -Path $backupDir -Destination $publishDir -Force
-                    throw
-                }
-            }
+            # Preserve the failed new build for diagnosis and restore the original
+            # directory by a whole-directory move, without mixing individual files.
+            Move-CheckedDirectory $publishDir $tempPublish $repoRoot $tempRoot
         }
-        else {
-            $backupDir = "$publishDir.old-" + [Guid]::NewGuid().ToString("N")
-            Move-Item -Path $publishDir -Destination $backupDir -Force
-            try {
-                # $publishDir no longer exists, so this moves the temp dir to that exact path.
-                Move-Item -Path $tempPublish -Destination $publishDir -Force
-                $deployed = $true
-                Remove-Item -Path $backupDir -Recurse -Force -ErrorAction SilentlyContinue
-            }
-            catch {
-                # Roll the old directory back if the swap of the new one fails.
-                Move-Item -Path $backupDir -Destination $publishDir -Force
-                throw
+        if ($backupDir -and (Test-Path -LiteralPath $backupDir)) {
+            Move-CheckedDirectory $backupDir $publishDir $repoRoot $repoRoot
+            Write-Host "Previous publish directory restored."
+        }
+        if ($stoppedOldInstance -and (Test-Path -LiteralPath (Join-Path $publishDir $exeName))) {
+            $remainingInstances = @(Get-Process -Name GameHelper.ConsoleHost -ErrorAction SilentlyContinue | Where-Object {
+                [string]::IsNullOrWhiteSpace($_.Path) -or $_.Path -eq (Join-Path $publishDir $exeName)
+            })
+            if ($remainingInstances.Count -eq 0) {
+                $restored = $null
+                $restored = Start-CheckedInstance $publishDir ([ref] $restored)
+                Write-Host "Previous GameHelper instance restored (PID $($restored.Id))."
             }
         }
     }
-    else {
-        New-Item -ItemType Directory -Path (Split-Path -Parent $publishDir) -Force | Out-Null
-        Move-Item -LiteralPath $tempPublish -Destination $publishDir
-        $deployed = $true
-    }
+    catch { Write-Warning "Deployment rollback requires attention: $_. Previous build: $backupDir" }
+    throw $deployFailure
 }
 finally {
     if ($deployed) {
-        Remove-Item -Path $tempPublish -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host "Deploy complete."
     }
     else {
         Write-Host "New build kept at: $tempPublish"
         Write-Host "Close the running GameHelper, then re-run: powershell -File scripts\verify-on-machine.ps1 -SkipVerify"
     }
-}
-
-if ($relaunchAfterDeploy) {
-    # Launch without capturing stdout (a headless pipe-captured launch hangs at startup).
-    Write-Host "Relaunching GameHelper from the publish directory..."
-    $relaunched = Start-Process -FilePath (Join-Path $publishDir $exeName) -WorkingDirectory $publishDir -PassThru
-    Start-Sleep -Seconds 5
-    if ($relaunched.HasExited) {
-        throw "Relaunched GameHelper exited immediately (PID $($relaunched.Id)); check its logs."
-    }
-    Write-Host ("New GameHelper instance is running (PID " + $relaunched.Id + ").")
 }

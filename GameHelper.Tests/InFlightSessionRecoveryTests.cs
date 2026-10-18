@@ -20,7 +20,12 @@ public class InFlightSessionRecoveryTests
 
         public List<ProcessObservationPolicy> Policies { get; } = new();
 
+        public List<(ProcessEventInfo Info, DateTime AssumedTimestampUtc)> AssumedRunning { get; } = new();
+
         public void Configure(ProcessObservationPolicy policy) => Policies.Add(policy);
+
+        public void AssumeRunning(ProcessEventInfo info, DateTime assumedTimestampUtc) =>
+            AssumedRunning.Add((info, assumedTimestampUtc));
 
         public void Start() { }
 
@@ -40,12 +45,17 @@ public class InFlightSessionRecoveryTests
         public List<InFlightSnapshot> Saved { get; } = new();
 
         public int ClearCalls { get; private set; }
+        public bool FailClear { get; set; }
 
         public InFlightSnapshot? Load() => Snapshot;
 
         public void Save(InFlightSnapshot snapshot) => Saved.Add(snapshot);
 
-        public void Clear() => ClearCalls++;
+        public void Clear()
+        {
+            if (FailClear) throw new IOException("snapshot deletion denied");
+            ClearCalls++;
+        }
     }
 
     private sealed class FakeProbe : IProcessIdentityProbe
@@ -74,6 +84,8 @@ public class InFlightSessionRecoveryTests
         public List<(string Game, DateTime Start)> Resumed { get; } = new();
 
         public List<(string Game, DateTime Start, DateTime End)> Recovered { get; } = new();
+        public bool FailRecovery { get; set; }
+        public bool FailStop { get; set; }
 
         public List<string> Stopped { get; } = new();
 
@@ -81,11 +93,15 @@ public class InFlightSessionRecoveryTests
 
         public void ResumeTracking(string gameName, DateTime startTime) => Resumed.Add((gameName, startTime));
 
-        public void WriteRecoveredSession(string gameName, DateTime startTime, DateTime endTime) =>
+        public void WriteRecoveredSession(string gameName, DateTime startTime, DateTime endTime)
+        {
+            if (FailRecovery) throw new IOException("History temporarily unavailable");
             Recovered.Add((gameName, startTime, endTime));
+        }
 
         public PlaySession? StopTracking(string gameName)
         {
+            if (FailStop) throw new IOException("History temporarily unavailable");
             Stopped.Add(gameName);
             return new PlaySession(gameName, DateTime.MinValue, DateTime.MinValue, TimeSpan.Zero, 0);
         }
@@ -154,7 +170,15 @@ public class InFlightSessionRecoveryTests
         Assert.Equal("g1", resumed.Game);
         Assert.Equal(SessionStart, resumed.Start);
         Assert.Empty(playTime.Recovered);
-        Assert.Equal(1, store.ClearCalls);
+        Assert.Equal(0, store.ClearCalls);
+
+        // 被接管进程必须登记为监控层的"已观察"进程,否则它的停止事件与
+        // 漏退出补偿都会被 ETW 适配层无视(曾导致时长丢失)。
+        var assumed = Assert.Single(monitor.AssumedRunning);
+        Assert.Equal(1111, assumed.Info.ProcessId);
+        Assert.Equal("game1.exe", assumed.Info.ExecutableName);
+        Assert.Equal("D:\\Games\\game1.exe", assumed.Info.ExecutablePath);
+        Assert.Equal(SnapshotAt.ToUniversalTime(), assumed.AssumedTimestampUtc);
 
         // 关键兜底断言：接管完成必须立即重写快照，否则下一次强杀恢复时该会话会第二次丢失。
         Assert.Contains(store.Saved, saved =>
@@ -166,6 +190,131 @@ public class InFlightSessionRecoveryTests
         // The adopted session participates in normal stop matching afterwards.
         monitor.RaiseStopped(new ProcessEventInfo("game1.exe", null, 1111));
         Assert.Contains("g1", playTime.Stopped);
+    }
+
+    [Fact]
+    public void ProcessStop_FailedHistoryWrite_RetainsCompletedRecoveryRecord()
+    {
+        var monitor = new FakeMonitor();
+        var playTime = new FakePlayTime { FailStop = true };
+        var store = new FakeInFlightStore();
+        var service = CreateService(monitor, CreateConfig(), playTime, store, new FakeProbe(new Dictionary<int, string?>()));
+        service.Start();
+        monitor.RaiseStarted(new ProcessEventInfo("game1.exe", null, 100));
+        var originalStart = Assert.Single(store.Saved[^1].Sessions).StartedAt;
+        monitor.RaiseStopped(new ProcessEventInfo("game1.exe", null, 100));
+        var pending = Assert.Single(store.Saved[^1].Sessions);
+        Assert.Equal(originalStart, pending.StartedAt);
+        Assert.NotNull(pending.RecoveryEndAt);
+        service.Stop();
+        Assert.Single(store.Saved[^1].Sessions);
+    }
+
+    [Fact]
+    public void Recovery_DeleteSnapshotFails_MonitoringStillStartsAndEmptyReplacementIsSaved()
+    {
+        var store = new FakeInFlightStore
+        {
+            FailClear = true,
+            Snapshot = new InFlightSnapshot
+            {
+                SnapshotAt = SnapshotAt,
+                Sessions = { new InFlightSession { DataKey = "g1", StartedAt = SessionStart } }
+            }
+        };
+        var monitor = new FakeMonitor();
+        var playTime = new FakePlayTime();
+        var service = CreateService(monitor, CreateConfig(), playTime, store, new FakeProbe(new Dictionary<int, string?>()));
+        service.Start();
+        Assert.Single(playTime.Recovered);
+        Assert.Empty(store.Saved[^1].Sessions);
+        monitor.RaiseStarted(new ProcessEventInfo("game1.exe", null, 100));
+        Assert.Single(playTime.Started);
+        service.Stop();
+    }
+
+    [Fact]
+    public void Recovery_WriteFails_RetainsSnapshotAndOriginalEndForNextRestart()
+    {
+        var store = new FakeInFlightStore
+        {
+            Snapshot = new InFlightSnapshot
+            {
+                SnapshotAt = SnapshotAt,
+                Sessions = { new InFlightSession { DataKey = "g1", ProcessId = 1111, NormalizedName = "game1.exe", StartedAt = SessionStart } }
+            }
+        };
+        var firstPlayTime = new FakePlayTime { FailRecovery = true };
+        var first = CreateService(new FakeMonitor(), CreateConfig(), firstPlayTime, store, new FakeProbe(new Dictionary<int, string?>()));
+        first.Start();
+        Assert.Equal(0, store.ClearCalls);
+        Assert.Equal(SnapshotAt, Assert.Single(store.Saved[^1].Sessions).RecoveryEndAt);
+        store.Snapshot = store.Saved[^1];
+        var recovered = new FakePlayTime();
+        var second = CreateService(new FakeMonitor(), CreateConfig(), recovered, store, new FakeProbe(new Dictionary<int, string?>()));
+        second.Start();
+        Assert.Equal(SnapshotAt, Assert.Single(recovered.Recovered).End);
+        first.Stop();
+        second.Stop();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Recovery_PendingOldSessionsAndNewLiveSessionForSameGame_AreHandledSeparately(bool withLiveSession)
+    {
+        var oldStart = SessionStart.AddHours(-1);
+        var store = new FakeInFlightStore
+        {
+            Snapshot = new InFlightSnapshot
+            {
+                SnapshotAt = SnapshotAt,
+                Sessions =
+                {
+                    new InFlightSession { DataKey = "g1", StartedAt = oldStart, RecoveryEndAt = oldStart.AddMinutes(20) },
+                    new InFlightSession { DataKey = "G1", StartedAt = oldStart.AddMinutes(30), RecoveryEndAt = oldStart.AddMinutes(40) }
+                }
+            }
+        };
+        if (withLiveSession) store.Snapshot.Sessions.Add(new InFlightSession { DataKey = "g1", ProcessId = 1111, NormalizedName = "game1.exe", StartedAt = SessionStart });
+        var playTime = new FakePlayTime();
+        var service = CreateService(new FakeMonitor(), CreateConfig(), playTime, store,
+            new FakeProbe(new Dictionary<int, string?> { [1111] = @"D:\Games\game1.exe" }));
+        service.Start();
+        Assert.Equal(2, playTime.Recovered.Count);
+        Assert.Equal(withLiveSession ? 1 : 0, playTime.Resumed.Count);
+        if (withLiveSession) Assert.Equal(1111, Assert.Single(store.Saved[^1].Sessions).ProcessId);
+        service.Stop();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Recovery_SameExecutableReusesPid_DoesNotResumeOldSession(bool legacySnapshot)
+    {
+        var store = new FakeInFlightStore
+        {
+            Snapshot = new InFlightSnapshot
+            {
+                SnapshotAt = SnapshotAt,
+                Sessions = { new InFlightSession
+                {
+                    DataKey = "g1", ProcessId = 1111, NormalizedName = "game1.exe", StartedAt = SessionStart,
+                    ProcessStartedAtUtc = legacySnapshot ? null : SessionStart.ToUniversalTime()
+                } }
+            }
+        };
+        var probe = new Mock<IProcessIdentityProbe>();
+        string? image = @"D:\Games\game1.exe";
+        probe.Setup(p => p.TryGetImagePath(1111, out image)).Returns(true);
+        var created = SnapshotAt.AddSeconds(1).ToUniversalTime();
+        probe.Setup(p => p.TryGetStartTimeUtc(1111, out created)).Returns(true);
+        var playTime = new FakePlayTime();
+        var service = CreateService(new FakeMonitor(), CreateConfig(), playTime, store, probe.Object);
+        service.Start();
+        Assert.Empty(playTime.Resumed);
+        Assert.Single(playTime.Recovered);
+        service.Stop();
     }
 
     [Fact]
@@ -289,6 +438,38 @@ public class InFlightSessionRecoveryTests
 
         automation.Stop();
         Assert.True(store.ClearCalls >= 1);
+    }
+
+    [Fact]
+    public void NameOnlyEtwHint_DoesNotPersistInventedWorkingDirectoryPath()
+    {
+        var monitor = new FakeMonitor();
+        var store = new FakeInFlightStore();
+        var automation = CreateService(monitor, CreateConfig(), new FakePlayTime(), store, new FakeProbe(new Dictionary<int, string?>()));
+        automation.Start();
+        monitor.RaiseStarted(new ProcessEventInfo("game1.exe", "game1.exe", 100));
+        Assert.Null(Assert.Single(store.Saved[^1].Sessions).NormalizedPath);
+        automation.Stop();
+    }
+
+    [Fact]
+    public void MultipleProcesses_EveryChangePersistsRemainingIdentitiesWithOriginalStart()
+    {
+        var monitor = new FakeMonitor();
+        var playTime = new FakePlayTime();
+        var store = new FakeInFlightStore();
+        var automation = CreateService(monitor, CreateConfig(), playTime, store, new FakeProbe(new Dictionary<int, string?>()));
+        automation.Start();
+        monitor.RaiseStarted(new ProcessEventInfo("game1.exe", null, 100));
+        var originalStart = Assert.Single(store.Saved[^1].Sessions).StartedAt;
+        monitor.RaiseStarted(new ProcessEventInfo("game1.exe", null, 200));
+        Assert.Equal(new int?[] { 100, 200 }, store.Saved[^1].Sessions.Select(s => s.ProcessId));
+        monitor.RaiseStopped(new ProcessEventInfo("game1.exe", null, 100));
+        var remaining = Assert.Single(store.Saved[^1].Sessions);
+        Assert.Equal(200, remaining.ProcessId);
+        Assert.Equal(originalStart, remaining.StartedAt);
+        Assert.Empty(playTime.Stopped);
+        automation.Stop();
     }
 
     [Fact]

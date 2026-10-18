@@ -47,6 +47,23 @@ public sealed class WindowsProcessIdentityProbe : IProcessIdentityProbe
         }
     }
 
+    /// <inheritdoc />
+    public bool TryGetStartTimeUtc(int processId, out DateTime startTimeUtc)
+    {
+        startTimeUtc = default;
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            startTimeUtc = process.StartTime.ToUniversalTime();
+            return !process.HasExited;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogDebug(ex, "Cannot read creation time of PID {ProcessId}.", processId);
+            return false;
+        }
+    }
+
     private static class NativeMethods
     {
         [DllImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", SetLastError = true, CharSet = CharSet.Unicode)]

@@ -1,7 +1,13 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Security.Principal;
 using System.Text;
+using System.Text.Json;
+using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Processes;
+using GameHelper.Infrastructure.Controllers;
+using GameHelper.Core.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using GameHelper.Tests;
 using Xunit;
 using Xunit.Abstractions;
@@ -99,6 +105,147 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             if (child is not null && !child.HasExited) child.Kill(entireProcessTree: true);
             child?.Dispose();
             StopAppAndSweepSessions(app);
+        }
+    }
+
+    [WindowsOnlyFact]
+    public async Task Monitor_WhenElevatedWithPublishedExe_ResumesAcrossTwoCrashesAndPersistsOneContinuousSession()
+    {
+        if (!TryGuard(out var exePath)) return;
+        using var sandbox = CreateSandbox();
+        AppHandle? app = null;
+        Process? child = null;
+        try
+        {
+            app = StartApp(exePath, sandbox);
+            await WaitUntilOutputAsync(app, sandbox, text => text.Contains("GameAutomationService started"),
+                ReadyTimeout, "initial monitor readiness");
+            child = StartProbe(sandbox, "/c ping 127.0.0.1 -n 600 > NUL");
+            await WaitUntilAsync(() => ReadInFlightSnapshot(sandbox)?.Sessions.Any(
+                    session => session.DataKey == ProbeDataKey && session.ProcessId == child.Id) == true,
+                ReadyTimeout, "initial probe snapshot");
+
+            var initialSnapshot = ReadInFlightSnapshot(sandbox)!;
+            var originalStart = Assert.Single(initialSnapshot.Sessions).StartedAt;
+            var previousSnapshotAt = initialSnapshot.SnapshotAt;
+            // Separate the original start and first restart even at CSV's one-second precision.
+            await Task.Delay(TimeSpan.FromSeconds(2));
+
+            for (var restart = 1; restart <= 2; restart++)
+            {
+                StopAppAndSweepSessions(app);
+                app.Dispose();
+                app = null;
+                Assert.False(child.HasExited, "the game probe must survive each host crash");
+                Assert.Empty(ReadProbeRows(sandbox.CsvPath));
+                // Each launch truncates its redirected logs. Remove old contents before polling
+                // so a prior launch's readiness/recovery line cannot satisfy this launch.
+                File.Delete(sandbox.OutFile);
+                File.Delete(sandbox.ErrFile);
+                app = StartApp(exePath, sandbox);
+                await WaitUntilOutputAsync(app, sandbox,
+                    text => text.Contains("Resumed in-flight session")
+                        && text.Contains("In-flight snapshot rewritten after recovery"),
+                    ReadyTimeout, $"recovery and rewritten snapshot after crash {restart}");
+                await WaitUntilAsync(() => ReadInFlightSnapshot(sandbox) is { } snapshot
+                        && snapshot.SnapshotAt > previousSnapshotAt
+                        && snapshot.Sessions.Any(session => session.DataKey == ProbeDataKey
+                            && session.ProcessId == child.Id && session.StartedAt == originalStart),
+                    ReadyTimeout, $"preserved original start and refreshed snapshot after crash {restart}");
+                previousSnapshotAt = ReadInFlightSnapshot(sandbox)!.SnapshotAt;
+                Assert.Empty(ReadProbeRows(sandbox.CsvPath));
+            }
+
+            var stoppedAt = DateTime.Now;
+            child.Kill(entireProcessTree: true);
+            await WaitUntilAsync(() => ReadProbeRows(sandbox.CsvPath).Count > 0,
+                PersistTimeout, "completed session after adopted game process exits");
+            var row = Assert.Single(ReadProbeRows(sandbox.CsvPath)).Split(',');
+            Assert.Equal(4, row.Length);
+            var recordedStart = DateTime.Parse(row[1], CultureInfo.InvariantCulture);
+            var recordedEnd = DateTime.Parse(row[2], CultureInfo.InvariantCulture);
+            Assert.InRange((recordedStart - originalStart).Duration(), TimeSpan.Zero, TimeSpan.FromSeconds(1));
+            Assert.True(recordedEnd >= stoppedAt.AddSeconds(-1), "end must include both host restarts");
+            Assert.Equal((long)(recordedEnd - recordedStart).TotalMinutes,
+                long.Parse(row[3], CultureInfo.InvariantCulture));
+            await WaitUntilAsync(() => ReadInFlightSnapshot(sandbox)?.Sessions.Count == 0,
+                ReadyTimeout, "empty in-flight snapshot after game completion");
+            output.WriteLine($"Two-crash continuous session: {string.Join(',', row)}; original start {originalStart:O}");
+        }
+        finally
+        {
+            if (child is not null && !child.HasExited) child.Kill(entireProcessTree: true);
+            child?.Dispose();
+            if (app is not null)
+            {
+                StopAppAndSweepSessions(app);
+                app.Dispose();
+            }
+        }
+    }
+
+    private static InFlightSnapshot? ReadInFlightSnapshot(Sandbox sandbox)
+    {
+        try
+        {
+            var path = Path.Combine(sandbox.GameHelperDir, "inflight-sessions.json");
+            return File.Exists(path)
+                ? JsonSerializer.Deserialize<InFlightSnapshot>(File.ReadAllText(path, Encoding.UTF8))
+                : null;
+        }
+        catch (IOException) { return null; }
+        catch (JsonException) { return null; }
+    }
+
+    [WindowsOnlyFact]
+    public async Task MonitorMode_WhenHardwareVerificationEnabled_VerifiesRealRegistersAcrossGameAndConfigChanges()
+    {
+        // Opt in only after disabling monitorMode in other running instances: DDC is machine-wide.
+        if (Environment.GetEnvironmentVariable("GAMEHELPER_TEST_DDC") != "1")
+        {
+            output.WriteLine("Skipped physical DDC writes: set GAMEHELPER_TEST_DDC=1 with other preset writers disabled.");
+            return;
+        }
+        if (!TryGuard(out var exePath)) return;
+        using var sandbox = CreateSandbox();
+        var controller = new DdcMonitorModeController(NullLogger<DdcMonitorModeController>.Instance);
+        Assert.True(controller.IsAvailable, "Physical DDC/CI monitor must be online for this verification.");
+        var plan = new MonitorModePlan(new GameHelper.Core.Models.MonitorModeSettings { Enabled = true });
+        File.AppendAllText(sandbox.ConfigPath, "\nmonitorMode:\n  enabled: true\n  daylightStart: '00:00'\n  daylightEnd: '23:59'\n");
+        using var app = StartApp(exePath!, sandbox);
+        Process? child = null;
+        try
+        {
+            await WaitUntilOutputAsync(app, sandbox, text => text.Contains("GameAutomationService started"), ReadyTimeout, "DDC host ready");
+            await VerifyRegistersAsync(GameHelper.Core.Abstractions.MonitorMode.Comfort, "startup without game");
+            child = StartProbe(sandbox, "/c ping 127.0.0.1 -n 600 > NUL");
+            await VerifyRegistersAsync(GameHelper.Core.Abstractions.MonitorMode.Game, "daylight game start");
+            var dayConfig = File.ReadAllText(sandbox.ConfigPath);
+            File.WriteAllText(sandbox.ConfigPath, dayConfig.Replace("daylightEnd: '23:59'", "daylightEnd: '00:00'"));
+            await VerifyRegistersAsync(GameHelper.Core.Abstractions.MonitorMode.Comfort, "hot reload to night while game stays alive");
+            File.WriteAllText(sandbox.ConfigPath, dayConfig);
+            await VerifyRegistersAsync(GameHelper.Core.Abstractions.MonitorMode.Game, "hot reload to day while game stays alive");
+            child.Kill(entireProcessTree: true);
+            await VerifyRegistersAsync(GameHelper.Core.Abstractions.MonitorMode.Comfort, "game exit");
+        }
+        finally
+        {
+            if (child is not null && !child.HasExited) child.Kill(entireProcessTree: true);
+            child?.Dispose();
+            StopAppAndSweepSessions(app);
+            controller.Apply(plan.ComfortWrites);
+        }
+
+        async Task VerifyRegistersAsync(GameHelper.Core.Abstractions.MonitorMode mode, string phase)
+        {
+            await WaitUntilAsync(() => controller.TryReadState(plan.ProbeWrites) is { } state && plan.MatchesTarget(state, mode),
+                TimeSpan.FromSeconds(20), $"physical {mode} registers at {phase}");
+            // Catch firmware reverting an incomplete recipe after apparently successful writes.
+            await Task.Delay(TimeSpan.FromSeconds(3));
+            var stable = controller.TryReadState(plan.ProbeWrites);
+            Assert.NotNull(stable);
+            Assert.True(plan.MatchesTarget(stable, mode), $"firmware reverted the {mode} recipe at {phase}");
+            output.WriteLine($"Physical DDC {phase}: {string.Join(", ", stable.Select(p => $"{p.Key:X2}={p.Value:X2}"))}");
         }
     }
 

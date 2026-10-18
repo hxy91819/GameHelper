@@ -27,6 +27,15 @@ namespace GameHelper.Core.Abstractions
         void Configure(ProcessObservationPolicy policy);
 
         /// <summary>
+        /// Registers a process that existed before monitoring started (recovery adoption), so that its
+        /// stop event, periodic health-check reconcile and PID-reuse compensation treat it exactly like
+        /// a process whose start event was observed live. Default: no-op.
+        /// </summary>
+        void AssumeRunning(ProcessEventInfo info, DateTime assumedTimestampUtc)
+        {
+        }
+
+        /// <summary>
         /// Starts monitoring and begins raising events.
         /// </summary>
         void Start();

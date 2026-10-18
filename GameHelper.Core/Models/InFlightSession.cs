@@ -24,6 +24,12 @@ public sealed class InFlightSession
 
     /// <summary>Original session start time (local).</summary>
     public DateTime StartedAt { get; set; }
+
+    /// <summary>UTC process creation identity; absent in legacy snapshots.</summary>
+    public DateTime? ProcessStartedAtUtc { get; set; }
+
+    /// <summary>Fixed end time for a completed session awaiting a successful history write.</summary>
+    public DateTime? RecoveryEndAt { get; set; }
 }
 
 /// <summary>

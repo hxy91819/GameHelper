@@ -64,7 +64,9 @@ public sealed class EtwProcessMonitor : IProcessMonitor
             if (!_stopRequested && (_isRunning || _recovering)) return;
             _runtime.EnsureElevated();
             CancelRun();
-            SafeCleanup();
+            // Automation restores in-flight identities before MonitorControl starts ETW.
+            // Stop already clears prior-run identities; retain the newly adopted ones here.
+            SafeCleanup(preserveProcesses: true);
             _recovering = false;
             _runCancellation = new CancellationTokenSource();
             _stopRequested = false;
@@ -74,7 +76,7 @@ public sealed class EtwProcessMonitor : IProcessMonitor
                 try { InitializeEtwSession(generation); }
                 catch (Exception ex) when (IsResourceExhausted(ex))
                 {
-                    SafeCleanup();
+                    SafeCleanup(preserveProcesses: true);
                     CleanupStaleSessions();
                     InitializeEtwSession(generation);
                 }
@@ -288,6 +290,27 @@ public sealed class EtwProcessMonitor : IProcessMonitor
             var process = _runtime.InspectProcess(pid);
             if (process.HasExited || process.StartTimeUtc > previous.TimestampUtc)
                 CompleteObservedProcess(pid, previous, reconciled: true);
+        }
+    }
+
+    /// <inheritdoc />
+    public void AssumeRunning(ProcessEventInfo info, DateTime assumedTimestampUtc)
+    {
+        if (info.ProcessId is not int pid) return;
+        lock (_lifecycleLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_observedProcesses.TryGetValue(pid, out var previous) && previous.TimestampUtc >= assumedTimestampUtc)
+            {
+                return;
+            }
+
+            _observedProcesses[pid] = new EtwProcessEvent(info, assumedTimestampUtc);
+            _logger?.LogInformation(
+                "Assuming running process {Name} (PID {ProcessId}) observed at {Timestamp}; stop events and health-check reconcile now apply.",
+                info.ExecutableName,
+                pid,
+                assumedTimestampUtc);
         }
     }
 

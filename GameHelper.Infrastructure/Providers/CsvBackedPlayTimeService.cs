@@ -62,28 +62,28 @@ namespace GameHelper.Infrastructure.Providers
             }
         }
 
-    public void StartTracking(string gameName)
-    {
-        if (string.IsNullOrWhiteSpace(gameName)) return;
-
-        lock (_gate)
+        public void StartTracking(string gameName)
         {
-            if (_activeSessions.ContainsKey(gameName)) return; // already tracking
-            _activeSessions[gameName] = DateTime.Now;
+            if (string.IsNullOrWhiteSpace(gameName)) return;
+
+            lock (_gate)
+            {
+                if (_activeSessions.ContainsKey(gameName)) return; // already tracking
+                _activeSessions[gameName] = DateTime.Now;
+            }
         }
-    }
 
-    /// <inheritdoc />
-    public void ResumeTracking(string gameName, DateTime startTime)
-    {
-        if (string.IsNullOrWhiteSpace(gameName)) return;
-
-        lock (_gate)
+        /// <inheritdoc />
+        public void ResumeTracking(string gameName, DateTime startTime)
         {
-            if (_activeSessions.ContainsKey(gameName)) return; // already tracking; keep the existing start
-            _activeSessions[gameName] = startTime;
+            if (string.IsNullOrWhiteSpace(gameName)) return;
+
+            lock (_gate)
+            {
+                if (_activeSessions.ContainsKey(gameName)) return; // already tracking; keep the existing start
+                _activeSessions[gameName] = startTime;
+            }
         }
-    }
 
         public PlaySession? StopTracking(string gameName)
         {
@@ -115,7 +115,8 @@ namespace GameHelper.Infrastructure.Providers
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Failed to write session to CSV for game {GameName}", gameName);
-                // Continue execution - the in-memory tracking state has already ended.
+                // Let automation retain a completed recovery row in its durable snapshot.
+                throw;
             }
 
             return session;
@@ -139,10 +140,10 @@ namespace GameHelper.Infrastructure.Providers
             var durationMinutes = (long)duration.TotalMinutes;
             if (durationMinutes < 0) durationMinutes = 0;
 
-            AppendSessionToCsv(gameName, startTime, endTime, durationMinutes);
+            AppendSessionToCsv(gameName, startTime, endTime, durationMinutes, deduplicate: true);
         }
 
-        private void AppendSessionToCsv(string gameName, DateTime startTime, DateTime endTime, long durationMinutes)
+        private void AppendSessionToCsv(string gameName, DateTime startTime, DateTime endTime, long durationMinutes, bool deduplicate = false)
         {
             const int maxRetries = 3;
             const int retryDelayMs = 100;
@@ -153,6 +154,18 @@ namespace GameHelper.Infrastructure.Providers
                 {
                     lock (_csvWriteGate)
                     {
+                        if (deduplicate && File.Exists(_csvFilePath))
+                        {
+                            var alreadyWritten = false;
+                            PlaytimeCsvCodec.ReadRows(_csvFilePath, row =>
+                            {
+                                if (string.Equals(row.GameName, gameName, StringComparison.OrdinalIgnoreCase)
+                                    && row.StartTime.Ticks / TimeSpan.TicksPerSecond == startTime.Ticks / TimeSpan.TicksPerSecond
+                                    && row.EndTime.Ticks / TimeSpan.TicksPerSecond == endTime.Ticks / TimeSpan.TicksPerSecond)
+                                    alreadyWritten = true;
+                            });
+                            if (alreadyWritten) return;
+                        }
                         PlaytimeCsvCodec.Append(
                             _csvFilePath,
                             new PlaytimeCsvRow(gameName, startTime, endTime, durationMinutes));

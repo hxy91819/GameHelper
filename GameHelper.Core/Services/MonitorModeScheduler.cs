@@ -16,7 +16,7 @@ public sealed class MonitorModeScheduler
     /// Evaluates the rule and, when the physical state differs, applies the recipe.
     /// May block briefly (DDC/CI bus I/O); callers must not hold locks while calling.
     /// </summary>
-    public void Update(
+    public bool Update(
         MonitorModePlan plan,
         bool anyGameActive,
         IMonitorModeController controller,
@@ -30,7 +30,7 @@ public sealed class MonitorModeScheduler
         if (!controller.IsAvailable)
         {
             logger.LogDebug("Monitor mode controller unavailable; skipping preset automation.");
-            return;
+            return false;
         }
 
         var isDaylight = plan.Daylight.IsDaylight(localNow);
@@ -41,7 +41,7 @@ public sealed class MonitorModeScheduler
         if (state is not null && plan.MatchesTarget(state, desiredMode))
         {
             logger.LogDebug("Monitor already in {Mode} mode; no DDC/CI writes needed.", desiredMode);
-            return;
+            return true;
         }
 
         var reason = isDaylight
@@ -54,5 +54,9 @@ public sealed class MonitorModeScheduler
             string.Join(", ", targetWrites));
 
         controller.Apply(targetWrites);
+        var applied = controller.TryReadState(plan.ProbeWrites);
+        var confirmed = applied is not null && plan.MatchesTarget(applied, desiredMode);
+        if (!confirmed) logger.LogWarning("Monitor preset {Mode} was not confirmed by DDC/CI readback; retrying on the next tick.", desiredMode);
+        return confirmed;
     }
 }

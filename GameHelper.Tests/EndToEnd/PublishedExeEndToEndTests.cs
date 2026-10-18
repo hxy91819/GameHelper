@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using Xunit;
 using Xunit.Abstractions;
+using Microsoft.Win32;
 
 namespace GameHelper.Tests.EndToEnd
 {
@@ -54,12 +55,14 @@ namespace GameHelper.Tests.EndToEnd
             }
 
             using var sandbox = new DataDirSandbox("gh-e2e");
+            using var runKey = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
+            var autoStartBefore = runKey?.GetValue("GameHelper");
             var configPath = Path.Combine(sandbox.GameHelperDir, "config.yml");
             File.WriteAllText(configPath, """
                 monitor: ETW
                 startup:
                   autoStartMonitor: false
-                  launchOnStartup: false
+                  launchOnStartup: true
                 games:
                   - dataKey: e2e_game
                     executable: e2e.exe
@@ -89,6 +92,7 @@ namespace GameHelper.Tests.EndToEnd
 
             // 3. 独立实例证据：测试实例能与主实例共存（互斥被环境变量关闭 + 数据目录隔离）
             Assert.DoesNotContain("GameHelper is already running", result.Output);
+            Assert.Equal(autoStartBefore, runKey?.GetValue("GameHelper"));
         }
 
         private static ProcessResult RunTestInstance(string exePath, DataDirSandbox sandbox, string arguments)

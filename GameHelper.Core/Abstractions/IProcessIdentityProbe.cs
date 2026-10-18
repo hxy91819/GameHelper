@@ -13,4 +13,11 @@ public interface IProcessIdentityProbe
     /// is null in that case.
     /// </summary>
     bool TryGetImagePath(int processId, out string? imagePath);
+
+    /// <summary>Reads the process creation time in UTC, when the adapter can establish it.</summary>
+    bool TryGetStartTimeUtc(int processId, out DateTime startTimeUtc)
+    {
+        startTimeUtc = default;
+        return false;
+    }
 }

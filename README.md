@@ -99,10 +99,11 @@ dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release
 
 在监控运行期间直接编辑 `%AppData%\GameHelper\config.yml`（文本编辑器保存即可），约 0.5 秒内自动生效，无需重启 GameHelper：
 
-- 新增 / 修改 / 删除游戏条目、`enabled`、`hdr`、`speed`、`breakReminder`、`monitorMode` 规则都会自动重载；对之后新匹配启动的进程生效。
+- 新增 / 修改 / 删除游戏条目、`enabled`、`hdr`、`speed`、`breakReminder`、`monitorMode` 规则都会自动重载；游戏匹配与变速对之后新启动的进程生效，显示器规则立即重新评估。
 - 拖拽添加与 CLI 目录命令修改配置依旧立即重载，与文件监听路径互不冲突。
 - 以下项仍需重启进程才会生效：`monitor`（监控器类型，启动时创建）、`sync` 后台推送参数（循环启动时读取）。
 - 编辑器保存时文件会短暂处于“被替换/缺失”状态，监听器会跳过该窗口，不会把空配置读进运行中的服务；删除 `config.yml` 也不会清空当前监控状态。
+- `validate-config`、`stats` 等一次性命令不会修改系统开机启动项；使用 `GAMEHELPER_DATA_DIR` 的隔离实例也不会修改该启动项。
 - 监听失败时只降级热重载（日志有提示），监控本身不受影响。
 
 ### 连续游戏休息提醒
@@ -115,7 +116,7 @@ dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release
 
 ### 更新重启不断计时（会话跨重启续算）
 
-GameHelper 更新替换重启（或异常崩溃）时，正在统计的游戏会话不再中断：重启后会检查在途游戏进程——还存活就按**原开始时间**续算，游戏退出时落一条连续记录；游戏在停机间隙退出的，按最后已知存活时间收尾落库，不丢数据。在途会话快照 `%AppData%\GameHelper\inflight-sessions.json` 随会话状态变化持续落盘，进程被强制结束也能恢复。这使"改完直接更新"的部署策略可以安全执行（部署脚本 `-Restart`）。详见[验证与部署工作流](docs/guides/verify-and-deploy-workflow.md)。
+GameHelper 更新替换重启（或异常崩溃）时，正在统计的游戏会话按**原开始时间**续算，游戏退出时落一条连续记录；游戏在停机间隙退出的，按最后已知存活时间收尾落库。在途快照 `%AppData%\GameHelper\inflight-sessions.json` 记录全部游戏进程，随每次进程变化及每 10 秒刷新；恢复后立即原子重写，连续多次更新也能接续。进程创建时间用于防止同一程序复用 PID 时串局，恢复落库失败则保留快照重试。部署脚本 `-Restart` 只清理已退出属主的 ETW 会话，且新实例启动失败会恢复旧产物和旧实例。详见[验证与部署工作流](docs/guides/verify-and-deploy-workflow.md)。
 
 默认路径：`%AppData%\GameHelper\config.yml`
 
