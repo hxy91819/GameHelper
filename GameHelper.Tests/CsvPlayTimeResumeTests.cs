@@ -44,13 +44,13 @@ public class CsvPlayTimeResumeTests : IDisposable
     public void ResumeTracking_WhenAlreadyStarted_KeepsExistingStart()
     {
         _service.StartTracking("witcher3");
-        var laterStart = new DateTime(2026, 10, 17, 23, 0, 0);
+        var farFutureStart = DateTime.Now + TimeSpan.FromMinutes(2);
 
-        _service.ResumeTracking("witcher3", laterStart);
+        _service.ResumeTracking("witcher3", farFutureStart);
         var stopped = _service.StopTracking("witcher3");
 
         Assert.NotNull(stopped);
-        Assert.True(stopped!.StartTime < laterStart);
+        Assert.True(stopped!.StartTime < farFutureStart);
     }
 
     [Fact]

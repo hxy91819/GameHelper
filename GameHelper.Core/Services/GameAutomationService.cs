@@ -636,6 +636,14 @@ public sealed class GameAutomationService : IGameAutomationService
             _logger.LogWarning(ex, "Failed to clear the in-flight session snapshot after recovery.");
         }
 
+        if (resumedCount > 0)
+        {
+            // 关键自愈兜底：接管来的会话必须立即重写为新快照。否则下一次
+            // 强杀/部署重启时磁盘上没有这份会话，它会被第二次丢失。
+            PersistInFlightSnapshot();
+            _logger.LogInformation("In-flight snapshot rewritten after recovery with {Count} adopted session(s).", resumedCount);
+        }
+
         _logger.LogInformation(
             "In-flight session recovery finished: {Resumed} session(s) resumed, {Closed} session(s) closed.",
             resumedCount,

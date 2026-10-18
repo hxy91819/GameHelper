@@ -156,6 +156,13 @@ public class InFlightSessionRecoveryTests
         Assert.Empty(playTime.Recovered);
         Assert.Equal(1, store.ClearCalls);
 
+        // 关键兜底断言：接管完成必须立即重写快照，否则下一次强杀恢复时该会话会第二次丢失。
+        Assert.Contains(store.Saved, saved =>
+            saved.Sessions.Count == 1
+            && saved.Sessions[0].DataKey == "g1"
+            && saved.Sessions[0].ProcessId == 1111
+            && saved.Sessions[0].StartedAt == SessionStart);
+
         // The adopted session participates in normal stop matching afterwards.
         monitor.RaiseStopped(new ProcessEventInfo("game1.exe", null, 1111));
         Assert.Contains("g1", playTime.Stopped);
