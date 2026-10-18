@@ -70,6 +70,7 @@
 - Test instances must isolate data via `GAMEHELPER_DATA_DIR` (sandboxed data dir) and skip the single-instance mutex via `GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE=1` so the user's instance is never affected.
 - Deploy targets the shortcut path `GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish/`. Deployment itself is an all-or-nothing directory swap with automatic rollback — never copy files individually into a publish directory (mixing framework-dependent and self-contained layouts breaks the next launch).
 - One-shot command: `powershell -File scripts\verify-on-machine.ps1` (append `-SkipVerify` to deploy only, append `-SkipVerify -Restart` for the standard direct-update closeout).
+- Every completed feature or fix must update the user's local publish directory and relaunch the interactive ConsoleHost with a visible window. Verify both the window and monitoring readiness; a surviving PID alone is not a completed deployment. See the workflow for the acceptance checks.
 
 ## Git: Commit & Push After Every Fully Completed Feature
 - "Fully completed" means the task closed the full loop: build + test green, docs updated, and the direct-update deploy succeeded. When a feature (or a coherent batch of completed features) reaches that state, **commit and push immediately** — do not leave completed work uncommitted waiting for further instruction.

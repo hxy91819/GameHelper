@@ -68,15 +68,22 @@ function Move-CheckedDirectory([string] $Source, [string] $Destination, [string]
     Move-Item -LiteralPath $Source -Destination $Destination
 }
 
-function Start-CheckedInstance([string] $Directory, [ref] $StartedProcess) {
+function Start-CheckedInstance([string] $Directory, [ref] $StartedProcess,
+    [string] $ConsoleProbeScript = (Join-Path $PSScriptRoot 'probe-console-window.ps1')) {
+    # This is the user's interactive console, which must remain visible after deployment.
     $instance = Start-Process -FilePath (Join-Path $Directory "GameHelper.ConsoleHost.exe") `
-        -WorkingDirectory $Directory -WindowStyle Hidden -PassThru
+        -WorkingDirectory $Directory -WindowStyle Normal -PassThru
     $StartedProcess.Value = $instance
     Start-Sleep -Seconds 5
     $instance.Refresh()
     if ($instance.HasExited) {
         throw "GameHelper exited immediately after launch (PID $($instance.Id)); check its logs."
     }
+    $visibility = & powershell.exe -NoProfile -NonInteractive -File $ConsoleProbeScript -TargetProcessId $instance.Id
+    if ($LASTEXITCODE -ne 0) {
+        throw "GameHelper has no visible interactive console (PID $($instance.Id)); startup verification failed: $visibility"
+    }
+    Write-Host "Interactive console visibility verified for PID $($instance.Id)."
     return $instance
 }
 

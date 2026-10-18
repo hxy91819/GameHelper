@@ -91,3 +91,24 @@ WinUI 移除、配置热重载、显示器预设和跨重启计时。规范依�
 - 历史上已丢失、没有可靠起止时间的会话没有补造。真正发生于进程监控空窗内的整局游戏仍无法凭空恢复。
 - 提交身份为既有批准的个人身份；新增内容秘密模式扫描 0 命中。系统未安装 gitleaks；身份脚本在本机编码读取失败，
   已直接核对 Git 配置和历史元数据。旧历史存在公司身份记录，本轮未改写既有历史。
+
+## 后续修正：正式交互窗口启动验收
+
+用户随后报告双击没有窗口或闪退。实机确认旧实例 PID 12332 仍运行、ETW 正常，但部署脚本以
+`-WindowStyle Hidden` 启动了正式交互宿主，窗口不可见并持续持有单实例锁；再次双击只会提示已经运行后退出。
+此前仅检查 PID 和 ETW 的交付验收遗漏了窗口可见性，该次验收结论不足。
+
+现改为正常窗口启动，并由独立原生探针附着真实控制台核验显示窗口；不可见即判定启动失败，触发既有部署回滚。
+探针兼容 Windows Terminal 的隐藏控制台兼容窗口，通过 owner 链检查实际终端窗口。
+AGENTS、README 和部署指南同步明确每次功能或修复都须更新本机，验证可见窗口和监控就绪。
+
+- `dotnet build GameHelper.sln --nologo -v quiet`：成功，0 错误。
+- `powershell -File scripts/verify-on-machine.ps1 -SkipDeploy`：新产物发布、隔离配置验证通过。
+- 指向新产物并启用通知实测的 `dotnet test GameHelper.sln --nologo`：580 通过、2 个既有跳过、0 失败。
+- 三项真实启动专项覆盖正常显示、隐藏窗口拒绝，以及真实 Win32 窗口模拟的终端 owner 拓扑；后者并非完整 Windows Terminal 前端端到端测试。
+- `autoreview` 使用 subagent 模式，修复终端兼容窗口误判并复核后，无 accepted/actionable findings。
+- `powershell -File scripts/verify-on-machine.ps1 -SkipVerify -Restart`：原子替换成功；正式实例 PID 30724，
+  原生探针返回 `Visible: true`，对应 `GameHelper-ETW-30724-*` 会话为 `Running`。
+- 指向正式部署目录执行 `dotnet test GameHelper.sln --no-build --filter FullyQualifiedName~PublishedInteractiveStartupTests --nologo`：3 通过、0 跳过、0 失败。
+
+此前另已按用户授权完成公司提交身份的历史清理；本次启动修复沿用已批准个人身份。
