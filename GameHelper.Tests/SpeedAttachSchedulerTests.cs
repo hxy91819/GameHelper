@@ -1,0 +1,177 @@
+using GameHelper.Core.Abstractions;
+using GameHelper.Core.Services;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+
+namespace GameHelper.Tests;
+
+public sealed class SpeedAttachSchedulerTests : IDisposable
+{
+    private readonly string _tempDirectory = Path.Combine(
+        Path.GetTempPath(),
+        "GameHelperTests",
+        Guid.NewGuid().ToString("N"));
+
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(25);
+
+    [Fact]
+    public async Task MarkerWrittenAfterGateStart_AttachesWithoutWaitingForTimeout()
+    {
+        var logPath = Path.Combine(_tempDirectory, "BepInEx", "LogOutput.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+        File.WriteAllText(logPath, "booting\n");
+
+        var applied = new List<SpeedAttachRequest>();
+        var scheduler = new SpeedAttachScheduler(
+            TimeProvider.System,
+            NullLogger.Instance,
+            applied.Add,
+            pollInterval: PollInterval,
+            timeout: TimeSpan.FromSeconds(30));
+
+        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, logPath, @"D:\Games\Game\Game.exe"));
+
+        // The chainloader marker lands while the gate is already waiting (like a real boot).
+        await Task.Delay(100);
+        File.AppendAllText(logPath, "[Message:   BepInEx] Chainloader startup complete\n");
+
+        await WaitForConditionAsync(() => applied.Count > 0, TimeSpan.FromSeconds(5));
+        scheduler.CancelAll();
+        var request = Assert.Single(applied);
+        Assert.Equal(100, request.ProcessId);
+        Assert.Equal(1.5, request.Speed);
+    }
+
+    [Fact]
+    public async Task StaleMarkerFromPreviousRun_DoesNotSatisfyGate_TimeoutFallbackAttaches()
+    {
+        var logPath = Path.Combine(_tempDirectory, "BepInEx", "LogOutput.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+        File.WriteAllText(logPath, "[Message:   BepInEx] Chainloader startup complete\n");
+        // The log is older than the gate start; it must not count as this run's completion.
+        File.SetLastWriteTimeUtc(logPath, DateTime.UtcNow.AddHours(-2));
+
+        var applied = new List<SpeedAttachRequest>();
+        var scheduler = new SpeedAttachScheduler(
+            TimeProvider.System,
+            NullLogger.Instance,
+            applied.Add,
+            pollInterval: PollInterval,
+            timeout: TimeSpan.FromMilliseconds(300));
+
+        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, logPath, null));
+
+        await Task.Delay(1200);
+        scheduler.CancelAll();
+        Assert.Single(applied);
+    }
+
+    [Fact]
+    public async Task ProcessGone_SkipsAttachCompletely()
+    {
+        var probe = new StubIdentityProbe(returnFound: false);
+        var applied = new List<SpeedAttachRequest>();
+        var scheduler = new SpeedAttachScheduler(
+            TimeProvider.System,
+            NullLogger.Instance,
+            applied.Add,
+            probe,
+            PollInterval,
+            TimeSpan.FromSeconds(30));
+
+        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, null, @"D:\Games\Game\Game.exe"));
+
+        await Task.Delay(800);
+        scheduler.CancelAll();
+        Assert.Empty(applied);
+    }
+
+    [Fact]
+    public async Task PidReusedByAnotherImage_SkipsAttach()
+    {
+        var probe = new StubIdentityProbe(returnFound: true, imagePath: @"C:\Elsewhere\Other.exe");
+        var applied = new List<SpeedAttachRequest>();
+        var scheduler = new SpeedAttachScheduler(
+            TimeProvider.System,
+            NullLogger.Instance,
+            applied.Add,
+            probe,
+            PollInterval,
+            TimeSpan.FromSeconds(30));
+
+        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, null, @"D:\Games\Game\Game.exe"));
+
+        await Task.Delay(800);
+        scheduler.CancelAll();
+        Assert.Empty(applied);
+    }
+
+    [Fact]
+    public async Task CancelPending_StopsTheDeferredAttach()
+    {
+        var applied = new List<SpeedAttachRequest>();
+        var scheduler = new SpeedAttachScheduler(
+            TimeProvider.System,
+            NullLogger.Instance,
+            applied.Add,
+            pollInterval: PollInterval,
+            timeout: TimeSpan.FromSeconds(30));
+
+        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, null, null));
+        await Task.Delay(50);
+        Assert.True(scheduler.CancelPending(100));
+        await Task.Delay(800);
+
+        scheduler.CancelAll();
+        Assert.Empty(applied);
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            if (Directory.Exists(_tempDirectory))
+            {
+                Directory.Delete(_tempDirectory, recursive: true);
+            }
+        }
+        catch
+        {
+            // Best-effort test cleanup.
+        }
+    }
+
+    private sealed class StubIdentityProbe : IProcessIdentityProbe
+    {
+        private readonly bool _returnFound;
+        private readonly string? _imagePath;
+
+        public StubIdentityProbe(bool returnFound, string? imagePath = null)
+        {
+            _returnFound = returnFound;
+            _imagePath = imagePath;
+        }
+
+        public bool TryGetImagePath(int processId, out string? imagePath)
+        {
+            imagePath = _returnFound ? _imagePath : null;
+            return _returnFound;
+        }
+    }
+
+    private static async Task WaitForConditionAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition())
+            {
+                return;
+            }
+
+            await Task.Delay(25);
+        }
+
+        Assert.True(condition(), $"Condition was not met within {timeout}.");
+    }
+}

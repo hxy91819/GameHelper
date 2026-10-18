@@ -37,18 +37,18 @@ public sealed class CheatEngineSpeedController : IGameSpeedController
         _launch = launch;
     }
 
-    public void ApplySpeed(int processId, double speedMultiplier)
+    public bool ApplySpeed(int processId, double speedMultiplier)
     {
         if (processId <= 0)
         {
             _logger.LogWarning("Cannot apply game speed: invalid process ID {ProcessId}", processId);
-            return;
+            return false;
         }
 
         if (!double.IsFinite(speedMultiplier) || speedMultiplier <= 0)
         {
             _logger.LogWarning("Cannot apply game speed: invalid multiplier {Speed}", speedMultiplier);
-            return;
+            return false;
         }
 
         var cheatEnginePath = _configuration.Read().CheatEngine?.Executable?.Trim();
@@ -57,13 +57,13 @@ public sealed class CheatEngineSpeedController : IGameSpeedController
             _logger.LogWarning(
                 "Game speed {Speed} is configured, but cheatEngine.executable is missing",
                 speedMultiplier);
-            return;
+            return false;
         }
 
         if (!Path.IsPathFullyQualified(cheatEnginePath) || !File.Exists(cheatEnginePath))
         {
             _logger.LogWarning("Cheat Engine executable was not found: {Path}", cheatEnginePath);
-            return;
+            return false;
         }
 
         try
@@ -87,6 +87,7 @@ public sealed class CheatEngineSpeedController : IGameSpeedController
                 "Requested game speed {Speed} for PID {ProcessId} through Cheat Engine",
                 speedMultiplier,
                 processId);
+            return true;
         }
         catch (Exception ex)
         {
@@ -95,6 +96,7 @@ public sealed class CheatEngineSpeedController : IGameSpeedController
                 "Failed to request game speed {Speed} for PID {ProcessId} through Cheat Engine",
                 speedMultiplier,
                 processId);
+            return false;
         }
     }
 

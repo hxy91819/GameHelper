@@ -41,6 +41,20 @@ namespace GameHelper.Core.Models
         /// </summary>
         public double? SpeedMultiplier { get; set; }
 
+        /// <summary><c>speedAttach</c> policy value: attach as soon as the first game process starts (legacy behavior).</summary>
+        public const string SpeedAttachPolicyImmediate = "immediate";
+
+        /// <summary><c>speedAttach</c> policy value: defer the attach while a mod loader is detected beside the executable (default).</summary>
+        public const string SpeedAttachPolicyAuto = "auto";
+
+        /// <summary>
+        /// Optional policy controlling when the speed controller attaches Cheat Engine after the game starts.
+        /// <c>auto</c> (default) defers the attach while a mod loader (BepInEx/MelonLoader) is detected beside the
+        /// executable, until the loader reports its chainloader startup complete (timeout-bounded). <c>immediate</c>
+        /// attaches on the first process activation regardless of mod loaders. A null value means auto.
+        /// </summary>
+        public string? SpeedAttach { get; set; }
+
         /// <summary>
         /// Immutable identity view derived from <see cref="Executable"/>.
         /// </summary>

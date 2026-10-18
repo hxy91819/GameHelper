@@ -48,7 +48,7 @@ ETW recovery owns a serialized lifecycle and process identity reconciliation, wi
 
 - `config.yml` is the primary configuration file under `%AppData%\GameHelper\`.
 - `dataKey` is the single stable game identity in configuration and the statistics key written to playtime records.
-- Each game stores one `executable` value. It can be a full path for path-first matching or a process file name for name-only matching; `ExecutableIdentity` derives read-only path and name views from that value. An optional positive `speed` value requests Cheat Engine speed control on first process activation.
+- Each game stores one `executable` value. It can be a full path for path-first matching or a process file name for name-only matching; `ExecutableIdentity` derives read-only path and name views from that value. An optional positive `speed` value requests Cheat Engine speed control on first process activation; the `speedAttach` policy (default `auto`) defers that attach behind the mod loader's chainloader completion marker when a loader is detected beside the executable, falling back to a timed attach and guarding against PID reuse during the wait. Game exits shortly after an attach are correlated with WER crash reports in the automation log.
 - `playtime.csv` is the current playtime history format; JSON exists only for legacy migration compatibility.
 - `sync-state.json` records stats-sync bookkeeping (last success/attempt, content hash, target identity); it is written only after an upload attempt. The git upload method keeps its throwaway clone under `%AppData%\GameHelper\sync\`.
 - Configuration changes reload the latest complete document, preserve unrelated fields, and commit through a temporary-file replacement. A failed change is not persisted.

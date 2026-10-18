@@ -245,7 +245,8 @@ namespace GameHelper.Infrastructure.Providers
             DisplayName = storedGameConfig.DisplayName,
             IsEnabled = storedGameConfig.Enabled ?? true,
             HdrEnabled = storedGameConfig.Hdr ?? false,
-            SpeedMultiplier = storedGameConfig.Speed
+            SpeedMultiplier = storedGameConfig.Speed,
+            SpeedAttach = storedGameConfig.SpeedAttach
         };
 
         private static StoredAppConfig ToStoredAppConfig(AppConfig appConfig) => new()
@@ -302,7 +303,8 @@ namespace GameHelper.Infrastructure.Providers
             DisplayName = gameConfig.DisplayName,
             Enabled = gameConfig.IsEnabled,
             Hdr = gameConfig.HdrEnabled,
-            Speed = gameConfig.SpeedMultiplier
+            Speed = gameConfig.SpeedMultiplier,
+            SpeedAttach = gameConfig.SpeedAttach
         };
 
         private sealed class StoredAppConfig
@@ -368,6 +370,8 @@ namespace GameHelper.Infrastructure.Providers
             public bool? Hdr { get; set; }
 
             public double? Speed { get; set; }
+
+            public string? SpeedAttach { get; set; }
         }
     }
 }

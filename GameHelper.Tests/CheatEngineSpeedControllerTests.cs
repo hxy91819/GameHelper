@@ -15,6 +15,8 @@ public sealed class CheatEngineSpeedControllerTests : IDisposable
         "GameHelperTests",
         Guid.NewGuid().ToString("N"));
 
+    private ProcessStartInfo? launchInfo;
+
     [Fact]
     public void ApplySpeed_GeneratesTableForPidAndLaunchesConfiguredCheatEngine()
     {
@@ -22,7 +24,6 @@ public sealed class CheatEngineSpeedControllerTests : IDisposable
         var cheatEnginePath = Path.Combine(_tempDirectory, "cheatengine-x86_64.exe");
         File.WriteAllBytes(cheatEnginePath, Array.Empty<byte>());
         var tableDirectory = Path.Combine(_tempDirectory, "tables");
-        ProcessStartInfo? launched = null;
         var configuration = new Mock<IGameConfiguration>();
         configuration.Setup(provider => provider.Read()).Returns(new AppConfig
         {
@@ -32,13 +33,14 @@ public sealed class CheatEngineSpeedControllerTests : IDisposable
             configuration.Object,
             NullLogger<CheatEngineSpeedController>.Instance,
             tableDirectory,
-            startInfo => launched = startInfo);
+            startInfo => launchInfo = startInfo);
 
-        controller.ApplySpeed(4321, 2.5);
+        var launched = controller.ApplySpeed(4321, 2.5);
 
-        Assert.NotNull(launched);
-        Assert.Equal(cheatEnginePath, launched.FileName);
-        var tablePath = launched.Arguments.Trim('"');
+        Assert.True(launched);
+        Assert.NotNull(launchInfo);
+        Assert.Equal(cheatEnginePath, launchInfo!.FileName);
+        var tablePath = launchInfo.Arguments.Trim('"');
         Assert.Equal(Path.Combine(tableDirectory, "speed-4321.ct"), tablePath);
         var document = XDocument.Load(tablePath);
         var lua = document.Root?.Element("LuaScript")?.Value;
@@ -58,10 +60,15 @@ public sealed class CheatEngineSpeedControllerTests : IDisposable
             configuration.Object,
             NullLogger<CheatEngineSpeedController>.Instance,
             _tempDirectory,
-            _ => launches++);
+            startInfo =>
+            {
+                launchInfo = startInfo;
+                launches++;
+            });
 
-        controller.ApplySpeed(4321, 2);
+        var launched = controller.ApplySpeed(4321, 2);
 
+        Assert.False(launched);
         Assert.Equal(0, launches);
         Assert.False(Directory.Exists(_tempDirectory));
     }

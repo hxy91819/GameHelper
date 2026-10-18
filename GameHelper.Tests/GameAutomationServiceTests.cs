@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Services;
@@ -55,9 +57,32 @@ namespace GameHelper.Tests
     file sealed class FakeSpeedController : IGameSpeedController
     {
         public List<(int ProcessId, double Speed)> Applied { get; } = new();
+        private readonly TaskCompletionSource _firstApply =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public void ApplySpeed(int processId, double speedMultiplier) =>
+        /// <summary>Awaiting this is the reliable way to observe an async-gated attach in tests.</summary>
+        public Task WaitForFirstApplyAsync(TimeSpan timeout) => _firstApply.Task.WaitAsync(timeout);
+
+        public bool ApplySpeed(int processId, double speedMultiplier)
+        {
             Applied.Add((processId, speedMultiplier));
+            _firstApply.TrySetResult();
+            return true;
+        }
+    }
+
+    file sealed class FakeIdentityProbe : IProcessIdentityProbe
+    {
+        private readonly Func<int, (bool Found, string? ImagePath)> _behavior;
+
+        public FakeIdentityProbe(Func<int, (bool Found, string? ImagePath)> behavior) => _behavior = behavior;
+
+        public bool TryGetImagePath(int processId, out string? imagePath)
+        {
+            var (found, image) = _behavior(processId);
+            imagePath = image;
+            return found;
+        }
     }
 
     file sealed class FakePlayTimeWithDuration : IPlayTimeService
@@ -131,7 +156,8 @@ namespace GameHelper.Tests
             DisplayName = game.DisplayName,
             IsEnabled = game.IsEnabled,
             HdrEnabled = game.HdrEnabled,
-            SpeedMultiplier = game.SpeedMultiplier
+            SpeedMultiplier = game.SpeedMultiplier,
+            SpeedAttach = game.SpeedAttach
         };
     }
 
@@ -612,6 +638,338 @@ namespace GameHelper.Tests
                 logger.Entries,
                 e => e.Level == LogLevel.Debug &&
                      e.Message.Contains("Duplicate executable name detected while building indexes", StringComparison.Ordinal));
+        }
+
+        // ---- speed attach gating (mod-loader aware) ----
+
+        private static readonly TimeSpan TinyPollInterval = TimeSpan.FromMilliseconds(25);
+
+        private static string CreateModdedGameDirectory(string exeFileName)
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "GameHelperTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(dir, "BepInEx"));
+            var exePath = Path.Combine(dir, exeFileName);
+            File.WriteAllBytes(exePath, Array.Empty<byte>());
+            File.WriteAllText(Path.Combine(dir, "BepInEx", "LogOutput.log"), "[Info   : Preloader] booting\n");
+            return exePath;
+        }
+
+        private static void DeleteDirectoryIfExists(string? path)
+        {
+            try
+            {
+                if (path is not null && Directory.Exists(path)) Directory.Delete(path, recursive: true);
+            }
+            catch
+            {
+                // Best-effort cleanup; nested deletes fail transiently on Windows.
+            }
+        }
+
+        private static void AppendChainloaderMarker(string exePath) =>
+            File.AppendAllText(
+                Path.Combine(Path.GetDirectoryName(exePath)!, "BepInEx", "LogOutput.log"),
+                "[Message:   BepInEx] Chainloader startup complete\n");
+
+        [Fact]
+        public async Task ConfiguredSpeed_WithBepInExDetected_DefersAttachUntilChainloaderMarker()
+        {
+            var exePath = CreateModdedGameDirectory("GameX.exe");
+            try
+            {
+                var monitor = new FakeMonitor();
+                var config = new CoreGameConfig
+                {
+                    DataKey = "gamex",
+                    Executable = exePath,
+                    IsEnabled = true,
+                    SpeedMultiplier = 1.5
+                };
+                var speed = new FakeSpeedController();
+                var service = new GameAutomationService(
+                    monitor,
+                    new FakeConfig(new Dictionary<string, CoreGameConfig> { ["gamex"] = config }),
+                    new FakeHdr(),
+                    new FakePlayTime(),
+                    NullLogger<GameAutomationService>.Instance,
+                    speedController: speed,
+                    speedGatePollInterval: TinyPollInterval,
+                    speedGateTimeout: TimeSpan.FromSeconds(30));
+
+                service.Start();
+                monitor.RaiseStart(new ProcessEventInfo("GameX.exe", exePath, 4321));
+
+                // The chainloader marker was not written yet: the attach must stay deferred.
+                await Task.Delay(200);
+                Assert.Empty(speed.Applied);
+
+                AppendChainloaderMarker(exePath);
+
+                await speed.WaitForFirstApplyAsync(TimeSpan.FromSeconds(5));
+                var applied = Assert.Single(speed.Applied);
+                Assert.Equal(4321, applied.ProcessId);
+                Assert.Equal(1.5, applied.Speed);
+            }
+            finally
+            {
+                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
+            }
+        }
+
+        [Fact]
+        public async Task ConfiguredSpeed_WithBepInExDetected_AttachesOnTimeoutFallback()
+        {
+            var exePath = CreateModdedGameDirectory("GameY.exe");
+            try
+            {
+                var monitor = new FakeMonitor();
+                var config = new CoreGameConfig
+                {
+                    DataKey = "gamey",
+                    Executable = exePath,
+                    IsEnabled = true,
+                    SpeedMultiplier = 1.5
+                };
+                var speed = new FakeSpeedController();
+                var service = new GameAutomationService(
+                    monitor,
+                    new FakeConfig(new Dictionary<string, CoreGameConfig> { ["gamey"] = config }),
+                    new FakeHdr(),
+                    new FakePlayTime(),
+                    NullLogger<GameAutomationService>.Instance,
+                    speedController: speed,
+                    speedGatePollInterval: TinyPollInterval,
+                    speedGateTimeout: TimeSpan.FromMilliseconds(300));
+
+                service.Start();
+                monitor.RaiseStart(new ProcessEventInfo("GameY.exe", exePath, 4321));
+
+                // No marker is ever written; the timeout fallback must attach anyway.
+                await speed.WaitForFirstApplyAsync(TimeSpan.FromSeconds(5));
+                var applied = Assert.Single(speed.Applied);
+                Assert.Equal(4321, applied.ProcessId);
+            }
+            finally
+            {
+                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
+            }
+        }
+
+        [Fact]
+        public async Task ConfiguredSpeed_ImmediatePolicy_BypassesModLoaderGate()
+        {
+            var exePath = CreateModdedGameDirectory("GameZ.exe");
+            try
+            {
+                var monitor = new FakeMonitor();
+                var config = new CoreGameConfig
+                {
+                    DataKey = "gamez",
+                    Executable = exePath,
+                    IsEnabled = true,
+                    SpeedMultiplier = 1.5,
+                    SpeedAttach = CoreGameConfig.SpeedAttachPolicyImmediate
+                };
+                var speed = new FakeSpeedController();
+                var service = new GameAutomationService(
+                    monitor,
+                    new FakeConfig(new Dictionary<string, CoreGameConfig> { ["gamez"] = config }),
+                    new FakeHdr(),
+                    new FakePlayTime(),
+                    NullLogger<GameAutomationService>.Instance,
+                    speedController: speed,
+                    speedGatePollInterval: TinyPollInterval,
+                    speedGateTimeout: TimeSpan.FromSeconds(30));
+
+                service.Start();
+                monitor.RaiseStart(new ProcessEventInfo("GameZ.exe", exePath, 4321));
+
+                // No chainloader marker is written; an immediate attach must not wait for it.
+                await speed.WaitForFirstApplyAsync(TimeSpan.FromSeconds(3));
+                var applied = Assert.Single(speed.Applied);
+                Assert.Equal(4321, applied.ProcessId);
+            }
+            finally
+            {
+                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
+            }
+        }
+
+        [Fact]
+        public async Task DeferredSpeedAttach_SkippedWhenProcessDies()
+        {
+            var exePath = CreateModdedGameDirectory("GameDead.exe");
+            try
+            {
+                var monitor = new FakeMonitor();
+                var config = new CoreGameConfig
+                {
+                    DataKey = "gamedead",
+                    Executable = exePath,
+                    IsEnabled = true,
+                    SpeedMultiplier = 1.5
+                };
+                var speed = new FakeSpeedController();
+                var service = new GameAutomationService(
+                    monitor,
+                    new FakeConfig(new Dictionary<string, CoreGameConfig> { ["gamedead"] = config }),
+                    new FakeHdr(),
+                    new FakePlayTime(),
+                    NullLogger<GameAutomationService>.Instance,
+                    speedController: speed,
+                    processIdentityProbe: new FakeIdentityProbe(_ => (false, null)),
+                    speedGatePollInterval: TinyPollInterval,
+                    speedGateTimeout: TimeSpan.FromSeconds(30));
+
+                service.Start();
+                monitor.RaiseStart(new ProcessEventInfo("GameDead.exe", exePath, 4321));
+
+                // The gate never attaches for a process that already vanished.
+                await Task.Delay(600);
+                Assert.Empty(speed.Applied);
+            }
+            finally
+            {
+                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
+            }
+        }
+
+        [Fact]
+        public async Task DeferredSpeedAttach_SkippedWhenPidReusedByOtherImage()
+        {
+            var exePath = CreateModdedGameDirectory("GameReused.exe");
+            try
+            {
+                var monitor = new FakeMonitor();
+                var config = new CoreGameConfig
+                {
+                    DataKey = "gamereused",
+                    Executable = exePath,
+                    IsEnabled = true,
+                    SpeedMultiplier = 1.5
+                };
+                var speed = new FakeSpeedController();
+                var service = new GameAutomationService(
+                    monitor,
+                    new FakeConfig(new Dictionary<string, CoreGameConfig> { ["gamereused"] = config }),
+                    new FakeHdr(),
+                    new FakePlayTime(),
+                    NullLogger<GameAutomationService>.Instance,
+                    speedController: speed,
+                    processIdentityProbe: new FakeIdentityProbe(_ => (true, @"C:\SomethingElse\NotTheGame.exe")),
+                    speedGatePollInterval: TinyPollInterval,
+                    speedGateTimeout: TimeSpan.FromSeconds(30));
+
+                service.Start();
+                monitor.RaiseStart(new ProcessEventInfo("GameReused.exe", exePath, 4321));
+
+                await Task.Delay(600);
+                Assert.Empty(speed.Applied);
+            }
+            finally
+            {
+                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
+            }
+        }
+
+        [Fact]
+        public async Task StopEvent_CancelsPendingDeferredAttach()
+        {
+            var exePath = CreateModdedGameDirectory("GameStopped.exe");
+            try
+            {
+                var monitor = new FakeMonitor();
+                var config = new CoreGameConfig
+                {
+                    DataKey = "gamestopped",
+                    Executable = exePath,
+                    IsEnabled = true,
+                    SpeedMultiplier = 1.5
+                };
+                var speed = new FakeSpeedController();
+                var service = new GameAutomationService(
+                    monitor,
+                    new FakeConfig(new Dictionary<string, CoreGameConfig> { ["gamestopped"] = config }),
+                    new FakeHdr(),
+                    new FakePlayTime(),
+                    NullLogger<GameAutomationService>.Instance,
+                    speedController: speed,
+                    speedGatePollInterval: TinyPollInterval,
+                    speedGateTimeout: TimeSpan.FromMilliseconds(500));
+
+                service.Start();
+                monitor.RaiseStart(new ProcessEventInfo("GameStopped.exe", exePath, 4321));
+                await Task.Delay(100);
+                monitor.RaiseStop(new ProcessEventInfo("GameStopped.exe", exePath, 4321));
+
+                // The deferred gate must not attach after the game stopped (timeout would be 500 ms).
+                await Task.Delay(1500);
+                Assert.Empty(speed.Applied);
+            }
+            finally
+            {
+                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
+            }
+        }
+
+        [Fact]
+        public async Task GameExit_ShortlyAfterCheatEngineAttach_RecordsCorrelationLog()
+        {
+            var monitor = new FakeMonitor();
+            var config = new CoreGameConfig
+            {
+                DataKey = "gamecorr",
+                Executable = "corr-game.exe",
+                IsEnabled = true,
+                SpeedMultiplier = 1.5
+            };
+            var speed = new FakeSpeedController();
+            var logger = new ListLogger<GameAutomationService>();
+            var service = new GameAutomationService(
+                monitor,
+                new FakeConfig(new Dictionary<string, CoreGameConfig> { ["gamecorr"] = config }),
+                new FakeHdr(),
+                new FakePlayTime(),
+                logger,
+                speedController: speed);
+
+            service.Start();
+            monitor.RaiseStart(new ProcessEventInfo("corr-game.exe", null, 999));
+            monitor.RaiseStop(new ProcessEventInfo("corr-game.exe", null, 999));
+
+            // The immediate attach records the correlation candidate; the stop logs the association.
+            await Task.Delay(300);
+            Assert.Contains(
+                logger.Entries,
+                e => e.Message.Contains("attached Cheat Engine", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public async Task GameExit_WithoutSpeedConfig_DoesNotLogCorrelation()
+        {
+            var monitor = new FakeMonitor();
+            var config = new CoreGameConfig
+            {
+                DataKey = "gameplain",
+                Executable = "plain-game.exe",
+                IsEnabled = true
+            };
+            var logger = new ListLogger<GameAutomationService>();
+            var service = new GameAutomationService(
+                monitor,
+                new FakeConfig(new Dictionary<string, CoreGameConfig> { ["gameplain"] = config }),
+                new FakeHdr(),
+                new FakePlayTime(),
+                logger);
+
+            service.Start();
+            monitor.RaiseStart(new ProcessEventInfo("plain-game.exe", null, 1001));
+            monitor.RaiseStop(new ProcessEventInfo("plain-game.exe", null, 1001));
+
+            await Task.Delay(300);
+            Assert.DoesNotContain(
+                logger.Entries,
+                e => e.Message.Contains("attached Cheat Engine", StringComparison.Ordinal));
         }
     }
 }

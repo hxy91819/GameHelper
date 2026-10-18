@@ -127,7 +127,36 @@ internal static class ConfigEntryNormalizer
             DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
             IsEnabled = source.IsEnabled,
             HdrEnabled = source.HdrEnabled,
-            SpeedMultiplier = speedMultiplier
+            SpeedMultiplier = speedMultiplier,
+            SpeedAttach = NormalizeSpeedAttach(source.SpeedAttach, dataKey, logger, rejectInvalidSpeed)
         };
+    }
+
+    private static string? NormalizeSpeedAttach(string? source, string dataKey, ILogger? logger, bool rejectInvalidSpeed)
+    {
+        var value = source?.Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(value))
+        {
+            return null;
+        }
+
+        if (value is GameConfig.SpeedAttachPolicyAuto or GameConfig.SpeedAttachPolicyImmediate)
+        {
+            return value;
+        }
+
+        if (rejectInvalidSpeed)
+        {
+            throw new InvalidDataException(
+                $"Cannot save config entry '{dataKey}' with speedAttach '{source}'. Expected '{GameConfig.SpeedAttachPolicyAuto}' or '{GameConfig.SpeedAttachPolicyImmediate}'.");
+        }
+
+        logger?.LogWarning(
+            "Ignore invalid speedAttach '{Value}' for config entry '{DataKey}'; expected '{Auto}' or '{Immediate}'.",
+            source,
+            dataKey,
+            GameConfig.SpeedAttachPolicyAuto,
+            GameConfig.SpeedAttachPolicyImmediate);
+        return null;
     }
 }

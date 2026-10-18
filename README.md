@@ -101,7 +101,7 @@ dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release
 
 在监控运行期间直接编辑 `%AppData%\GameHelper\config.yml`（文本编辑器保存即可），约 0.5 秒内自动生效，无需重启 GameHelper：
 
-- 新增 / 修改 / 删除游戏条目、`enabled`、`hdr`、`speed`、`breakReminder`、`monitorMode` 规则都会自动重载；游戏匹配与变速对之后新启动的进程生效，显示器规则立即重新评估。
+- 新增 / 修改 / 删除游戏条目、`enabled`、`hdr`、`speed`、`speedAttach`、`breakReminder`、`monitorMode` 规则都会自动重载；游戏匹配与变速对之后新启动的进程生效，显示器规则立即重新评估。
 - 拖拽添加与 CLI 目录命令修改配置依旧立即重载，与文件监听路径互不冲突。
 - 以下项仍需重启进程才会生效：`monitor`（监控器类型，启动时创建）、`sync` 后台推送参数（循环启动时读取）。
 - 编辑器保存时文件会短暂处于“被替换/缺失”状态，监听器会跳过该窗口，不会把空配置读进运行中的服务；删除 `config.yml` 也不会清空当前监控状态。
@@ -140,6 +140,8 @@ games:
     enabled: true
     hdr: false
     speed: 2.0
+    # 可选；默认 auto（检测到 mod loader 时延迟附加速度）
+    # speedAttach: immediate
 ```
 
 说明：
@@ -148,6 +150,7 @@ games:
 - `enabled`：是否参与监控、时长统计和自动化。
 - `hdr`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
 - `speed`：可选的游戏倍速，必须大于 `0`；省略时不修改速度。GameHelper 会按游戏 PID 动态生成临时 CE 表，无需维护 `.CT`。
+- `speedAttach`：可选的 CE 附加时序策略，`auto`（默认）在检测到 BepInEx/MelonLoader 时推迟附加到 loader 启动完成之后（90 秒超时兜底），`immediate` 恢复一启动就附加的旧行为。
 - `cheatEngine.executable`：Cheat Engine 可执行文件的绝对路径；只在至少一款游戏配置了 `speed` 时使用。
 - `startup.autoStartMonitor`：交互模式启动后是否自动进入实时监控。
 - `startup.launchOnStartup`：是否随系统启动 GameHelper。

@@ -40,6 +40,7 @@ games:
     enabled: true
     hdr: false
     # speed: 2.0
+    # speedAttach: immediate
   - dataKey: talesofarise
     executable: Tales of Arise.exe
     displayName: Tales of Arise

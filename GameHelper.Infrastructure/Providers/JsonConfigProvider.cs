@@ -237,6 +237,8 @@ namespace GameHelper.Infrastructure.Providers
 
             public double? SpeedMultiplier { get; set; }
 
+            public string? SpeedAttach { get; set; }
+
             public GameConfig ToGameConfig() => new()
             {
                 DataKey = DataKey,
@@ -244,7 +246,8 @@ namespace GameHelper.Infrastructure.Providers
                 DisplayName = DisplayName,
                 IsEnabled = IsEnabled,
                 HdrEnabled = HdrEnabled,
-                SpeedMultiplier = SpeedMultiplier
+                SpeedMultiplier = SpeedMultiplier,
+                SpeedAttach = SpeedAttach
             };
 
             private static string? FirstNonEmpty(params string?[] values) =>

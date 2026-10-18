@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -31,6 +32,10 @@ public sealed class GameAutomationService : IGameAutomationService
     private readonly ILocationCacheStore? _locationCacheStore;
     private readonly MonitorModeScheduler _monitorModeScheduler = new();
     private readonly TimeProvider _timeProvider;
+    private readonly SpeedAttachScheduler _speedAttachGate;
+    /// <summary>Successful Cheat Engine attaches keyed by PID, for game-exit crash correlation. Bounded by pruning.</summary>
+    private readonly ConcurrentDictionary<int, SpeedAttachRecord> _recentSpeedAttacks = new();
+    private const int SpeedAttachRecordTtlMinutes = 60;
     private readonly object _monitorModeUpdateLock = new();
     private MonitorModePlan? _monitorModePlan;
     private MonitorModeSettings? _monitorModeSettings;
@@ -68,7 +73,9 @@ public sealed class GameAutomationService : IGameAutomationService
         IProcessIdentityProbe? processIdentityProbe = null,
         IUserLocationSource? locationSource = null,
         ILocationCacheStore? locationCacheStore = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        TimeSpan? speedGatePollInterval = null,
+        TimeSpan? speedGateTimeout = null)
     {
         _monitor = monitor;
         _gameConfiguration = gameConfiguration;
@@ -85,6 +92,13 @@ public sealed class GameAutomationService : IGameAutomationService
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger;
         _processMatcher = new GameProcessMatcher(_configIndex, _pathResolver, _logger);
+        _speedAttachGate = new SpeedAttachScheduler(
+            _timeProvider,
+            _logger,
+            request => ApplyAndRecordSpeed(request.DataKey, request.ProcessId, request.Speed),
+            _processIdentityProbe,
+            speedGatePollInterval,
+            speedGateTimeout);
     }
 
     public void Start()
@@ -169,6 +183,7 @@ public sealed class GameAutomationService : IGameAutomationService
                 _started = false;
                 _monitor.ProcessStarted -= OnProcessStarted;
                 _monitor.ProcessStopped -= OnProcessStopped;
+                _speedAttachGate.CancelAll();
 
                 foreach (var dataKey in _sessionTracker.GetActiveDataKeysSnapshot())
                 {
@@ -263,7 +278,7 @@ public sealed class GameAutomationService : IGameAutomationService
                     _logger.LogError(ex, "Failed to start tracking for {DataKey}", config.DataKey);
                 }
 
-                ApplyConfiguredSpeed(config, processInfo.ProcessId);
+                ApplyConfiguredSpeed(config, processInfo.ProcessId, normalizedPath ?? processInfo.ExecutablePath);
 
                 // Persist the in-flight snapshot so a restart (deploy or crash) can
                 // resume this session instead of losing it.
@@ -285,7 +300,7 @@ public sealed class GameAutomationService : IGameAutomationService
         UpdateMonitorModeState(forced: true);
     }
 
-    private void ApplyConfiguredSpeed(GameConfig config, int? processId)
+    private void ApplyConfiguredSpeed(GameConfig config, int? processId, string? gamePath)
     {
         if (!config.SpeedMultiplier.HasValue || _speedController is null)
         {
@@ -300,18 +315,83 @@ public sealed class GameAutomationService : IGameAutomationService
             return;
         }
 
+        // Cheat Engine injects helper DLLs into the game on attach. When a mod loader (BepInEx /
+        // MelonLoader) boots alongside, its sensitive startup phase races that injection and
+        // crashes the game with zero logs. Without a resolvable game path the loader cannot be
+        // detected, so the legacy immediate attach applies (same as speedAttach: immediate).
+        var loaderInfo = ModLoaderDetector.Detect(gamePath);
+        if (IsImmediateSpeedAttach(config)
+            || loaderInfo.Kind == ModLoaderKind.None
+            || loaderInfo.LogPath is null
+            || gamePath is null)
+        {
+            if (loaderInfo.Kind != ModLoaderKind.None)
+            {
+                _logger.LogDebug(
+                    "speedAttach: immediate configured or unusable loader signal for {DataKey}; attaching speed immediately.",
+                    config.DataKey);
+            }
+
+            ApplyAndRecordSpeed(config.DataKey, processId.Value, config.SpeedMultiplier.Value);
+            return;
+        }
+
+        _speedAttachGate.ScheduleDeferred(new SpeedAttachRequest(
+            config.DataKey,
+            processId.Value,
+            config.SpeedMultiplier.Value,
+            loaderInfo.LogPath,
+            gamePath));
+    }
+
+    private static bool IsImmediateSpeedAttach(GameConfig config) =>
+        string.Equals(config.SpeedAttach?.Trim(), GameConfig.SpeedAttachPolicyImmediate, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Performs the actual attach and records it for exit-correlation when the controller really
+    /// launched Cheat Engine. Runs both on the immediate path and from the deferred gate callback.
+    /// </summary>
+    private void ApplyAndRecordSpeed(string dataKey, int processId, double speed)
+    {
         try
         {
-            _speedController.ApplySpeed(processId.Value, config.SpeedMultiplier.Value);
+            if (_speedController!.ApplySpeed(processId, speed))
+            {
+                var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+                _recentSpeedAttacks[processId] = new SpeedAttachRecord(dataKey, nowUtc);
+                PruneSpeedAttachRecords(nowUtc);
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to apply configured speed for {DataKey}", config.DataKey);
+            _logger.LogError(ex, "Failed to apply configured speed for {DataKey}", dataKey);
         }
     }
 
+    private void PruneSpeedAttachRecords(DateTime nowUtc)
+    {
+        foreach (var pair in _recentSpeedAttacks)
+        {
+            if (nowUtc - pair.Value.AttachedUtc > TimeSpan.FromMinutes(SpeedAttachRecordTtlMinutes))
+            {
+                _recentSpeedAttacks.TryRemove(pair);
+            }
+        }
+    }
+
+    private sealed record SpeedAttachRecord(string DataKey, DateTime AttachedUtc);
+
+    /// <summary>
+    /// Upper bound between a Cheat Engine attach and a game exit for the exit to count as a
+    /// suspected injection-race crash (the BepInEx interop-generation race crashes within ~1 min).
+    /// </summary>
+    private static readonly TimeSpan SpeedCrashCorrelationWindow = TimeSpan.FromMinutes(2);
+
     private void OnProcessStopped(ProcessEventInfo processInfo)
     {
+        SpeedAttachRecord? speedAttachCandidate = null;
+        string? stoppedDataKey = null;
+
         lock (_stateLock)
         {
             var hadAnyActive = _sessionTracker.ActiveCount > 0;
@@ -327,7 +407,13 @@ public sealed class GameAutomationService : IGameAutomationService
             }
 
             var isLastForDataKey = _sessionTracker.Release(entry.DataKey);
-            if (entry.ProcessId is int stoppedPid) _inFlightProcessStarts.Remove(stoppedPid);
+            stoppedDataKey = entry.DataKey;
+            if (entry.ProcessId is int stoppedPid)
+            {
+                _inFlightProcessStarts.Remove(stoppedPid);
+                _speedAttachGate.CancelPending(stoppedPid);
+                _recentSpeedAttacks.TryRemove(stoppedPid, out speedAttachCandidate);
+            }
             ConfigureProcessObservation();
 
             _logger.LogInformation(
@@ -373,8 +459,61 @@ public sealed class GameAutomationService : IGameAutomationService
             }
         }
 
+        // File I/O (WER report lookup) stays outside the state lock; see the correlation record
+        // captured under it in OnProcessStopped.
+        if (speedAttachCandidate is not null)
+        {
+            ReportSpeedAttachExitCorrelation(
+                speedAttachCandidate,
+                stoppedDataKey ?? "n/a",
+                processInfo.ExecutableName,
+                _timeProvider.GetUtcNow().UtcDateTime);
+        }
+
         // Preset switching performs DDC/CI bus I/O; keep it outside the state lock.
         UpdateMonitorModeState(forced: true);
+    }
+
+    /// <summary>
+    /// Crash correlation for a game that exited shortly after the speed controller attached Cheat
+    /// Engine into it. The BepInEx injection race leaves no game-side logs, so this keeps the
+    /// association (PID, attach time, WER report) in GameHelper's own log for diagnosis.
+    /// </summary>
+    private void ReportSpeedAttachExitCorrelation(
+        SpeedAttachRecord record,
+        string dataKey,
+        string? executableName,
+        DateTime stoppedUtc)
+    {
+        var elapsed = stoppedUtc - record.AttachedUtc;
+        if (elapsed > SpeedCrashCorrelationWindow || elapsed < TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var report = WerCrashReportFinder.FindLatest(
+            Environment.GetEnvironmentVariable("ProgramData"),
+            executableName,
+            record.AttachedUtc);
+        if (report is not null)
+        {
+            _logger.LogWarning(
+                "Game {DataKey} exited {Elapsed} after the speed controller attached Cheat Engine (attached {Attached}) and Windows archived a crash report: {Report}. " +
+                "If this exit was an unexpected startup crash, suspect the BepInEx/Cheat Engine attach race: launch the game once with its speed setting removed so BepInEx rebuilds its interop cache, then re-enable speed.",
+                dataKey,
+                elapsed,
+                record.AttachedUtc,
+                report);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Game {DataKey} exited {Elapsed} after the speed controller attached Cheat Engine (attached {Attached}); no WER crash report found for {Executable}, so this exit does not look like an injection crash.",
+                dataKey,
+                elapsed,
+                record.AttachedUtc,
+                executableName ?? "n/a");
+        }
     }
 
     private GameConfig? MatchProcessStart(

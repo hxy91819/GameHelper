@@ -9,5 +9,6 @@ public interface IGameSpeedController
     /// Applies <paramref name="speedMultiplier"/> to <paramref name="processId"/>.
     /// Implementations should report failures through logging instead of disrupting monitoring.
     /// </summary>
-    void ApplySpeed(int processId, double speedMultiplier);
+    /// <returns>True when the attach was actually initiated (or would be, for test fakes); false when the controller bailed out (invalid pid, missing executable, ...).</returns>
+    bool ApplySpeed(int processId, double speedMultiplier);
 }
