@@ -33,7 +33,7 @@ Cheat Engine 附加进程时会把自己的辅助 DLL（含 autorun 目录里的
 
 因此默认策略（`speedAttach: auto`）是：游戏目录旁检测到 `BepInEx\` 或 `MelonLoader\` 时，GameHelper 推迟附加速度，直到 loader 日志标记完成启动：
 
-- BepInEx：`BepInEx\LogOutput.log` 出现 `Chainloader startup complete`（BepInEx 每次启动都会重写该文件，旧内容不会误判）。
+- BepInEx：`BepInEx\LogOutput.log` 出现 `Chainloader startup complete`，且日志写入时间不早于本次游戏进程的启动时间（BepInEx 每次启动都会重写该文件，上一轮留下的旧内容不会误判；反过来，loader 在门控开始等待之前就已完成启动的快速启动场景也能立即识别，不会白等 90 秒）。
 - MelonLoader：没有等价的完成标记，退化为超时追加。
 - 兜底：等待上限 90 秒，超时后照常附加；游戏中途退出则放弃本次附加（并带 PID 复用防护）。
 - 无 loader 的游戏维持旧有的立即附加行为，不受影响。
@@ -42,7 +42,7 @@ Cheat Engine 附加进程时会把自己的辅助 DLL（含 autorun 目录里的
 
 ### 手动排障参照
 
-游戏启动即崩且 GameHelper 日志出现 "exited ... after the speed controller attached Cheat Engine"（附 WER 报告号）时：
+游戏启动即崩且 GameHelper 日志出现 "exited ... after the speed controller attached Cheat Engine"（附 WER 报告号）时，说明崩溃时间晚于本次附加；WER 报告的崩溃时间取自 `Report.wer` 的 `EventTime`（归档时间晚于崩溃时间），因此上一轮游戏留下的旧报告不会被误关联到本次附加。此时：
 
 1. 先临时把该游戏的 `speed` 配置项删掉，重启 GameHelper；
 2. 完整启动一次游戏，让 BepInEx 重建 interop 缓存；

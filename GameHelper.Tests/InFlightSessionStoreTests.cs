@@ -74,6 +74,41 @@ public class InFlightSessionStoreTests : IDisposable
     }
 
     [Fact]
+    public void Save_StaleTempFileFromAnOldBuild_DoesNotBlockLaterSaves()
+    {
+        // The pre-hardening build used a fixed "inflight-sessions.json.tmp"; a read-only leftover
+        // (or one the current token cannot touch) used to fail every subsequent save.
+        var staleTemp = StorePath + ".tmp";
+        File.WriteAllText(staleTemp, "stale");
+        File.SetAttributes(staleTemp, FileAttributes.ReadOnly);
+
+        try
+        {
+            var store = new JsonInFlightSessionStore(StorePath);
+
+            store.Save(BuildSnapshot());
+
+            Assert.True(File.Exists(StorePath));
+            Assert.NotNull(store.Load());
+        }
+        finally
+        {
+            File.SetAttributes(staleTemp, FileAttributes.Normal);
+            File.Delete(staleTemp);
+        }
+    }
+
+    [Fact]
+    public void Save_LeavesNoTempFilesBehind()
+    {
+        var store = new JsonInFlightSessionStore(StorePath);
+
+        store.Save(BuildSnapshot());
+
+        Assert.Empty(Directory.GetFiles(_tempDir, "inflight-sessions.json.*.tmp"));
+    }
+
+    [Fact]
     public void Load_MissingFile_ReturnsNull()
     {
         var store = new JsonInFlightSessionStore(StorePath);

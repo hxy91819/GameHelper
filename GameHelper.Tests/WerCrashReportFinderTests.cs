@@ -36,9 +36,10 @@ public sealed class WerCrashReportFinderTests : IDisposable
     {
         Directory.CreateDirectory(_tempRoot);
         var reportDir = CreateReportDirectory("mygame.exe");
+        var crashTime = DateTime.UtcNow.AddMinutes(-1);
         File.WriteAllText(
             Path.Combine(reportDir, "Report.wer"),
-            "Version=3\r\nEventTime=133000000000000000\r\nReportIdentifier=68c73372-abcd-1234\r\nResponse.BucketId=1300259702256679122\r\n");
+            "Version=3\r\nEventTime=" + crashTime.ToFileTimeUtc().ToString() + "\r\nReportIdentifier=68c73372-abcd-1234\r\nResponse.BucketId=1300259702256679122\r\n");
 
         var found = WerCrashReportFinder.FindLatest(
             _tempRoot,
@@ -75,6 +76,25 @@ public sealed class WerCrashReportFinderTests : IDisposable
             _tempRoot,
             "oldgame.exe",
             DateTime.UtcNow.AddHours(-1)));
+    }
+
+    [Fact]
+    public void FindLatest_ArchivedLateButCrashedBeforeAfterUtc_ReturnsNull()
+    {
+        Directory.CreateDirectory(_tempRoot);
+
+        // WER archived the report just now, but the crash itself happened two hours ago (the
+        // previous run). Its archive time must not make it look like this run's crash.
+        var reportDir = CreateReportDirectory("late.exe");
+        var crashTime = DateTime.UtcNow.AddHours(-2);
+        File.WriteAllText(
+            Path.Combine(reportDir, "Report.wer"),
+            "Version=3\r\nEventTime=" + crashTime.ToFileTimeUtc().ToString() + "\r\nReportIdentifier=stale-report\r\n");
+
+        Assert.Null(WerCrashReportFinder.FindLatest(
+            _tempRoot,
+            "late.exe",
+            DateTime.UtcNow.AddMinutes(-30)));
     }
 
     [Fact]

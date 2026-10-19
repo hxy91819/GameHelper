@@ -78,6 +78,8 @@ powershell -File scripts\verify-on-machine.ps1 -SkipVerify
    - `-SkipVerify -Restart`（常驻直接更新策略的标准收尾命令）：按进程路径判定运行实例 → `Stop-Process -Force` 结束 → 只清理属主 PID 确认已退出的新版 ETW 会话 → 原子换入 → 从发布目录以正常窗口重启（不经管道 stdout），5 秒后确认新 PID 存活，并附着其控制台核验窗口可见；无旧实例时也启动确认。旧产物保留至新实例确认可见，启动失败会恢复旧目录并重新启动旧实例。无法读取实例路径时保守中止，保留新产物，不强杀未知实例。在途会话由跨重启续算机制接续。
 
 > 注意：禁止逐文件覆盖发布目录——framework-dependent 产物覆盖 self-contained 布局（或反之）会混装运行时文件，导致下一次启动报 "No frameworks were found"。锁定检测不能只用目录探针：运行实例锁的是 exe/dll 文件本身，目录仍可写。
+>
+> 脚本在换入新目录后会执行 `icacls /setintegritylevel (OI)(CI)M /T`，把发布树的强制完整性级别归一到 Medium。原因：在沙箱/隔离 shell 里构建的产物可能整个继承 Low 完整性标签，而 Windows 会把进程完整性钉在镜像文件的标签上——Low 进程写不了 `%AppData%`（Medium）也建不了内核 ETW 会话，表现为 `inflight-sessions.json.tmp` Access Denied 与 "Administrator rights required to start ETW" 同时出现。手动部署或从其他目录复制产物时，同样应确认发布目录未被标记为 Low。
 
 可选参数：`-SkipVerify` 跳过实机验证（仅部署）；`-SkipDeploy` 只发布+验证，不部署；`-Restart` 直接更新与重启。
 

@@ -52,7 +52,7 @@ public sealed class JsonInFlightSessionStore : IInFlightSessionStore
             snapshot.Sessions.RemoveAll(session => string.IsNullOrWhiteSpace(session.DataKey));
             return snapshot;
         }
-        catch (Exception ex) when (ex is IOException or JsonException or ArgumentException)
+        catch (Exception ex) when (ex is IOException or JsonException or ArgumentException or UnauthorizedAccessException)
         {
             _logger?.LogWarning(ex, "In-flight session snapshot at {Path} is unreadable; ignoring it.", _filePath);
             return null;
@@ -70,7 +70,13 @@ public sealed class JsonInFlightSessionStore : IInFlightSessionStore
             Directory.CreateDirectory(directory);
         }
 
-        var tempPath = _filePath + ".tmp";
+        // Unique temp name per write: a leftover ".tmp" that the current token can no longer
+        // touch (stale ACL, read-only attribute, antivirus quarantine) must never wedge every
+        // later save of the snapshot.
+        var tempPath = Path.Combine(
+            string.IsNullOrEmpty(directory) ? "." : directory,
+            Path.GetFileName(_filePath) + "." + Guid.NewGuid().ToString("N") + ".tmp");
+
         try
         {
             File.WriteAllText(tempPath, JsonSerializer.Serialize(snapshot, SerializerOptions), Encoding.UTF8);
@@ -78,10 +84,22 @@ public sealed class JsonInFlightSessionStore : IInFlightSessionStore
         }
         finally
         {
-            if (File.Exists(tempPath))
+            TryDeleteTempFile(tempPath);
+        }
+    }
+
+    private static void TryDeleteTempFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
             {
-                File.Delete(tempPath);
+                File.Delete(path);
             }
+        }
+        catch (Exception)
+        {
+            // Cleanup is best effort; a leftover unique temp file cannot block later saves.
         }
     }
 
@@ -95,7 +113,7 @@ public sealed class JsonInFlightSessionStore : IInFlightSessionStore
                 File.Delete(_filePath);
             }
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             throw new InvalidOperationException($"Failed to remove in-flight session snapshot: {_filePath}", ex);
         }

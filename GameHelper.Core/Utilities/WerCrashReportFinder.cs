@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 
 namespace GameHelper.Core.Utilities;
@@ -11,9 +12,11 @@ namespace GameHelper.Core.Utilities;
 public static class WerCrashReportFinder
 {
     /// <summary>
-    /// Finds the most recent WER <c>AppCrash_&lt;executableName&gt;</c> report archived after
-    /// <paramref name="afterUtc"/>. Returns a human-readable hint (report id or path) or null
-    /// when nothing is found or the lookup fails; never throws.
+    /// Finds the most recent WER <c>AppCrash_&lt;executableName&gt;</c> report whose crash time is at or
+    /// after <paramref name="afterUtc"/>. WER archives reports some time after the crash, so the
+    /// crash timestamp inside <c>Report.wer</c> is used when available and the archive directory's
+    /// creation time otherwise. Returns a human-readable hint (report id or path) or null when
+    /// nothing is found or the lookup fails; never throws.
     /// </summary>
     public static string? FindLatest(string? programDataRoot, string? executableName, DateTime afterUtc)
     {
@@ -30,8 +33,6 @@ public static class WerCrashReportFinder
                 return null;
             }
 
-            const int graceMinutes = 2; // WER archives landing a bit after the actual crash.
-            var searchFloor = afterUtc.AddMinutes(-graceMinutes);
             var prefix = "AppCrash_" + executableName;
 
             string? newestDirectory = null;
@@ -44,13 +45,14 @@ public static class WerCrashReportFinder
                     continue;
                 }
 
-                var created = Directory.GetCreationTimeUtc(directory);
-                if (created < searchFloor || created <= newestTime)
+                var reportPath = Path.Combine(directory, "Report.wer");
+                var crashTimeUtc = ReadEventTimeUtc(reportPath) ?? Directory.GetCreationTimeUtc(directory);
+                if (crashTimeUtc < afterUtc || crashTimeUtc <= newestTime)
                 {
                     continue;
                 }
 
-                newestTime = created;
+                newestTime = crashTimeUtc;
                 newestDirectory = directory;
             }
 
@@ -59,14 +61,10 @@ public static class WerCrashReportFinder
                 return null;
             }
 
-            var reportPath = Path.Combine(newestDirectory, "Report.wer");
-            if (File.Exists(reportPath))
+            var identifier = ReadReportIdentifier(Path.Combine(newestDirectory, "Report.wer"));
+            if (!string.IsNullOrWhiteSpace(identifier))
             {
-                var identifier = ReadReportIdentifier(reportPath);
-                if (!string.IsNullOrWhiteSpace(identifier))
-                {
-                    return $"ReportIdentifier={identifier} (dir {Path.GetFileName(newestDirectory)})";
-                }
+                return $"ReportIdentifier={identifier} (dir {Path.GetFileName(newestDirectory)})";
             }
 
             return newestDirectory;
@@ -77,11 +75,51 @@ public static class WerCrashReportFinder
         }
     }
 
+    private static DateTime? ReadEventTimeUtc(string reportPath)
+    {
+        try
+        {
+            if (!File.Exists(reportPath))
+            {
+                return null;
+            }
+
+            foreach (var rawLine in File.ReadLines(reportPath))
+            {
+                if (!rawLine.StartsWith("EventTime=", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var value = rawLine["EventTime=".Length..].Trim();
+                if (long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var fileTimeUtc)
+                    && fileTimeUtc > 0
+                    && fileTimeUtc <= DateTime.MaxValue.Ticks)
+                {
+                    return DateTime.FromFileTimeUtc(fileTimeUtc);
+                }
+
+                return null;
+            }
+        }
+        catch (Exception)
+        {
+            // The report text is optional evidence; the archive time is still a usable fallback.
+        }
+
+        return null;
+    }
+
     private static string? ReadReportIdentifier(string reportPath)
     {
         try
         {
-            foreach (var rawLine in File.ReadAllLines(reportPath))
+            if (!File.Exists(reportPath))
+            {
+                return null;
+            }
+
+            foreach (var rawLine in File.ReadLines(reportPath))
             {
                 if (rawLine.StartsWith("ReportIdentifier=", StringComparison.OrdinalIgnoreCase))
                 {

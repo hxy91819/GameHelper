@@ -79,12 +79,30 @@ function Start-CheckedInstance([string] $Directory, [ref] $StartedProcess,
     if ($instance.HasExited) {
         throw "GameHelper exited immediately after launch (PID $($instance.Id)); check its logs."
     }
-    $visibility = & powershell.exe -NoProfile -NonInteractive -File $ConsoleProbeScript -TargetProcessId $instance.Id
+    $visibility = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $ConsoleProbeScript -TargetProcessId $instance.Id
     if ($LASTEXITCODE -ne 0) {
         throw "GameHelper has no visible interactive console (PID $($instance.Id)); startup verification failed: $visibility"
     }
     Write-Host "Interactive console visibility verified for PID $($instance.Id)."
     return $instance
+}
+
+function Reset-PublishIntegrityLabel {
+    param([Parameter(Mandatory = $true)][string] $Directory)
+
+    # A build produced inside a sandboxed/isolated shell can inherit a Low mandatory integrity
+    # label through the whole output tree. Windows caps a process at the image file label, so a
+    # Low-labelled GameHelper.exe cannot write AppData (Medium) or create the kernel ETW session
+    # (both surface as Access Denied). Normalise the deployed tree back to Medium; best effort.
+    try {
+        $output = & icacls.exe $Directory /setintegritylevel '(OI)(CI)M' /T 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Could not normalise the integrity label of the publish tree: $($output | Select-Object -Last 3 | Out-String)"
+        }
+    }
+    catch {
+        Write-Warning "Could not normalise the integrity label of the publish tree: $($_.Exception.Message)"
+    }
 }
 
 function Stop-OrphanedEtwSessions {
@@ -226,6 +244,7 @@ try {
 
     Move-CheckedDirectory $tempPublish $publishDir $tempRoot $repoRoot
     $newDirectoryInstalled = $true
+    Reset-PublishIntegrityLabel -Directory $publishDir
     if ($Restart) {
         Write-Host "Launching GameHelper from the updated publish directory..."
         $relaunched = Start-CheckedInstance $publishDir ([ref] $relaunched)

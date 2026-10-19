@@ -9,19 +9,6 @@ using Microsoft.Extensions.Logging;
 
 namespace GameHelper.Core.Services;
 
-/// <summary>Deferred speed attach request produced when a mod loader was detected at game start.</summary>
-/// <param name="DataKey">Game config key, for logging only.</param>
-/// <param name="ProcessId">Game process the speed applies to.</param>
-/// <param name="Speed">Configured speed multiplier.</param>
-/// <param name="ChainloaderLogPath">Loader log rewritten per launch; completion marker source. Null disables the marker check (timeout-only gating).</param>
-/// <param name="ExpectedProcessPath">Executable path the PID must still own at attach time; guards against PID reuse during the wait.</param>
-public sealed record SpeedAttachRequest(
-    string DataKey,
-    int ProcessId,
-    double Speed,
-    string? ChainloaderLogPath,
-    string? ExpectedProcessPath);
-
 /// <summary>
 /// Delays a Cheat Engine attach until the game's mod loader finishes booting. Cheat Engine injects
 /// helper DLLs into the game on attach; running that during BepInEx's interop generation phase
@@ -31,9 +18,9 @@ public sealed record SpeedAttachRequest(
 /// </summary>
 public sealed class SpeedAttachScheduler
 {
+    /// <summary>Log line BepInEx writes once its chainloader has loaded all plugins and handed control back to the game.</summary>
     internal const string ChainloaderCompleteMarker = "Chainloader startup complete";
 
-    /// <summary>Log line BepInEx writes once its chainloader has loaded all plugins and handed control back to the game.</summary>
     public static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(2);
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(90);
 
@@ -68,14 +55,16 @@ public sealed class SpeedAttachScheduler
     public void ScheduleDeferred(SpeedAttachRequest request)
     {
         var cts = new CancellationTokenSource();
-        if (!_pending.TryAdd(request.ProcessId, cts))
+
+        // The newest request for a PID owns it. A leftover entry means the previous launch's stop
+        // event was missed and the OS recycled the PID; replacing it here keeps a relaunch on a
+        // recycled PID from being silently dropped as a duplicate schedule.
+        while (!_pending.TryAdd(request.ProcessId, cts))
         {
-            cts.Dispose();
-            _logger.LogDebug(
-                "Speed attach is already pending for PID {ProcessId}; ignoring the duplicate schedule for {DataKey}.",
-                request.ProcessId,
-                request.DataKey);
-            return;
+            if (_pending.TryRemove(request.ProcessId, out var stale))
+            {
+                CancelNoDispose(stale, request.ProcessId);
+            }
         }
 
         _logger.LogInformation(
@@ -94,10 +83,7 @@ public sealed class SpeedAttachScheduler
             return false;
         }
 
-        try { cts.Cancel(); }
-        catch (Exception ex) { _logger.LogDebug(ex, "Failed to cancel the pending speed attach for PID {ProcessId}.", processId); }
-        try { cts.Dispose(); }
-        catch (Exception ex) { _logger.LogDebug(ex, "Failed to dispose the pending speed attach source for PID {ProcessId}.", processId); }
+        CancelNoDispose(cts, processId);
         return true;
     }
 
@@ -110,12 +96,33 @@ public sealed class SpeedAttachScheduler
         }
     }
 
+    /// <summary>
+    /// Signals the gate to stop. Disposal is owned by <see cref="RunGateAsync"/>'s finally block, so
+    /// a cancel can never race a dispose while the gate is still awaiting on the same token.
+    /// </summary>
+    private void CancelNoDispose(CancellationTokenSource cts, int processId)
+    {
+        try
+        {
+            cts.Cancel();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to cancel the pending speed attach for PID {ProcessId}.", processId);
+        }
+    }
+
     private async Task RunGateAsync(SpeedAttachRequest request, CancellationToken cancellationToken, CancellationTokenSource cts)
     {
         try
         {
             var startedTimestamp = _timeProvider.GetTimestamp();
             var startedWallClockUtc = _timeProvider.GetUtcNow().UtcDateTime;
+
+            // A loader can finish booting before the gate starts (fast boot / slow start-event
+            // delivery). The process start is the honest freshness baseline: anything written to
+            // the log after it belongs to this run, anything older is a previous run's leftover.
+            var logMustBeNewerThanUtc = request.ProcessStartedUtc ?? startedWallClockUtc;
 
             while (true)
             {
@@ -127,8 +134,9 @@ public sealed class SpeedAttachScheduler
                 }
 
                 var elapsed = _timeProvider.GetElapsedTime(startedTimestamp);
-                if (TryChainloaderComplete(request.ChainloaderLogPath, startedWallClockUtc))
+                if (TryChainloaderComplete(request.ChainloaderLogPath, logMustBeNewerThanUtc))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     _logger.LogInformation(
                         "Mod loader for {DataKey} finished booting after {Elapsed}; attaching speed now (PID {ProcessId}).",
                         request.DataKey,
@@ -140,6 +148,7 @@ public sealed class SpeedAttachScheduler
 
                 if (elapsed >= _timeout)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     _logger.LogInformation(
                         "Mod loader for {DataKey} did not report completion within {Timeout}; attaching speed as the timeout fallback (PID {ProcessId}).",
                         request.DataKey,
@@ -164,7 +173,9 @@ public sealed class SpeedAttachScheduler
         }
         finally
         {
-            CleanupPending(request.ProcessId, cts);
+            _pending.TryRemove(new KeyValuePair<int, CancellationTokenSource>(request.ProcessId, cts));
+            try { cts.Dispose(); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Failed to dispose the finished speed attach source for PID {ProcessId}.", request.ProcessId); }
         }
     }
 
@@ -218,9 +229,11 @@ public sealed class SpeedAttachScheduler
 
     /// <summary>
     /// The loader log is rewritten on every launch, so the marker only counts when the file was
-    /// touched after the gate started (a stale previous-run log must not satisfy the gate).
+    /// written after <paramref name="logMustBeNewerThanUtc"/> (the game process start): a stale
+    /// previous-run log must not satisfy the gate, while a fast boot that finished before the gate
+    /// started must.
     /// </summary>
-    internal static bool TryChainloaderComplete(string? logPath, DateTime startedWallClockUtc)
+    internal static bool TryChainloaderComplete(string? logPath, DateTime logMustBeNewerThanUtc)
     {
         if (string.IsNullOrWhiteSpace(logPath))
         {
@@ -229,7 +242,7 @@ public sealed class SpeedAttachScheduler
 
         try
         {
-            if (!File.Exists(logPath) || File.GetLastWriteTimeUtc(logPath) < startedWallClockUtc)
+            if (!File.Exists(logPath) || File.GetLastWriteTimeUtc(logPath) < logMustBeNewerThanUtc)
             {
                 return false;
             }
@@ -240,17 +253,6 @@ public sealed class SpeedAttachScheduler
         {
             // The game is likely mid-write; the next poll retries.
             return false;
-        }
-    }
-
-    private void CleanupPending(int processId, CancellationTokenSource cts)
-    {
-        if (_pending.TryGetValue(processId, out var current)
-            && ReferenceEquals(current, cts)
-            && _pending.TryRemove(new KeyValuePair<int, CancellationTokenSource>(processId, cts)))
-        {
-            try { cts.Dispose(); }
-            catch (Exception ex) { _logger.LogDebug(ex, "Failed to dispose the finished speed attach source for PID {ProcessId}.", processId); }
         }
     }
 }

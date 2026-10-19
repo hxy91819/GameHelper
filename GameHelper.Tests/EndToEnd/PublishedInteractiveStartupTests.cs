@@ -102,6 +102,8 @@ public sealed class PublishedInteractiveStartupTests(ITestOutputHelper output)
                 CreateNoWindow = true
             };
             start.ArgumentList.Add("-NoProfile");
+            start.ArgumentList.Add("-ExecutionPolicy");
+            start.ArgumentList.Add("Bypass");
             start.ArgumentList.Add("-File");
             start.ArgumentList.Add(fixture);
             start.Environment["GAMEHELPER_DATA_DIR"] = sandbox;

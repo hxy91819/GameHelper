@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
 namespace GameHelper.Core.Models
@@ -8,6 +8,12 @@ namespace GameHelper.Core.Models
     /// </summary>
     public class GameConfig
     {
+        /// <summary><c>speedAttach</c> policy value: attach as soon as the first game process starts (legacy behavior).</summary>
+        public const string SpeedAttachPolicyImmediate = "immediate";
+
+        /// <summary><c>speedAttach</c> policy value: defer the attach while a mod loader is detected beside the executable (default).</summary>
+        public const string SpeedAttachPolicyAuto = "auto";
+
         /// <summary>
         /// Stable business key used by playtime storage and aggregation.
         /// This key must be globally unique to avoid cross-game data aggregation collisions.
@@ -40,12 +46,6 @@ namespace GameHelper.Core.Models
         /// Optional Cheat Engine speed multiplier. A null value leaves the game speed unchanged.
         /// </summary>
         public double? SpeedMultiplier { get; set; }
-
-        /// <summary><c>speedAttach</c> policy value: attach as soon as the first game process starts (legacy behavior).</summary>
-        public const string SpeedAttachPolicyImmediate = "immediate";
-
-        /// <summary><c>speedAttach</c> policy value: defer the attach while a mod loader is detected beside the executable (default).</summary>
-        public const string SpeedAttachPolicyAuto = "auto";
 
         /// <summary>
         /// Optional policy controlling when the speed controller attaches Cheat Engine after the game starts.

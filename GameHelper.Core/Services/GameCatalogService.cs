@@ -124,7 +124,8 @@ public sealed class GameCatalogService : IGameCatalogService
                 HdrEnabled = request.HdrEnabled ?? existing.HdrEnabled,
                 SpeedMultiplier = request.ClearSpeedMultiplier
                     ? null
-                    : request.SpeedMultiplier ?? existing.SpeedMultiplier
+                    : request.SpeedMultiplier ?? existing.SpeedMultiplier,
+                SpeedAttach = existing.SpeedAttach
             };
 
             configs[updated.DataKey] = updated;
@@ -172,7 +173,8 @@ public sealed class GameCatalogService : IGameCatalogService
             DisplayName = request.DisplayName ?? existing?.DisplayName,
             IsEnabled = request.IsEnabled,
             HdrEnabled = request.HdrEnabled ?? existing?.HdrEnabled ?? false,
-            SpeedMultiplier = request.SpeedMultiplier ?? existing?.SpeedMultiplier
+            SpeedMultiplier = request.SpeedMultiplier ?? existing?.SpeedMultiplier,
+            SpeedAttach = existing?.SpeedAttach
         };
 
         if (existing is not null &&
@@ -239,7 +241,8 @@ public sealed class GameCatalogService : IGameCatalogService
         DisplayName = config.DisplayName,
         IsEnabled = config.IsEnabled,
         HdrEnabled = config.HdrEnabled,
-        SpeedMultiplier = config.SpeedMultiplier
+        SpeedMultiplier = config.SpeedMultiplier,
+        SpeedAttach = config.SpeedAttach
     };
 
     private static Dictionary<string, GameConfig> CreateWorkingMapByDataKey(IEnumerable<GameConfig> configs)
@@ -256,7 +259,8 @@ public sealed class GameCatalogService : IGameCatalogService
                 DisplayName = config.DisplayName,
                 IsEnabled = config.IsEnabled,
                 HdrEnabled = config.HdrEnabled,
-                SpeedMultiplier = config.SpeedMultiplier
+                SpeedMultiplier = config.SpeedMultiplier,
+                SpeedAttach = config.SpeedAttach
             };
         }
 

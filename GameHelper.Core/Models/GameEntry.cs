@@ -17,4 +17,6 @@ public sealed record GameEntry
     public bool HdrEnabled { get; init; }
 
     public double? SpeedMultiplier { get; init; }
+
+    public string? SpeedAttach { get; init; }
 }

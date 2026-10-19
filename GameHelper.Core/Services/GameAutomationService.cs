@@ -17,6 +17,17 @@ namespace GameHelper.Core.Services;
 /// </summary>
 public sealed class GameAutomationService : IGameAutomationService
 {
+    private const int SpeedAttachRecordTtlMinutes = 60;
+
+    /// <summary>
+    /// Upper bound between a Cheat Engine attach and a game exit for the exit to count as a
+    /// suspected injection-race crash (the BepInEx interop-generation race crashes within ~1 min).
+    /// </summary>
+    private static readonly TimeSpan SpeedCrashCorrelationWindow = TimeSpan.FromMinutes(2);
+
+    /// <summary>Minimum gap between repeated in-flight persistence failure logs; a broken data directory must not flood the console.</summary>
+    private static readonly TimeSpan InFlightPersistFailureLogInterval = TimeSpan.FromMinutes(10);
+
     private readonly IProcessMonitor _monitor;
     private readonly IGameConfiguration _gameConfiguration;
     private readonly IHdrController _hdr;
@@ -35,7 +46,6 @@ public sealed class GameAutomationService : IGameAutomationService
     private readonly SpeedAttachScheduler _speedAttachGate;
     /// <summary>Successful Cheat Engine attaches keyed by PID, for game-exit crash correlation. Bounded by pruning.</summary>
     private readonly ConcurrentDictionary<int, SpeedAttachRecord> _recentSpeedAttacks = new();
-    private const int SpeedAttachRecordTtlMinutes = 60;
     private readonly object _monitorModeUpdateLock = new();
     private MonitorModePlan? _monitorModePlan;
     private MonitorModeSettings? _monitorModeSettings;
@@ -58,6 +68,8 @@ public sealed class GameAutomationService : IGameAutomationService
     private AutomationConfigIndex _configIndex = AutomationConfigIndex.Empty;
     private GameProcessMatcher _processMatcher;
     private bool _started;
+    private bool _inFlightPersistFailureActive;
+    private DateTime _inFlightPersistFailureLoggedAtUtc = DateTime.MinValue;
 
     public GameAutomationService(
         IProcessMonitor monitor,
@@ -201,6 +213,7 @@ public sealed class GameAutomationService : IGameAutomationService
                 _sessionTracker.Clear();
                 _inFlightStarts.Clear();
                 _inFlightProcessStarts.Clear();
+                _recentSpeedAttacks.Clear();
 
                 try
                 {
@@ -255,9 +268,13 @@ public sealed class GameAutomationService : IGameAutomationService
                 normalizedName,
                 normalizedPath,
                 processInfo.ProcessId);
+            DateTime? processStartedUtc = null;
             if (processInfo.ProcessId is int startedPid
                 && _processIdentityProbe?.TryGetStartTimeUtc(startedPid, out var processStart) == true)
+            {
                 _inFlightProcessStarts[startedPid] = processStart;
+                processStartedUtc = processStart;
+            }
 
             _logger.LogInformation(
                 "Process start: DataKey={DataKey}, Via={Match}, Executable={Executable}, Path={Path}, PID={ProcessId}",
@@ -278,7 +295,7 @@ public sealed class GameAutomationService : IGameAutomationService
                     _logger.LogError(ex, "Failed to start tracking for {DataKey}", config.DataKey);
                 }
 
-                ApplyConfiguredSpeed(config, processInfo.ProcessId, normalizedPath ?? processInfo.ExecutablePath);
+                ApplyConfiguredSpeed(config, processInfo.ProcessId, normalizedPath ?? processInfo.ExecutablePath, processStartedUtc);
 
                 // Persist the in-flight snapshot so a restart (deploy or crash) can
                 // resume this session instead of losing it.
@@ -300,7 +317,7 @@ public sealed class GameAutomationService : IGameAutomationService
         UpdateMonitorModeState(forced: true);
     }
 
-    private void ApplyConfiguredSpeed(GameConfig config, int? processId, string? gamePath)
+    private void ApplyConfiguredSpeed(GameConfig config, int? processId, string? gamePath, DateTime? processStartedUtc)
     {
         if (!config.SpeedMultiplier.HasValue || _speedController is null)
         {
@@ -341,6 +358,7 @@ public sealed class GameAutomationService : IGameAutomationService
             processId.Value,
             config.SpeedMultiplier.Value,
             loaderInfo.LogPath,
+            processStartedUtc,
             gamePath));
     }
 
@@ -380,12 +398,6 @@ public sealed class GameAutomationService : IGameAutomationService
     }
 
     private sealed record SpeedAttachRecord(string DataKey, DateTime AttachedUtc);
-
-    /// <summary>
-    /// Upper bound between a Cheat Engine attach and a game exit for the exit to count as a
-    /// suspected injection-race crash (the BepInEx interop-generation race crashes within ~1 min).
-    /// </summary>
-    private static readonly TimeSpan SpeedCrashCorrelationWindow = TimeSpan.FromMinutes(2);
 
     private void OnProcessStopped(ProcessEventInfo processInfo)
     {
@@ -675,10 +687,29 @@ public sealed class GameAutomationService : IGameAutomationService
         try
         {
             store.Save(BuildInFlightSnapshot());
+
+            if (_inFlightPersistFailureActive)
+            {
+                _inFlightPersistFailureActive = false;
+                _logger.LogInformation("In-flight session snapshot persistence recovered; restart recovery is available again.");
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to persist the in-flight session snapshot; restart recovery may be incomplete.");
+            // A data directory the running token cannot write (read-only ACL, low integrity
+            // process, antivirus quarantine) fails on every session event. Log the first failure
+            // with its stack, then stay quiet until the interval elapses or persistence recovers.
+            var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+            if (!_inFlightPersistFailureActive
+                || nowUtc - _inFlightPersistFailureLoggedAtUtc >= InFlightPersistFailureLogInterval)
+            {
+                _inFlightPersistFailureActive = true;
+                _inFlightPersistFailureLoggedAtUtc = nowUtc;
+                _logger.LogWarning(
+                    ex,
+                    "Failed to persist the in-flight session snapshot; restart recovery may be incomplete. Repeated failures are logged at most every {Interval}.",
+                    InFlightPersistFailureLogInterval);
+            }
         }
     }
 

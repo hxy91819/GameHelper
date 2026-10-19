@@ -29,7 +29,7 @@ public sealed class SpeedAttachSchedulerTests : IDisposable
             pollInterval: PollInterval,
             timeout: TimeSpan.FromSeconds(30));
 
-        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, logPath, @"D:\Games\Game\Game.exe"));
+        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, logPath, null, @"D:\Games\Game\Game.exe"));
 
         // The chainloader marker lands while the gate is already waiting (like a real boot).
         await Task.Delay(100);
@@ -59,9 +59,39 @@ public sealed class SpeedAttachSchedulerTests : IDisposable
             pollInterval: PollInterval,
             timeout: TimeSpan.FromMilliseconds(300));
 
-        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, logPath, null));
+        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, logPath, null, null));
 
         await Task.Delay(1200);
+        scheduler.CancelAll();
+        Assert.Single(applied);
+    }
+
+    [Fact]
+    public async Task MarkerWrittenBeforeGateStart_ButAfterProcessStart_AttachesWithoutTimeout()
+    {
+        var logPath = Path.Combine(_tempDirectory, "BepInEx", "LogOutput.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+        File.WriteAllText(logPath, "[Message:   BepInEx] Chainloader startup complete\n");
+
+        var applied = new List<SpeedAttachRequest>();
+        var scheduler = new SpeedAttachScheduler(
+            TimeProvider.System,
+            NullLogger.Instance,
+            applied.Add,
+            pollInterval: PollInterval,
+            timeout: TimeSpan.FromSeconds(30));
+
+        // The loader booted before the gate existed (fast boot / slow start-event delivery): the
+        // marker is newer than the process start, so it belongs to this run and must attach now.
+        scheduler.ScheduleDeferred(new SpeedAttachRequest(
+            "game",
+            100,
+            1.5,
+            logPath,
+            DateTime.UtcNow.AddMinutes(-5),
+            @"D:\Games\Game\Game.exe"));
+
+        await WaitForConditionAsync(() => applied.Count > 0, TimeSpan.FromSeconds(3));
         scheduler.CancelAll();
         Assert.Single(applied);
     }
@@ -79,7 +109,7 @@ public sealed class SpeedAttachSchedulerTests : IDisposable
             PollInterval,
             TimeSpan.FromSeconds(30));
 
-        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, null, @"D:\Games\Game\Game.exe"));
+        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, null, null, @"D:\Games\Game\Game.exe"));
 
         await Task.Delay(800);
         scheduler.CancelAll();
@@ -99,7 +129,7 @@ public sealed class SpeedAttachSchedulerTests : IDisposable
             PollInterval,
             TimeSpan.FromSeconds(30));
 
-        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, null, @"D:\Games\Game\Game.exe"));
+        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, null, null, @"D:\Games\Game\Game.exe"));
 
         await Task.Delay(800);
         scheduler.CancelAll();
@@ -117,7 +147,7 @@ public sealed class SpeedAttachSchedulerTests : IDisposable
             pollInterval: PollInterval,
             timeout: TimeSpan.FromSeconds(30));
 
-        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, null, null));
+        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, null, null, null));
         await Task.Delay(50);
         Assert.True(scheduler.CancelPending(100));
         await Task.Delay(800);
