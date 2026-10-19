@@ -62,6 +62,13 @@ internal sealed class InteractiveShellModules
         if (console is null)
         {
             resolvedConsole.Profile.Capabilities.Unicode = true;
+
+            // 宿主（conhost / ConPTY）对 VT 的支持不一定能被 Spectre 的探测识别到，探测失败会
+            // 整屏退化成无颜色。这里在真实终端上显式声明 ANSI 与真彩色，避免界面变成灰白。
+            if (!System.Console.IsOutputRedirected)
+            {
+                resolvedConsole.Profile.Capabilities.Ansi = true;
+            }
         }
 
         var gameConfiguration = host.Services.GetRequiredService<IGameConfiguration>();
