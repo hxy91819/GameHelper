@@ -83,7 +83,7 @@ function Start-CheckedInstance([string] $Directory, [ref] $StartedProcess,
     $exePath = Join-Path $Directory "GameHelper.ConsoleHost.exe"
     $launchedAt = (Get-Date).AddSeconds(-1)
     $instance = Start-Process -FilePath $exePath `
-        -WorkingDirectory $Directory -WindowStyle Normal -PassThru
+        -WorkingDirectory $Directory -WindowStyle Normal -ArgumentList "--minimized" -PassThru
     Start-Sleep -Seconds 2
     $instance.Refresh()
     if ($instance.HasExited) {
