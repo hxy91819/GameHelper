@@ -1,4 +1,4 @@
-﻿# Agent Instructions for GameHelper
+# Agent Instructions for GameHelper
 
 **Scope:** Applies to the entire repository.
 
@@ -62,6 +62,7 @@
 - Run `dotnet test GameHelper.sln` from the repository root after making code changes.
 - If `dotnet test` cannot run in the execution environment (e.g., SDK not installed), report the failure reason in your final message.
 - When adding functionality that depends on ETW/WMI, include unit tests that can run without elevated Windows permissions when possible.
+- Tests must not depend on the wall clock or fixed calendar dates (a green run can fail after midnight). Inject `TimeProvider` or use relative times; before closing a task, scan tests for `DateTime.Now`/`Today` used in assertions.
 
 ## Verification & Deployment Workflow (mandatory after every development task)
 - After development is complete, follow `docs/guides/verify-and-deploy-workflow.md` **in full**: build + test, publish, on-machine verification with an isolated test instance, then deploy to the local publish directory.
@@ -71,11 +72,15 @@
 - Deploy targets the shortcut path `GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish/`. Deployment itself is an all-or-nothing directory swap with automatic rollback — never copy files individually into a publish directory (mixing framework-dependent and self-contained layouts breaks the next launch).
 - One-shot command: `powershell -File scripts\verify-on-machine.ps1` (append `-SkipVerify` to deploy only, append `-SkipVerify -Restart` for the standard direct-update closeout).
 - Every completed feature or fix must update the user's local publish directory and relaunch the interactive ConsoleHost with a visible window. Verify both the window and monitoring readiness; a surviving PID alone is not a completed deployment. See the workflow for the acceptance checks.
+- The deploy writes `deploy-manifest.json` (HEAD SHA, branch, dirty files) into the publish directory and warns when the working tree is dirty. Use `-RequireClean` when the deployed binary must equal a commit; never let unrelated work-in-progress ride along silently.
+- Post-launch health probes (process integrity level, data-directory write, ETW session when `monitor: ETW`) run inside the deploy and roll back on failure. Do not accept "PID alive + window visible" as the completion signal.
+- Environment-level failures need a baseline, not a guess: reproduce against `git archive HEAD` in a temporary directory (never stash — the workspace is shared) and cite concrete evidence such as the process integrity level, ACLs or file labels. Do not close a task with "possibly antivirus".
 
 ## Git: Commit & Push After Every Fully Completed Feature
 - "Fully completed" means the task closed the full loop: build + test green, docs updated, and the direct-update deploy succeeded. When a feature (or a coherent batch of completed features) reaches that state, **commit and push immediately** — do not leave completed work uncommitted waiting for further instruction.
 - Stage only the files belonging to the delivered work (check `git status`; do not sweep unrelated WIP into the commit). Commit messages are concise Chinese subject lines summarizing function + impacted components, consistent with existing history, optionally with a short body listing verification commands and outcomes (mirroring the PR message requirements above).
 - Push directly to the current branch (main). If the push is rejected (remote ahead), pull/rebase and retry; only skip committing when the deployment itself failed — an undeployed feature follows the normal workflow instead.
+- Prefer several small, individually verifiable commits over one large feature commit; a change touching dozens of files should be split by capability so it can be reviewed and rolled back.
 
 ## Documentation Updates
 - Update `README.md` or relevant files under `docs/` whenever user-facing behavior, CLI arguments, or configuration formats change.

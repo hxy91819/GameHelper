@@ -21,13 +21,22 @@ param(
     [string] $Runtime = "win-x64",
     [switch] $SkipVerify,
     [switch] $SkipDeploy,
-    [switch] $Restart
+    [switch] $Restart,
+    [switch] $RequireClean,
+    [switch] $AllowDegradedMonitor
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
+
+if ($RequireClean) {
+    $dirty = @(& git -C $repoRoot status --short 2>$null)
+    if ($dirty.Count -gt 0) {
+        throw ("Working tree has uncommitted changes; commit them or omit -RequireClean:" + [Environment]::NewLine + ($dirty -join [Environment]::NewLine))
+    }
+}
 $projectPath = Join-Path $repoRoot "GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj"
 $publishDir = Join-Path $repoRoot "GameHelper.ConsoleHost\bin\$Configuration\net8.0-windows\$Runtime\publish"
 $tempRoot = [IO.Path]::GetTempPath()
@@ -71,8 +80,28 @@ function Move-CheckedDirectory([string] $Source, [string] $Destination, [string]
 function Start-CheckedInstance([string] $Directory, [ref] $StartedProcess,
     [string] $ConsoleProbeScript = (Join-Path $PSScriptRoot 'probe-console-window.ps1')) {
     # This is the user's interactive console, which must remain visible after deployment.
-    $instance = Start-Process -FilePath (Join-Path $Directory "GameHelper.ConsoleHost.exe") `
+    $exePath = Join-Path $Directory "GameHelper.ConsoleHost.exe"
+    $launchedAt = (Get-Date).AddSeconds(-1)
+    $instance = Start-Process -FilePath $exePath `
         -WorkingDirectory $Directory -WindowStyle Normal -PassThru
+    Start-Sleep -Seconds 2
+    $instance.Refresh()
+    if ($instance.HasExited) {
+        # 宿主转移到 Windows Terminal 时先拉起的进程会立刻退出：按"同路径 + 启动时间"接管
+        # 随后出现的真实交互实例，后续可见性探测针对新 PID 进行。
+        $deadline = (Get-Date).AddSeconds(20)
+        $instance = $null
+        while ($null -eq $instance -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 500
+            $instance = Get-Process -Name GameHelper.ConsoleHost -ErrorAction SilentlyContinue | Where-Object {
+                try { $_.Path -eq $exePath -and $_.StartTime -ge $launchedAt } catch { $false }
+            } | Sort-Object StartTime -Descending | Select-Object -First 1
+        }
+        if ($null -eq $instance) {
+            throw "GameHelper exited immediately after launch and no Windows Terminal instance appeared; check its logs."
+        }
+        Write-Host "Console host transferred to Windows Terminal (PID $($instance.Id))."
+    }
     $StartedProcess.Value = $instance
     Start-Sleep -Seconds 5
     $instance.Refresh()
@@ -91,17 +120,17 @@ function Reset-PublishIntegrityLabel {
     param([Parameter(Mandatory = $true)][string] $Directory)
 
     # A build produced inside a sandboxed/isolated shell can inherit a Low mandatory integrity
-    # label through the whole output tree. Windows caps a process at the image file label, so a
-    # Low-labelled GameHelper.exe cannot write AppData (Medium) or create the kernel ETW session
+    # label through the whole output tree. Windows caps a process at the image file's label, so a
+    # Low-labelled GameHelper.exe cannot write %AppData% (Medium) or create the kernel ETW session
     # (both surface as Access Denied). Normalise the deployed tree back to Medium; best effort.
     try {
         $output = & icacls.exe $Directory /setintegritylevel '(OI)(CI)M' /T 2>&1
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Could not normalise the integrity label of the publish tree: $($output | Select-Object -Last 3 | Out-String)"
+            Write-Warning "Could not normalise the integrity label of '$Directory': $($output | Select-Object -Last 3 | Out-String)"
         }
     }
     catch {
-        Write-Warning "Could not normalise the integrity label of the publish tree: $($_.Exception.Message)"
+        Write-Warning "Could not normalise the integrity label of '$Directory': $($_.Exception.Message)"
     }
 }
 
@@ -245,9 +274,12 @@ try {
     Move-CheckedDirectory $tempPublish $publishDir $tempRoot $repoRoot
     $newDirectoryInstalled = $true
     Reset-PublishIntegrityLabel -Directory $publishDir
+    $healthScript = Join-Path $PSScriptRoot 'assert-deploy-health.ps1'
+    & $healthScript -Directory $publishDir -RepoRoot $repoRoot
     if ($Restart) {
         Write-Host "Launching GameHelper from the updated publish directory..."
         $relaunched = Start-CheckedInstance $publishDir ([ref] $relaunched)
+        & $healthScript -Directory $publishDir -RepoRoot $repoRoot -ProcessId $relaunched.Id -AllowDegradedMonitor:$AllowDegradedMonitor
         Write-Host "New GameHelper instance is running (PID $($relaunched.Id))."
     }
     $deployed = $true
