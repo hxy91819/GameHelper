@@ -74,6 +74,25 @@ namespace GameHelper.ConsoleHost.Utilities
             return IsCurrentWindowMinimized();
         }
 
+        /// <summary>窗口是否存在且已经不在最小化状态（用户把它还原了）。</summary>
+        public static bool IsCurrentWindowRestored()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return false;
+            }
+
+            try
+            {
+                var window = ResolveWindow();
+                return window != IntPtr.Zero && IsWindowVisible(window) && !IsIconic(window);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         /// <summary>当前是否处在最小化状态（窗口不存在时返回 false）。</summary>
         public static bool IsCurrentWindowMinimized()
         {

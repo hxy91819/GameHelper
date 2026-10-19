@@ -31,6 +31,8 @@ namespace GameHelper.ConsoleHost.Utilities
         private static readonly TimeSpan RelaunchConfirmationTimeout = TimeSpan.FromSeconds(6);
         private static readonly TimeSpan RelaunchConfirmationPollInterval = TimeSpan.FromMilliseconds(250);
         private static readonly TimeSpan RestorePollInterval = TimeSpan.FromMilliseconds(400);
+        private static readonly TimeSpan StartupGracePeriod = TimeSpan.FromSeconds(30);
+        private const int RestoreConfirmedPolls = 5;
 
         /// <summary>
         /// 检测当前控制台宿主，必要时用 Windows Terminal 重新拉起自身。
@@ -121,9 +123,15 @@ namespace GameHelper.ConsoleHost.Utilities
                 return;
             }
 
-            while (ConsoleWindowMinimizer.IsCurrentWindowMinimized())
+            // 启动阶段窗口会被重建、部署探针附加控制台也可能把它短暂显示出来，
+            // 先跳过一段稳定期，并要求"已还原"连续成立，避免把噪声当成用户操作。
+            Thread.Sleep(StartupGracePeriod);
+
+            var restoredPolls = 0;
+            while (restoredPolls < RestoreConfirmedPolls)
             {
                 Thread.Sleep(RestorePollInterval);
+                restoredPolls = ConsoleWindowMinimizer.IsCurrentWindowRestored() ? restoredPolls + 1 : 0;
             }
 
             var relaunchArgs = Array.FindAll(
