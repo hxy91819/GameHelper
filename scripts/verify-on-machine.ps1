@@ -82,8 +82,10 @@ function Start-CheckedInstance([string] $Directory, [ref] $StartedProcess,
     # This is the user's interactive console, which must remain visible after deployment.
     $exePath = Join-Path $Directory "GameHelper.ConsoleHost.exe"
     $launchedAt = (Get-Date).AddSeconds(-1)
-    $instance = Start-Process -FilePath $exePath `
-        -WorkingDirectory $Directory -WindowStyle Normal -ArgumentList "--minimized" -PassThru
+    # 用 start /min 拉起：控制台以"最小化且不激活"创建，部署重启也不会把窗口顶到前台。
+    $startArgs = "/c start `"`" /min `"$exePath`" --minimized"
+    $instance = Start-Process -FilePath "cmd.exe" -ArgumentList $startArgs `
+        -WorkingDirectory $Directory -WindowStyle Hidden -PassThru
     Start-Sleep -Seconds 2
     $instance.Refresh()
     if ($instance.HasExited) {

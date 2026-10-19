@@ -14,6 +14,7 @@ namespace GameHelper.Infrastructure.Startup
     {
         private const string RunKeyPath = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
         internal const string BackgroundArgument = "--minimized";
+        private const string BackgroundLaunchPrefix = "cmd.exe /c start \"\" /min ";
 
         private readonly ILogger<WindowsAutoStartManager> _logger;
         private readonly string _appName;
@@ -99,32 +100,19 @@ namespace GameHelper.Infrastructure.Startup
         }
 
         /// <summary>
-        /// 期望的注册值：可执行文件 + --minimized，让开机自启把窗口收进任务栏而不是抢焦点。
+        /// 期望的注册值：经 cmd 的 start /min 拉起，可执行文件 + --minimized。
+        /// start /min 用 SW_SHOWMINNOACTIVE 创建控制台，开机时连一次前台激活都不会发生；
+        /// 直接把 exe 写进 Run 键会被资源管理器以正常窗口激活，无法做到零焦点。
         /// </summary>
-        private string BuildRegistrationValue() => $"{QuotePath(_executablePath)} {BackgroundArgument}";
+        private string BuildRegistrationValue() => $"{BackgroundLaunchPrefix}{QuotePath(_executablePath)} {BackgroundArgument}";
 
-        private bool IsCurrentRegistration(string? value)
-            => !string.IsNullOrWhiteSpace(value)
-                && HasBackgroundArgument(value)
-                && string.Equals(
-                    NormalizePath(ExtractExecutablePath(value)),
-                    NormalizePath(_executablePath),
-                    StringComparison.OrdinalIgnoreCase);
+        private bool IsCurrentRegistration(string? value) => IsRegistrationFor(value, _executablePath);
 
-        /// <summary>从注册表命令行里取出可执行文件部分，忽略引号与启动参数。</summary>
-        internal static string ExtractExecutablePath(string commandLine)
-        {
-            var trimmed = commandLine.Trim();
-            if (trimmed.StartsWith('"'))
-            {
-                var closing = trimmed.IndexOf('"', 1);
-                return closing > 0 ? trimmed[1..closing] : trimmed;
-            }
-
-            var marker = " " + BackgroundArgument;
-            var index = trimmed.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-            return index > 0 ? trimmed[..index] : trimmed;
-        }
+        /// <summary>判断注册值是否是"用 start /min 拉起指定可执行文件"的目标形态。</summary>
+        internal static bool IsRegistrationFor(string? commandLine, string executablePath)
+            => !string.IsNullOrWhiteSpace(commandLine)
+                && commandLine.StartsWith(BackgroundLaunchPrefix, StringComparison.OrdinalIgnoreCase)
+                && commandLine.Contains(executablePath, StringComparison.OrdinalIgnoreCase);
 
         internal static bool HasBackgroundArgument(string commandLine)
             => commandLine.Contains(BackgroundArgument, StringComparison.OrdinalIgnoreCase);

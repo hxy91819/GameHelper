@@ -75,6 +75,11 @@ namespace GameHelper.ConsoleHost.Utilities
             }
         }
 
+        /// <summary>
+        /// 把单实例占用让给即将接管的进程（宿主转移时用）；接管失败时调用方应重新 TryClaim。
+        /// </summary>
+        internal static void ReleaseForHandoff() => Release();
+
         private static string GetMutexName()
             => OperatingSystem.IsWindows() ? @"Global\GameHelper.ConsoleHost" : "GameHelper.ConsoleHost";
 

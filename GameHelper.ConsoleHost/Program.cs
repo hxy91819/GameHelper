@@ -14,18 +14,19 @@ ConsoleEncoding.EnsureUtf8();
 var parsedArgs = ArgumentParser.Parse(args);
 var isFileDropRequest = FileDropHandler.LooksLikeFilePaths(parsedArgs.EffectiveArgs);
 
-// 启动早期就把交互窗口交给 Windows Terminal 托管：开机自启、桌面快捷方式、脚本拉起
-// 都走同一条路径，用户看到的字体与窗口样式因此保持一致。无法满足条件时留在当前宿主。
-if (WindowsTerminalHost.TryRelaunch(args, isFileDropRequest))
-{
-    return;
-}
-
-// 自启动等后台入口用 --minimized 收进任务栏，避免每次拉起都把窗口顶到前台抢焦点。
-// 控制台宿主会在首屏输出后重新显示窗口，因此放到后台线程里持续纠正一段时间，不阻塞启动。
 if (parsedArgs.Minimized)
 {
+    // 后台启动（开机自启）：先留在当前宿主里收进任务栏，零焦点；等用户真的把窗口还原时
+    // 再由 Windows Terminal 接管。WT 只要创建窗口就会激活，所以不能在启动时立刻切换。
+    WindowsTerminalHost.TryDeferRelaunchUntilWindowRestored(args, isFileDropRequest);
+
+    // 控制台宿主会在首屏输出后重新显示窗口，因此持续纠正一段时间，不阻塞启动。
     _ = Task.Run(() => ConsoleWindowMinimizer.TryMinimizeCurrentWindow(TimeSpan.FromSeconds(6)));
+}
+else if (WindowsTerminalHost.TryRelaunch(args, isFileDropRequest))
+{
+    // 前台启动：立刻交给 Windows Terminal 托管，字体与窗口样式保持一致。
+    return;
 }
 
 var claimedSingleInstance = ProcessInstanceGuard.TryClaim();

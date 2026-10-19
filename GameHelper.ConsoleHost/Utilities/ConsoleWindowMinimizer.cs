@@ -57,6 +57,42 @@ namespace GameHelper.ConsoleHost.Utilities
             return minimized;
         }
 
+        /// <summary>等待窗口进入最小化状态；宿主还没建好窗口时最多等 timeout。</summary>
+        public static bool WaitUntilMinimized(TimeSpan timeout)
+        {
+            var deadline = DateTime.UtcNow + timeout;
+            while (DateTime.UtcNow < deadline)
+            {
+                if (IsCurrentWindowMinimized())
+                {
+                    return true;
+                }
+
+                Thread.Sleep(RetryInterval);
+            }
+
+            return IsCurrentWindowMinimized();
+        }
+
+        /// <summary>当前是否处在最小化状态（窗口不存在时返回 false）。</summary>
+        public static bool IsCurrentWindowMinimized()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return false;
+            }
+
+            try
+            {
+                var window = ResolveWindow();
+                return window != IntPtr.Zero && IsIconic(window);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static IntPtr ResolveWindow()
         {
             var window = GetConsoleWindow();

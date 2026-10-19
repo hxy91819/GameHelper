@@ -55,19 +55,20 @@
 - 确认当前宿主：宿主进程名是 `conhost.exe` 说明没转移成功；是 `WindowsTerminal.exe`（窗口进程）或 `OpenConsole.exe` 说明已由 WT 托管。
 - 转移失败时控制台会打印 `Failed to relaunch inside Windows Terminal: <原因>`，常见原因是 `wt.exe` 缺失或参数引用异常；失败不会阻止启动。
 
-## 后台启动：不抢焦点
+## 后台启动：零焦点 + 打开时仍是终端外观
 
-自启动这类后台入口不应该把窗口顶到前台。注册值和部署重启都带 `--minimized`：
+自启动这类后台入口既不应该抢焦点，也不应该让用户看到经典控制台。两件事分开处理：
 
 ```
-"<发布目录>\GameHelper.ConsoleHost.exe" --minimized
+cmd.exe /c start "" /min "<发布目录>\GameHelper.ConsoleHost.exe" --minimized
 ```
 
-- 进程启动后把控制台窗口（含 Windows Terminal 宿主窗口）收进任务栏，随后台线程持续纠正约 6 秒——控制台宿主会在首屏输出后重新显示窗口，只调用一次 `ShowWindow` 会被盖回去。
-- 只处理已经显示的窗口：`-WindowStyle Hidden` 的负向校验用例不会被强行显示出来。
-- 手动双击（不带参数）仍然正常出现在前台；想关掉就换成不带 `--minimized` 的启动方式。
+- **零焦点**靠 `start /min`：控制台窗口用 `SW_SHOWMINNOACTIVE` 创建，连一次前台激活都不会发生。直接把 exe 写进 Run 键做不到——资源管理器会用正常窗口激活它。部署脚本的重启同样走这个形态。
+- **外观**靠延迟接管：`--minimized` 启动时不立刻切到 Windows Terminal（WT 只要创建窗口就会激活），而是留在 conhost 里收进任务栏；后台线程监视窗口状态，等你真的把它还原时再释放单实例占用、用 `wt.exe` 接管，原进程退出。接管失败会重新占用单实例并继续留在当前宿主。
+- 最小化会随后台线程持续纠正约 6 秒——控制台宿主会在首屏输出后重新显示窗口，只调用一次 `ShowWindow` 会被盖回去；只处理已经显示的窗口，`-WindowStyle Hidden` 的负向校验用例不会被强行显示出来。
+- 手动双击（不带参数）仍然立刻进 Windows Terminal 并出现在前台。
 
-自启动注册值因此是"可执行文件 + `--minimized`"，判断"是否已启用"时只比较可执行文件部分，见 `WindowsAutoStartManager.ExtractExecutablePath`。
+自启动注册值因此是"cmd 的 start /min + 可执行文件 + `--minimized`"；判断"是否已启用"用 `WindowsAutoStartManager.IsRegistrationFor`（前缀 + 可执行文件匹配），旧形态会被自动改写。
 
 ## 相关测试
 
