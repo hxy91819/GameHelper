@@ -19,6 +19,8 @@ dotnet run --project .\GameHelper.ConsoleHost --
 dotnet run --project .\GameHelper.ConsoleHost -- interactive
 ```
 
+已发布的可执行文件启动时如果没运行在 Windows Terminal 里，会自动用 `wt.exe` 把交互窗口搬进 Windows Terminal；行为、关闭方式和边界见[启动窗口宿主](terminal-host.md)。
+
 ## 常用命令
 
 ```powershell

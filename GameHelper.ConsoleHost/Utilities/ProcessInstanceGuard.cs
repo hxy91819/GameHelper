@@ -21,9 +21,7 @@ namespace GameHelper.ConsoleHost.Utilities
                 return true;
             }
 
-            var name = OperatingSystem.IsWindows()
-                ? @"Global\GameHelper.ConsoleHost"
-                : "GameHelper.ConsoleHost";
+            var name = GetMutexName();
 
             try
             {
@@ -49,6 +47,36 @@ namespace GameHelper.ConsoleHost.Utilities
                 return true;
             }
         }
+
+        /// <summary>
+        /// 只探测是否已有实例在运行，不占用互斥体。供启动早期的宿主转移判断使用。
+        /// </summary>
+        internal static bool IsAnotherInstanceRunning()
+        {
+            if (IsSingleInstanceDisabledByEnvironment())
+            {
+                return false;
+            }
+
+            try
+            {
+                if (!Mutex.TryOpenExisting(GetMutexName(), out var existing))
+                {
+                    return false;
+                }
+
+                existing.Dispose();
+                return true;
+            }
+            catch
+            {
+                // 无法判断时按"没有其他实例"处理，交给后续 TryClaim 决定。
+                return false;
+            }
+        }
+
+        private static string GetMutexName()
+            => OperatingSystem.IsWindows() ? @"Global\GameHelper.ConsoleHost" : "GameHelper.ConsoleHost";
 
         internal static bool IsSingleInstanceDisabledByEnvironment()
         {

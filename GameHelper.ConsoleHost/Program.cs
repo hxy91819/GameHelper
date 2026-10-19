@@ -13,6 +13,14 @@ ConsoleEncoding.EnsureUtf8();
 // Parse command line arguments
 var parsedArgs = ArgumentParser.Parse(args);
 var isFileDropRequest = FileDropHandler.LooksLikeFilePaths(parsedArgs.EffectiveArgs);
+
+// 启动早期就把交互窗口交给 Windows Terminal 托管：开机自启、桌面快捷方式、脚本拉起
+// 都走同一条路径，用户看到的字体与窗口样式因此保持一致。无法满足条件时留在当前宿主。
+if (WindowsTerminalHost.TryRelaunch(args, isFileDropRequest))
+{
+    return;
+}
+
 var claimedSingleInstance = ProcessInstanceGuard.TryClaim();
 var startupMode = StartupModeResolver.Resolve(isFileDropRequest, claimedSingleInstance);
 

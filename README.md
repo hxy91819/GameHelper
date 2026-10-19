@@ -1,4 +1,4 @@
-﻿# GameHelper
+# GameHelper
 
 GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、游戏时长统计和 YAML 配置管理，通过 CLI 入口使用。原 WinUI 桌面入口已停止维护并移出仓库，代码备份在 tag `archive/winui`。
 
@@ -18,6 +18,10 @@ GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、
 - Windows 10 (19041+) / Windows 11
 - .NET 8 SDK（当前仓库通过 `global.json` 锁定 `8.0.417`，允许 `latestPatch` 滚动）
 - 使用 Cheat Engine 变速时需本机安装 Cheat Engine（仅离线单机游戏）
+
+### 窗口宿主（Windows Terminal）
+
+启动时会检查交互窗口是否由 Windows Terminal 托管：如果不在（例如开机自启或双击快捷方式回落到经典 conhost），程序会用 `wt.exe` 把窗口搬进 Windows Terminal，再让原进程退出，因此字体、边框与控制台特性保持一致。转移只在真正的交互式控制台里发生——沙盒测试实例（`GAMEHELPER_DATA_DIR`）、被重定向的管道、附加调试器、已有实例在运行时都会保持原宿主。设置 `GAMEHELPER_DISABLE_TERMINAL_RELAUNCH=1` 可关闭。详见[启动窗口宿主](docs/guides/terminal-host.md)。
 
 ### 常用 CLI 命令
 

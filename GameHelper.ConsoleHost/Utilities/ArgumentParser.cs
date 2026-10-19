@@ -95,6 +95,14 @@ namespace GameHelper.ConsoleHost.Utilities
                         list.RemoveAt(iidx);
                     }
 
+                    // 宿主转移时追加的内部标记参数，不属于用户可见的命令行选项。
+                    int relaunchIdx;
+                    while ((relaunchIdx = list.FindIndex(s =>
+                               string.Equals(s, WindowsTerminalHost.RelaunchedArgument, StringComparison.OrdinalIgnoreCase))) >= 0)
+                    {
+                        list.RemoveAt(relaunchIdx);
+                    }
+
                     result.EffectiveArgs = list.ToArray();
                 }
             }
