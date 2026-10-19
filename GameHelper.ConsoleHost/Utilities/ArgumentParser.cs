@@ -11,6 +11,7 @@ namespace GameHelper.ConsoleHost.Utilities
         public string? MonitorType { get; set; }
         public bool MonitorDryRun { get; set; }
         public bool UseInteractiveShell { get; set; }
+        public bool Minimized { get; set; }
         public string[] EffectiveArgs { get; set; } = Array.Empty<string>();
     }
 
@@ -93,6 +94,15 @@ namespace GameHelper.ConsoleHost.Utilities
                     {
                         result.UseInteractiveShell = true;
                         list.RemoveAt(iidx);
+                    }
+
+                    // Handle --minimized (boolean flag): keep the window in the taskbar instead of
+                    // stealing focus, used by the auto-start registration.
+                    int minimizedIdx = list.FindIndex(s => string.Equals(s, "--minimized", StringComparison.OrdinalIgnoreCase));
+                    if (minimizedIdx >= 0)
+                    {
+                        result.Minimized = true;
+                        list.RemoveAt(minimizedIdx);
                     }
 
                     // 宿主转移时追加的内部标记参数，不属于用户可见的命令行选项。

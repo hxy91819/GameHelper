@@ -13,6 +13,7 @@ namespace GameHelper.Infrastructure.Startup
     public sealed class WindowsAutoStartManager : IAutoStartManager
     {
         private const string RunKeyPath = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+        internal const string BackgroundArgument = "--minimized";
 
         private readonly ILogger<WindowsAutoStartManager> _logger;
         private readonly string _appName;
@@ -43,9 +44,7 @@ namespace GameHelper.Infrastructure.Startup
                     return false;
                 }
 
-                var normalizedValue = NormalizePath(value);
-                var normalizedExecutable = NormalizePath(_executablePath);
-                return string.Equals(normalizedValue, normalizedExecutable, StringComparison.OrdinalIgnoreCase);
+                return IsCurrentRegistration(value);
             }
             catch (Exception ex)
             {
@@ -73,12 +72,12 @@ namespace GameHelper.Infrastructure.Startup
                 if (enabled)
                 {
                     var currentValue = key.GetValue(_appName) as string;
-                    if (IsCurrentExecutable(currentValue))
+                    if (IsCurrentRegistration(currentValue))
                     {
                         return;
                     }
 
-                    key.SetValue(_appName, QuotePath(_executablePath));
+                    key.SetValue(_appName, BuildRegistrationValue());
                     _logger.LogInformation("已注册开机自启动：{Path}", _executablePath);
                 }
                 else
@@ -99,17 +98,36 @@ namespace GameHelper.Infrastructure.Startup
             }
         }
 
-        private bool IsCurrentExecutable(string? value)
+        /// <summary>
+        /// 期望的注册值：可执行文件 + --minimized，让开机自启把窗口收进任务栏而不是抢焦点。
+        /// </summary>
+        private string BuildRegistrationValue() => $"{QuotePath(_executablePath)} {BackgroundArgument}";
+
+        private bool IsCurrentRegistration(string? value)
+            => !string.IsNullOrWhiteSpace(value)
+                && HasBackgroundArgument(value)
+                && string.Equals(
+                    NormalizePath(ExtractExecutablePath(value)),
+                    NormalizePath(_executablePath),
+                    StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>从注册表命令行里取出可执行文件部分，忽略引号与启动参数。</summary>
+        internal static string ExtractExecutablePath(string commandLine)
         {
-            if (string.IsNullOrWhiteSpace(value))
+            var trimmed = commandLine.Trim();
+            if (trimmed.StartsWith('"'))
             {
-                return false;
+                var closing = trimmed.IndexOf('"', 1);
+                return closing > 0 ? trimmed[1..closing] : trimmed;
             }
 
-            var normalizedValue = NormalizePath(value);
-            var normalizedExecutable = NormalizePath(_executablePath);
-            return string.Equals(normalizedValue, normalizedExecutable, StringComparison.OrdinalIgnoreCase);
+            var marker = " " + BackgroundArgument;
+            var index = trimmed.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            return index > 0 ? trimmed[..index] : trimmed;
         }
+
+        internal static bool HasBackgroundArgument(string commandLine)
+            => commandLine.Contains(BackgroundArgument, StringComparison.OrdinalIgnoreCase);
 
         private static string ResolveExecutablePath()
         {

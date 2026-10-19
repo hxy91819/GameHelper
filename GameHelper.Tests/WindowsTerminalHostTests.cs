@@ -84,5 +84,14 @@ namespace GameHelper.Tests
 
             Assert.Equal(new[] { "monitor" }, parsed.EffectiveArgs);
         }
+
+        [Fact]
+        public void ArgumentParser_ReadsMinimizedFlag_AndKeepsCommandArgs()
+        {
+            var parsed = ArgumentParser.Parse(new[] { "monitor", "--minimized" });
+
+            Assert.True(parsed.Minimized);
+            Assert.Equal(new[] { "monitor" }, parsed.EffectiveArgs);
+        }
     }
 }

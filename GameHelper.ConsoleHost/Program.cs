@@ -21,6 +21,13 @@ if (WindowsTerminalHost.TryRelaunch(args, isFileDropRequest))
     return;
 }
 
+// 自启动等后台入口用 --minimized 收进任务栏，避免每次拉起都把窗口顶到前台抢焦点。
+// 控制台宿主会在首屏输出后重新显示窗口，因此放到后台线程里持续纠正一段时间，不阻塞启动。
+if (parsedArgs.Minimized)
+{
+    _ = Task.Run(() => ConsoleWindowMinimizer.TryMinimizeCurrentWindow(TimeSpan.FromSeconds(6)));
+}
+
 var claimedSingleInstance = ProcessInstanceGuard.TryClaim();
 var startupMode = StartupModeResolver.Resolve(isFileDropRequest, claimedSingleInstance);
 
