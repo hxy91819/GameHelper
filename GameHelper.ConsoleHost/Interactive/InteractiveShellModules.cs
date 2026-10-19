@@ -47,6 +47,25 @@ internal sealed class InteractiveShellModules
 
     public ToolsUI ToolsUI { get; }
 
+    /// <summary>
+    /// 交互界面的控制台实例。宿主（conhost / ConPTY）对 VT 的支持不一定能被 Spectre 的探测
+    /// 识别到，探测失败会让整屏 markup 退化成灰白，所以真实终端上直接启用 ANSI 与真彩色；
+    /// 输出被重定向时保持默认实例，避免把转义序列写进管道。
+    /// </summary>
+    private static IAnsiConsole CreateInteractiveConsole()
+    {
+        if (System.Console.IsOutputRedirected)
+        {
+            return AnsiConsole.Console;
+        }
+
+        return AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = AnsiSupport.Yes,
+            ColorSystem = ColorSystemSupport.TrueColor,
+        });
+    }
+
     public static InteractiveShellModules Create(
         IHost host,
         ParsedArguments arguments,
@@ -58,17 +77,10 @@ internal sealed class InteractiveShellModules
         ArgumentNullException.ThrowIfNull(arguments);
 
         ConsoleEncoding.EnsureUtf8();
-        var resolvedConsole = console ?? AnsiConsole.Console;
+        var resolvedConsole = console ?? CreateInteractiveConsole();
         if (console is null)
         {
             resolvedConsole.Profile.Capabilities.Unicode = true;
-
-            // 宿主（conhost / ConPTY）对 VT 的支持不一定能被 Spectre 的探测识别到，探测失败会
-            // 整屏退化成无颜色。这里在真实终端上显式声明 ANSI 与真彩色，避免界面变成灰白。
-            if (!System.Console.IsOutputRedirected)
-            {
-                resolvedConsole.Profile.Capabilities.Ansi = true;
-            }
         }
 
         var gameConfiguration = host.Services.GetRequiredService<IGameConfiguration>();
