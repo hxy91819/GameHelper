@@ -20,8 +20,10 @@
 | --- | --- |
 | `GAMEHELPER_DATA_DIR` | 将整个数据目录（`config.yml`、`playtime.csv` 等）重定向到指定目录。实现见 `GameHelper.Core/Utilities/AppDataPath.cs`。 |
 | `GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE` | 设为 `1` 时跳过全局单实例互斥，允许测试实例与用户正在运行的主实例共存。 |
+| `GAMEHELPER_ALLOW_MULTIPLE_INSTANCES` | 设为 `1` 时才允许同时存在多个沙盒实例；默认（不设）沙盒实例仍受"同时只能有一个"的插槽互斥约束（`Global\GameHelper.ConsoleHost.Sandbox`）。 |
 
-测试实例启动时同时设置这两个变量；数据沙盒目录在验证结束后删除。
+测试实例启动时同时设置前两个变量；数据沙盒目录在验证结束后删除。
+沙盒实例默认只允许一个在跑：跳过全局单实例互斥是为了和用户实例共存，不是为了无限多开；需要并行跑多个测试实例（如 E2E 套件）时显式设置 `GAMEHELPER_ALLOW_MULTIPLE_INSTANCES=1`。
 设置 `GAMEHELPER_DATA_DIR` 的实例使用无操作开机启动适配器，不会修改用户 HKCU Run 项；一次性 CLI 命令也不会应用开机启动偏好。
 
 ## 跨重启会话续算（in-flight sessions）

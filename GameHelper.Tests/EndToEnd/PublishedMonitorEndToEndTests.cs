@@ -303,6 +303,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
         };
         startInfo.EnvironmentVariables["GAMEHELPER_DATA_DIR"] = sandbox.RootDir;
         startInfo.EnvironmentVariables["GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE"] = "1";
+        startInfo.EnvironmentVariables["GAMEHELPER_ALLOW_MULTIPLE_INSTANCES"] = "1";
 
         return new AppHandle(Process.Start(startInfo)!);
     }

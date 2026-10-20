@@ -108,6 +108,7 @@ public sealed class PublishedInteractiveStartupTests(ITestOutputHelper output)
             start.ArgumentList.Add(fixture);
             start.Environment["GAMEHELPER_DATA_DIR"] = sandbox;
             start.Environment["GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE"] = "1";
+            start.Environment["GAMEHELPER_ALLOW_MULTIPLE_INSTANCES"] = "1";
             start.Environment["GH_STARTUP_EXE"] = exe;
             start.Environment["GH_STARTUP_HIDE"] = hidden ? "1" : "0";
             start.Environment["GH_STARTUP_TERMINAL_OWNER"] = terminalOwner ? "1" : "0";
