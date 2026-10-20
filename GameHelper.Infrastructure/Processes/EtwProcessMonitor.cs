@@ -290,7 +290,7 @@ public sealed class EtwProcessMonitor : IProcessMonitor
     private void CompleteObservedProcess(int pid, EtwProcessEvent previous, bool reconciled)
     {
         _observedProcesses.Remove(pid);
-        if (!IsAllowedProcessStop(previous.Info.ExecutableName, hadCachedStart: true)) return;
+        if (!CurrentPolicy.ObserveStopEvents || string.IsNullOrWhiteSpace(previous.Info.ExecutableName)) return;
         if (reconciled)
             _logger?.LogWarning("Reconciling missing process stop for PID {ProcessId}; exact exit time unavailable, playtime ends at reconciliation time", pid);
         try { ProcessStopped?.Invoke(previous.Info); }
@@ -355,10 +355,6 @@ public sealed class EtwProcessMonitor : IProcessMonitor
         try { return policy.Includes(Path.GetFileName(path)); }
         catch (ArgumentException) { return false; }
     }
-
-    internal bool IsAllowedProcessStop(string? processName, bool hadCachedStart) =>
-        CurrentPolicy.ObserveStopEvents && !string.IsNullOrWhiteSpace(processName) &&
-        (hadCachedStart || CurrentPolicy.Includes(processName));
 
     private ProcessObservationPolicy CurrentPolicy => Volatile.Read(ref _policy);
     private static bool IsResourceExhausted(Exception ex) =>

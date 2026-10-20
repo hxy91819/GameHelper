@@ -35,7 +35,9 @@ public sealed class EtwProcessMonitorRecoveryTests
             runtime.Sessions.Single().StartProcess(100); // The queued live start belongs to the same launch.
             speed.Verify(s => s.ApplySpeed(100, 1.5), Times.Once);
             playtime.Verify(p => p.StartTracking("game"), Times.Once);
-            runtime.Sessions.Single().StopProcess(100);
+            // An immediate exit can share the capture timestamp and must still finish the session.
+            runtime.Sessions.Single().StopProcess(100, seconds: 0);
+            runtime.Sessions.Single().StopProcess(100, seconds: 0);
             playtime.Verify(p => p.StopTracking("game"), Times.Once);
         }
         finally { control.Stop(); }
@@ -78,12 +80,17 @@ public sealed class EtwProcessMonitorRecoveryTests
     public void Configure_StopToggle_EvictsExitedProcessesAndPreservesLiveOnes(bool exitedWhileDisabled)
     {
         var runtime = new FakeRuntime();
-        using var monitor = new EtwProcessMonitor(runtime, new[] { "game.exe" });
+        using var monitor = new EtwProcessMonitor(runtime);
+        var started = new List<ProcessEventInfo>();
         var stopped = new List<ProcessEventInfo>();
+        monitor.ProcessStarted += started.Add;
         monitor.ProcessStopped += stopped.Add;
+        monitor.Configure(new ProcessObservationPolicy(new[] { "GAME" }));
         monitor.Start();
         var session = runtime.Sessions.Single();
+        session.StartProcess(200, "other.exe");
         session.StartProcess(100);
+        Assert.Equal("game.exe", Assert.Single(started).ExecutableName);
         monitor.Configure(new ProcessObservationPolicy(new[] { "game.exe" }, observeStopEvents: false));
         if (exitedWhileDisabled) session.StopProcess(100);
         monitor.Configure(new ProcessObservationPolicy(new[] { "other.exe" }, observeStopEvents: true));

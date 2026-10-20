@@ -54,9 +54,19 @@ internal sealed class EtwRuntime(ILogger<EtwProcessMonitor>? logger) : IEtwRunti
                 {
                     var name = process.ProcessName + ".exe";
                     if (!policy.Includes(name)) continue;
-                    var path = process.MainModule?.FileName;
+                    // Path enrichment is optional: name-only games can still be adopted when
+                    // Windows denies access to the executable's module information.
+                    string? path = null;
+                    try { path = process.MainModule?.FileName; }
+                    catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
+                    {
+                        logger?.LogDebug(ex, "Cannot resolve path of running process {ProcessId}", process.Id);
+                    }
+                    // Take the observation time before the final liveness check. An exit after
+                    // that check must not appear older than this synthetic start event.
+                    var observedAt = DateTime.UtcNow;
                     if (process.HasExited) continue;
-                    result.Add(new(new ProcessEventInfo(name, path, process.Id), DateTime.UtcNow));
+                    result.Add(new(new ProcessEventInfo(name, path, process.Id), observedAt));
                 }
                 catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
                 {

@@ -114,23 +114,6 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void Configure_AppliesCandidateAndStopEventContract()
-        {
-            var monitor = new EtwProcessMonitor();
-            monitor.Configure(new ProcessObservationPolicy(new[] { "GAME" }, observeStopEvents: false));
-
-            Assert.True(monitor.IsAllowedProcessStart("game.exe", null));
-            Assert.False(monitor.IsAllowedProcessStart("other.exe", null));
-            Assert.False(monitor.IsAllowedProcessStop("game.exe", hadCachedStart: true));
-
-            monitor.Configure(new ProcessObservationPolicy(new[] { "game.exe" }, observeStopEvents: true));
-
-            Assert.True(monitor.IsAllowedProcessStop("game.exe", hadCachedStart: false));
-            Assert.True(monitor.IsAllowedProcessStop("renamed.exe", hadCachedStart: true));
-            Assert.False(monitor.IsAllowedProcessStop("other.exe", hadCachedStart: false));
-        }
-
-        [Fact]
         public void IsAllowedProcessStart_WhenPathHintFilenameAllowed_ReturnsTrue()
         {
             var monitor = new EtwProcessMonitor(new[] { "game.exe" }, null);
