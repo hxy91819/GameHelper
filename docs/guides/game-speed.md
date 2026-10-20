@@ -27,7 +27,7 @@ games:
 - `speedAttach` 可选：`auto`（默认，省略时等效）与 `immediate`。仅在游戏装了 mod loader 且行为异常时才需要显式设置 `immediate`。
 - 同一游戏出现多个匹配进程时，只在第一个活动进程上应用一次；游戏完全退出并再次启动后会重新应用。
 
-GameHelper 将生成的临时表写入 `%AppData%\GameHelper\cheat-engine\`，表中只包含目标 PID 和倍速。旧表会自动清理。配置热重载后，新的倍速对下一次游戏启动生效。
+GameHelper 将生成的临时表写入 `%AppData%\GameHelper\cheat-engine\`，每次附加使用包含 PID 和随机标识的独立文件；同一 PID 的重复或并发请求不会覆盖尚未被 CE 读取的表。旧表会自动清理。配置热重载后，新的倍速对下一次游戏启动生效。发起附加成功不等于已验证游戏实际速度，配置或启动失败会记日志而不打断监控。
 
 ## 与 mod loader（BepInEx / MelonLoader）共存
 

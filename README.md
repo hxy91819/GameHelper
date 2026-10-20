@@ -155,7 +155,7 @@ games:
 - `executable`：可执行文件路径或进程文件名；路径会用于精确匹配，文件名会自动从路径派生。
 - `enabled`：是否参与监控、时长统计和自动化。
 - `hdr`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
-- `speed`：可选的游戏倍速，必须大于 `0`；省略时不修改速度。GameHelper 会按游戏 PID 动态生成临时 CE 表，无需维护 `.CT`。
+- `speed`：可选的游戏倍速，必须大于 `0`；省略时不修改速度。GameHelper 为每次附加动态生成独立的临时 CE 表，同一 PID 的多次请求互不覆盖，无需维护 `.CT`。
 - 游戏退出后，为它启动的 CE 倍速实例会自动关闭；手动打开的其他 CE 不受影响。手动把该实例切换到其他进程时，取消自动关闭。
 - `speedAttach`：可选的 CE 附加时序策略，`auto`（默认）在检测到 BepInEx/MelonLoader 时推迟附加到 loader 启动完成之后（90 秒超时兜底），`immediate` 恢复一启动就附加的旧行为。
 - `cheatEngine.executable`：Cheat Engine 可执行文件的绝对路径；只在至少一款游戏配置了 `speed` 时使用。

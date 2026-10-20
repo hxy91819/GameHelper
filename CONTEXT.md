@@ -22,6 +22,10 @@ The persisted sequence of completed play sessions keyed by DataKey. The current 
 
 The stream of candidate process start and stop events consumed by game automation. ETW, WMI, and no-op implementations are adapters at this seam and must share filtering and lifecycle semantics.
 
+## Game Speed Attachment
+
+An attempt to apply a configured speed multiplier to one running game process. It is distinct from a playtime session and from confirmation that the game has adopted the requested speed.
+
 ## File-drop Intake
 
 The ConsoleHost workflow that validates dropped files, resolves executable targets, imports them through Game Catalog Intake, and reloads automation after a successful batch.

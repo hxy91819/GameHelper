@@ -5,6 +5,7 @@ using System.Text;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Controllers;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
@@ -37,9 +38,9 @@ public sealed class CheatEngineSpeedControllerTests : IDisposable
             CheatEngine = new CheatEngineSettings { Executable = executable }
         });
         var controller = new CheatEngineSpeedController(configuration.Object,
-            NullLogger<CheatEngineSpeedController>.Instance, _tempDirectory, _ => { });
+            NullLogger<CheatEngineSpeedController>.Instance, _tempDirectory, startInfo => launchInfo = startInfo);
         Assert.True(controller.ApplySpeed(4321, 1.5));
-        var generated = XDocument.Load(Path.Combine(_tempDirectory, "speed-4321.ct")).Root!.Element("LuaScript")!.Value;
+        var generated = XDocument.Load(launchInfo!.Arguments.Trim('"')).Root!.Element("LuaScript")!.Value;
         var resultPath = Path.Combine(_tempDirectory, "lua-result.txt");
         var script = $$"""
             local scale = {{initialScale.ToString("R", CultureInfo.InvariantCulture)}}
@@ -122,9 +123,9 @@ public sealed class CheatEngineSpeedControllerTests : IDisposable
                 CheatEngine = new CheatEngineSettings { Executable = executable }
             });
             var controller = new CheatEngineSpeedController(configuration.Object,
-                NullLogger<CheatEngineSpeedController>.Instance, _tempDirectory, _ => { });
+                NullLogger<CheatEngineSpeedController>.Instance, _tempDirectory, startInfo => launchInfo = startInfo);
             Assert.True(controller.ApplySpeed(target.Id, 1.5));
-            var generated = XDocument.Load(Path.Combine(_tempDirectory, $"speed-{target.Id}.ct"))
+            var generated = XDocument.Load(launchInfo!.Arguments.Trim('"'))
                 .Root!.Element("LuaScript")!.Value;
             var readyPath = Path.Combine(_tempDirectory, "watcher-ready.txt");
             var retargetPath = Path.Combine(_tempDirectory, "retarget.txt");
@@ -226,13 +227,62 @@ public sealed class CheatEngineSpeedControllerTests : IDisposable
         var tablePath = launchInfo.Arguments.Trim('"');
         // CE checks the first five bytes for <?XML; a UTF-8 BOM is misread as a compressed trainer.
         Assert.Equal("<?xml", System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(tablePath), 0, 5));
-        Assert.Equal(Path.Combine(tableDirectory, "speed-4321.ct"), tablePath);
+        Assert.Equal(tableDirectory, Path.GetDirectoryName(tablePath));
+        Assert.StartsWith("speed-4321-", Path.GetFileName(tablePath));
+        Assert.EndsWith(".ct", tablePath);
         var document = XDocument.Load(tablePath);
         var lua = document.Root?.Element("LuaScript")?.Value;
         Assert.Contains("local targetPid = 4321", lua);
         Assert.Contains("local targetSpeed = 2.5", lua);
         Assert.Contains("openProcess(targetPid)", lua);
         Assert.Contains("speedhack_setSpeed(targetSpeed)", lua);
+    }
+
+    [Fact]
+    public void ApplySpeed_RepeatedPid_KeepsEachLaunchTableUntilCheatEngineLoadsIt()
+    {
+        Directory.CreateDirectory(_tempDirectory);
+        var executable = Path.Combine(_tempDirectory, "cheatengine.exe");
+        File.WriteAllBytes(executable, Array.Empty<byte>());
+        var configuration = new Mock<IGameConfiguration>();
+        configuration.Setup(provider => provider.Read()).Returns(new AppConfig
+        {
+            CheatEngine = new CheatEngineSettings { Executable = executable }
+        });
+        var launches = new List<ProcessStartInfo>();
+        var controller = new CheatEngineSpeedController(configuration.Object,
+            NullLogger<CheatEngineSpeedController>.Instance, _tempDirectory, launches.Add);
+
+        Assert.True(controller.ApplySpeed(4321, 1.5));
+        Assert.True(controller.ApplySpeed(4321, 2.5));
+
+        var tablePaths = launches.Select(startInfo => startInfo.Arguments.Trim('"')).ToArray();
+        Assert.Equal(2, tablePaths.Length);
+        Assert.NotEqual(tablePaths[0], tablePaths[1]);
+        Assert.Contains("local targetSpeed = 1.5", XDocument.Load(tablePaths[0]).Root!.Element("LuaScript")!.Value);
+        Assert.Contains("local targetSpeed = 2.5", XDocument.Load(tablePaths[1]).Root!.Element("LuaScript")!.Value);
+        Assert.Empty(Directory.EnumerateFiles(_tempDirectory, "*.tmp"));
+    }
+
+    [Fact]
+    public void ApplySpeed_ConfigurationReadFails_LogsAndReturnsFalseWithoutLaunching()
+    {
+        var readFailure = new IOException("Configuration is temporarily unavailable.");
+        var configuration = new Mock<IGameConfiguration>();
+        configuration.Setup(provider => provider.Read()).Throws(readFailure);
+        var logger = new Mock<ILogger<CheatEngineSpeedController>>();
+        var launches = 0;
+        var controller = new CheatEngineSpeedController(configuration.Object, logger.Object,
+            _tempDirectory, _ => launches++);
+
+        Assert.False(controller.ApplySpeed(4321, 1.5));
+
+        Assert.Equal(0, launches);
+        Assert.False(Directory.Exists(_tempDirectory));
+        Assert.Contains(logger.Invocations, invocation =>
+            invocation.Method.Name == nameof(ILogger.Log)
+            && (LogLevel)invocation.Arguments[0] == LogLevel.Error
+            && ReferenceEquals(invocation.Arguments[3], readFailure));
     }
 
     [Fact]

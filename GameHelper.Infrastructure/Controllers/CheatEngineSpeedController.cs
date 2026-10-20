@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using System.Xml.Linq;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Utilities;
 using Microsoft.Extensions.Logging;
@@ -13,6 +14,15 @@ namespace GameHelper.Infrastructure.Controllers;
 /// </summary>
 public sealed class CheatEngineSpeedController : IGameSpeedController
 {
+    private static readonly Lazy<string> s_speedScript = new(() =>
+    {
+        using var stream = typeof(CheatEngineSpeedController).Assembly.GetManifestResourceStream(
+            "GameHelper.Infrastructure.Controllers.CheatEngineSpeed.lua") ??
+            throw new InvalidOperationException("The embedded Cheat Engine speed script is missing.");
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        return reader.ReadToEnd();
+    });
+
     private readonly IGameConfiguration _configuration;
     private readonly ILogger<CheatEngineSpeedController> _logger;
     private readonly string _tableDirectory;
@@ -51,27 +61,29 @@ public sealed class CheatEngineSpeedController : IGameSpeedController
             return false;
         }
 
-        var cheatEnginePath = _configuration.Read().CheatEngine?.Executable?.Trim();
-        if (string.IsNullOrWhiteSpace(cheatEnginePath))
-        {
-            _logger.LogWarning(
-                "Game speed {Speed} is configured, but cheatEngine.executable is missing",
-                speedMultiplier);
-            return false;
-        }
-
-        if (!Path.IsPathFullyQualified(cheatEnginePath) || !File.Exists(cheatEnginePath))
-        {
-            _logger.LogWarning("Cheat Engine executable was not found: {Path}", cheatEnginePath);
-            return false;
-        }
-
         try
         {
+            var cheatEnginePath = _configuration.Read().CheatEngine?.Executable?.Trim();
+            if (string.IsNullOrWhiteSpace(cheatEnginePath))
+            {
+                _logger.LogWarning(
+                    "Game speed {Speed} is configured, but cheatEngine.executable is missing",
+                    speedMultiplier);
+                return false;
+            }
+
+            if (!Path.IsPathFullyQualified(cheatEnginePath) || !File.Exists(cheatEnginePath))
+            {
+                _logger.LogWarning("Cheat Engine executable was not found: {Path}", cheatEnginePath);
+                return false;
+            }
+
             Directory.CreateDirectory(_tableDirectory);
             DeleteExpiredTables();
 
-            var tablePath = Path.Combine(_tableDirectory, $"speed-{processId}.ct");
+            // Each launch owns its input until CE has opened it, including repeat requests for
+            // the same PID after a GameHelper restart. Never overwrite another launch's table.
+            var tablePath = Path.Combine(_tableDirectory, $"speed-{processId}-{Guid.NewGuid():N}.ct");
             WriteTableAtomically(tablePath, processId, speedMultiplier);
 
             _launch(new ProcessStartInfo
@@ -109,77 +121,21 @@ public sealed class CheatEngineSpeedController : IGameSpeedController
     private static void WriteTableAtomically(string path, int processId, double speedMultiplier)
     {
         var speed = speedMultiplier.ToString("R", CultureInfo.InvariantCulture);
-        var xml = $$"""
-            <?xml version="1.0" encoding="utf-8"?>
-            <CheatTable CheatEngineTableVersion="45">
-              <CheatEntries />
-              <UserdefinedSymbols />
-              <LuaScript><![CDATA[
-            local targetPid = {{processId}}
-            local targetSpeed = {{speed}}
-            openProcess(targetPid)
-            -- Keep a duplicate of this process object: PID reuse and a GameHelper restart
-            -- must not change which game's exit owns this CE instance.
-            local openedHandle = getOpenedProcessHandle()
-            local cePid = getCheatEngineProcessID()
-            local watchHandle = duplicateHandle(openedHandle, cePid, cePid)
-            if watchHandle and watchHandle ~= 0 then
-              local exitTimer = createTimer(getMainForm(), false)
-              exitTimer.Interval = 500
-              local function stopWatching()
-                exitTimer.Enabled = false
-                exitTimer.destroy()
-                executeCodeLocalEx('kernel32.CloseHandle', watchHandle)
-              end
-              exitTimer.OnTimer = function()
-                -- A user taking this CE instance over for another target cancels ownership.
-                if getOpenedProcessID() ~= targetPid or getOpenedProcessHandle() ~= openedHandle then
-                  stopWatching()
-                  return
-                end
-                local state = executeCodeLocalEx('kernel32.WaitForSingleObject', watchHandle, 0)
-                if state == 0 then
-                  stopWatching()
-                  closeCE()
-                elseif state ~= 258 then -- WAIT_TIMEOUT is the only still-running result.
-                  stopWatching()
-                  print('GameHelper: stopped exit watcher because the process wait failed')
-                end
-              end
-              exitTimer.Enabled = true
-            else
-              print('GameHelper: could not watch the game process for automatic CE cleanup')
-            end
-            speedhack_setSpeed(targetSpeed)
-            -- SpeedhackV3 reuses a game's existing Unity hook without restoring this CE
-            -- instance's setter. Its requested speed changes, but the live timeScale can stay 1.
-            if getAddressSafe('set_timeScaleEntryHook') ~= nil
-                and UnityEngineTimeSetTimeScaleMethod == nil then
-              assert(LaunchMonoDataCollector(), 'GameHelper: cannot reconnect to the Unity speed hook')
-              local timeClass = mono_findClass('UnityEngine', 'Time')
-              assert(timeClass and timeClass ~= 0, 'GameHelper: Unity Time class unavailable')
-              local getter = mono_class_findMethod(timeClass, 'get_timeScale')
-              local setter = mono_class_findMethod(timeClass, 'set_timeScale')
-              assert(getter and getter ~= 0 and setter and setter ~= 0,
-                'GameHelper: Unity timeScale methods unavailable')
-              local currentScale = mono_invoke_method(nil, getter, nil, {})
-              assert(type(currentScale) == 'number', 'GameHelper: Unity timeScale is unreadable')
-              if currentScale > 0 then
-                local mode = readInteger('speedhack_unityspeedhackmethod')
-                assert(mode == 0 or mode == 1, 'GameHelper: unknown Unity speed hook mode')
-                -- Multiplicative hooks already multiply by targetSpeed; passing targetSpeed
-                -- again would produce 2.25 at 1.5x. Zero remains paused until the game resumes.
-                mono_invoke_method(nil, setter, nil, {mode == 1 and 1 or targetSpeed})
-              end
-            end
-            ]]></LuaScript>
-            </CheatTable>
-            """;
+        var lua = $"local targetPid = {processId.ToString(CultureInfo.InvariantCulture)}\n" +
+            $"local targetSpeed = {speed}\n" + s_speedScript.Value;
+        var document = new XDocument(new XDeclaration("1.0", "utf-8", null),
+            new XElement("CheatTable", new XAttribute("CheatEngineTableVersion", 45),
+                new XElement("CheatEntries"),
+                new XElement("UserdefinedSymbols"),
+                new XElement("LuaScript", new XCData(lua))));
 
         var tempPath = path + ".tmp";
         try
         {
-            File.WriteAllText(tempPath, xml, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            using (var writer = new StreamWriter(tempPath, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+            {
+                document.Save(writer);
+            }
             File.Move(tempPath, path, overwrite: true);
         }
         finally
