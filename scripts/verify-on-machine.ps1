@@ -1,4 +1,4 @@
-# GameHelper 实机验证 workflow（开发完成后执行）
+﻿# GameHelper 实机验证 workflow（开发完成后执行）
 #
 # 前置条件：
 #   - 默认保留运行中的实例；-Restart 只停止能确认来自目标发布目录的实例。
