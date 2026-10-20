@@ -19,9 +19,9 @@ GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、
 - .NET 8 SDK（当前仓库通过 `global.json` 锁定 `8.0.417`，允许 `latestPatch` 滚动）
 - 使用 Cheat Engine 变速时需本机安装 Cheat Engine（仅离线单机游戏）
 
-### 窗口宿主（Windows Terminal）
+### 启动窗口与焦点
 
-启动时会检查交互窗口是否由 Windows Terminal 托管：如果不在（例如开机自启或双击快捷方式回落到经典 conhost），程序会用 `wt.exe` 把窗口搬进 Windows Terminal，再让原进程退出，因此字体、边框与控制台特性保持一致。转移只在真正的交互式控制台里发生——沙盒测试实例（`GAMEHELPER_DATA_DIR`）、被重定向的管道、附加调试器、已有实例在运行时都会保持原宿主。设置 `GAMEHELPER_DISABLE_TERMINAL_RELAUNCH=1` 可关闭。自启动就是把可执行文件写进 Run 键，与手动双击同一条路径；曾试过的"`start /min` 零焦点 + 还原后再延迟接管"因复杂度远高于收益已移除，代价是自启动时窗口会正常出现在前台。详见[启动窗口宿主](docs/guides/terminal-host.md)。
+发布目录提供 `GameHelper.Launcher.exe`：开机自启、已有桌面快捷方式和部署后重启均使用这个入口，显示正常大小的交互窗口，同时保留当前游戏或编辑器的焦点。它先以不激活方式创建控制台，再在初始化就绪后显示，不进行 Windows Terminal 二次开窗。直接运行 `GameHelper.ConsoleHost.exe`、`dotnet run` 的 CLI 用法保持可用；主动从终端启动时沿用原宿主规则。详见[启动窗口宿主](docs/guides/terminal-host.md)。
 
 ### 常用 CLI 命令
 
@@ -120,6 +120,8 @@ dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release
 
 在 `config.yml` 添加 `monitorMode: { enabled: true }` 后，GameHelper 通过 DDC/CI 直接切换显示器预设档位：白天打游戏切游戏模式（如 Dell Game），白天不玩、特别是日落后统一切护眼模式（如 Dell ComfortView）。日照窗口默认按固定时间（07:00–18:30）判定，配置经纬度则逐日按日出日落实时判定，也可以 `location: auto` 让 Windows 定位自动提供坐标（一次定位本地缓存，无第三方网络请求；需系统"定位"开关开启，拿不到就自动回落固定时间窗）。默认关闭；默认配方针对 Dell U2720QM 实测定标，其他显示器可覆盖。热重载可用，无需重启。详情见[显示器预设切换指南](docs/guides/monitor-mode.md)。
 
+U2720QM 默认护眼配方改为单笔 `F0=0x0C`，固件联动完成 `DC=00 / E2=1D / F0=0C`，从游戏模式直接进入护眼；自定义配方仍按原顺序写入。`SetVCPFeature` 每次只写一个码，没有多码原子事务。
+
 显示器每 10 秒仍会检查连接状态；连接提示仅在启动、断开或恢复时输出，持续在线不会反复刷“恢复可用”日志。
 
 ### 更新重启不断计时（会话跨重启续算）
@@ -159,6 +161,10 @@ games:
 - `startup.autoStartMonitor`：交互模式启动后是否自动进入实时监控。
 - `startup.launchOnStartup`：是否随系统启动 GameHelper。
 - `sync`：统计推送到 GitHub 的配置（省略整段表示未配置；完整字段见 `docs/guides/sync.md`）。
+
+ETW 启动后会补扫已经运行的配置内游戏，因此先开游戏、再开 GameHelper 也会应用倍速并开始计时；没有恢复快照时从接管时刻计时，已有快照则保留原起点。
+
+Unity 游戏重复附加时会重新连接已有 CE 钩子并刷新实际速度，保留暂停状态，避免配置 1.5 倍在重启后只改目标变量或重复相乘。
 
 首次使用倍速前，需要在 Cheat Engine 的设置中允许受信任表执行 Lua；否则 CE 会在每次加载 GameHelper 生成的表时询问。完整说明与注意事项见 [游戏倍速配置](docs/guides/game-speed.md)。该功能只适合离线单机游戏，不要用于联网或带反作弊的游戏。
 

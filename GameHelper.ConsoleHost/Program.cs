@@ -63,6 +63,20 @@ try
 
     CommandHelpers.PrintBuildInfo(parsedArgs.EnableDebug);
 
+    // The passive GUI launcher shows this console without activation after initialization.
+    var launchReadyEvent = Environment.GetEnvironmentVariable("GAMEHELPER_LAUNCH_READY_EVENT");
+    if (!string.IsNullOrWhiteSpace(launchReadyEvent))
+    {
+        try
+        {
+            using var ready = EventWaitHandle.OpenExisting(launchReadyEvent);
+            ready.Set();
+        }
+        catch (WaitHandleCannotBeOpenedException) { }
+        catch (UnauthorizedAccessException) { }
+        Environment.SetEnvironmentVariable("GAMEHELPER_LAUNCH_READY_EVENT", null);
+    }
+
     try
     {
         var persistentHost = !isFileDropRequest && (parsedArgs.UseInteractiveShell || parsedArgs.EffectiveArgs.Length == 0

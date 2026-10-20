@@ -22,4 +22,17 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <Target Name="PublishPassiveLauncher" AfterTargets="Publish">
+    <PropertyGroup>
+      <LauncherPublishDir>$(MSBuildProjectDirectory)\obj\launcher-publish\$(Configuration)\$(RuntimeIdentifier)\</LauncherPublishDir>
+    </PropertyGroup>
+    <MSBuild Projects="..\GameHelper.Launcher\GameHelper.Launcher.csproj" Targets="Restore;Publish"
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(LauncherPublishDir)" />
+    <ItemGroup>
+      <LauncherFiles Include="$(LauncherPublishDir)GameHelper.Launcher.exe;$(LauncherPublishDir)GameHelper.Launcher.dll;$(LauncherPublishDir)GameHelper.Launcher.deps.json;$(LauncherPublishDir)GameHelper.Launcher.runtimeconfig.json" />
+    </ItemGroup>
+    <!-- ConsoleHost owns the shared runtime. Copy only launcher-specific files into staging. -->
+    <Copy SourceFiles="@(LauncherFiles)" DestinationFolder="$(PublishDir)" />
+  </Target>
+
 </Project>

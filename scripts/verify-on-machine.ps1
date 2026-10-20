@@ -81,12 +81,16 @@ function Start-CheckedInstance([string] $Directory, [ref] $StartedProcess,
     [string] $ConsoleProbeScript = (Join-Path $PSScriptRoot 'probe-console-window.ps1')) {
     # This is the user's interactive console, which must remain visible after deployment.
     $exePath = Join-Path $Directory "GameHelper.ConsoleHost.exe"
+    $launcherPath = Join-Path $Directory "GameHelper.Launcher.exe"
+    $usingLauncher = Test-Path -LiteralPath $launcherPath
+    $launchPath = if ($usingLauncher) { $launcherPath } else { $exePath }
     $launchedAt = (Get-Date).AddSeconds(-1)
-    $instance = Start-Process -FilePath $exePath `
+    $instance = Start-Process -FilePath $launchPath `
         -WorkingDirectory $Directory -WindowStyle Normal -PassThru
+    $launcher = if ($usingLauncher) { $instance } else { $null }
     Start-Sleep -Seconds 2
     $instance.Refresh()
-    if ($instance.HasExited) {
+    if ($usingLauncher -or $instance.HasExited) {
         # 宿主转移到 Windows Terminal 时先拉起的进程会立刻退出：按"同路径 + 启动时间"接管
         # 随后出现的真实交互实例，后续可见性探测针对新 PID 进行。
         $deadline = (Get-Date).AddSeconds(20)
@@ -98,11 +102,16 @@ function Start-CheckedInstance([string] $Directory, [ref] $StartedProcess,
             } | Sort-Object StartTime -Descending | Select-Object -First 1
         }
         if ($null -eq $instance) {
-            throw "GameHelper exited immediately after launch and no Windows Terminal instance appeared; check its logs."
+            throw "No ConsoleHost appeared after launch; check its logs."
         }
-        Write-Host "Console host transferred to Windows Terminal (PID $($instance.Id))."
+        Write-Host "Interactive ConsoleHost identified (PID $($instance.Id))."
     }
     $StartedProcess.Value = $instance
+    if ($null -ne $launcher) {
+        # Record the business PID first so rollback can stop it even if the GUI launch fails.
+        if (-not $launcher.WaitForExit(12000)) { throw "Passive launcher did not finish displaying ConsoleHost in time." }
+        if ($launcher.ExitCode -ne 0) { throw "Passive launcher failed (exit $($launcher.ExitCode))." }
+    }
     Start-Sleep -Seconds 5
     $instance.Refresh()
     if ($instance.HasExited) {
@@ -283,6 +292,26 @@ try {
         Write-Host "New GameHelper instance is running (PID $($relaunched.Id))."
     }
     $deployed = $true
+
+    # Keep existing desktop entry points on the passive launcher; leave unrelated shortcuts alone.
+    $launcherExe = Join-Path $publishDir 'GameHelper.Launcher.exe'
+    if (Test-Path -LiteralPath $launcherExe) {
+        try {
+            $shortcutShell = New-Object -ComObject WScript.Shell
+            foreach ($desktop in @([Environment]::GetFolderPath('DesktopDirectory'), [Environment]::GetFolderPath('CommonDesktopDirectory')) | Select-Object -Unique) {
+                foreach ($shortcutFile in Get-ChildItem -LiteralPath $desktop -Filter '*.lnk' -ErrorAction SilentlyContinue) {
+                    $shortcut = $shortcutShell.CreateShortcut($shortcutFile.FullName)
+                    if ($shortcut.TargetPath -eq (Join-Path $publishDir $exeName)) {
+                        if ([string]::IsNullOrWhiteSpace($shortcut.IconLocation)) { $shortcut.IconLocation = (Join-Path $publishDir $exeName) + ',0' }
+                        $shortcut.TargetPath = $launcherExe
+                        $shortcut.Save()
+                        Write-Host "Updated passive desktop entry: $($shortcutFile.Name)"
+                    }
+                }
+            }
+        }
+        catch { Write-Warning "Deployment passed, but a desktop shortcut could not be updated: $_" }
+    }
 
     # Keep the backup until startup has passed. Cleanup failure is harmless after a
     # successful deploy and must not trigger rollback of a running new instance.

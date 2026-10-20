@@ -77,7 +77,7 @@ powershell -File scripts\verify-on-machine.ps1
 powershell -File scripts\verify-on-machine.ps1 -SkipVerify
 ```
 
-   - `-SkipVerify -Restart`（常驻直接更新策略的标准收尾命令）：按进程路径判定运行实例 → `Stop-Process -Force` 结束 → 只清理属主 PID 确认已退出的新版 ETW 会话 → 原子换入 → 从发布目录以正常窗口重启（不经管道 stdout），5 秒后确认新 PID 存活，并附着其控制台核验窗口可见；无旧实例时也启动确认。旧产物保留至新实例确认可见，启动失败会恢复旧目录并重新启动旧实例。无法读取实例路径时保守中止，保留新产物，不强杀未知实例。在途会话由跨重启续算机制接续。
+   - `-SkipVerify -Restart`（常驻直接更新策略的标准收尾命令）：按进程路径判定运行实例 → `Stop-Process -Force` 结束 → 只清理属主 PID 确认已退出的新版 ETW 会话 → 原子换入 → 从发布目录的 GUI Launcher 启动，初始化后不激活地显示正常窗口（不经管道 stdout），5 秒后确认新 PID 存活，并附着其控制台核验窗口可见；无旧实例时也启动确认。旧产物保留至新实例确认可见，启动失败会恢复旧目录并重新启动旧实例。无法读取实例路径时保守中止，保留新产物，不强杀未知实例。在途会话由跨重启续算机制接续。
 
 > 注意：禁止逐文件覆盖发布目录——framework-dependent 产物覆盖 self-contained 布局（或反之）会混装运行时文件，导致下一次启动报 "No frameworks were found"。锁定检测不能只用目录探针：运行实例锁的是 exe/dll 文件本身，目录仍可写。
 >
@@ -147,3 +147,7 @@ Remove-Item Env:GAMEHELPER_TEST_PUBLISH_EXE
 
 - 用沙盒数据目录 + `--config` 参数或预置 `playtime.csv` 驱动真实渲染路径，人工确认输出版面。
 - 保留或新增对应的自动化测试断言，确保后续回归有安全网。
+
+### 不抢焦点的启动入口
+
+发布时同时构建 GameHelper.Launcher.exe；部署重启优先调用该入口，再按同路径和启动时间确认真实 ConsoleHost PID。窗口探针仍须可见，发布测试另断言未最小化与未激活。部署成功后迁移本发布目录已有的桌面快捷方式到 Launcher，开机 Run 注册由 ConsoleHost 同步到 Launcher。直接启动 ConsoleHost 的 CLI 入口仍可用。
