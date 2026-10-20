@@ -362,6 +362,35 @@ public sealed class GameAutomationService : IGameAutomationService
             gamePath));
     }
 
+    /// <summary>
+    /// 接管会话时补应用变速。游戏进程在重启前就一直跑着，mod loader 早已完成引导，
+    /// 因此仍走 <see cref="ApplyConfiguredSpeed"/>（会命中已存在的 Chainloader 标记或按策略立即附加）。
+    /// </summary>
+    private void ApplyRecoveredSpeed(InFlightSession session)
+    {
+        try
+        {
+            var config = _gameConfiguration.Read().Games.FirstOrDefault(game =>
+                string.Equals(game.DataKey, session.DataKey, StringComparison.OrdinalIgnoreCase));
+            if (config is null || !config.SpeedMultiplier.HasValue)
+            {
+                return;
+            }
+
+            _logger.LogInformation(
+                "Re-applying configured speed {Speed} for the resumed session {DataKey} (PID {ProcessId}).",
+                config.SpeedMultiplier.Value,
+                session.DataKey,
+                session.ProcessId);
+
+            ApplyConfiguredSpeed(config, session.ProcessId, session.NormalizedPath, session.ProcessStartedAtUtc);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to re-apply speed for the recovered session {DataKey}.", session.DataKey);
+        }
+    }
+
     private static bool IsImmediateSpeedAttach(GameConfig config) =>
         string.Equals(config.SpeedAttach?.Trim(), GameConfig.SpeedAttachPolicyImmediate, StringComparison.OrdinalIgnoreCase);
 
@@ -807,6 +836,10 @@ public sealed class GameAutomationService : IGameAutomationService
                         dataKey,
                         startedAt,
                         liveSessions.Count);
+
+                    // 变速挂在被注入的游戏进程上：GameHelper 重启（部署/崩溃）后就没了，
+                    // 只在 START 事件里应用会让"重启后仍在跑的这一局"永远没有倍速。
+                    ApplyRecoveredSpeed(liveSessions[0]);
                 }
                 catch (Exception ex)
                 {
