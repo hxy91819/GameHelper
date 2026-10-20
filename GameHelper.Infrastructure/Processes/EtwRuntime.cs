@@ -6,6 +6,7 @@ using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Session;
 using Microsoft.Extensions.Logging;
+using GameHelper.Core.Abstractions;
 
 namespace GameHelper.Infrastructure.Processes;
 
@@ -40,6 +41,30 @@ internal sealed class EtwRuntime(ILogger<EtwProcessMonitor>? logger) : IEtwRunti
             logger?.LogDebug(ex, "Unable to inspect identity of PID {ProcessId}", processId);
             return new(false, null);
         }
+    }
+
+    public IReadOnlyList<EtwProcessEvent> CaptureExistingProcesses(ProcessObservationPolicy policy)
+    {
+        var result = new List<EtwProcessEvent>();
+        foreach (var process in Process.GetProcesses())
+        {
+            using (process)
+            {
+                try
+                {
+                    var name = process.ProcessName + ".exe";
+                    if (!policy.Includes(name)) continue;
+                    var path = process.MainModule?.FileName;
+                    if (process.HasExited) continue;
+                    result.Add(new(new ProcessEventInfo(name, path, process.Id), DateTime.UtcNow));
+                }
+                catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
+                {
+                    logger?.LogDebug(ex, "Cannot capture running process {ProcessId}", process.Id);
+                }
+            }
+        }
+        return result;
     }
 
     public Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken) => Task.Delay(delay, cancellationToken);

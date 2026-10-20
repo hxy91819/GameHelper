@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Xml.Linq;
+using System.Globalization;
+using System.Text;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Controllers;
@@ -16,6 +18,82 @@ public sealed class CheatEngineSpeedControllerTests : IDisposable
         Guid.NewGuid().ToString("N"));
 
     private ProcessStartInfo? launchInfo;
+
+    [Theory]
+    [InlineData(1.0, 1, true, 1.5)]
+    [InlineData(1.0, 0, true, 1.5)]
+    [InlineData(0.0, 1, true, 0.0)]
+    [InlineData(1.0, 1, false, 1.0)]
+    public async Task GeneratedLua_ReusedUnityHook_RefreshesActiveScaleAndPreservesPauseAsync(
+        double initialScale, int method, bool unityHook, double expectedScale)
+    {
+        // Opt-in Lua execution against CE itself, with all target-process APIs stubbed: no game is opened.
+        var executable = Environment.GetEnvironmentVariable("GAMEHELPER_TEST_CHEAT_ENGINE_EXE");
+        if (string.IsNullOrWhiteSpace(executable)) return;
+        Assert.True(File.Exists(executable));
+        var configuration = new Mock<IGameConfiguration>();
+        configuration.Setup(c => c.Read()).Returns(new AppConfig
+        {
+            CheatEngine = new CheatEngineSettings { Executable = executable }
+        });
+        var controller = new CheatEngineSpeedController(configuration.Object,
+            NullLogger<CheatEngineSpeedController>.Instance, _tempDirectory, _ => { });
+        Assert.True(controller.ApplySpeed(4321, 1.5));
+        var generated = XDocument.Load(Path.Combine(_tempDirectory, "speed-4321.ct")).Root!.Element("LuaScript")!.Value;
+        var resultPath = Path.Combine(_tempDirectory, "lua-result.txt");
+        var script = $$"""
+            local scale = {{initialScale.ToString("R", CultureInfo.InvariantCulture)}}
+            local wanted = 1
+            local mode = {{method}}
+            local unity = {{unityHook.ToString().ToLowerInvariant()}}
+            local sandbox = {
+              openProcess = function(pid) assert(pid == 4321) end,
+              speedhack_setSpeed = function(speed) wanted = speed end,
+              getAddressSafe = function(name) if unity then return 1 else return nil end end,
+              readInteger = function(address) return mode end,
+              LaunchMonoDataCollector = function() return true end,
+              mono_findClass = function(ns, name) return 1 end,
+              mono_class_findMethod = function(class, name) return name end,
+              mono_invoke_method = function(domain, name, object, values)
+                if name == 'get_timeScale' then return scale end
+                assert(name == 'set_timeScale')
+                scale = mode == 1 and values[1] * wanted or values[1]
+              end
+            }
+            setmetatable(sandbox, {__index = _G})
+            local ok, err = pcall(function()
+              assert(load([====[{{generated}}]====], 'generated speed table', 't', sandbox))()
+              assert(math.abs(wanted - 1.5) < 0.0001, 'speed request lost')
+              assert(math.abs(scale - {{expectedScale.ToString("R", CultureInfo.InvariantCulture)}}) < 0.0001,
+                'Unity scale is ' .. tostring(scale))
+            end)
+            local f = assert(io.open([====[{{resultPath}}]====], 'w'))
+            f:write(ok and 'PASS' or tostring(err))
+            f:close()
+            """;
+        var fixture = Path.Combine(_tempDirectory, "lua-test.ct");
+        var document = new XDocument(new XDeclaration("1.0", "utf-8", null),
+            new XElement("CheatTable", new XAttribute("CheatEngineTableVersion", 45),
+                new XElement("CheatEntries"), new XElement("LuaScript", new XCData(script))));
+        using (var writer = new StreamWriter(fixture, false, new UTF8Encoding(false))) document.Save(writer);
+        using var process = Process.Start(new ProcessStartInfo(executable)
+        {
+            Arguments = $"\"{fixture}\"", UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden,
+            WorkingDirectory = Path.GetDirectoryName(executable)
+        })!;
+        try
+        {
+            var deadline = Stopwatch.StartNew();
+            while (!File.Exists(resultPath) && !process.HasExited && deadline.Elapsed < TimeSpan.FromSeconds(20))
+                await Task.Delay(50);
+            Assert.True(File.Exists(resultPath), "Cheat Engine did not execute the isolated Lua fixture.");
+            Assert.Equal("PASS", File.ReadAllText(resultPath));
+        }
+        finally
+        {
+            if (!process.HasExited) { process.Kill(); await process.WaitForExitAsync(); }
+        }
+    }
 
     [Fact]
     public void ApplySpeed_GeneratesTableForPidAndLaunchesConfiguredCheatEngine()
@@ -41,6 +119,8 @@ public sealed class CheatEngineSpeedControllerTests : IDisposable
         Assert.NotNull(launchInfo);
         Assert.Equal(cheatEnginePath, launchInfo!.FileName);
         var tablePath = launchInfo.Arguments.Trim('"');
+        // CE checks the first five bytes for <?XML; a UTF-8 BOM is misread as a compressed trainer.
+        Assert.Equal("<?xml", System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(tablePath), 0, 5));
         Assert.Equal(Path.Combine(tableDirectory, "speed-4321.ct"), tablePath);
         var document = XDocument.Load(tablePath);
         var lua = document.Root?.Element("LuaScript")?.Value;

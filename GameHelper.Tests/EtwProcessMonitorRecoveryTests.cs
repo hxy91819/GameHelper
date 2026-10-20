@@ -13,6 +13,49 @@ public sealed class EtwProcessMonitorRecoveryTests
     private static readonly DateTime StartTime = new(2026, 9, 6, 12, 0, 0, DateTimeKind.Utc);
 
     [Fact]
+    public void Start_GameAlreadyRunningWithoutSnapshot_AppliesSpeedAndTracksExitOnce()
+    {
+        var runtime = new FakeRuntime();
+        runtime.ExistingProcesses.Add(new(new ProcessEventInfo("game.exe", null, 100), StartTime));
+        using var monitor = new EtwProcessMonitor(runtime, timeProvider: new ManualClock());
+        var configuration = new Mock<IGameConfiguration>();
+        configuration.Setup(c => c.Read()).Returns(new AppConfig
+        {
+            Games = new() { new GameConfig { DataKey = "game", Executable = "game.exe", IsEnabled = true, SpeedMultiplier = 1.5 } }
+        });
+        var speed = new Mock<IGameSpeedController>();
+        var playtime = new Mock<IPlayTimeService>();
+        var automation = new GameAutomationService(monitor, configuration.Object, Mock.Of<IHdrController>(),
+            playtime.Object, NullLogger<GameAutomationService>.Instance, speedController: speed.Object);
+        var control = new MonitorControlService(monitor, automation);
+        try
+        {
+            control.Start();
+            speed.Verify(s => s.ApplySpeed(100, 1.5), Times.Once);
+            runtime.Sessions.Single().StartProcess(100); // The queued live start belongs to the same launch.
+            speed.Verify(s => s.ApplySpeed(100, 1.5), Times.Once);
+            playtime.Verify(p => p.StartTracking("game"), Times.Once);
+            runtime.Sessions.Single().StopProcess(100);
+            playtime.Verify(p => p.StopTracking("game"), Times.Once);
+        }
+        finally { control.Stop(); }
+    }
+
+    [Fact]
+    public void Start_ExistingProcessAlreadyAdopted_DoesNotEmitAnotherStart()
+    {
+        var runtime = new FakeRuntime();
+        var info = new ProcessEventInfo("game.exe", null, 100);
+        runtime.ExistingProcesses.Add(new(info, StartTime.AddSeconds(10)));
+        using var monitor = new EtwProcessMonitor(runtime, timeProvider: new ManualClock());
+        var starts = new List<ProcessEventInfo>();
+        monitor.ProcessStarted += starts.Add;
+        monitor.AssumeRunning(info, StartTime);
+        monitor.Start();
+        Assert.Empty(starts);
+    }
+
+    [Fact]
     public async Task HealthCheck_ReaderDiesWithoutCompletionCallback_Recovers()
     {
         var runtime = new FakeRuntime { HoldRecovery = false };
@@ -276,6 +319,8 @@ public sealed class EtwProcessMonitorRecoveryTests
 
     private sealed class FakeRuntime : IEtwRuntime
     {
+        public List<EtwProcessEvent> ExistingProcesses { get; } = new();
+        public IReadOnlyList<EtwProcessEvent> CaptureExistingProcesses(GameHelper.Core.Abstractions.ProcessObservationPolicy policy) => ExistingProcesses;
         public ConcurrentQueue<FakeSession> Sessions { get; } = new();
         public ConcurrentDictionary<int, ProcessProbe> Processes { get; } = new();
         public TaskCompletionSource DelayEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

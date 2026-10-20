@@ -1,4 +1,5 @@
 using GameHelper.Core.Models;
+using GameHelper.Core.Abstractions;
 
 namespace GameHelper.Infrastructure.Processes;
 
@@ -10,6 +11,7 @@ internal interface IEtwRuntime
     IReadOnlyCollection<string> GetActiveSessionNames();
     void StopSession(string name);
     ProcessProbe InspectProcess(int processId);
+    IReadOnlyList<EtwProcessEvent> CaptureExistingProcesses(ProcessObservationPolicy policy) => Array.Empty<EtwProcessEvent>();
     Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken);
 }
 

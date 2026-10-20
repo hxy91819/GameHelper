@@ -57,3 +57,15 @@ Cheat Engine 与 GameHelper 应以足以访问目标游戏的相同或更高权�
 ## 安全边界
 
 该功能用于离线单机游戏或自研程序。不要对联网游戏或启用了 EAC、BattlEye、ACE 等反作弊系统的游戏配置 `speed`；这可能违反游戏协议并造成封禁。
+
+## 游戏先于监控启动
+
+ETW 建立会话后会按配置中的进程名补扫已运行游戏，沿用完整路径匹配与 mod loader 附加门控。已有在途快照的进程不会重复接管；没有快照时从本次接管开始计时，并应用 speed。后续排队的同次启动事件不会重复附加。
+
+诊断 CE 表必须用无 BOM UTF-8，并以 <?xml 开头；CE 会把带 BOM 的 .ct 错认成压缩 trainer，报 data error。项目生成器已保持这个格式。
+
+## Unity 游戏重复附加
+
+CE 7.7 的 SpeedhackV3 会复用游戏中已存在的 Unity 钩子，但新 CE 实例不会自动恢复 set_timeScale 方法句柄。GameHelper 在这个分支重新连接 Unity 元数据并刷新当前正数 timeScale；暂停的 0 不会被主动恢复。乘法钩子传入基准 1，再由钩子乘配置倍速，避免 1.5 被重复乘成 2.25。普通时钟钩子及首次附加继续沿用 CE 原路径。
+
+可设置 GAMEHELPER_TEST_CHEAT_ENGINE_EXE 指向本机 CE，运行 dotnet test GameHelper.sln --filter FullyQualifiedName~GeneratedLua_ReusedUnityHook。测试在 CE 自身 Lua 中执行真实生成脚本，但用隔离的进程 API 桩模拟重附加，不打开任何游戏。覆盖乘法/替换钩子、暂停与普通时钟路径。

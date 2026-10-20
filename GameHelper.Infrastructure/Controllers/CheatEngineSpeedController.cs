@@ -119,6 +119,27 @@ public sealed class CheatEngineSpeedController : IGameSpeedController
             local targetSpeed = {{speed}}
             openProcess(targetPid)
             speedhack_setSpeed(targetSpeed)
+            -- SpeedhackV3 reuses a game's existing Unity hook without restoring this CE
+            -- instance's setter. Its requested speed changes, but the live timeScale can stay 1.
+            if getAddressSafe('set_timeScaleEntryHook') ~= nil
+                and UnityEngineTimeSetTimeScaleMethod == nil then
+              assert(LaunchMonoDataCollector(), 'GameHelper: cannot reconnect to the Unity speed hook')
+              local timeClass = mono_findClass('UnityEngine', 'Time')
+              assert(timeClass and timeClass ~= 0, 'GameHelper: Unity Time class unavailable')
+              local getter = mono_class_findMethod(timeClass, 'get_timeScale')
+              local setter = mono_class_findMethod(timeClass, 'set_timeScale')
+              assert(getter and getter ~= 0 and setter and setter ~= 0,
+                'GameHelper: Unity timeScale methods unavailable')
+              local currentScale = mono_invoke_method(nil, getter, nil, {})
+              assert(type(currentScale) == 'number', 'GameHelper: Unity timeScale is unreadable')
+              if currentScale > 0 then
+                local mode = readInteger('speedhack_unityspeedhackmethod')
+                assert(mode == 0 or mode == 1, 'GameHelper: unknown Unity speed hook mode')
+                -- Multiplicative hooks already multiply by targetSpeed; passing targetSpeed
+                -- again would produce 2.25 at 1.5x. Zero remains paused until the game resumes.
+                mono_invoke_method(nil, setter, nil, {mode == 1 and 1 or targetSpeed})
+              end
+            end
             ]]></LuaScript>
             </CheatTable>
             """;

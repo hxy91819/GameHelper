@@ -82,6 +82,20 @@ public sealed class EtwProcessMonitor : IProcessMonitor
                 }
                 _healthCheckTimer = _timeProvider.CreateTimer(_ => CheckSessionHealth(generation), null,
                     TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+                // Subscribe first, then capture: a game starting during enumeration is queued by ETW.
+                // Restored identities and already delivered live starts must retain their original session.
+                try
+                {
+                    foreach (var existing in _runtime.CaptureExistingProcesses(CurrentPolicy))
+                    {
+                        if (existing.Info.ProcessId is int pid && !_observedProcesses.ContainsKey(pid))
+                            OnProcessStart(existing);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Could not finish discovering games already running; live ETW monitoring remains active");
+                }
                 _logger?.LogInformation("ETW process monitor started successfully");
             }
             catch (Exception ex)
