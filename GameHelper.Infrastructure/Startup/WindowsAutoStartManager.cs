@@ -13,8 +13,6 @@ namespace GameHelper.Infrastructure.Startup
     public sealed class WindowsAutoStartManager : IAutoStartManager
     {
         private const string RunKeyPath = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-        internal const string BackgroundArgument = "--minimized";
-        private const string BackgroundLaunchPrefix = "cmd.exe /c start \"\" /min ";
 
         private readonly ILogger<WindowsAutoStartManager> _logger;
         private readonly string _appName;
@@ -99,23 +97,41 @@ namespace GameHelper.Infrastructure.Startup
             }
         }
 
-        /// <summary>
-        /// 期望的注册值：经 cmd 的 start /min 拉起，可执行文件 + --minimized。
-        /// start /min 用 SW_SHOWMINNOACTIVE 创建控制台，开机时连一次前台激活都不会发生；
-        /// 直接把 exe 写进 Run 键会被资源管理器以正常窗口激活，无法做到零焦点。
-        /// </summary>
-        private string BuildRegistrationValue() => $"{BackgroundLaunchPrefix}{QuotePath(_executablePath)} {BackgroundArgument}";
+        private string BuildRegistrationValue() => QuotePath(_executablePath);
 
         private bool IsCurrentRegistration(string? value) => IsRegistrationFor(value, _executablePath);
 
-        /// <summary>判断注册值是否是"用 start /min 拉起指定可执行文件"的目标形态。</summary>
+        /// <summary>判断注册值是否指向指定可执行文件（允许引号与历史遗留的启动参数）。</summary>
         internal static bool IsRegistrationFor(string? commandLine, string executablePath)
-            => !string.IsNullOrWhiteSpace(commandLine)
-                && commandLine.StartsWith(BackgroundLaunchPrefix, StringComparison.OrdinalIgnoreCase)
-                && commandLine.Contains(executablePath, StringComparison.OrdinalIgnoreCase);
+        {
+            if (string.IsNullOrWhiteSpace(commandLine) || string.IsNullOrWhiteSpace(executablePath))
+            {
+                return false;
+            }
 
-        internal static bool HasBackgroundArgument(string commandLine)
-            => commandLine.Contains(BackgroundArgument, StringComparison.OrdinalIgnoreCase);
+            var trimmed = commandLine.Trim();
+            if (trimmed.StartsWith('"'))
+            {
+                var closing = trimmed.IndexOf('"', 1);
+                if (closing > 0)
+                {
+                    trimmed = trimmed[1..closing];
+                }
+            }
+            else
+            {
+                var space = trimmed.IndexOf(' ');
+                if (space > 0)
+                {
+                    trimmed = trimmed[..space];
+                }
+            }
+
+            return string.Equals(
+                NormalizePath(trimmed),
+                NormalizePath(executablePath),
+                StringComparison.OrdinalIgnoreCase);
+        }
 
         private static string ResolveExecutablePath()
         {

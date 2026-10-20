@@ -17,9 +17,6 @@ namespace GameHelper.ConsoleHost.Utilities
         /// <summary>重新拉起时附加的标记参数，保证同一条启动链最多转移一次宿主。</summary>
         internal const string RelaunchedArgument = "--in-windows-terminal";
 
-        /// <summary>后台启动参数：启动后收进任务栏，并在窗口还原时才接管宿主。</summary>
-        internal const string MinimizedArgument = "--minimized";
-
         /// <summary>设置该环境变量（1/true）可关闭自动转移宿主。</summary>
         internal const string DisableEnvironmentVariable = "GAMEHELPER_DISABLE_TERMINAL_RELAUNCH";
 
@@ -30,9 +27,6 @@ namespace GameHelper.ConsoleHost.Utilities
         private const uint GaRootOwner = 3;
         private static readonly TimeSpan RelaunchConfirmationTimeout = TimeSpan.FromSeconds(6);
         private static readonly TimeSpan RelaunchConfirmationPollInterval = TimeSpan.FromMilliseconds(250);
-        private static readonly TimeSpan RestorePollInterval = TimeSpan.FromMilliseconds(400);
-        private static readonly TimeSpan StartupGracePeriod = TimeSpan.FromSeconds(30);
-        private const int RestoreConfirmedPolls = 5;
 
         /// <summary>
         /// 检测当前控制台宿主，必要时用 Windows Terminal 重新拉起自身。
@@ -81,70 +75,6 @@ namespace GameHelper.ConsoleHost.Utilities
                 Console.WriteLine($"Failed to relaunch inside Windows Terminal: {ex.Message}");
                 return false;
             }
-        }
-
-        /// <summary>
-        /// 后台启动（--minimized）专用：先留在当前宿主里最小化，等用户真的把窗口还原时
-        /// 再用 Windows Terminal 接管。这样开机不会抢焦点，用户打开时又是终端外观。
-        /// 返回 true 表示监视线程已经启动。
-        /// </summary>
-        public static bool TryDeferRelaunchUntilWindowRestored(string[] args, bool isFileDropRequest)
-        {
-            try
-            {
-                var executablePath = ResolveSelfExecutablePath();
-                var terminalPath = FindWindowsTerminalExecutable();
-                var facts = CollectFacts(args, isFileDropRequest, executablePath, terminalPath);
-                if (!Evaluate(facts).Relocate)
-                {
-                    return false;
-                }
-
-                var watcher = new Thread(() => WatchForRestoreAndRelaunch(args, isFileDropRequest))
-                {
-                    Name = "WindowsTerminalHandoff",
-                    IsBackground = true,
-                };
-                watcher.Start();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Failed to schedule Windows Terminal handoff: {ex.Message}");
-                return false;
-            }
-        }
-
-        private static void WatchForRestoreAndRelaunch(string[] args, bool isFileDropRequest)
-        {
-            // 只有确认过窗口确实最小化过，才可能在它恢复时接管；否则（例如隐藏启动）什么都不做。
-            if (!ConsoleWindowMinimizer.WaitUntilMinimized(TimeSpan.FromSeconds(10)))
-            {
-                return;
-            }
-
-            // 启动阶段窗口会被重建、部署探针附加控制台也可能把它短暂显示出来，
-            // 先跳过一段稳定期，并要求"已还原"连续成立，避免把噪声当成用户操作。
-            Thread.Sleep(StartupGracePeriod);
-
-            var restoredPolls = 0;
-            while (restoredPolls < RestoreConfirmedPolls)
-            {
-                Thread.Sleep(RestorePollInterval);
-                restoredPolls = ConsoleWindowMinimizer.IsCurrentWindowRestored() ? restoredPolls + 1 : 0;
-            }
-
-            var relaunchArgs = Array.FindAll(
-                args, argument => !string.Equals(argument, MinimizedArgument, StringComparison.OrdinalIgnoreCase));
-
-            ProcessInstanceGuard.ReleaseForHandoff();
-            if (TryRelaunch(relaunchArgs, isFileDropRequest))
-            {
-                Environment.Exit(0);
-            }
-
-            // 接管失败就继续在当前宿主里跑，并把单实例占用拿回来。
-            _ = ProcessInstanceGuard.TryClaim();
         }
 
         /// <summary>纯策略判断，便于在无法创建真实终端的测试环境里覆盖全部分支。</summary>

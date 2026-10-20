@@ -1,4 +1,4 @@
-﻿# GameHelper 实机验证 workflow（开发完成后执行）
+# GameHelper 实机验证 workflow（开发完成后执行）
 #
 # 前置条件：
 #   - 默认保留运行中的实例；-Restart 只停止能确认来自目标发布目录的实例。
@@ -82,10 +82,8 @@ function Start-CheckedInstance([string] $Directory, [ref] $StartedProcess,
     # This is the user's interactive console, which must remain visible after deployment.
     $exePath = Join-Path $Directory "GameHelper.ConsoleHost.exe"
     $launchedAt = (Get-Date).AddSeconds(-1)
-    # 用 start /min 拉起：控制台以"最小化且不激活"创建，部署重启也不会把窗口顶到前台。
-    $startArgs = "/c start `"`" /min `"$exePath`" --minimized"
-    $instance = Start-Process -FilePath "cmd.exe" -ArgumentList $startArgs `
-        -WorkingDirectory $Directory -WindowStyle Hidden -PassThru
+    $instance = Start-Process -FilePath $exePath `
+        -WorkingDirectory $Directory -WindowStyle Normal -PassThru
     Start-Sleep -Seconds 2
     $instance.Refresh()
     if ($instance.HasExited) {
