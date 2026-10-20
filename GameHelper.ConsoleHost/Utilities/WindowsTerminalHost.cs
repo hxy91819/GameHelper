@@ -8,8 +8,8 @@ using System.Threading;
 namespace GameHelper.ConsoleHost.Utilities
 {
     /// <summary>
-    /// 交互窗口的宿主守卫：当程序没有运行在 Windows Terminal 里时，用 wt.exe 把自己重新拉起，
-    /// 使用户看到的窗口始终是 Windows Terminal（字体、配色、边框一致），而不是回落到经典 conhost。
+    /// 直接启动 ConsoleHost 时的宿主守卫：条件允许时用 wt.exe 重新拉起，统一终端样式。
+    /// 被动启动器使用内部标记保留其不抢焦点的经典控制台，不参与自动转移。
     /// 任意一个前置条件不满足时保持当前宿主，启动流程不受影响。
     /// </summary>
     internal static class WindowsTerminalHost

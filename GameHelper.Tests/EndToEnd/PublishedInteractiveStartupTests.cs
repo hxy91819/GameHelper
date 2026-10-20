@@ -37,31 +37,32 @@ public sealed class PublishedInteractiveStartupTests(ITestOutputHelper output)
         var resultFile = Path.Combine(sandbox, "result.json");
         File.WriteAllText(fixture, """
             $ErrorActionPreference = 'Stop'
-            $ast = [System.Management.Automation.Language.Parser]::ParseFile($env:GH_STARTUP_SCRIPT, [ref]$null, [ref]$null)
-            $definition = $ast.Find({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Start-CheckedInstance'}, $true)
-            $functionText = $definition.Extent.Text
-            if ($env:GH_STARTUP_HIDE -eq '1') {
-                $functionText = $functionText.Replace('GameHelper.Launcher.exe', 'missing-launcher.exe').Replace('-WindowStyle Normal', '-WindowStyle Hidden')
-            }
-            if ($env:GH_STARTUP_TERMINAL_OWNER -eq '1') {
-                # Keep the original terminal-host launch path for the ConPTY compatibility fixture.
-                $functionText = $functionText.Replace('GameHelper.Launcher.exe', 'missing-launcher.exe')
-            }
-            Invoke-Expression $functionText
-            if ($env:GH_STARTUP_SLOW_LAUNCHER -eq '1') {
-                # Model a launcher whose ready wait is still pending at the two-second check.
-                # The real launcher creates a real console; only its process observation is delayed.
-                function Start-Process {
-                    param($FilePath, $WorkingDirectory, $WindowStyle, [switch]$PassThru)
-                    $real = Microsoft.PowerShell.Management\Start-Process @PSBoundParameters
-                    if ($FilePath -like '*GameHelper.Launcher.exe') {
-                        $proxy = [pscustomobject]@{ Id = $real.Id; HasExited = $false; ExitCode = 0 }
-                        $proxy | Add-Member ScriptMethod Refresh { }
-                        $proxy | Add-Member ScriptMethod WaitForExit { param($milliseconds) $true }
-                        return $proxy
-                    }
-                    return $real
+            . $env:GH_STARTUP_SCRIPT
+            # Substitute only the OS observations needed by each fixture. The launch module
+            # is imported unchanged, exactly as deployment imports it.
+            function Test-Path {
+                param([string] $LiteralPath)
+                if (($env:GH_STARTUP_HIDE -eq '1' -or $env:GH_STARTUP_TERMINAL_OWNER -eq '1') -and
+                    $LiteralPath -like '*GameHelper.Launcher.exe') {
+                    # Exercise the existing direct-console fallback without changing publish files.
+                    return $false
                 }
+                Microsoft.PowerShell.Management\Test-Path -LiteralPath $LiteralPath
+            }
+            function Start-Process {
+                param($FilePath, $WorkingDirectory, $WindowStyle, [switch]$PassThru)
+                if ($env:GH_STARTUP_HIDE -eq '1') {
+                    $PSBoundParameters['WindowStyle'] = 'Hidden'
+                }
+                $real = Microsoft.PowerShell.Management\Start-Process @PSBoundParameters
+                if ($env:GH_STARTUP_SLOW_LAUNCHER -eq '1' -and $FilePath -like '*GameHelper.Launcher.exe') {
+                    # Keep the real console, but model a launcher whose ready wait is still pending.
+                    $proxy = [pscustomobject]@{ Id = $real.Id; HasExited = $false; ExitCode = 0 }
+                    $proxy | Add-Member ScriptMethod Refresh { }
+                    $proxy | Add-Member ScriptMethod WaitForExit { param($milliseconds) $true }
+                    return $proxy
+                }
+                return $real
             }
             Add-Type -TypeDefinition @'
             using System;
@@ -164,7 +165,7 @@ public sealed class PublishedInteractiveStartupTests(ITestOutputHelper output)
             start.Environment["GH_STARTUP_HIDE"] = hidden ? "1" : "0";
             start.Environment["GH_STARTUP_TERMINAL_OWNER"] = terminalOwner ? "1" : "0";
             start.Environment["GH_STARTUP_SLOW_LAUNCHER"] = launcherStillRunning ? "1" : "0";
-            start.Environment["GH_STARTUP_SCRIPT"] = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../..", "scripts/verify-on-machine.ps1"));
+            start.Environment["GH_STARTUP_SCRIPT"] = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../..", "scripts/start-checked-instance.ps1"));
             start.Environment["GH_STARTUP_RESULT"] = resultFile;
             using var process = Process.Start(start)!;
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));

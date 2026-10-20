@@ -20,4 +20,4 @@
 
 ## 验证
 
-`PublishedInteractiveStartupTests` 调用部署脚本实际的 `Start-CheckedInstance`，使用独立数据目录与单实例隔离，采样前台窗口，断言最终控制台可见、未最小化且启动期间未成为前台。另覆盖隐藏实例拒绝与 ConPTY 隐藏兼容窗口的可见 owner 核验。部署还必须通过完整性级别、数据目录和 ETW 就绪探针，窗口可见不能代替监控可用。
+部署与 `PublishedInteractiveStartupTests` 直接加载同一个无顶层部署副作用的 `scripts/start-checked-instance.ps1`，调用实际的 `Start-CheckedInstance`；测试不提取或改写生产函数源文本。测试使用独立数据目录与单实例隔离，采样前台窗口，断言最终控制台可见、未最小化且启动期间未成为前台。另覆盖隐藏实例拒绝与 ConPTY 隐藏兼容窗口的可见 owner 核验。部署还必须通过完整性级别、数据目录和 ETW 就绪探针，窗口可见不能代替监控可用。

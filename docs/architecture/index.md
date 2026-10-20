@@ -5,12 +5,10 @@ GameHelper is a Windows-focused .NET 8 application for game process monitoring, 
 ## System Shape
 
 ```text
-GameHelper.ConsoleHost
-          |
-          |
-    GameHelper.Core
-          |
- GameHelper.Infrastructure
+GameHelper.Launcher --creates process--> GameHelper.ConsoleHost
+                                         |              |
+                                         v              v
+                                GameHelper.Core <-- GameHelper.Infrastructure
 ```
 
 - Shells own presentation, command routing, and desktop-specific user experience.
@@ -40,6 +38,8 @@ ETW recovery owns a serialized lifecycle and process identity reconciliation, wi
 - **Playtime seam**: `IPlayTimeService` records sessions; `IPlaytimeSnapshotProvider` reads historical snapshots for statistics and session summaries. Both current adapters share one internal CSV codec for schema, escaping, parsing, and legacy JSON migration.
 - **File-drop Intake module**: Console file drops are validated, resolved, batch-committed through Game Catalog Intake, and followed by one automation reload. It uses explicit dependencies and does not construct storage or catalog implementations itself.
 - **Automation module**: `GameAutomationService` coordinates matching, session tracking, playtime, HDR, optional speed control, monitor preset modes, and stop-event control.
+- **Game Speed Attachment module**: callers only request `ApplySpeed(pid, multiplier)` through `IGameSpeedController`; its result means an attach was initiated, not that the game's clock was verified. The CE adapter owns per-request table identity, atomic file publication, expiry cleanup, and process launch. Each request gets a unique table so queued or concurrent requests for one PID cannot overwrite each other. The private embedded Lua implementation owns Unity hook reuse and CE exit monitoring; tests exercise the same generated table through the controller interface, including opt-in execution in real CE.
+- **Interactive launch module**: deployment and published startup tests directly load the same side-effect-free `scripts/start-checked-instance.ps1`. It owns Launcher selection, real ConsoleHost PID adoption, startup failure handling, and console visibility verification. Tests substitute OS commands at that seam rather than extracting and rewriting the implementation text. Launcher remains responsible for creating and showing the window without activation.
 - **Monitor preset mode seam**: `IMonitorModeController` lets no-op and real DDC/CI adapters satisfy one contract. `MonitorModePlan` is an immutable validated settings snapshot (ordered DDC/CI recipes plus a `DaylightEvaluator` over solar sunrise/sunset or fixed windows); the stateless `MonitorModeScheduler` reads the current VCP state and applies the recipe only on mismatch. DDC/CI bus I/O stays outside the automation state lock so a slow monitor cannot stall session bookkeeping. Daylight coordinates come from the manual config (highest priority), the Windows location service via `IUserLocationSource` when `location: auto` (detected once per start and cached through `ILocationCacheStore`, refreshed at most daily, falling back to fixed windows on failure), or the fixed time window. Defaults are calibrated for the Dell U2720QM and overridable per monitor. See [Monitor preset auto-switching](../guides/monitor-mode.md).
 - **In-flight session continuity seam**: `IInFlightSessionStore` (atomic temp+rename JSON snapshot at `%AppData%\GameHelper\inflight-sessions.json`) persists live game sessions on every tracking-state change, so force-killed or crashed instances still recover them. On startup `GameAutomationService` re-adopts sessions whose process identity still matches (`IProcessIdentityProbe` verifies the recovered pid's image path against the persisted identity, guarding against PID reuse) and resumes them from the original start time through `IPlayTimeService.ResumeTracking`; sessions whose game died during downtime are closed at the last-known-alive timestamp via `WriteRecoveredSession`, with the recovered span capped at 12 hours. Manual stop keeps the immediate-flush semantics and clears the snapshot. This is the safety net that makes the direct-update deploy policy safe.
 - **Stats sync module**: `ISyncService`/`SyncService` own interval debouncing, mtime-based dirty checks, content hashing, and state persistence; `IStatsUploadChannel` implementations (git.exe runner and GitHub Git Data API client, both in Infrastructure) only write inside the configured remote subdirectory.
