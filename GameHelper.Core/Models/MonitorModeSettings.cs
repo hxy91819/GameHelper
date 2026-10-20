@@ -93,8 +93,7 @@ public sealed class MonitorModeSettings
 
     internal static List<MonitorModePresetData> U2720QMComfortPresets() => new()
     {
-        new MonitorModePresetData { Code = "DC", Value = "0x00" },
-        new MonitorModePresetData { Code = "E2", Value = "0x1D" },
+        // U2720QM firmware applies DC=00 and E2=1D together when F0 selects ComfortView.
         new MonitorModePresetData { Code = "F0", Value = "0x0C" }
     };
 

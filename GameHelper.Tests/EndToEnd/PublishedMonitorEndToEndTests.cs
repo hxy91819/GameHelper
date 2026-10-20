@@ -245,6 +245,13 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             var stable = controller.TryReadState(plan.ProbeWrites);
             Assert.NotNull(stable);
             Assert.True(plan.MatchesTarget(stable, mode), $"firmware reverted the {mode} recipe at {phase}");
+            if (mode == GameHelper.Core.Abstractions.MonitorMode.Comfort)
+            {
+                // The single F0 write must make the firmware update the other two registers too.
+                Assert.Equal(0u, stable[0xDC]);
+                Assert.Equal(0x1Du, stable[0xE2]);
+                Assert.Equal(0x0Cu, stable[0xF0]);
+            }
             output.WriteLine($"Physical DDC {phase}: {string.Join(", ", stable.Select(p => $"{p.Key:X2}={p.Value:X2}"))}");
         }
     }

@@ -21,6 +21,7 @@ breakReminder:
   repeatMinutes: 10
   sound: true
 # 显示器预设自动切换默认关闭；完整规则见 docs/guides/monitor-mode.md。
+# U2720QM 默认护眼为单笔 F0=0x0C；其它型号可覆盖 comfortPresets。
 monitorMode:
   enabled: false
   # location: auto        # 自动定位取坐标（需系统“定位”开关开启；与经纬度二选一）

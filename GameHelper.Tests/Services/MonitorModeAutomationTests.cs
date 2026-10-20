@@ -47,10 +47,10 @@ public sealed class MonitorModeAutomationTests
             Mock.Of<IHdrController>(), Mock.Of<IPlayTimeService>(), NullLogger<GameAutomationService>.Instance,
             monitorModeController: controller, timeProvider: clock);
         automation.Start();
-        Assert.Equal(0x1Du, controller.State[0xE2]);
-        config.MonitorMode.ComfortPresets.Single(p => p.Code == "E2").Value = "0x1E";
+        Assert.Equal(0x0Cu, controller.State[0xF0]);
+        config.MonitorMode.ComfortPresets.Single(p => p.Code == "F0").Value = "0x0D";
         automation.ReloadConfig();
-        Assert.Equal(0x1Eu, controller.State[0xE2]);
+        Assert.Equal(0x0Du, controller.State[0xF0]);
         automation.Stop();
         controller.State.Clear();
         clock.Tick(); // A queued callback can arrive after timer disposal.
@@ -70,7 +70,7 @@ public sealed class MonitorModeAutomationTests
         automation.Start();
         controller.FailWrites = false;
         clock.Tick();
-        Assert.Equal(0x1Du, controller.State[0xE2]);
+        Assert.Equal(0x0Cu, controller.State[0xF0]);
         automation.Stop();
     }
 
