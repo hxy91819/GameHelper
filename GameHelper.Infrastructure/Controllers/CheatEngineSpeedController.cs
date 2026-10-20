@@ -118,6 +118,38 @@ public sealed class CheatEngineSpeedController : IGameSpeedController
             local targetPid = {{processId}}
             local targetSpeed = {{speed}}
             openProcess(targetPid)
+            -- Keep a duplicate of this process object: PID reuse and a GameHelper restart
+            -- must not change which game's exit owns this CE instance.
+            local openedHandle = getOpenedProcessHandle()
+            local cePid = getCheatEngineProcessID()
+            local watchHandle = duplicateHandle(openedHandle, cePid, cePid)
+            if watchHandle and watchHandle ~= 0 then
+              local exitTimer = createTimer(getMainForm(), false)
+              exitTimer.Interval = 500
+              local function stopWatching()
+                exitTimer.Enabled = false
+                exitTimer.destroy()
+                executeCodeLocalEx('kernel32.CloseHandle', watchHandle)
+              end
+              exitTimer.OnTimer = function()
+                -- A user taking this CE instance over for another target cancels ownership.
+                if getOpenedProcessID() ~= targetPid or getOpenedProcessHandle() ~= openedHandle then
+                  stopWatching()
+                  return
+                end
+                local state = executeCodeLocalEx('kernel32.WaitForSingleObject', watchHandle, 0)
+                if state == 0 then
+                  stopWatching()
+                  closeCE()
+                elseif state ~= 258 then -- WAIT_TIMEOUT is the only still-running result.
+                  stopWatching()
+                  print('GameHelper: stopped exit watcher because the process wait failed')
+                end
+              end
+              exitTimer.Enabled = true
+            else
+              print('GameHelper: could not watch the game process for automatic CE cleanup')
+            end
             speedhack_setSpeed(targetSpeed)
             -- SpeedhackV3 reuses a game's existing Unity hook without restoring this CE
             -- instance's setter. Its requested speed changes, but the live timeScale can stay 1.

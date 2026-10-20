@@ -22,6 +22,8 @@ games:
 - `cheatEngine.executable` 必须是 Cheat Engine 可执行文件的绝对路径。
 - `speed` 必须是大于 `0` 的数字。`1.0` 是原速，`0.5` 是半速，`2.0` 是两倍速。
 - 省略 `speed` 时，GameHelper 不启动 Cheat Engine，也不修改该游戏速度。
+- 游戏进程退出后，GameHelper 生成的表会自动关闭所在 CE 实例，通常在 500ms 左右响应（CE 主线程忙碌时可能延后）。其他手动打开的 CE 不受影响；如果手动把自动启动的 CE 切到其他进程，则取消自动关闭。
+- 退出监视由 CE 表自身运行，GameHelper 重启或停止监控不会使它失效。监视使用原游戏进程对象的独立句柄，不会因 PID 被复用而继续等待新进程。此次更新前已打开的旧表没有退出监视，需要之后重新应用倍速才生效。
 - `speedAttach` 可选：`auto`（默认，省略时等效）与 `immediate`。仅在游戏装了 mod loader 且行为异常时才需要显式设置 `immediate`。
 - 同一游戏出现多个匹配进程时，只在第一个活动进程上应用一次；游戏完全退出并再次启动后会重新应用。
 
@@ -69,3 +71,5 @@ ETW 建立会话后会按配置中的进程名补扫已运行游戏，沿用完�
 CE 7.7 的 SpeedhackV3 会复用游戏中已存在的 Unity 钩子，但新 CE 实例不会自动恢复 set_timeScale 方法句柄。GameHelper 在这个分支重新连接 Unity 元数据并刷新当前正数 timeScale；暂停的 0 不会被主动恢复。乘法钩子传入基准 1，再由钩子乘配置倍速，避免 1.5 被重复乘成 2.25。普通时钟钩子及首次附加继续沿用 CE 原路径。
 
 可设置 GAMEHELPER_TEST_CHEAT_ENGINE_EXE 指向本机 CE，运行 dotnet test GameHelper.sln --filter FullyQualifiedName~GeneratedLua_ReusedUnityHook。测试在 CE 自身 Lua 中执行真实生成脚本，但用隔离的进程 API 桩模拟重附加，不打开任何游戏。覆盖乘法/替换钩子、暂停与普通时钟路径。
+
+同样设置该环境变量后，运行 `dotnet test GameHelper.sln --filter FullyQualifiedName~GeneratedLua_GameExits` 可验证自动退出：使用隔离的 PowerShell 目标和实际 CE，保留真实句柄、定时器与进程等待，仅替换倍速注入。目标存活时 CE 保持运行，目标退出时仅关闭对应实例；手动切换目标后 CE 保持运行，不触碰用户游戏或既有 CE。
