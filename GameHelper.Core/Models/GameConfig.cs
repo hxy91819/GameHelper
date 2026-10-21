@@ -55,6 +55,9 @@ namespace GameHelper.Core.Models
         /// </summary>
         public string? SpeedAttach { get; set; }
 
+        /// <summary>Optional launch entry; legacy absolute executable paths remain launchable.</summary>
+        public GameLaunchOptions? Launch { get; set; }
+
         /// <summary>
         /// Immutable identity view derived from <see cref="Executable"/>.
         /// </summary>

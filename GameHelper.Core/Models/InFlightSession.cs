@@ -39,6 +39,12 @@ public sealed class InFlightSession
 /// </summary>
 public sealed class InFlightSnapshot
 {
+    /// <summary>Whether this instance changed an originally disabled HDR state.</summary>
+    public bool HdrEnabledByGameHelper { get; set; }
+
+    /// <summary>Launch deadlines awaiting real process observation; never replayed as launch commands.</summary>
+    public Dictionary<string, DateTimeOffset> PendingLaunches { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Local time when the snapshot was persisted.</summary>
     public DateTime SnapshotAt { get; set; }
 

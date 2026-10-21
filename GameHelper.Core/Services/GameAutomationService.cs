@@ -15,7 +15,7 @@ namespace GameHelper.Core.Services;
 /// Lifecycle: call <see cref="Start"/> to subscribe to monitor events and load config,
 /// and <see cref="Stop"/> to unsubscribe and flush any active sessions.
 /// </summary>
-public sealed class GameAutomationService : IGameAutomationService
+public sealed class GameAutomationService : IGameAutomationService, IGameLaunchCoordinator
 {
     private const int SpeedAttachRecordTtlMinutes = 60;
 
@@ -31,6 +31,9 @@ public sealed class GameAutomationService : IGameAutomationService
     private readonly IProcessMonitor _monitor;
     private readonly IGameConfiguration _gameConfiguration;
     private readonly IHdrController _hdr;
+    private readonly IGameLauncher? _gameLauncher;
+    private readonly Dictionary<string, DateTimeOffset> _pendingLaunches = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _launchFailures = new(StringComparer.OrdinalIgnoreCase);
     private readonly IProcessPathResolver? _pathResolver;
     private readonly HdrScheduler _hdrScheduler = new();
     private readonly IPlayTimeService _playTime;
@@ -87,11 +90,13 @@ public sealed class GameAutomationService : IGameAutomationService
         ILocationCacheStore? locationCacheStore = null,
         TimeProvider? timeProvider = null,
         TimeSpan? speedGatePollInterval = null,
-        TimeSpan? speedGateTimeout = null)
+        TimeSpan? speedGateTimeout = null,
+        IGameLauncher? gameLauncher = null)
     {
         _monitor = monitor;
         _gameConfiguration = gameConfiguration;
         _hdr = hdr;
+        _gameLauncher = gameLauncher;
         _pathResolver = pathResolver;
         _playTime = playTime;
         _speedController = speedController;
@@ -121,6 +126,9 @@ public sealed class GameAutomationService : IGameAutomationService
             var configuration = LoadAndBuildIndexes();
             _sessionTracker.Clear();
             RecoverInFlightSessions();
+            var recoveredHdrLease = _hdrScheduler.OwnsEnabledHdr;
+            UpdateHdrState();
+            if (recoveredHdrLease) PersistInFlightSnapshot();
             ConfigureProcessObservation();
 
             _monitor.ProcessStarted += OnProcessStarted;
@@ -129,7 +137,7 @@ public sealed class GameAutomationService : IGameAutomationService
             try { _breakReminder?.Start(configuration); }
             catch (Exception ex) { _logger.LogWarning(ex, "Failed to start break reminders"); }
 
-            if (_monitorModeController is not null || _inFlightSessionStore is not null)
+            if (_monitorModeController is not null || _inFlightSessionStore is not null || _gameLauncher is not null)
             {
                 try
                 {
@@ -163,6 +171,7 @@ public sealed class GameAutomationService : IGameAutomationService
         {
             var configuration = LoadAndBuildIndexes();
             ConfigureProcessObservation();
+            foreach (var key in _launchFailures.Keys.Where(key => !_configIndex.All.ContainsKey(key)).ToList()) _launchFailures.Remove(key);
             _breakReminder?.ReloadConfig(configuration);
             _logger.LogInformation(
                 "GameAutomationService config reloaded: {Total} configs ({PathCount} path, {ExactNameCount} exact-name, {NameCount} fuzzy-name)",
@@ -211,13 +220,17 @@ public sealed class GameAutomationService : IGameAutomationService
                 }
 
                 _sessionTracker.Clear();
+                _pendingLaunches.Clear();
+                _launchFailures.Clear();
+                try { UpdateHdrState(); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Failed to restore HDR during shutdown"); }
                 _inFlightStarts.Clear();
                 _inFlightProcessStarts.Clear();
                 _recentSpeedAttacks.Clear();
 
                 try
                 {
-                    if (_pendingRecoveredSessions.Count > 0) PersistInFlightSnapshot();
+                    if (_pendingRecoveredSessions.Count > 0 || _hdrScheduler.OwnsEnabledHdr) PersistInFlightSnapshot();
                     else _inFlightSessionStore?.Clear();
                 }
                 catch (Exception ex)
@@ -268,6 +281,8 @@ public sealed class GameAutomationService : IGameAutomationService
                 normalizedName,
                 normalizedPath,
                 processInfo.ProcessId);
+            _pendingLaunches.Remove(config.DataKey);
+            _launchFailures.Remove(config.DataKey);
             DateTime? processStartedUtc = null;
             if (processInfo.ProcessId is int startedPid
                 && _processIdentityProbe?.TryGetStartTimeUtc(startedPid, out var processStart) == true)
@@ -302,10 +317,9 @@ public sealed class GameAutomationService : IGameAutomationService
                 _inFlightStarts[config.DataKey] = DateTime.Now;
             }
 
-            PersistInFlightSnapshot();
-
             ConfigureProcessObservation();
-            UpdateHdrState();
+            try { UpdateHdrState(); }
+            finally { PersistInFlightSnapshot(); }
 
             if (!hadAnyActive && _sessionTracker.ActiveCount > 0)
             {
@@ -490,9 +504,8 @@ public sealed class GameAutomationService : IGameAutomationService
             {
                 _inFlightStarts.Remove(entry.DataKey);
             }
-            PersistInFlightSnapshot();
-
-            UpdateHdrState();
+            try { UpdateHdrState(); }
+            finally { PersistInFlightSnapshot(); }
 
             if (_sessionTracker.ActiveCount == 0 && hadAnyActive)
             {
@@ -592,7 +605,72 @@ public sealed class GameAutomationService : IGameAutomationService
 
     private void UpdateHdrState()
     {
-        _hdrScheduler.Update(_sessionTracker.GetActiveDataKeysSnapshot(), _configIndex.ByDataKey, _hdr, _logger);
+        _hdrScheduler.Update(_sessionTracker.GetActiveDataKeysSnapshot().Concat(_pendingLaunches.Keys), _configIndex.ByDataKey, _hdr, _logger);
+    }
+
+    /// <inheritdoc />
+    public void Launch(string dataKey)
+    {
+        GameLaunchOptions options;
+        lock (_stateLock)
+        {
+            if (!_started || _gameLauncher is null) throw new InvalidOperationException("请先启动游戏监控。");
+            if (!_configIndex.All.TryGetValue(dataKey, out var game)) throw new InvalidOperationException("游戏已移除。");
+            options = game.Launch ?? new GameLaunchOptions { Target = game.ExecutablePath ?? string.Empty };
+            _gameLauncher.Validate(options);
+            if (!game.IsEnabled)
+            {
+                _gameLauncher.Start(options);
+                return;
+            }
+            if (_pendingLaunches.ContainsKey(dataKey) || _sessionTracker.GetActiveDataKeysSnapshot().Contains(dataKey, StringComparer.OrdinalIgnoreCase))
+                throw new InvalidOperationException("该游戏正在启动或已经运行。");
+            _pendingLaunches[dataKey] = _timeProvider.GetUtcNow().AddMinutes(2);
+            _launchFailures.Remove(dataKey);
+            try
+            {
+                if (game.HdrEnabled) _hdrScheduler.PrepareForLaunch(_hdr);
+                PersistInFlightSnapshot();
+            }
+            catch
+            {
+                _pendingLaunches.Remove(dataKey);
+                UpdateHdrState();
+                PersistInFlightSnapshot();
+                throw;
+            }
+        }
+        try
+        {
+            lock (_stateLock)
+            {
+                if (!_started || !_pendingLaunches.ContainsKey(dataKey) || !_configIndex.ByDataKey.ContainsKey(dataKey))
+                    throw new InvalidOperationException("启动已取消，或该游戏已经运行。");
+                _gameLauncher.Start(options);
+            }
+        }
+        catch
+        {
+            lock (_stateLock)
+            {
+                _pendingLaunches.Remove(dataKey);
+                UpdateHdrState();
+                PersistInFlightSnapshot();
+            }
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyDictionary<string, string> GetGameStates()
+    {
+        lock (_stateLock)
+        {
+            var states = new Dictionary<string, string>(_launchFailures, StringComparer.OrdinalIgnoreCase);
+            foreach (var key in _pendingLaunches.Keys) states[key] = "启动中";
+            foreach (var key in _sessionTracker.GetActiveDataKeysSnapshot()) states[key] = "运行中";
+            return states;
+        }
     }
 
     private void OnMonitorModeTick(object? state)
@@ -600,8 +678,21 @@ public sealed class GameAutomationService : IGameAutomationService
         lock (_stateLock)
         {
             if (!_started) return;
+            var wasOwned = _hdrScheduler.OwnsEnabledHdr;
+            var expired = _pendingLaunches.Where(pair => pair.Value <= _timeProvider.GetUtcNow()).Select(pair => pair.Key).ToList();
+            foreach (var key in expired)
+            {
+                _pendingLaunches.Remove(key);
+                _launchFailures[key] = "启动超时：未识别到游戏进程";
+            }
+            if (_gameLauncher is not null)
+            {
+                try { UpdateHdrState(); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Failed to reconcile launch HDR state"); }
+            }
             RetryPendingRecoveredSessions();
-            if (_sessionTracker.ActiveCount > 0 || _pendingRecoveredSessions.Count > 0) PersistInFlightSnapshot();
+            if (_sessionTracker.ActiveCount > 0 || _pendingRecoveredSessions.Count > 0 || _pendingLaunches.Count > 0
+                || _hdrScheduler.OwnsEnabledHdr || wasOwned || expired.Count > 0) PersistInFlightSnapshot();
         }
         UpdateMonitorModeState(forced: false);
     }
@@ -756,7 +847,12 @@ public sealed class GameAutomationService : IGameAutomationService
 
     private InFlightSnapshot BuildInFlightSnapshot()
     {
-        var snapshot = new InFlightSnapshot { SnapshotAt = DateTime.Now, Sessions = new List<InFlightSession>() };
+        var snapshot = new InFlightSnapshot
+        {
+            SnapshotAt = DateTime.Now, Sessions = new List<InFlightSession>(),
+            HdrEnabledByGameHelper = _hdrScheduler.OwnsEnabledHdr,
+            PendingLaunches = new Dictionary<string, DateTimeOffset>(_pendingLaunches, StringComparer.OrdinalIgnoreCase)
+        };
         foreach (var entry in _sessionTracker.GetActiveEntriesSnapshot())
         {
             snapshot.Sessions.Add(new InFlightSession
@@ -799,7 +895,14 @@ public sealed class GameAutomationService : IGameAutomationService
             return;
         }
 
-        if (snapshot is null || snapshot.Sessions.Count == 0)
+        if (snapshot is null) return;
+        _hdrScheduler.AdoptOwnership(snapshot.HdrEnabledByGameHelper);
+        foreach (var pending in snapshot.PendingLaunches ?? new())
+        {
+            if (pending.Value > _timeProvider.GetUtcNow() && _configIndex.ByDataKey.ContainsKey(pending.Key))
+                _pendingLaunches[pending.Key] = pending.Value <= _timeProvider.GetUtcNow().AddMinutes(2) ? pending.Value : _timeProvider.GetUtcNow().AddMinutes(2);
+        }
+        if (snapshot.Sessions.Count == 0)
         {
             return;
         }
@@ -897,7 +1000,8 @@ public sealed class GameAutomationService : IGameAutomationService
             }
         }
 
-        if (resumedCount > 0 || _pendingRecoveredSessions.Count > 0)
+        foreach (var key in _sessionTracker.GetActiveDataKeysSnapshot()) _pendingLaunches.Remove(key);
+        if (resumedCount > 0 || _pendingRecoveredSessions.Count > 0 || _pendingLaunches.Count > 0 || _hdrScheduler.OwnsEnabledHdr)
         {
             // 关键自愈兜底：接管来的会话必须立即重写为新快照。否则下一次
             // 强杀/部署重启时磁盘上没有这份会话，它会被第二次丢失。

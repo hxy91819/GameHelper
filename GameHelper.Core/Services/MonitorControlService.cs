@@ -8,6 +8,8 @@ public sealed class MonitorControlService : IMonitorControlService
     private readonly IGameAutomationService _automationService;
     private readonly IConfigWatcher? _configWatcher;
     private bool _configWatcherStarted;
+    private readonly object _gate = new();
+    private bool _isRunning;
 
     public MonitorControlService(IProcessMonitor monitor, IGameAutomationService automationService,
         IConfigWatcher? configWatcher = null)
@@ -17,9 +19,14 @@ public sealed class MonitorControlService : IMonitorControlService
         _configWatcher = configWatcher;
     }
 
-    public bool IsRunning { get; private set; }
+    public bool IsRunning { get { lock (_gate) return _isRunning; } private set { _isRunning = value; } }
 
     public void Start()
+    {
+        lock (_gate) StartCore();
+    }
+
+    private void StartCore()
     {
         if (IsRunning)
         {
@@ -70,6 +77,11 @@ public sealed class MonitorControlService : IMonitorControlService
     }
 
     public void Stop()
+    {
+        lock (_gate) StopCore();
+    }
+
+    private void StopCore()
     {
         if (!IsRunning)
         {

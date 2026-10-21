@@ -24,4 +24,9 @@ public sealed record GameCatalogIntakeRequest
     /// Explicit speed choice. When omitted for an existing entry, its current choice is preserved.
     /// </summary>
     public double? SpeedMultiplier { get; init; }
+
+    public GameLaunchOptions? Launch { get; init; }
+
+    /// <summary>Leave every existing field unchanged when catalog matching finds an entry.</summary>
+    public bool SkipExisting { get; init; }
 }

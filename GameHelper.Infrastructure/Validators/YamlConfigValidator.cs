@@ -19,7 +19,7 @@ namespace GameHelper.Infrastructure.Validators
 
     public static class YamlConfigValidator
     {
-        private enum FieldType { String, Bool, Number }
+        private enum FieldType { String, Bool, Number, Object }
 
         private sealed class FieldSpec
         {
@@ -68,6 +68,7 @@ namespace GameHelper.Infrastructure.Validators
                 {
                     type = FieldType.Number;
                 }
+                else if (core.Equals("object", StringComparison.OrdinalIgnoreCase)) type = FieldType.Object;
 
                 dict[key] = new FieldSpec { Name = key, Type = type, Required = required };
             }
@@ -149,6 +150,11 @@ namespace GameHelper.Infrastructure.Validators
                     foreach (var field in spec.Values)
                     {
                         if (!game.Children.TryGetValue(new YamlScalarNode(field.Name), out var node)) continue;
+                        if (field.Type == FieldType.Object)
+                        {
+                            ValidateLaunch(node, idx, result);
+                            continue;
+                        }
                         if (node is not YamlScalarNode scalar)
                         {
                             result.Errors.Add($"games[{idx}] '{field.Name}' must be a scalar.");
@@ -241,6 +247,25 @@ namespace GameHelper.Infrastructure.Validators
                 {
                     result.Errors.Add($"breakReminder.{name} must be a positive integer.");
                 }
+            }
+        }
+
+        private static void ValidateLaunch(YamlNode node, int index, ValidationResult result)
+        {
+            if (node is not YamlMappingNode mapping)
+            {
+                result.Errors.Add($"games[{index}].launch must be a mapping (object).");
+                return;
+            }
+            if (!mapping.Children.TryGetValue(new YamlScalarNode("target"), out var target)
+                || target is not YamlScalarNode scalar || string.IsNullOrWhiteSpace(scalar.Value))
+                result.Errors.Add($"games[{index}].launch.target is required.");
+            foreach (var entry in mapping.Children)
+            {
+                var key = (entry.Key as YamlScalarNode)?.Value;
+                if (key is not ("target" or "arguments" or "workingDirectory"))
+                    result.Warnings.Add($"games[{index}].launch unknown field: '{key}'");
+                if (entry.Value is not YamlScalarNode) result.Errors.Add($"games[{index}].launch.{key} must be a scalar.");
             }
         }
 

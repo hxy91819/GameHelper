@@ -420,13 +420,14 @@ namespace GameHelper.Tests
             Assert.Equal(1, hdr.EnableCalls);
 
             svc.Stop();
+            var disableCallsAfterStop = hdr.DisableCalls;
 
             // After Stop, further events should not be handled
             monitor.RaiseStop(new ProcessEventInfo("a.exe", null));
             monitor.RaiseStart(new ProcessEventInfo("a.exe", null));
 
             Assert.Equal(1, hdr.EnableCalls);
-            Assert.Equal(0, hdr.DisableCalls); // not processed after Stop
+            Assert.Equal(disableCallsAfterStop, hdr.DisableCalls); // later events cannot change HDR
         }
 
         [Fact]

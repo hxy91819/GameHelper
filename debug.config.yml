@@ -43,6 +43,10 @@ games:
     hdr: false
     # speed: 2.0
     # speedAttach: immediate
+    # launch:
+    #   target: C:\Games\Project_Plague.exe
+    #   arguments: -windowed
+    #   workingDirectory: C:\Games
   - dataKey: talesofarise
     executable: Tales of Arise.exe
     displayName: Tales of Arise

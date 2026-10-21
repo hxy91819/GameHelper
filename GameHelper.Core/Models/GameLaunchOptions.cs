@@ -1,0 +1,26 @@
+namespace GameHelper.Core.Models;
+
+/// <summary>A launch entry, independent of the executable identity used for process observation.</summary>
+public sealed record GameLaunchOptions
+{
+    public string Target { get; init; } = string.Empty;
+    public string? Arguments { get; init; }
+    public string? WorkingDirectory { get; init; }
+
+    /// <summary>Checks stored format without requiring the game to remain installed.</summary>
+    public void Validate()
+    {
+        if (string.IsNullOrWhiteSpace(Target)) throw new ArgumentException("请配置游戏启动入口。");
+        if (Target.StartsWith("steam:", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!System.Text.RegularExpressions.Regex.IsMatch(Target, @"\Asteam://rungameid/[0-9]+/?\z", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+                || !string.IsNullOrWhiteSpace(Arguments) || !string.IsNullOrWhiteSpace(WorkingDirectory))
+                throw new ArgumentException("Steam 入口应为 steam://rungameid/数字，不附带参数或工作目录。");
+            return;
+        }
+        if (!Path.IsPathFullyQualified(Target) || !new[] { ".exe", ".lnk", ".url" }.Contains(Path.GetExtension(Target), StringComparer.OrdinalIgnoreCase))
+            throw new ArgumentException("启动入口应为 exe / 快捷方式完整路径，或 Steam 启动入口。");
+        if (!string.IsNullOrWhiteSpace(WorkingDirectory) && !Path.IsPathFullyQualified(WorkingDirectory))
+            throw new ArgumentException("工作目录应为完整路径。");
+    }
+}

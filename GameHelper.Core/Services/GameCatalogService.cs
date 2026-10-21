@@ -51,6 +51,7 @@ public sealed class GameCatalogService : IGameCatalogService
     {
         ArgumentNullException.ThrowIfNull(request);
         ValidateIdentity(request.Executable);
+        request.Launch?.Validate();
 
         GameCatalogIntakeResult? result = null;
         _configuration.Change(config =>
@@ -71,6 +72,7 @@ public sealed class GameCatalogService : IGameCatalogService
         {
             ArgumentNullException.ThrowIfNull(request);
             ValidateIdentity(request.Executable);
+            request.Launch?.Validate();
         }
 
         if (batch.Count == 0)
@@ -101,6 +103,7 @@ public sealed class GameCatalogService : IGameCatalogService
         }
 
         ArgumentNullException.ThrowIfNull(request);
+        request.Launch?.Validate();
         if (request.Executable is not null)
         {
             ValidateIdentity(request.Executable);
@@ -112,6 +115,8 @@ public sealed class GameCatalogService : IGameCatalogService
             var configs = CreateWorkingMapByDataKey(config.Games.OrEmpty());
             var existing = FindByDataKey(configs.Values, dataKey) ??
                 throw new KeyNotFoundException($"Game '{dataKey}' not found.");
+            if (request.ExpectedRevision is not null && request.ExpectedRevision != GameConfigRevision.For(existing))
+                throw new InvalidOperationException("该游戏设置已在其他窗口中修改，请重新载入后再编辑。");
             var identity = request.Executable ?? existing.ExecutableIdentity ??
                 throw new InvalidOperationException($"Game '{dataKey}' has no executable identity.");
 
@@ -125,7 +130,8 @@ public sealed class GameCatalogService : IGameCatalogService
                 SpeedMultiplier = request.ClearSpeedMultiplier
                     ? null
                     : request.SpeedMultiplier ?? existing.SpeedMultiplier,
-                SpeedAttach = existing.SpeedAttach
+                SpeedAttach = existing.SpeedAttach,
+                Launch = request.ClearLaunch ? null : request.Launch ?? existing.Launch
             };
 
             configs[updated.DataKey] = updated;
@@ -164,6 +170,8 @@ public sealed class GameCatalogService : IGameCatalogService
         GameCatalogIntakeRequest request)
     {
         var existing = FindExisting(configs.Values, request.Executable);
+        if (existing is not null && request.SkipExisting)
+            return new GameCatalogIntakeResult { Entry = ToEntry(existing), WasAdded = false, PreviousExecutablePath = existing.ExecutablePath };
         var previousExecutablePath = existing?.ExecutablePath;
         var dataKey = ResolveDataKey(request, existing, configs.Values);
         var updated = new GameConfig
@@ -174,7 +182,8 @@ public sealed class GameCatalogService : IGameCatalogService
             IsEnabled = request.IsEnabled,
             HdrEnabled = request.HdrEnabled ?? existing?.HdrEnabled ?? false,
             SpeedMultiplier = request.SpeedMultiplier ?? existing?.SpeedMultiplier,
-            SpeedAttach = existing?.SpeedAttach
+            SpeedAttach = existing?.SpeedAttach,
+            Launch = request.Launch ?? existing?.Launch
         };
 
         if (existing is not null &&
@@ -242,7 +251,8 @@ public sealed class GameCatalogService : IGameCatalogService
         IsEnabled = config.IsEnabled,
         HdrEnabled = config.HdrEnabled,
         SpeedMultiplier = config.SpeedMultiplier,
-        SpeedAttach = config.SpeedAttach
+        SpeedAttach = config.SpeedAttach,
+        Launch = config.Launch
     };
 
     private static Dictionary<string, GameConfig> CreateWorkingMapByDataKey(IEnumerable<GameConfig> configs)
@@ -260,7 +270,8 @@ public sealed class GameCatalogService : IGameCatalogService
                 IsEnabled = config.IsEnabled,
                 HdrEnabled = config.HdrEnabled,
                 SpeedMultiplier = config.SpeedMultiplier,
-                SpeedAttach = config.SpeedAttach
+                SpeedAttach = config.SpeedAttach,
+                Launch = config.Launch
             };
         }
 

@@ -34,6 +34,8 @@ games:
     hdr: false
     # speed: 2.0
     # speedAttach: immediate
+    # launch:
+    #   target: C:\Windows\System32\notepad.exe
   - dataKey: cmd
     executable: cmd.exe
     displayName: Command Prompt

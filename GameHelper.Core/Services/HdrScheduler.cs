@@ -12,6 +12,20 @@ namespace GameHelper.Core.Services;
 internal sealed class HdrScheduler
 {
     private bool _enabledByScheduler;
+    public bool OwnsEnabledHdr => _enabledByScheduler;
+    public void AdoptOwnership(bool owned) => _enabledByScheduler = owned;
+
+    /// <summary>Confirms HDR before the game can initialize its display pipeline.</summary>
+    public void PrepareForLaunch(IHdrController hdr)
+    {
+        if (!hdr.TryGetEnabled(out var enabled)) throw new InvalidOperationException("无法确认 HDR 状态，游戏尚未启动。");
+        if (enabled) return;
+        // Ownership begins before the attempt, so partial failures can still be restored.
+        _enabledByScheduler = true;
+        hdr.Enable();
+        if (!hdr.TryGetEnabled(out enabled) || !enabled)
+            throw new InvalidOperationException("HDR 未确认开启，游戏尚未启动。请检查系统 HDR 设置。");
+    }
 
     /// <summary>
     /// 评估当前活跃会话，在需要时切换 HDR 状态。
@@ -25,27 +39,28 @@ internal sealed class HdrScheduler
         var shouldEnableHdr = activeDataKeys.Any(dataKey =>
             configsByDataKey.TryGetValue(dataKey, out var config) && config.HdrEnabled);
 
-        if (shouldEnableHdr && !hdr.IsEnabled)
-        {
-            logger.LogInformation("Enabling HDR (active HDR-enabled game)");
-            hdr.Enable();
-            _enabledByScheduler = true;
-        }
-
         if (shouldEnableHdr)
         {
+            if (!hdr.TryGetEnabled(out var enabled)) return;
+            if (!enabled)
+            {
+                logger.LogInformation("Enabling HDR (active HDR-enabled game)");
+                _enabledByScheduler = true;
+                hdr.Enable();
+            }
             return;
         }
 
-        if (_enabledByScheduler && hdr.IsEnabled)
+        if (_enabledByScheduler)
         {
-            logger.LogInformation("Disabling HDR (no HDR-enabled game remaining)");
-            hdr.Disable();
-            _enabledByScheduler = false;
-        }
-        else if (_enabledByScheduler)
-        {
-            _enabledByScheduler = false;
+            if (!hdr.TryGetEnabled(out var enabled)) return;
+            if (enabled)
+            {
+                logger.LogInformation("Disabling HDR (no HDR-enabled game remaining)");
+                hdr.Disable();
+            }
+            // A failed restoration keeps the lease for a future reconciliation/restart.
+            if (hdr.TryGetEnabled(out enabled) && !enabled) _enabledByScheduler = false;
         }
     }
 }

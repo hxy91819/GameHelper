@@ -19,4 +19,6 @@ public sealed record GameEntry
     public double? SpeedMultiplier { get; init; }
 
     public string? SpeedAttach { get; init; }
+
+    public GameLaunchOptions? Launch { get; init; }
 }
