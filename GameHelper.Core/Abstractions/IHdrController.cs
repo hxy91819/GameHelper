@@ -12,6 +12,16 @@ namespace GameHelper.Core.Abstractions
         bool IsEnabled { get; }
 
         /// <summary>
+        /// Queries the current HDR state, including changes made outside GameHelper.
+        /// Returns false when the state cannot be determined; callers must not assume SDR.
+        /// </summary>
+        bool TryGetEnabled(out bool enabled)
+        {
+            enabled = IsEnabled;
+            return true;
+        }
+
+        /// <summary>
         /// Enables HDR. Safe to call if already enabled.
         /// </summary>
         void Enable();

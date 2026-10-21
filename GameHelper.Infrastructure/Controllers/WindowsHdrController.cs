@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Threading;
 using GameHelper.Core.Abstractions;
@@ -31,6 +32,7 @@ namespace GameHelper.Infrastructure.Controllers
 
         private readonly ILogger<WindowsHdrController> _logger;
         private readonly object _sync = new();
+        private readonly Func<IReadOnlyList<DisplayAdvancedColorInfo>> _queryDisplays;
 
         private bool _isHdrSupported;
         private bool _isHdrEnabled;
@@ -42,8 +44,15 @@ namespace GameHelper.Infrastructure.Controllers
         private bool? _lastLoggedForceDisabled;
 
         public WindowsHdrController(ILogger<WindowsHdrController> logger)
+            : this(logger, null)
+        {
+        }
+
+        internal WindowsHdrController(ILogger<WindowsHdrController> logger,
+            Func<IReadOnlyList<DisplayAdvancedColorInfo>>? queryDisplays)
         {
             _logger = logger;
+            _queryDisplays = queryDisplays ?? EnumerateDisplays;
 
             if (!OperatingSystem.IsWindows())
             {
@@ -55,7 +64,18 @@ namespace GameHelper.Infrastructure.Controllers
         }
 
         /// <inheritdoc />
-        public bool IsEnabled => _isHdrSupported && _isHdrEnabled;
+        public bool IsEnabled { get { lock (_sync) return _isHdrSupported && _isHdrEnabled; } }
+
+        /// <inheritdoc />
+        public bool TryGetEnabled(out bool enabled)
+        {
+            lock (_sync)
+            {
+                var known = RefreshState();
+                enabled = _isHdrSupported && _isHdrEnabled;
+                return known;
+            }
+        }
 
         /// <inheritdoc />
         public void Enable() => Toggle(desiredState: true, reason: "HDR requested by active game(s)");
@@ -72,7 +92,7 @@ namespace GameHelper.Infrastructure.Controllers
 
             lock (_sync)
             {
-                RefreshState();
+                if (!RefreshState()) return;
 
                 if (_isHdrForceDisabled)
                 {
@@ -134,7 +154,7 @@ namespace GameHelper.Infrastructure.Controllers
             for (var attempt = 0; attempt < MaxStatePollingAttempts; attempt++)
             {
                 Thread.Sleep(StatePollingDelayMs);
-                RefreshState();
+                if (!RefreshState()) continue;
 
                 if (_isHdrForceDisabled)
                 {
@@ -150,7 +170,7 @@ namespace GameHelper.Infrastructure.Controllers
             }
 
             // Final refresh to capture the latest state even on failure.
-            RefreshState();
+            if (!RefreshState()) return false;
 
             if (_isHdrForceDisabled)
             {
@@ -161,19 +181,19 @@ namespace GameHelper.Infrastructure.Controllers
             return _isHdrSupported && _isHdrEnabled == desiredState;
         }
 
-        private void RefreshState()
+        private bool RefreshState()
         {
             if (!OperatingSystem.IsWindows())
             {
                 _isHdrSupported = false;
                 _isHdrEnabled = false;
                 _isHdrForceDisabled = false;
-                return;
+                return true;
             }
 
             try
             {
-                var displays = EnumerateDisplays();
+                var displays = _queryDisplays();
                 var supported = false;
                 var enabled = false;
                 var forceDisabled = false;
@@ -207,13 +227,14 @@ namespace GameHelper.Infrastructure.Controllers
                 {
                     LogDisplaySummary(displays);
                 }
+                return true;
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to query HDR state via DisplayConfig APIs.");
-                _isHdrSupported = false;
-                _isHdrEnabled = false;
-                _isHdrForceDisabled = false;
+                // Unknown is not an observed transition to SDR. Retain last-known state for
+                // HDR ownership/rollback; TryGetEnabled separately reports that this read failed.
+                return false;
             }
         }
 
@@ -222,7 +243,11 @@ namespace GameHelper.Infrastructure.Controllers
             var result = new List<DisplayAdvancedColorInfo>();
 
             var status = GetDisplayConfigBufferSizes(QdcOnlyActivePaths, out var pathCount, out var modeCount);
-            if (status != ErrorSuccess || pathCount == 0)
+            if (status != ErrorSuccess)
+            {
+                throw new Win32Exception((int)status, "Cannot query active display buffer sizes.");
+            }
+            if (pathCount == 0)
             {
                 return result;
             }
@@ -233,7 +258,7 @@ namespace GameHelper.Infrastructure.Controllers
             status = QueryDisplayConfig(QdcOnlyActivePaths, ref pathCount, paths, ref modeCount, modes, IntPtr.Zero);
             if (status != ErrorSuccess)
             {
-                return result;
+                throw new Win32Exception((int)status, "Cannot query active display paths.");
             }
 
             for (var i = 0; i < pathCount; i++)
@@ -252,7 +277,7 @@ namespace GameHelper.Infrastructure.Controllers
                 status = DisplayConfigGetDeviceInfo(ref info);
                 if (status != ErrorSuccess)
                 {
-                    continue;
+                    throw new Win32Exception((int)status, "Cannot determine advanced color state for an active display.");
                 }
 
                 var targetName = new DISPLAYCONFIG_TARGET_DEVICE_NAME
@@ -517,20 +542,17 @@ namespace GameHelper.Infrastructure.Controllers
             public uint flags;
         }
 
-        [StructLayout(LayoutKind.Sequential)]
+        // The native union includes a 48-byte DISPLAYCONFIG_TARGET_MODE after the
+        // 16-byte header. QueryDisplayConfig writes 64 bytes per array element.
+        [StructLayout(LayoutKind.Explicit, Size = 64)]
         private struct DISPLAYCONFIG_MODE_INFO
         {
+            [FieldOffset(0)]
             public uint infoType;
+            [FieldOffset(4)]
             public uint id;
+            [FieldOffset(8)]
             public LUID adapterId;
-            public uint modeInfo1;
-            public uint modeInfo2;
-            public uint modeInfo3;
-            public uint modeInfo4;
-            public uint modeInfo5;
-            public uint modeInfo6;
-            public uint modeInfo7;
-            public uint modeInfo8;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -596,7 +618,7 @@ namespace GameHelper.Infrastructure.Controllers
             public UIntPtr dwExtraInfo;
         }
 
-        private readonly record struct DisplayAdvancedColorInfo(string Name, bool Supported, bool Enabled, bool ForceDisabled);
+        internal readonly record struct DisplayAdvancedColorInfo(string Name, bool Supported, bool Enabled, bool ForceDisabled);
 
         #endregion
     }

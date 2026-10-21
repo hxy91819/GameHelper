@@ -664,6 +664,18 @@ public sealed class GameAutomationService : IGameAutomationService
 
             try
             {
+                // Query before even probing DDC availability: HDR presets belong to the OS.
+                // Invalidate the gate so returning to SDR re-evaluates unchanged game/daylight state.
+                if (!_hdr.TryGetEnabled(out var hdrEnabled) || hdrEnabled)
+                {
+                    lock (_stateLock)
+                    {
+                        _lastMonitorModeDaylight = null;
+                        _lastMonitorModeControllerAvailable = null;
+                    }
+                    _logger.LogDebug("HDR is enabled or its state is unknown; skipping monitor preset automation.");
+                    return;
+                }
                 // Availability probing can perform DDC I/O; never hold the session state lock.
                 var controllerAvailable = controller.IsAvailable;
                 lock (_stateLock)

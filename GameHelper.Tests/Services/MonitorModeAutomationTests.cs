@@ -9,6 +9,68 @@ namespace GameHelper.Tests.Services;
 public sealed class MonitorModeAutomationTests
 {
     [Fact]
+    public void HdrEnabled_StartReloadGameEventsAndTicks_DoNotTouchDdc()
+    {
+        var config = new AppConfig
+        {
+            MonitorMode = new MonitorModeSettings { Enabled = true },
+            Games = new() { new GameConfig { DataKey = "game", Executable = "game.exe", IsEnabled = true } }
+        };
+        var source = new Mock<IGameConfiguration>();
+        source.Setup(c => c.Read()).Returns(config);
+        var monitor = new Mock<IProcessMonitor>();
+        var clock = new Clock();
+        var controller = new Controller();
+        var hdr = new Hdr { Enabled = true };
+        var automation = new GameAutomationService(monitor.Object, source.Object, hdr,
+            Mock.Of<IPlayTimeService>(), NullLogger<GameAutomationService>.Instance,
+            monitorModeController: controller, timeProvider: clock);
+        try
+        {
+            automation.Start();
+            automation.ReloadConfig();
+            monitor.Raise(m => m.ProcessStarted += null, new ProcessEventInfo("game.exe", null, 123));
+            monitor.Raise(m => m.ProcessStopped += null, new ProcessEventInfo("game.exe", null, 123));
+            clock.Tick();
+            Assert.Equal(0, controller.Touches);
+            Assert.True(hdr.Enabled);
+        }
+        finally { automation.Stop(); }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void HdrEnabledOrUnknown_ThenSdr_ReevaluatesUnchangedPresetRule(bool querySucceeded)
+    {
+        var source = new Mock<IGameConfiguration>();
+        source.Setup(c => c.Read()).Returns(new AppConfig { MonitorMode = new MonitorModeSettings { Enabled = true } });
+        var clock = new Clock();
+        var controller = new Controller();
+        var hdr = new Hdr();
+        var automation = new GameAutomationService(Mock.Of<IProcessMonitor>(), source.Object, hdr,
+            Mock.Of<IPlayTimeService>(), NullLogger<GameAutomationService>.Instance,
+            monitorModeController: controller, timeProvider: clock);
+        try
+        {
+            automation.Start();
+            Assert.Equal(0x0Cu, controller.State[0xF0]);
+            var sdrTouches = controller.Touches;
+            hdr.Enabled = querySucceeded;
+            hdr.Known = querySucceeded; // Unknown deliberately has a false enabled value.
+            controller.State.Clear();
+            clock.Tick();
+            automation.ReloadConfig();
+            Assert.Equal(sdrTouches, controller.Touches);
+            hdr.Enabled = false;
+            hdr.Known = true;
+            clock.Tick();
+            Assert.Equal(0x0Cu, controller.State[0xF0]);
+        }
+        finally { automation.Stop(); }
+    }
+
+    [Fact]
     public async Task AutoLocation_CooldownTicksDoNotPreventLaterRetry()
     {
         var config = new AppConfig { MonitorMode = new MonitorModeSettings { Enabled = true, Location = "auto" } };
@@ -21,7 +83,7 @@ public sealed class MonitorModeAutomationTests
         var cache = new Mock<ILocationCacheStore>();
         var clock = new Clock();
         var automation = new GameAutomationService(Mock.Of<IProcessMonitor>(), source.Object,
-            Mock.Of<IHdrController>(), Mock.Of<IPlayTimeService>(), NullLogger<GameAutomationService>.Instance,
+            new Hdr(), Mock.Of<IPlayTimeService>(), NullLogger<GameAutomationService>.Instance,
             monitorModeController: new Controller(), locationSource: location.Object, locationCacheStore: cache.Object,
             timeProvider: clock);
         automation.Start();
@@ -44,7 +106,7 @@ public sealed class MonitorModeAutomationTests
         var clock = new Clock();
         var controller = new Controller();
         var automation = new GameAutomationService(Mock.Of<IProcessMonitor>(), source.Object,
-            Mock.Of<IHdrController>(), Mock.Of<IPlayTimeService>(), NullLogger<GameAutomationService>.Instance,
+            new Hdr(), Mock.Of<IPlayTimeService>(), NullLogger<GameAutomationService>.Instance,
             monitorModeController: controller, timeProvider: clock);
         automation.Start();
         Assert.Equal(0x0Cu, controller.State[0xF0]);
@@ -65,7 +127,7 @@ public sealed class MonitorModeAutomationTests
         var clock = new Clock();
         var controller = new Controller { FailWrites = true };
         var automation = new GameAutomationService(Mock.Of<IProcessMonitor>(), source.Object,
-            Mock.Of<IHdrController>(), Mock.Of<IPlayTimeService>(), NullLogger<GameAutomationService>.Instance,
+            new Hdr(), Mock.Of<IPlayTimeService>(), NullLogger<GameAutomationService>.Instance,
             monitorModeController: controller, timeProvider: clock);
         automation.Start();
         controller.FailWrites = false;
@@ -76,21 +138,39 @@ public sealed class MonitorModeAutomationTests
 
     private sealed class Controller : IMonitorModeController
     {
-        public bool IsAvailable => true;
+        public int Touches { get; private set; }
+        public bool IsAvailable { get { Touches++; return true; } }
         public bool FailWrites { get; set; }
         public Dictionary<byte, uint> State { get; } = new();
-        public IReadOnlyDictionary<byte, uint>? TryReadState(IReadOnlyList<MonitorModeWrite> codes) => new Dictionary<byte, uint>(State);
+        public IReadOnlyDictionary<byte, uint>? TryReadState(IReadOnlyList<MonitorModeWrite> probeCodes)
+        {
+            Touches++;
+            return new Dictionary<byte, uint>(State);
+        }
         public void Apply(IReadOnlyList<MonitorModeWrite> writes)
         {
+            Touches++;
             if (FailWrites) return;
             foreach (var write in writes) State[write.Code] = write.Value;
         }
+    }
+
+    private sealed class Hdr : IHdrController
+    {
+        public bool Enabled { get; set; }
+        public bool Known { get; set; } = true;
+        public bool IsEnabled => Enabled;
+        public bool TryGetEnabled(out bool enabled) { enabled = Enabled; return Known; }
+        public void Enable() => Enabled = true;
+        public void Disable() => Enabled = false;
     }
 
     private sealed class Clock : TimeProvider
     {
         private Action? _tick;
         private long _timestamp;
+        public override DateTimeOffset GetUtcNow() => new(2026, 10, 20, 12, 0, 0, TimeSpan.Zero);
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
         public override long GetTimestamp() => _timestamp;
         public void Advance(TimeSpan duration) => _timestamp += duration.Ticks;

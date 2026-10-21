@@ -207,6 +207,9 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             return;
         }
         if (!TryGuard(out var exePath)) return;
+        var hdr = new WindowsHdrController(NullLogger<WindowsHdrController>.Instance);
+        Assert.True(hdr.TryGetEnabled(out var hdrEnabled), "HDR state must be known before physical preset verification.");
+        Assert.False(hdrEnabled, "Physical preset verification requires HDR off; this test never toggles HDR.");
         using var sandbox = CreateSandbox();
         var controller = new DdcMonitorModeController(NullLogger<DdcMonitorModeController>.Instance);
         Assert.True(controller.IsAvailable, "Physical DDC/CI monitor must be online for this verification.");
