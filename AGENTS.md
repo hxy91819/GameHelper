@@ -71,9 +71,9 @@
 - Test instances must isolate data via `GAMEHELPER_DATA_DIR` (sandboxed data dir) and skip the single-instance mutex via `GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE=1` so the user's instance is never affected.
 - Deploy targets the shortcut path `GameHelper.ConsoleHost/bin/Release/net8.0-windows/win-x64/publish/`. Deployment itself is an all-or-nothing directory swap with automatic rollback — never copy files individually into a publish directory (mixing framework-dependent and self-contained layouts breaks the next launch).
 - One-shot command: `powershell -File scripts\verify-on-machine.ps1` (append `-SkipVerify` to deploy only, append `-SkipVerify -Restart` for the standard direct-update closeout).
-- Every completed feature or fix must update the user's local publish directory and relaunch the interactive ConsoleHost with a visible window. Verify both the window and monitoring readiness; a surviving PID alone is not a completed deployment. See the workflow for the acceptance checks.
+- Every completed feature or fix must update the local publish directory and restart the runtime without a console through the WPF background entry. Verify monitoring readiness and library IPC; see the workflow for acceptance checks. Visible legacy Console UI tests are opt-in.
 - The deploy writes `deploy-manifest.json` (HEAD SHA, branch, dirty files) into the publish directory and warns when the working tree is dirty. Use `-RequireClean` when the deployed binary must equal a commit; never let unrelated work-in-progress ride along silently.
-- Post-launch health probes (process integrity level, data-directory write, ETW session when `monitor: ETW`) run inside the deploy and roll back on failure. Do not accept "PID alive + window visible" as the completion signal.
+- Post-launch health probes (no console, process integrity level, data-directory write, ETW session when `monitor: ETW`, and library IPC) run inside the deploy and roll back on failure. A surviving PID alone is not a completion signal.
 - Environment-level failures need a baseline, not a guess: reproduce against `git archive HEAD` in a temporary directory (never stash — the workspace is shared) and cite concrete evidence such as the process integrity level, ACLs or file labels. Do not close a task with "possibly antivirus".
 
 ## Git: Commit & Push After Every Fully Completed Feature

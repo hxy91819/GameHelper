@@ -1,21 +1,21 @@
-# 正常开机启动与窗口宿主
+# WPF 与后台启动
 
-## 默认交互入口
+## 日常入口
 
-开机自启、桌面快捷方式及部署后重启统一直接运行发布目录的 `GameHelper.ConsoleHost.exe`，正常显示交互窗口，保留彩色界面。
+开机 Run 项使用正式发布目录 `desktop\GameHelper.Desktop.exe --background`。此模式不创建 WPF 窗口，连接现有运行时或以 `CreateNoWindow` 启动 `ConsoleHost monitor --background`，确认 IPC 就绪后退出引导进程。后台输出写到配置旁 `config.yml.runtime.log`，超过 5 MiB 时在下次启动轮转。
 
-后台无焦点启动方向已按用户决定废弃，见[架构决定](../adr/0001-normal-interactive-startup.md)。发布产物不再包含 Launcher，也不保留隐藏、最小化启动及就绪握手。
+这是用户在 WPF 成为主界面后重新确认的决定，见 [ADR-0002](../adr/0002-wpf-library-and-launch-ownership.md)。原 [ADR-0001](../adr/0001-normal-interactive-startup.md) 已被替代。
 
-部署成功后，只将目标为本发布目录旧 Launcher 的桌面快捷方式迁回 ConsoleHost；参数、图标及其他快捷方式保持不变。新实例将自启注册同步为 ConsoleHost，旧版本自启入口不需手工调整。
+主动双击游戏库才打开并激活 WPF。关闭游戏库继续监控；重复打开复用同一配置的窗口。部署更新只恢复原本打开的窗口，使用 `--restore` 不激活。旧 Console 和 Launcher 桌面入口迁到游戏库。
 
 ## CLI 与直接启动
 
 已有终端里的 CLI 命令继续使用 `GameHelper.ConsoleHost.exe` 或 `dotnet run --project GameHelper.ConsoleHost -- ...`。
 
-直接启动 ConsoleHost 时，旧的 Windows Terminal 宿主判断仍适用：取 `GetConsoleWindow` 的根所有者，若不是 WindowsTerminal，尝试以 `wt.exe -w -1` 重新拉起。沙盒、重定向、调试器、已有实例、缺少 wt.exe 或 `GAMEHELPER_DISABLE_TERMINAL_RELAUNCH=1` 时跳过；内部标记防止反复转移。
+直接启动 ConsoleHost 时保留 Windows Terminal 宿主判断；后台启动显式跳过转移。沙盒、重定向、调试器、已有实例、缺少 wt.exe 或 `GAMEHELPER_DISABLE_TERMINAL_RELAUNCH=1` 时也跳过。
 
-`startup.launchOnStartup` 的 Run 注册值直接指向 ConsoleHost。沙盒和一次性 CLI 不修改 Run 注册值。
+`startup.launchOnStartup` 的 Run 注册值指向 WPF `--background` 入口。沙盒和一次性 CLI 不修改 Run 注册值。
 
 ## 验证
 
-部署与 `PublishedInteractiveStartupTests` 直接加载同一个无顶层部署副作用的 `scripts/start-checked-instance.ps1`，调用实际的 `Start-CheckedInstance`；测试不提取或改写生产函数源文本。测试使用独立数据目录与单实例隔离，断言窗口可见且未最小化，并确认没有发布废弃 Launcher。另覆盖隐藏实例拒绝与 ConPTY 隐藏兼容窗口的可见 owner 核验。部署还必须通过完整性级别、数据目录和 ETW 就绪探针，窗口可见不能代替监控可用。
+部署和后台发布回归共用 `scripts/start-checked-instance.ps1`，验证实际后台入口、运行时 PID 与目标路径、无可见控制台或 Terminal owner、IPC 和 ETW/CSV。单元测试和 CLI 冒烟默认运行；会弹窗的旧 `PublishedInteractiveStartupTests` 仅在设置 `GAMEHELPER_TEST_VISIBLE_CONSOLE=1` 时运行。部署健康验收保留权限、数据目录和监控就绪检查。旧版本回滚通过兼容的隐藏 `monitor` 命令恢复监控。

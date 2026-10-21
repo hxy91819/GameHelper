@@ -1,6 +1,6 @@
 # GameHelper
 
-GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、游戏时长统计和 YAML 配置管理，通过 CLI 入口使用。原 WinUI 桌面入口已停止维护并移出仓库，代码备份在 tag `archive/winui`。
+GameHelper 是一个面向 Windows 玩家的游戏启动器与桌面助手。WPF 游戏库提供浏览、启动、设置编辑和 Steam 扫描导入；ConsoleHost 统一负责进程监控、游戏时长与 HDR / 倍速自动化，并保留 CLI。当前界面与架构以本次 WPF 设计为准，旧 WinUI 方案已废弃。
 
 `README.md` 的职责是：
 - 指导用户如何安装、运行和使用项目。
@@ -9,7 +9,7 @@ GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、
 
 详细设计与规范见 `docs/index.md`。
 
-每次功能或修复交付都会更新本机发布目录并重启到可见的交互窗口，同时确认监控就绪。若双击后立即提示已经运行，先查看现有窗口；开发部署不会再将正式交互窗口隐藏在后台。部署步骤见[验证与部署工作流](docs/guides/verify-and-deploy-workflow.md)。
+每次功能或修复交付都会更新本机发布目录并在后台重启监控，检查运行权限、ETW 和游戏库通信。WPF 是日常入口，Console 交互界面保留作手动诊断。部署步骤见[验证与部署工作流](docs/guides/verify-and-deploy-workflow.md)。
 
 ## 快速开始
 
@@ -21,11 +21,13 @@ GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、
 
 ### 启动窗口与焦点
 
-开机自启、桌面快捷方式和部署后重启统一直接运行 `GameHelper.ConsoleHost.exe`，正常打开可见交互窗口，保留彩色界面与 Windows Terminal 宿主判断。后台无焦点启动方向已废弃；旧 Launcher 快捷方式会在部署时迁回正常入口。详见[启动窗口宿主](docs/guides/terminal-host.md)。
+开机自启通过 `desktop/GameHelper.Desktop.exe --background` 无窗口启动监控，不创建控制台。主动打开游戏库才正常显示 WPF；部署只在原本打开游戏库时恢复窗口，并使用不激活方式。旧 Console / Launcher 桌面入口迁到游戏库；手动 CLI 仍可使用。详见[启动窗口宿主](docs/guides/terminal-host.md)。
 
-### WPF 游戏库体验原型
+### WPF 游戏库
 
-运行 `powershell -ExecutionPolicy Bypass -File scripts/open-wpf-prototype.ps1`，打开独立的 WPF 游戏库窗口。可以切换封面网格、紧凑列表和详情视图，搜索已登记游戏，并预览 HDR / 倍速启动步骤。当前只读载入配置，偏好调整不保存，也不启动游戏或接管监控。它尚未替代 ConsoleHost 和开机启动入口。详见[原型说明](docs/guides/wpf-prototype.md)。
+部署后打开桌面的 **GameHelper 游戏库**，或运行发布目录下的 `desktop/GameHelper.Desktop.exe`。支持网格 / 列表、搜索、历史时长、设置保存、添加程序和选择导入 Steam 游戏。启动前确认 HDR，再通过配置的程序、快捷方式或 Steam 入口启动；退出后恢复本工具修改的 HDR。启动失败、两分钟内未识别到进程都会清理，计时只从真实进程开始。未保存的界面草稿单独保留，启动时先保存；关闭游戏库继续监控。详见[游戏库使用说明](docs/guides/game-library.md)。
+
+开发时可运行 `dotnet run --project GameHelper.Desktop` 连接正在运行的 ConsoleHost。发布版本找不到运行实例时，会在后台启动同一发布目录的监控运行时。旧体验原型保存在 `codex/wpf-library-prototype` 分支。
 
 ### 常用 CLI 命令
 

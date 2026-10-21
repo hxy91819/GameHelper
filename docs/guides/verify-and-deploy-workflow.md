@@ -51,6 +51,8 @@
 
 ## 固定流程
 
+WPF 游戏库随 ConsoleHost win-x64 发布到 `desktop/`。部署对两个入口执行同一次目录交换；`-Restart` 通过 WPF `--background` 无窗口启动监控，并以 `--restore` 不激活地恢复原本打开的游戏库。界面草稿单独原子保存。验收后台无可见控制台、监控健康和 WPF `--check` 的真实命名管道；失败回滚。成功部署创建桌面“GameHelper 游戏库”入口，开机 Run 项同步为 WPF 后台入口。
+
 ### 1. 构建与测试
 
 ```powershell
@@ -77,7 +79,7 @@ powershell -File scripts\verify-on-machine.ps1
 powershell -File scripts\verify-on-machine.ps1 -SkipVerify
 ```
 
-   - `-SkipVerify -Restart`（常驻直接更新策略的标准收尾命令）：按进程路径判定运行实例 → `Stop-Process -Force` 结束 → 只清理属主 PID 确认已退出的新版 ETW 会话 → 原子换入 → 从发布目录正常启动 ConsoleHost 交互窗口（不经管道 stdout），5 秒后确认新 PID 存活，并附着其控制台核验窗口可见；无旧实例时也启动确认。旧产物保留至新实例确认可见，启动失败会恢复旧目录并重新启动旧实例。无法读取实例路径时保守中止，保留新产物，不强杀未知实例。在途会话由跨重启续算机制接续。
+   - `-SkipVerify -Restart`：确认目标进程路径 → 停止实例 → 只清理已退出属主的 ETW 会话 → 原子换入 → 无窗口启动监控并查询就绪 PID → 检查权限、数据、ETW 和 IPC；原有 WPF 窗口不激活地恢复。旧产物保留至健康检查通过，失败恢复旧目录和监控。无法读取实例路径时保守中止，不强杀未知实例。在途会话由跨重启续算机制接续。
 
 > 注意：禁止逐文件覆盖发布目录——framework-dependent 产物覆盖 self-contained 布局（或反之）会混装运行时文件，导致下一次启动报 "No frameworks were found"。锁定检测不能只用目录探针：运行实例锁的是 exe/dll 文件本身，目录仍可写。
 >
@@ -111,9 +113,9 @@ Remove-Item Env:GAMEHELPER_TEST_PUBLISH_EXE
 
 使用 `-Restart` 部署后实例已经运行新版本，功能即刻生效。使用默认路径时，部署完成（或用户关闭实例后补跑 `-SkipVerify`）后，用户下一次点击快捷方式启动即运行新版本；主动重启实例不再属于需要请示的动作。
 
-每次功能或修复完成都须实际更新本机。正式 ConsoleHost 是用户需要操作的交互窗口，重启必须正常显示；隐藏它会持有单实例锁，让再次双击只出现“已经运行”后退出。验收须确认窗口可见，并在配置自动监控时确认该实例的 ETW 会话运行（WMI 配置则验证 WMI 进程事件）。仅确认 PID 存活不足以完成交付。
+每次功能或修复完成都须实际更新本机。日常入口是 WPF，后台 ConsoleHost 不显示窗口。验收没有可见 Console / Terminal 窗口，并确认运行时的 ETW 会话和游戏库 IPC；WMI 配置验证 WMI 进程事件。仅确认 PID 存活不足以完成交付。
 
-窗口核验使用 `scripts/probe-console-window.ps1 -TargetProcessId <pid>`，返回控制台/显示窗口句柄和可见性，不可见时退出码为 1。探针独立进程附着目标控制台，避免干扰用户或部署脚本自身的控制台。Windows Terminal 的 ConPTY 兼容窗口自身可能不可见，须沿 owner 链检查真正显示的终端窗口（[微软 Terminal 的窗口归属实现](https://github.com/microsoft/terminal/blob/main/src/cascadia/TerminalApp/TerminalPage.cpp)）；传统控制台直接核验其窗口。控制台可能没有 `Process.MainWindowHandle`，因此不能用该属性代替实际窗口检测。
+后台窗口核验使用 `scripts/probe-console-window.ps1 -TargetProcessId <pid> -RequireNoConsole`，没有控制台或仅有不可见兼容对象时成功；控制台自身和其 Terminal owner 都必须不可见。探针运行在独立进程中。手动旧交互验收省略该开关，仍要求窗口可见；不能用 `Process.MainWindowHandle` 代替控制台检查。
 
 ### 5. 收尾：commit 并 push（常驻授权）
 
@@ -139,7 +141,7 @@ Remove-Item Env:GAMEHELPER_TEST_PUBLISH_EXE
 
 `ConsoleHost` 在 **stdout 被管道捕获且没有真实控制台** 的场景下启动即卡死（零输出）。自动化拉起实例（测试实例或正式实例皆然）不要用捕获 stdout 的方式（如 `exe | tee`、`subprocess.run(capture_output=True)`），应改用 `Start-Process`（不经由当前管道）或 `cmd /c ... > 日志文件 2>&1` 的文件重定向，并通过轮询日志文件 / 进程存活来确认启动成功。
 
-后台验证辅助进程可以隐藏；正式交互实例必须使用正常窗口。`PublishedInteractiveStartupTests` 调用部署脚本的实际启动函数，使用隔离配置核验真实控制台可见，防止隐藏重启回归。
+后台运行时由 WPF 无窗口引导，以 `CreateNoWindow` 拉起并把输出写入配置旁日志。后台发布回归调用实际部署启动函数，检查无可见窗口、重复启动复用同一 PID、IPC 和 ETW/CSV。旧 `PublishedInteractiveStartupTests` 只有设置 `GAMEHELPER_TEST_VISIBLE_CONSOLE=1` 时运行，默认测试不会弹出 Console。
 
 ## 功能级验证要求
 
@@ -148,6 +150,6 @@ Remove-Item Env:GAMEHELPER_TEST_PUBLISH_EXE
 - 用沙盒数据目录 + `--config` 参数或预置 `playtime.csv` 驱动真实渲染路径，人工确认输出版面。
 - 保留或新增对应的自动化测试断言，确保后续回归有安全网。
 
-### 正常交互启动入口
+### WPF 与后台启动入口
 
-后台无焦点启动方向已废弃，不再发布 Launcher。部署与测试共用 `scripts/start-checked-instance.ps1`，直接启动 ConsoleHost，发生终端转移时按同路径和启动时间确认真实 PID。窗口探针须可见，发布测试另断言未最小化。成功后将本发布目录的旧 Launcher 桌面入口迁回 ConsoleHost，新实例同步开机 Run 注册。
+用户在 WPF 成为主界面后重新授权后台启动，替代此前正常可见 Console 策略。部署与测试共用 `scripts/start-checked-instance.ps1`，调用 WPF `--background --check`，校验 IPC 返回 PID 的映像路径后才登记为部署拥有的进程。成功后旧 Console / Launcher 桌面入口迁到游戏库，新运行时同步 Run 项。旧版本回滚使用兼容的隐藏 `monitor` 路径。

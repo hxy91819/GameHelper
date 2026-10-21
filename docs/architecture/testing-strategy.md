@@ -43,7 +43,8 @@ CI runs the same script on Windows to publish ConsoleHost and execute the publis
 
 - WMI and ETW integration tests are Windows-only.
 - ETW tests that require administrator privileges should skip or self-report when not elevated.
-- Former WinUI desktop smoke/FlaUI suites were removed with the shell; they remain recoverable at tag `archive/winui`.
+- WPF view-model tests cover draft preservation, save-before-launch failure and search selection. The published library flow exercises real IPC, revision rejection, native launch, ETW/CSV and WPF rendering against an isolated host. Old WinUI/FlaUI suites are retired and do not constrain this design.
+- The published background entry test calls the actual deployment startup function, verifies the runtime has no console, reuses the same instance on repeated startup, and tracks a real probe through ETW/CSV. Default tests never launch the legacy interactive console. Set `GAMEHELPER_TEST_VISIBLE_CONSOLE=1` explicitly to run its three visible-window regression cases. Rendering snapshots use `ShowActivated=false`.
 
 ## Known Gaps
 

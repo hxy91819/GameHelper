@@ -1,6 +1,6 @@
 # GameHelper WinUI 设计说明
 
-> **已归档**：WinUI 壳层已移出仓库并停止维护，代码备份于 tag `archive/winui`。本文仅作历史设计参考。
+> **已废弃**：2026-10-21 用户明确以新的 WPF 游戏库设计为准。本文和旧 WinUI 代码只保留历史，不作为新版需求、架构或兼容性约束，不恢复或复用旧壳层。当前决定见 [ADR-0002](../../adr/0002-wpf-library-and-launch-ownership.md)。
 
 本文档替代旧 Web UI 设计文档，描述 WinUI 3 壳层的界面约束与自动化约束。
 

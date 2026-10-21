@@ -2,7 +2,7 @@
 
 GameHelper enforces the following project dependency direction:
 
-- `GameHelper.ConsoleHost` is the shell entrypoint. It may depend on `GameHelper.Core` and `GameHelper.Infrastructure`.
+- `GameHelper.ConsoleHost` and `GameHelper.Desktop` may depend on `GameHelper.Core` and `GameHelper.Infrastructure`. Desktop communicates with the running ConsoleHost through user/config-scoped named pipes; it does not reference the ConsoleHost project or duplicate automation.
 - `GameHelper.Core` contains contracts and orchestration logic. It must not reference shell projects or UI frameworks.
 - `GameHelper.Infrastructure` contains concrete adapters and may reference `GameHelper.Core` only.
 

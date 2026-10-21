@@ -4,10 +4,13 @@ This PRD records current product intent and scope. Completed story detail has be
 
 ## Current Product Intent
 
-GameHelper helps Windows players track game playtime and manage game-specific automation from a CLI shell. A former WinUI desktop shell was removed from the repository and archived at tag `archive/winui`.
+GameHelper helps Windows players launch games, track playtime and manage automation through a WPF game library, with ConsoleHost retaining the runtime and CLI. The former WinUI design is retired; the WPF design is the current product direction.
 
 The maintained baseline is:
 
+- WPF grid/list library with search, persisted game preferences, historical playtime, executable intake and selectable local Steam imports.
+- Separate launch entries for executable/shortcut or Steam launch, with confirmed pre-launch HDR, bounded pending observation, restoration and restart continuity. Closing the library leaves the shared automation runtime active.
+- Windowless monitoring at system startup and after deployment; explicit opening activates the WPF library, while automatic restoration leaves foreground focus unchanged. Legacy Console UI regression is opt-in.
 - Configuration-driven game catalog stored in `config.yml`.
 - Stable `DataKey` as the single game identity for config, playtime records, and statistics joins.
 - Compact game entries with one `executable` value instead of separate stored path/name fields.
