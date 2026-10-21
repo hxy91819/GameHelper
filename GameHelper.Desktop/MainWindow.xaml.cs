@@ -46,6 +46,13 @@ public partial class MainWindow : Window
     private async void OnStatistics(object sender, RoutedEventArgs e) { Navigate(true); await _model.Statistics.EnsureLoadedAsync(); }
     private async void OnLibrary(object sender, RoutedEventArgs e) { Navigate(false); await _model.RefreshAsync(); }
     private void OnFilter(object sender, RoutedEventArgs e) => _model.SetFilter((string)((Button)sender).Tag);
+    private void OnInstallationGroup(object sender, RoutedEventArgs e) => SetInstallationGroup((string)((Button)sender).Tag);
+    private void SetInstallationGroup(string group)
+    {
+        _model.SetInstallationGroup(group);
+        foreach (var button in new[] { InstalledGroup, MissingGroup, UnknownGroup, AllGroup })
+            button.Background = (Brush)new BrushConverter().ConvertFromString((string)button.Tag == group ? "#425B92" : "#253248")!;
+    }
     private void OnLayout(object sender, RoutedEventArgs e) => SetLayout((string)((Button)sender).Tag);
     private void SetLayout(string layout)
     {
@@ -66,6 +73,21 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog() != true) return;
         try { await _model.AssociatePosterAsync(game, dialog.SelectedAppId); }
         catch (Exception ex) { _model.Status = "海报关联未能保存：" + ex.Message; }
+    }
+
+    private async void OnScanDirectory(object sender, RoutedEventArgs e)
+    {
+        var folder = new OpenFolderDialog { Title = "选择游戏库目录或单个游戏目录", Multiselect = false };
+        if (folder.ShowDialog(this) != true) return;
+        var scan = await _model.DiscoverDirectoryAsync(folder.FolderName);
+        if (scan is null) return;
+        var dialog = new DirectoryImportWindow(scan) { Owner = this };
+        if (dialog.ShowDialog() == true) await _model.ImportDirectoryAsync(dialog.SelectedGames);
+    }
+
+    private void OnMatchMissingPosters(object sender, RoutedEventArgs e)
+    {
+        if (_model.Ready) new MissingPostersWindow(_model) { Owner = this }.ShowDialog();
     }
 
     private void OnChooseEntry(object sender, RoutedEventArgs e)
@@ -116,6 +138,8 @@ public partial class MainWindow : Window
         _refreshTimer.Stop();
         await _model.WaitForArtworkAsync().WaitAsync(TimeSpan.FromSeconds(25));
         Directory.CreateDirectory(directory);
+        Capture(Path.Combine(directory, "installed-default.png"));
+        SetInstallationGroup("all");
         foreach (var layout in new[] { "grid", "list" })
         {
             SetLayout(layout);
@@ -132,6 +156,16 @@ public partial class MainWindow : Window
         await Task.Delay(100);
         Capture(Path.Combine(directory, "small-window.png"));
         Width = originalWidth; Height = originalHeight;
+        SetInstallationGroup("missing"); await Task.Delay(100); Capture(Path.Combine(directory, "missing-games.png"));
+        SetInstallationGroup("unknown"); await Task.Delay(100); Capture(Path.Combine(directory, "unknown-games.png"));
+        SetInstallationGroup("all");
+        if (Environment.GetEnvironmentVariable("GAMEHELPER_TEST_SCAN_DIRECTORY") is { Length: > 0 } scanDirectory)
+        {
+            var scan = await _model.DiscoverDirectoryAsync(scanDirectory) ?? throw new InvalidOperationException(_model.Status);
+            var dialog = new DirectoryImportWindow(scan) { Owner = this, ShowActivated = false, ShowInTaskbar = false };
+            try { dialog.Show(); await Task.Delay(150); WindowSnapshot.Save(dialog, Path.Combine(directory, "directory-scan.png")); }
+            finally { dialog.Close(); }
+        }
         Navigate(true);
         await _model.Statistics.RefreshAsync();
         if (!_model.Statistics.HasLoaded) throw new InvalidOperationException(_model.Statistics.Status);
@@ -152,12 +186,6 @@ public partial class MainWindow : Window
 
     private void Capture(string path)
     {
-        UpdateLayout();
-        var bitmap = new RenderTargetBitmap((int)ActualWidth, (int)ActualHeight, 96, 96, PixelFormats.Pbgra32);
-        bitmap.Render(this);
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(bitmap));
-        using var file = File.Create(path);
-        encoder.Save(file);
+        WindowSnapshot.Save(this, path);
     }
 }

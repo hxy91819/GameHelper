@@ -20,6 +20,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <ApplicationIcon>../GameHelper.Desktop/Assets/gamehelper.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!-- A complete release contains both shells; the desktop only talks to this runtime via IPC. -->

@@ -24,13 +24,16 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private string _status = "正在连接游戏监控…";
     private string _search = string.Empty;
     private string _filter = "all";
+    private string _group = "installed";
     private string _configPath = string.Empty;
 
-    public LibraryViewModel(IGameLibrary library, string? configPath = null)
+    public LibraryViewModel(IGameLibrary library, string? configPath = null) : this(library, configPath, null) { }
+
+    internal LibraryViewModel(IGameLibrary library, string? configPath, SteamPosterLibrary? posters)
     {
         _library = library;
         Statistics = new StatisticsViewModel(library);
-        _posters = new SteamPosterLibrary(configPath, allowNetwork: configPath is not null);
+        _posters = posters ?? new SteamPosterLibrary(configPath, allowNetwork: configPath is not null);
         if (configPath is not null)
         {
             _draftStore = new LibraryDraftStore(configPath);
@@ -60,6 +63,8 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public string Status { get => _status; set => Set(ref _status, value); }
     public string ConfigPath { get => _configPath; private set => Set(ref _configPath, value); }
     public string Count => $"{Games.Cast<object>().Count()} / {_games.Count} 款游戏";
+    public string InstallationSummary => $"本机 {_games.Count(game => game.InstallationState == GameInstallationState.Installed)} · 未找到 {_games.Count(game => game.InstallationState == GameInstallationState.Missing)} · 待确认 {_games.Count(game => game.InstallationState == GameInstallationState.Unknown)}";
+    public string InstallationGroup => _group;
     public string Search { get => _search; set { if (Set(ref _search, value)) Filter(); } }
     public LibraryGameItem? Selected { get => _selected; set { Set(ref _selected, value); RefreshCommands(); } }
     public bool HasUnsavedChanges => _games.Any(game => game.IsDirty);
@@ -80,10 +85,13 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     }
 
     public void SetFilter(string filter) { _filter = filter; Filter(); }
+    public void SetInstallationGroup(string group) { _group = group; Changed(nameof(InstallationGroup)); Filter(); }
     private bool Matches(object value)
     {
         var game = (LibraryGameItem)value;
-        return (_filter != "hdr" || game.Hdr) && (_filter != "speed" || game.UseSpeed)
+        return (_group == "all" || (_group == "installed" && game.InstallationState == GameInstallationState.Installed)
+                || (_group == "missing" && game.InstallationState == GameInstallationState.Missing) || (_group == "unknown" && game.InstallationState == GameInstallationState.Unknown))
+            && (_filter != "hdr" || game.Hdr) && (_filter != "speed" || game.UseSpeed)
             && (game.Name.Contains(Search.Trim(), StringComparison.OrdinalIgnoreCase) || game.Executable.Contains(Search.Trim(), StringComparison.OrdinalIgnoreCase));
     }
     private void Filter()
@@ -92,6 +100,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         var visible = Games.Cast<LibraryGameItem>().ToList();
         if (Selected is null || !visible.Contains(Selected)) Selected = visible.FirstOrDefault();
         Changed(nameof(Count));
+        Changed(nameof(InstallationSummary));
     }
 
     public async Task RefreshAsync(bool discardDrafts = false)
@@ -171,7 +180,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             foreach (var item in updated) _games.Add(item);
         }
         Filter();
-        Selected = _games.FirstOrDefault(game => game.DataKey == key) ?? _games.FirstOrDefault();
+        Selected = Games.Cast<LibraryGameItem>().FirstOrDefault(game => game.DataKey == key) ?? Games.Cast<LibraryGameItem>().FirstOrDefault();
         if (discardDrafts) _restoredDrafts.Clear();
         Connected = true;
         ConfigPath = response.ConfigPath;
@@ -209,7 +218,34 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     }
 
     public Task ImportAsync(string[] ids) => RunAsync(() => SendAsync(new GameLibraryRequest { Operation = GameLibraryOperation.ImportSteam, SteamAppIds = ids }));
+    public async Task<LocalGameScan?> DiscoverDirectoryAsync(string directory)
+    {
+        LocalGameScan? scan = null;
+        await RunAsync(async () =>
+        {
+            Status = "正在读取目录，识别候选游戏程序…";
+            var response = await _library.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.DiscoverDirectory, Directory = directory }, _lifetime.Token);
+            if (!response.Success) throw new InvalidOperationException(response.Error);
+            scan = response.LocalScan;
+            Status = $"扫描完成：{scan?.Candidates.Count ?? 0} 个候选程序，请勾选需要加入的游戏。";
+        });
+        return scan;
+    }
+    public Task ImportDirectoryAsync(IReadOnlyList<LocalGameCandidate> games) => RunAsync(() => SendAsync(new GameLibraryRequest { Operation = GameLibraryOperation.ImportDirectory, LocalGames = games }));
     internal Task<IReadOnlyList<GameHelper.Infrastructure.Artwork.SteamArtworkGame>> SearchPostersAsync(string query, CancellationToken cancellationToken) => _posters.SearchAsync(query, cancellationToken);
+    internal IReadOnlyList<LibraryGameItem> MissingPosters(bool includeUnavailable) => _games.Where(game => !game.ArtworkIsCover
+        && (includeUnavailable || game.InstallationState == GameInstallationState.Installed)).ToList();
+    internal bool HasPosterAssociation(LibraryGameItem game) => _posters.HasAssociation(game.DataKey);
+    internal async Task<bool> AutoMatchPosterAsync(LibraryGameItem game, CancellationToken cancellationToken)
+    {
+        if (!await _posters.MatchNameAsync(game.DataKey, game.Name, cancellationToken)) return false;
+        // A short-lived dialog only cancels its wait. Shared downloads belong to this library window.
+        game.ArtworkLoading = game.LoadArtworkAsync(_posters, _lifetime.Token);
+        await game.ArtworkLoading.WaitAsync(cancellationToken);
+        return true;
+    }
+    internal Task<System.Windows.Media.ImageSource?> PreviewPosterAsync(uint appId, CancellationToken cancellationToken)
+        => _posters.PreviewAsync(appId, _lifetime.Token).WaitAsync(cancellationToken);
     internal Task WaitForArtworkAsync() => Task.WhenAll(_games.Select(game => game.ArtworkLoading));
     internal int PosterCount => _games.Count(game => game.ArtworkIsCover);
     internal async Task AssociatePosterAsync(LibraryGameItem game, uint? appId)

@@ -36,6 +36,21 @@ internal sealed class SteamPosterLibrary
     }
 
     public Task<IReadOnlyList<SteamArtworkGame>> SearchAsync(string query, CancellationToken cancellationToken) => _client.SearchAsync(query, cancellationToken);
+    internal bool HasAssociation(string dataKey) => _links.ContainsKey(dataKey);
+    internal async Task<bool> MatchNameAsync(string dataKey, string title, CancellationToken cancellationToken)
+    {
+        if (HasAssociation(dataKey)) return false;
+        var found = await SearchAsync(title, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (HasAssociation(dataKey) || SteamArtworkNameMatcher.ExactMatch(title, found) is not { } exact) return false;
+        Associate(dataKey, exact.AppId);
+        return true;
+    }
+    internal async Task<ImageSource?> PreviewAsync(uint appId, CancellationToken cancellationToken)
+    {
+        var path = await _client.GetPosterAsync(appId, cancellationToken);
+        return path is null ? null : await Task.Run(() => LocalGameArtwork.LoadPoster(path), cancellationToken);
+    }
 
     public void Associate(string dataKey, uint? appId)
     {

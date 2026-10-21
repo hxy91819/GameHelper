@@ -24,11 +24,13 @@ public sealed class LibraryGameItem : ObservableState
     private string _posterStatus = "正在读取海报…";
     private int _artworkVersion;
     private readonly LibraryGame _baseline;
+    private GameInstallation _installation;
     internal Task ArtworkLoading { get; set; } = Task.CompletedTask;
 
     public LibraryGameItem(LibraryGame row)
     {
         _baseline = row;
+        _installation = row.Installation;
         DataKey = row.Config.DataKey;
         Revision = row.Revision;
         _name = row.Config.DisplayName ?? DataKey;
@@ -64,6 +66,9 @@ public sealed class LibraryGameItem : ObservableState
     public string Playtime => $"历史时长 {_minutes / 60d:0.#} 小时";
     public string Summary => !Enabled ? "自动化已暂停" : string.Join(" · ", new[] { Hdr ? "HDR" : "SDR", UseSpeed ? $"{Speed}×" : null }.Where(value => value is not null));
     public string Initial => string.IsNullOrEmpty(Name) ? "G" : StringInfo.GetNextTextElement(Name);
+    public GameInstallationState InstallationState => _installation.State;
+    public string InstallationLabel => _installation.State switch { GameInstallationState.Installed => "本机已安装", GameInstallationState.Missing => "本地未找到", _ => "安装位置待确认" };
+    public string InstallationDetail => _installation.Description;
 
     private void Edited()
     {
@@ -75,6 +80,8 @@ public sealed class LibraryGameItem : ObservableState
     public void RefreshRuntime(LibraryGame row)
     {
         State = row.State;
+        _installation = row.Installation;
+        Changed(nameof(InstallationState)); Changed(nameof(InstallationLabel)); Changed(nameof(InstallationDetail));
         _minutes = row.TotalMinutes;
         Changed(nameof(Playtime));
     }

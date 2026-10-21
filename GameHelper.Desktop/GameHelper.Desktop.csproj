@@ -5,8 +5,11 @@
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>Assets/gamehelper.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <Resource Include="Assets/gamehelper-logo.png" />
+    <Resource Include="Assets/gamehelper.ico" />
     <ProjectReference Include="../GameHelper.Infrastructure/GameHelper.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

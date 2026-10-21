@@ -94,6 +94,75 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
     }
 
     [SteamPosterLiveFact]
+    public async Task PosterNameSearch_QueriesSteamByTitleAndDownloadsUniqueExactMatch()
+    {
+        using var sandbox = CreateSandbox();
+        using var http = new System.Net.Http.HttpClient();
+        var client = new GameHelper.Infrastructure.Artwork.SteamArtworkClient(http, Path.Combine(sandbox.RootDir, "posters"),
+            GameHelper.Desktop.LocalGameArtwork.IsValidPoster);
+        var results = await client.SearchAsync("Portal 2", CancellationToken.None);
+        var exact = GameHelper.Infrastructure.Artwork.SteamArtworkNameMatcher.ExactMatch("Portal 2™", results);
+        Assert.NotNull(exact); Assert.Equal(620u, exact.AppId);
+        var image = await client.GetPosterAsync(exact.AppId, CancellationToken.None);
+        Assert.NotNull(image); Assert.True(File.Exists(image));
+    }
+
+    [WindowsOnlyFact]
+    public async Task DirectoryDiscovery_PublishedRuntimeScansImportsAndSeparatesMissingGames()
+    {
+        if (!TryGuard(out var exePath)) return;
+        using var sandbox = CreateSandbox();
+        var missing = Path.Combine(sandbox.RootDir, "removed-game.exe");
+        var source = new YamlConfigProvider(sandbox.ConfigPath);
+        source.Change(config => config.Games =
+        [new() { DataKey = "missing", Executable = missing, DisplayName = "No longer installed", IsEnabled = false },
+         new() { DataKey = "unknown", Executable = "gh-discovery-unlocated.exe", DisplayName = "Legacy game", IsEnabled = false }]);
+        var libraryRoot = Path.Combine(sandbox.RootDir, "Library");
+        var gameRoot = Path.Combine(libraryRoot, "Found Adventure"); Directory.CreateDirectory(gameRoot);
+        var executable = Path.Combine(gameRoot, "gh-found-adventure.exe");
+        File.Copy(Path.Combine(Environment.SystemDirectory, "cmd.exe"), executable);
+        File.WriteAllBytes(Path.Combine(gameRoot, "uninstall.exe"), [1]);
+        using var app = StartApp(exePath!, sandbox);
+        try
+        {
+            await WaitUntilOutputAsync(app, sandbox, text => text.Contains("GameAutomationService started"), ReadyTimeout, "discovery runtime ready");
+            var client = new GameLibraryPipe(sandbox.ConfigPath);
+            var original = File.ReadAllText(sandbox.ConfigPath);
+            var scan = await client.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.DiscoverDirectory, Directory = libraryRoot });
+            Assert.True(scan.Success, scan.Error); var candidate = Assert.Single(scan.LocalScan!.Candidates);
+            Assert.Equal(executable, candidate.ExecutablePath); Assert.False(candidate.AlreadyAdded);
+            Assert.Equal(original, File.ReadAllText(sandbox.ConfigPath));
+            var imported = await client.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.ImportDirectory, LocalGames = [candidate] });
+            Assert.True(imported.Success, imported.Error);
+            var found = imported.Games.Single(item => item.Config.Executable == executable);
+            Assert.Equal(GameInstallationState.Installed, found.Installation.State);
+            Assert.False(found.Config.HdrEnabled); Assert.Null(found.Config.SpeedMultiplier);
+            Assert.Equal(GameInstallationState.Missing, imported.Games.Single(item => item.Config.DataKey == "missing").Installation.State);
+            Assert.Equal(GameInstallationState.Unknown, imported.Games.Single(item => item.Config.DataKey == "unknown").Installation.State);
+            var afterImport = File.ReadAllText(sandbox.ConfigPath);
+            var duplicate = await client.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.ImportDirectory, LocalGames = [candidate] });
+            Assert.Equal(3, duplicate.Games.Count); Assert.Equal(afterImport, File.ReadAllText(sandbox.ConfigPath));
+            var screenshots = Environment.GetEnvironmentVariable("GAMEHELPER_TEST_DISCOVERY_SCREENSHOTS") ?? Path.Combine(sandbox.RootDir, "discovery-ui");
+            var start = new ProcessStartInfo(Path.Combine(Path.GetDirectoryName(exePath)!, "desktop", "GameHelper.Desktop.exe")) { UseShellExecute = false, CreateNoWindow = true };
+            foreach (var argument in new[] { "--config", sandbox.ConfigPath, "--snapshot", screenshots }) start.ArgumentList.Add(argument);
+            start.Environment["GAMEHELPER_DATA_DIR"] = sandbox.RootDir;
+            start.Environment["GAMEHELPER_TEST_SCAN_DIRECTORY"] = libraryRoot;
+            using var ui = Process.Start(start)!;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
+            try { await ui.WaitForExitAsync(timeout.Token); } finally { if (!ui.HasExited) ui.Kill(); }
+            Assert.Equal(0, ui.ExitCode);
+            Assert.True(File.Exists(Path.Combine(screenshots, "directory-scan.png")));
+            Assert.True(File.Exists(Path.Combine(screenshots, "installed-default.png")));
+            Assert.Equal(afterImport, File.ReadAllText(sandbox.ConfigPath));
+            File.Delete(executable);
+            var gone = await client.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.List });
+            Assert.Equal(GameInstallationState.Missing, gone.Games.Single(item => item.Config.Executable == executable).Installation.State);
+            output.WriteLine("Published directory scan/import/defaults/idempotency/installation grouping and native picker verified: " + screenshots);
+        }
+        finally { StopAppAndSweepSessions(app); }
+    }
+
+    [SteamPosterLiveFact]
     public async Task SteamPoster_PublishedDesktopDownloadsCachesAndRendersWithoutChangingGameSettings()
     {
         if (!TryGuard(out var exePath)) return;

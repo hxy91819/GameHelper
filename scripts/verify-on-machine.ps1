@@ -287,6 +287,7 @@ try {
             $libraryShortcut.TargetPath = $desktopExe
             $libraryShortcut.WorkingDirectory = Split-Path -Parent $desktopExe
             $libraryShortcut.Description = 'GameHelper 游戏库'
+            $libraryShortcut.IconLocation = $desktopExe + ',0'
             $libraryShortcut.Save()
             foreach ($desktop in @([Environment]::GetFolderPath('DesktopDirectory'), [Environment]::GetFolderPath('CommonDesktopDirectory')) | Select-Object -Unique) {
                 foreach ($shortcutFile in Get-ChildItem -LiteralPath $desktop -Filter '*.lnk' -ErrorAction SilentlyContinue) {

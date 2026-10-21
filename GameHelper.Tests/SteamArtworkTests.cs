@@ -10,6 +10,17 @@ public sealed class SteamArtworkTests
 {
     private static readonly byte[] Poster = [255, 216, 12, 34, 255, 217];
 
+    [Fact]
+    public void NameMatching_RequiresUniqueExactTitleAndKeepsEditionNumbersSignificant()
+    {
+        Assert.Equal(620u, SteamArtworkNameMatcher.ExactMatch("Portal 2™", [new(620, "PORTAL: 2"), new(621, "Portal 2 Deluxe Edition")])?.AppId);
+        Assert.Null(SteamArtworkNameMatcher.ExactMatch("Portal", [new(620, "Portal 2")]));
+        Assert.Null(SteamArtworkNameMatcher.ExactMatch("Game", [new(1, "Game"), new(2, "Game")]));
+        Assert.Null(SteamArtworkNameMatcher.ExactMatch("游戏", [new(1, "游戏 DLC")]));
+        Assert.Null(SteamArtworkNameMatcher.ExactMatch("", [new(1, "Anything")]));
+        Assert.Equal(1u, SteamArtworkNameMatcher.ExactMatch("游戏２", [new(1, "游戏2")])?.AppId);
+    }
+
     [Theory]
     [InlineData("620", 620u)]
     [InlineData("steam://rungameid/620/", 620u)]

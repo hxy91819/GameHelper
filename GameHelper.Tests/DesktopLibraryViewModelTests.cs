@@ -39,6 +39,37 @@ public sealed class DesktopLibraryViewModelTests
         protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
             => Task.FromResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.NotFound));
     }
+
+    [Fact]
+    public Task NameSearch_SavesOnlyUniqueExactMatchesAndNeverOverridesExistingAssociation() => OnSta(() =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gh-poster-name", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var config = Path.Combine(root, "config.yml"); File.WriteAllText(config, "unchanged");
+            using var http = new System.Net.Http.HttpClient(new NameSearchHandler());
+            var client = new GameHelper.Infrastructure.Artwork.SteamArtworkClient(http, Path.Combine(root, "cache"), _ => false);
+            var posters = new SteamPosterLibrary(config, true, client, _ => null);
+            Assert.True(posters.MatchNameAsync("portal", "Portal 2™", CancellationToken.None).GetAwaiter().GetResult());
+            Assert.Contains("620", File.ReadAllText(config + ".desktop-artwork.json"));
+            Assert.False(posters.MatchNameAsync("portal", "Game", CancellationToken.None).GetAwaiter().GetResult());
+            Assert.False(posters.MatchNameAsync("ambiguous", "Game", CancellationToken.None).GetAwaiter().GetResult());
+            Assert.False(posters.MatchNameAsync("wrong-edition", "Portal 2 Deluxe", CancellationToken.None).GetAwaiter().GetResult());
+            Assert.False(posters.HasAssociation("ambiguous")); Assert.False(posters.HasAssociation("wrong-edition"));
+            using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+            Assert.ThrowsAny<OperationCanceledException>(() => posters.MatchNameAsync("cancelled", "Portal 2", cancelled.Token).GetAwaiter().GetResult());
+            Assert.False(posters.HasAssociation("cancelled")); Assert.Equal("unchanged", File.ReadAllText(config));
+        }
+        finally { Directory.Delete(root, true); }
+    });
+
+    private sealed class NameSearchHandler : System.Net.Http.HttpMessageHandler
+    {
+        protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            { Content = new System.Net.Http.StringContent("""{"items":[{"id":620,"name":"Portal 2","type":"app"},{"id":1,"name":"Game","type":"app"},{"id":2,"name":"Game","type":"app"}]}""") });
+    }
     [Fact]
     public Task PosterAssociation_PersistsSeparatelyWithoutChangingLaunchOrAutomation() => OnSta(() =>
     {
@@ -63,6 +94,28 @@ public sealed class DesktopLibraryViewModelTests
         }
         finally { Directory.Delete(root, true); }
     });
+    [Fact]
+    public Task InstallationGroups_DefaultToInstalledAndPreserveDraftWhenFileDisappears() => OnSta(() =>
+    {
+        var backend = new Backend();
+        using var model = new LibraryViewModel(backend);
+        model.RefreshAsync().GetAwaiter().GetResult();
+        Assert.Equal("installed", model.InstallationGroup);
+        var original = model.Selected!; original.Name = "draft";
+        backend.Installation = GameInstallationState.Missing;
+        model.RefreshAsync().GetAwaiter().GetResult();
+        Assert.True(model.Games.IsEmpty); Assert.Null(model.Selected);
+        model.SetInstallationGroup("missing");
+        Assert.Same(original, model.Selected); Assert.Equal("draft", model.Selected!.Name);
+        Assert.True(model.Selected.IsDirty);
+        model.SetInstallationGroup("unknown"); Assert.True(model.Games.IsEmpty);
+        model.SetInstallationGroup("all"); Assert.Same(original, model.Selected);
+        backend.Installation = GameInstallationState.Installed;
+        model.RefreshAsync().GetAwaiter().GetResult();
+        model.SetInstallationGroup("installed"); Assert.Same(original, model.Selected);
+        Assert.Equal(0, backend.Saves); Assert.Equal(0, backend.Launches);
+    });
+
     [Fact]
     public Task ClearingEmptySearch_RestoresSelectionAndItsDraft() => OnSta(() =>
     {
@@ -161,6 +214,7 @@ public sealed class DesktopLibraryViewModelTests
     {
         public GameConfig Game { get; private set; } = new() { DataKey = "a", DisplayName = "A", Executable = @"C:\a.exe" };
         public string State { get; set; } = "未运行";
+        public GameInstallationState Installation { get; set; } = GameInstallationState.Installed;
         public bool RejectSave { get; init; }
         public int Saves { get; private set; }
         public int Launches { get; private set; }
@@ -177,7 +231,7 @@ public sealed class DesktopLibraryViewModelTests
             return Task.FromResult(new GameLibraryResponse
             {
                 Success = true, MonitorRunning = true,
-                Games = [new() { Config = Game, Revision = GameConfigRevision.For(Game), State = State }]
+                Games = [new() { Config = Game, Revision = GameConfigRevision.For(Game), State = State, Installation = new(Installation, "test") }]
             });
         }
     }

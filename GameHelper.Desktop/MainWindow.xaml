@@ -3,6 +3,7 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:local="clr-namespace:GameHelper.Desktop"
  Title="GameHelper · 游戏库" Width="1400" Height="900" MinWidth="1120" MinHeight="740"
+ Icon="/Assets/gamehelper.ico"
  WindowStartupLocation="CenterScreen" Background="#10151F" Foreground="#EEF3FB"
  FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="14" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
  <Window.Resources>
@@ -39,11 +40,11 @@
   <Border Background="#171E2B" BorderBrush="#2A354A" BorderThickness="0,0,1,0">
    <Grid Margin="18,28">
     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-    <StackPanel><TextBlock Text="GH /" Foreground="#92B0FF" FontSize="32" FontWeight="Bold" /><TextBlock Text="GameHelper" FontSize="19" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="LOCAL GAME LIBRARY" FontSize="9" Foreground="{StaticResource Muted}" Margin="0,8,0,0" /></StackPanel>
+    <StackPanel><Image Source="/Assets/gamehelper-logo.png" Width="56" Height="56" HorizontalAlignment="Left" /><TextBlock Text="GameHelper" FontSize="19" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="LOCAL GAME LIBRARY" FontSize="9" Foreground="{StaticResource Muted}" Margin="0,8,0,0" /></StackPanel>
     <StackPanel Grid.Row="1" Margin="0,38,0,0">
      <Button x:Name="LibraryNav" Content="▦  游戏库" Click="OnLibrary" Background="#2B3E60" FontWeight="SemiBold" />
      <Button x:Name="StatisticsNav" Content="◷  游玩档案" Click="OnStatistics" Background="Transparent" FontWeight="SemiBold" Margin="0,8,0,0" />
-     <StackPanel x:Name="LibraryTools"><Button Content="＋  添加游戏" Click="OnAdd" IsEnabled="{Binding Ready}" Margin="0,18,0,8" /><Button Content="扫描 Steam" Click="OnSteam" IsEnabled="{Binding Ready}" /></StackPanel>
+     <StackPanel x:Name="LibraryTools"><Button Content="＋  添加游戏" Click="OnAdd" IsEnabled="{Binding Ready}" Margin="0,18,0,8" /><Button Content="扫描目录" Click="OnScanDirectory" IsEnabled="{Binding Ready}" Margin="0,0,0,8" /><Button Content="扫描 Steam" Click="OnSteam" IsEnabled="{Binding Ready}" /></StackPanel>
     </StackPanel>
     <StackPanel Grid.Row="3"><Button x:Name="ReloadButton" Content="重新载入" Click="OnReload" IsEnabled="{Binding Ready}" ToolTip="放弃未保存设置并重新载入" /><TextBlock Text="本地配置 · Windows" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,14,0,0" /></StackPanel>
    </Grid>
@@ -55,15 +56,21 @@
     <StackPanel><TextBlock Text="游戏库" FontSize="30" FontWeight="SemiBold" /><TextBlock Text="{Binding Count}" Foreground="{StaticResource Muted}" Margin="0,8,0,0" /></StackPanel>
     <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="搜索游戏 · Ctrl+F" Foreground="{StaticResource Muted}" FontSize="11" /><TextBox x:Name="SearchBox" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" ToolTip="搜索游戏名称或程序（Ctrl+F）" AutomationProperties.Name="搜索游戏" /></StackPanel>
    </Grid>
-   <DockPanel Grid.Row="1" Margin="0,22,0,15">
-    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Content="网格" Tag="grid" Click="OnLayout" Margin="0,0,8,0" /><Button Content="列表" Tag="list" Click="OnLayout" /></StackPanel>
-    <StackPanel Orientation="Horizontal"><Button Content="全部" Tag="all" Click="OnFilter" Margin="0,0,8,0" /><Button Content="HDR" Tag="hdr" Click="OnFilter" Margin="0,0,8,0" /><Button Content="倍速" Tag="speed" Click="OnFilter" /></StackPanel>
-   </DockPanel>
+   <StackPanel Grid.Row="1" Margin="0,22,0,15">
+    <DockPanel>
+     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Content="网格" Tag="grid" Click="OnLayout" Margin="0,0,8,0" /><Button Content="列表" Tag="list" Click="OnLayout" /></StackPanel>
+     <StackPanel Orientation="Horizontal"><Button x:Name="InstalledGroup" Content="本机已安装" Tag="installed" Click="OnInstallationGroup" Background="#425B92" Margin="0,0,8,0" /><Button x:Name="MissingGroup" Content="本地未找到" Tag="missing" Click="OnInstallationGroup" Margin="0,0,8,0" /><Button x:Name="UnknownGroup" Content="待确认" Tag="unknown" Click="OnInstallationGroup" Margin="0,0,8,0" /><Button x:Name="AllGroup" Content="全部" Tag="all" Click="OnInstallationGroup" /></StackPanel>
+    </DockPanel>
+    <DockPanel Margin="0,10,0,0">
+     <Button DockPanel.Dock="Right" Content="按名称补全海报" Click="OnMatchMissingPosters" IsEnabled="{Binding Ready}" />
+     <StackPanel Orientation="Horizontal"><Button Content="所有类型" Tag="all" Click="OnFilter" Margin="0,0,8,0" /><Button Content="HDR" Tag="hdr" Click="OnFilter" Margin="0,0,8,0" /><Button Content="倍速" Tag="speed" Click="OnFilter" /><TextBlock Text="{Binding InstallationSummary}" FontSize="11" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="14,0,0,0" /></StackPanel>
+    </DockPanel>
+   </StackPanel>
    <Grid Grid.Row="2">
     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="350" /></Grid.ColumnDefinitions>
     <ListBox x:Name="GameList" ItemsSource="{Binding Games}" SelectedItem="{Binding Selected}" Background="Transparent" Foreground="White" BorderThickness="0" ClipToBounds="True"
      ItemTemplate="{StaticResource CardTemplate}" ItemsPanel="{StaticResource CardsPanel}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.ScrollUnit="Pixel" />
-    <TextBlock Text="没有匹配的游戏。可添加程序，或扫描 Steam 游戏库。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="22,40" IsHitTestVisible="False">
+    <TextBlock Text="此分组暂时没有匹配的游戏。可切换分组、扫描目录或添加程序。" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="22,40" IsHitTestVisible="False">
      <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding Games.IsEmpty}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
     </TextBlock>
     <Border Grid.Column="1" Background="#1A2230" CornerRadius="12" Margin="18,0,0,0">
@@ -73,6 +80,7 @@
       <StackPanel>
        <TextBlock Text="{Binding Selected.Name, TargetNullValue=请选择游戏, FallbackValue=请选择游戏}" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" />
        <TextBlock Text="{Binding Selected.State}" Foreground="#A9C6FF" Margin="0,10,0,4" /><TextBlock Text="{Binding Selected.Playtime}" Foreground="{StaticResource Muted}" FontSize="12" />
+       <TextBlock Text="{Binding Selected.InstallationLabel}" ToolTip="{Binding Selected.InstallationDetail}" Foreground="#A7BCE0" FontSize="12" Margin="0,8,0,0" />
        <TextBlock Text="{Binding Selected.PosterStatus}" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0" />
        <Button Content="匹配 / 重试 Steam 海报…" Click="OnPoster" IsEnabled="{Binding Ready}" Margin="0,10,0,0" />
        <Button Content="启动游戏  →" Command="{Binding LaunchCommand}" Background="#6389E7" Margin="0,20,0,12" ToolTip="填写启动入口后可启动；未保存的设置会先保存" />
