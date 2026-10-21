@@ -22,4 +22,12 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- A complete release contains both shells; the desktop only talks to this runtime via IPC. -->
+  <Target Name="PublishDesktopLibrary" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' == 'win-x64' and '$(PublishDesktop)' != 'false'">
+    <PropertyGroup>
+      <DesktopSelfContained Condition="'$(SelfContained)' == ''">false</DesktopSelfContained>
+      <DesktopSelfContained Condition="'$(SelfContained)' != ''">$(SelfContained)</DesktopSelfContained>
+    </PropertyGroup>
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)" Command="dotnet publish &quot;$(MSBuildProjectDirectory)\..\GameHelper.Desktop\GameHelper.Desktop.csproj&quot; -c $(Configuration) -r $(RuntimeIdentifier) --self-contained $(DesktopSelfContained) -o &quot;$(PublishDir)desktop&quot; --nologo" />
+  </Target>
 </Project>

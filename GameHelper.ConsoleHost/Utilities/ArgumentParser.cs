@@ -11,6 +11,7 @@ namespace GameHelper.ConsoleHost.Utilities
         public string? MonitorType { get; set; }
         public bool MonitorDryRun { get; set; }
         public bool UseInteractiveShell { get; set; }
+        public bool Background { get; set; }
         public string[] EffectiveArgs { get; set; } = Array.Empty<string>();
     }
 
@@ -27,6 +28,7 @@ namespace GameHelper.ConsoleHost.Utilities
                 if (args != null && args.Length > 0)
                 {
                     var list = new List<string>(args);
+                    result.Background = list.RemoveAll(s => string.Equals(s, "--background", StringComparison.OrdinalIgnoreCase)) > 0;
 
                     // Handle --config/-c
                     int idx = list.FindIndex(s => string.Equals(s, "--config", StringComparison.OrdinalIgnoreCase) ||

@@ -85,6 +85,8 @@ public static class ConsoleCommandDispatcher
     {
         var ipcServer = host.Services.GetRequiredService<IFileDropIpcServer>();
         await ipcServer.StartAsync(cancellationToken).ConfigureAwait(false);
+        var libraryServer = host.Services.GetRequiredService<GameLibraryServer>();
+        await libraryServer.StartAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var shell = new InteractiveShell(host, parsedArgs);
@@ -93,6 +95,7 @@ public static class ConsoleCommandDispatcher
         finally
         {
             await ipcServer.StopAsync(cancellationToken).ConfigureAwait(false);
+            await libraryServer.StopAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 }

@@ -208,6 +208,13 @@ $backupDir = $null
 $newDirectoryInstalled = $false
 $stoppedOldInstance = $false
 $relaunched = $null
+$desktopInstances = @()
+$relaunchedDesktop = $null
+$oldSupportsBackground = $false
+if (Test-Path -LiteralPath (Join-Path $publishDir 'deploy-manifest.json')) {
+    $oldManifest = Get-Content -LiteralPath (Join-Path $publishDir 'deploy-manifest.json') -Raw | ConvertFrom-Json
+    $oldSupportsBackground = $null -ne $oldManifest.PSObject.Properties['startupMode'] -and $oldManifest.startupMode -eq 'background'
+}
 try {
     $instances = @(Get-Process -Name GameHelper.ConsoleHost -ErrorAction SilentlyContinue)
     $unknownInstances = @($instances | Where-Object { [string]::IsNullOrWhiteSpace($_.Path) })
@@ -215,9 +222,21 @@ try {
         throw "Cannot verify the executable path of GameHelper PID(s) $($unknownInstances.Id -join ', '); preserving all instances and the existing deployment."
     }
     $runningInstances = @($instances | Where-Object { $_.Path -eq (Join-Path $publishDir $exeName) })
-    if ($runningInstances.Count -gt 0 -and -not $Restart) {
+    $desktopExe = Join-Path $publishDir 'desktop\GameHelper.Desktop.exe'
+    $allDesktopInstances = @(Get-Process -Name GameHelper.Desktop -ErrorAction SilentlyContinue)
+    if (@($allDesktopInstances | Where-Object { [string]::IsNullOrWhiteSpace($_.Path) }).Count -gt 0) {
+        throw 'Cannot verify a desktop instance path; preserving the current deployment.'
+    }
+    $desktopInstances = @($allDesktopInstances | Where-Object { $_.Path -eq $desktopExe })
+    if (($runningInstances.Count -gt 0 -or $desktopInstances.Count -gt 0) -and -not $Restart) {
         Write-Host "Publish directory is in use by GameHelper PID(s) $($runningInstances.Id -join ', '); keeping the existing deployment."
         return
+    }
+
+    foreach ($desktopInstance in $desktopInstances) {
+        # UI drafts are persisted separately from configuration before direct-update restarts.
+        Stop-Process -InputObject $desktopInstance -Force
+        if (-not $desktopInstance.WaitForExit(30000)) { throw 'Desktop instance did not exit; aborting deploy.' }
     }
 
     foreach ($inst in $runningInstances) {
@@ -243,7 +262,20 @@ try {
         Write-Host "Launching GameHelper from the updated publish directory..."
         $relaunched = Start-CheckedInstance $publishDir ([ref] $relaunched)
         & $healthScript -Directory $publishDir -RepoRoot $repoRoot -ProcessId $relaunched.Id -AllowDegradedMonitor:$AllowDegradedMonitor
+        $libraryCheck = Join-Path $tempRoot ('GameHelper.LibraryHealth.' + [guid]::NewGuid().ToString('N') + '.json')
+        $libraryProbe = Start-Process -FilePath $desktopExe -ArgumentList @('--check', ('"' + $libraryCheck + '"')) -WindowStyle Hidden -PassThru
+        if (-not $libraryProbe.WaitForExit(15000)) { Stop-Process -InputObject $libraryProbe -Force; throw 'Desktop IPC health probe timed out.' }
+        if ($libraryProbe.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $libraryCheck)) { throw 'Desktop cannot connect to the updated runtime.' }
+        $libraryResult = Get-Content -LiteralPath $libraryCheck -Raw | ConvertFrom-Json
+        if (-not $libraryResult.Success) { throw 'Desktop IPC health probe failed.' }
+        Write-Host 'Desktop library IPC health check passed.'
         Write-Host "New GameHelper instance is running (PID $($relaunched.Id))."
+        if ($desktopInstances.Count -gt 0) {
+            $relaunchedDesktop = Start-RestoredDesktop $desktopExe
+            Start-Sleep -Seconds 3
+            $relaunchedDesktop.Refresh()
+            if ($relaunchedDesktop.HasExited -or $relaunchedDesktop.MainWindowHandle -eq [IntPtr]::Zero) { throw 'Desktop did not open after update.' }
+        }
     }
     $deployed = $true
 
@@ -251,14 +283,21 @@ try {
     $launcherExe = Join-Path $publishDir 'GameHelper.Launcher.exe'
     try {
             $shortcutShell = New-Object -ComObject WScript.Shell
+            $libraryShortcut = $shortcutShell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'GameHelper 游戏库.lnk'))
+            $libraryShortcut.TargetPath = $desktopExe
+            $libraryShortcut.WorkingDirectory = Split-Path -Parent $desktopExe
+            $libraryShortcut.Description = 'GameHelper 游戏库'
+            $libraryShortcut.Save()
             foreach ($desktop in @([Environment]::GetFolderPath('DesktopDirectory'), [Environment]::GetFolderPath('CommonDesktopDirectory')) | Select-Object -Unique) {
                 foreach ($shortcutFile in Get-ChildItem -LiteralPath $desktop -Filter '*.lnk' -ErrorAction SilentlyContinue) {
                     $shortcut = $shortcutShell.CreateShortcut($shortcutFile.FullName)
-                    if ($shortcut.TargetPath -eq $launcherExe) {
+                    if ($shortcut.TargetPath -eq $launcherExe -or $shortcut.TargetPath -eq (Join-Path $publishDir $exeName)) {
                         if ([string]::IsNullOrWhiteSpace($shortcut.IconLocation)) { $shortcut.IconLocation = (Join-Path $publishDir $exeName) + ',0' }
-                        $shortcut.TargetPath = Join-Path $publishDir $exeName
+                        $shortcut.TargetPath = $desktopExe
+                        $shortcut.Arguments = ''
+                        $shortcut.WorkingDirectory = Split-Path -Parent $desktopExe
                         $shortcut.Save()
-                        Write-Host "Restored normal desktop entry: $($shortcutFile.Name)"
+                        Write-Host "Updated desktop library entry: $($shortcutFile.Name)"
                     }
                 }
             }
@@ -276,6 +315,10 @@ catch {
     $deployFailure = $_
     try {
         if ($newDirectoryInstalled) {
+            if ($null -ne $relaunchedDesktop -and -not $relaunchedDesktop.HasExited) {
+                Stop-Process -InputObject $relaunchedDesktop -Force
+                $relaunchedDesktop.WaitForExit(30000) | Out-Null
+            }
             if ($null -ne $relaunched -and -not $relaunched.HasExited) {
                 Stop-Process -InputObject $relaunched -Force
                 if (-not $relaunched.WaitForExit(30000)) { throw "Failed new instance did not exit; rollback directory remains at $backupDir" }
@@ -294,9 +337,12 @@ catch {
             })
             if ($remainingInstances.Count -eq 0) {
                 $restored = $null
-                $restored = Start-CheckedInstance $publishDir ([ref] $restored)
+                $restored = Start-CheckedInstance $publishDir ([ref] $restored) -LegacyBackground:(-not $oldSupportsBackground)
                 Write-Host "Previous GameHelper instance restored (PID $($restored.Id))."
             }
+        }
+        if ($desktopInstances.Count -gt 0 -and (Test-Path -LiteralPath $desktopExe)) {
+            Start-RestoredDesktop $desktopExe | Out-Null
         }
     }
     catch { Write-Warning "Deployment rollback requires attention: $_. Previous build: $backupDir" }

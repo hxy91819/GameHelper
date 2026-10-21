@@ -25,6 +25,7 @@
     <ProjectReference Include="..\GameHelper.Infrastructure\GameHelper.Infrastructure.csproj" />
     <ProjectReference Include="..\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj" />
     <ProjectReference Include="..\GameHelper.Core\GameHelper.Core.csproj" />
+    <ProjectReference Include="..\GameHelper.Desktop\GameHelper.Desktop.csproj" />
   </ItemGroup>
 
   <ItemGroup>

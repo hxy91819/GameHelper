@@ -97,9 +97,15 @@ namespace GameHelper.Infrastructure.Startup
             }
         }
 
-        private string BuildRegistrationValue() => QuotePath(_executablePath);
+        private string BuildRegistrationValue()
+        {
+            var desktop = Path.Combine(Path.GetDirectoryName(_executablePath)!, "desktop", "GameHelper.Desktop.exe");
+            return File.Exists(desktop) ? BuildBackgroundRegistration(desktop) : QuotePath(_executablePath);
+        }
 
-        private bool IsCurrentRegistration(string? value) => IsRegistrationFor(value, _executablePath);
+        internal static string BuildBackgroundRegistration(string desktop) => $"\"{desktop}\" --background";
+
+        private bool IsCurrentRegistration(string? value) => string.Equals(value?.Trim(), BuildRegistrationValue(), StringComparison.OrdinalIgnoreCase);
 
         /// <summary>判断注册值是否指向指定可执行文件（允许引号与历史遗留的启动参数）。</summary>
         internal static bool IsRegistrationFor(string? commandLine, string executablePath)

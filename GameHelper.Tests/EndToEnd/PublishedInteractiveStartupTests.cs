@@ -7,13 +7,13 @@ namespace GameHelper.Tests.EndToEnd;
 [Collection("EndToEndSequential")]
 public sealed class PublishedInteractiveStartupTests(ITestOutputHelper output)
 {
-    [WindowsOnlyFact]
+    [VisibleConsoleFact]
     public Task DeploymentLaunch_OpensVisibleInteractiveWindow() => VerifyLaunchAsync(hidden: false);
 
-    [WindowsOnlyFact]
+    [VisibleConsoleFact]
     public Task DeploymentLaunch_RejectsHiddenInteractiveWindow() => VerifyLaunchAsync(hidden: true);
 
-    [WindowsOnlyFact]
+    [VisibleConsoleFact]
     public Task ConsoleProbe_HiddenCompatibilityWindow_UsesVisibleTerminalOwner() => VerifyLaunchAsync(hidden: false, terminalOwner: true);
 
     private async Task VerifyLaunchAsync(bool hidden, bool terminalOwner = false)
@@ -57,7 +57,7 @@ public sealed class PublishedInteractiveStartupTests(ITestOutputHelper output)
             $previousOwner = [IntPtr]::Zero
             try {
                 $probeScript = Join-Path (Split-Path -Parent $env:GH_STARTUP_SCRIPT) 'probe-console-window.ps1'
-                $instance = Start-CheckedInstance (Split-Path -Parent $env:GH_STARTUP_EXE) ([ref]$instance) $probeScript
+                $instance = Start-CheckedInstance (Split-Path -Parent $env:GH_STARTUP_EXE) ([ref]$instance) $probeScript -Interactive
                 $instance.Refresh()
                 Add-Type -TypeDefinition @'
             using System;
@@ -154,5 +154,14 @@ public sealed class PublishedInteractiveStartupTests(ITestOutputHelper output)
         {
             Directory.Delete(sandbox, recursive: true);
         }
+    }
+}
+
+public sealed class VisibleConsoleFactAttribute : FactAttribute
+{
+    public VisibleConsoleFactAttribute()
+    {
+        if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("GAMEHELPER_TEST_VISIBLE_CONSOLE") != "1")
+            Skip = "Legacy visible Console UI regression requires GAMEHELPER_TEST_VISIBLE_CONSOLE=1.";
     }
 }

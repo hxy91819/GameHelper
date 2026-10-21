@@ -3,7 +3,8 @@
 param(
     [Parameter(Mandatory = $true)]
     [ValidateRange(1, 2147483647)]
-    [int] $TargetProcessId
+    [int] $TargetProcessId,
+    [switch] $RequireNoConsole
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +22,10 @@ public static class GameHelperConsoleWindowProbe {
 
 [GameHelperConsoleWindowProbe]::FreeConsole() | Out-Null
 if (-not [GameHelperConsoleWindowProbe]::AttachConsole($TargetProcessId)) {
+    if ($RequireNoConsole -and [Runtime.InteropServices.Marshal]::GetLastWin32Error() -eq 6) {
+        [pscustomobject]@{ ProcessId = $TargetProcessId; WindowHandle = 0; Visible = $false; NoConsole = $true } | ConvertTo-Json -Compress
+        exit 0
+    }
     throw "Cannot inspect console for PID ${TargetProcessId}: Win32 error $([Runtime.InteropServices.Marshal]::GetLastWin32Error())."
 }
 try {
@@ -33,6 +38,12 @@ try {
     if ($displayWindow -eq [IntPtr]::Zero) { $displayWindow = $window }
     $visible = $displayWindow -ne [IntPtr]::Zero -and [GameHelperConsoleWindowProbe]::IsWindowVisible($displayWindow)
     [pscustomobject]@{ ProcessId = $TargetProcessId; WindowHandle = $window.ToInt64(); DisplayWindowHandle = $displayWindow.ToInt64(); Visible = $visible } | ConvertTo-Json -Compress
+    # CREATE_NO_WINDOW may still expose an attachable console object to Win32 helpers.
+    # Neither its compatibility HWND nor a Terminal owner may be visible.
+    if ($RequireNoConsole) {
+        if ($visible -or [GameHelperConsoleWindowProbe]::IsWindowVisible($window)) { exit 1 }
+        exit 0
+    }
     if (-not $visible) { exit 1 }
 }
 finally {

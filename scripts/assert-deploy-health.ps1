@@ -37,6 +37,7 @@ function Write-DeployManifest {
         commit         = $commit
         branch         = $branch
         productVersion = $version
+        startupMode    = 'background'
         dirtyFiles     = @($dirty)
     }
     $path = Join-Path $PublishDirectory 'deploy-manifest.json'

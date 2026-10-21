@@ -7,6 +7,8 @@ using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Processes;
 using GameHelper.Infrastructure.Controllers;
 using GameHelper.Core.Services;
+using GameHelper.Infrastructure.Ipc;
+using GameHelper.Infrastructure.Providers;
 using Microsoft.Extensions.Logging.Abstractions;
 using GameHelper.Tests;
 using Xunit;
@@ -30,6 +32,116 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
     private const string ProbeExeName = "gh-e2e-probe.exe";
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan PersistTimeout = TimeSpan.FromSeconds(75);
+
+    [WindowsOnlyFact]
+    public async Task BackgroundEntry_DeploymentStartsOneWindowlessRuntimeAndTracksGame()
+    {
+        if (!TryGuard(out var exePath)) return;
+        using var sandbox = CreateSandbox();
+        var script = Path.Combine(sandbox.RootDir, "background-start.ps1");
+        var result = Path.Combine(sandbox.RootDir, "runtime-pid.txt");
+        File.WriteAllText(script, """
+            $ErrorActionPreference = 'Stop'
+            . $env:GH_START_SCRIPT
+            $instance = $null
+            try {
+                $instance = Start-CheckedInstance $env:GH_PUBLISH_DIR ([ref]$instance)
+                [IO.File]::WriteAllText($env:GH_RESULT, [string]$instance.Id)
+            } catch {
+                [IO.File]::WriteAllText($env:GH_RESULT + '.error', $_.ToString())
+                exit 1
+            }
+            """);
+        async Task<int> StartAsync()
+        {
+            var start = new ProcessStartInfo("powershell.exe")
+            { UseShellExecute = false, CreateNoWindow = true };
+            start.ArgumentList.Add("-NoProfile"); start.ArgumentList.Add("-ExecutionPolicy"); start.ArgumentList.Add("Bypass");
+            start.ArgumentList.Add("-File"); start.ArgumentList.Add(script);
+            start.Environment["GAMEHELPER_DATA_DIR"] = sandbox.RootDir;
+            start.Environment["GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE"] = "1";
+            start.Environment["GAMEHELPER_ALLOW_MULTIPLE_INSTANCES"] = "1";
+            start.Environment["GH_START_SCRIPT"] = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../..", "scripts/start-checked-instance.ps1"));
+            start.Environment["GH_PUBLISH_DIR"] = Path.GetDirectoryName(exePath)!;
+            start.Environment["GH_RESULT"] = result;
+            using var broker = Process.Start(start)!;
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            try { await broker.WaitForExitAsync(deadline.Token); }
+            finally { if (!broker.HasExited) broker.Kill(entireProcessTree: true); }
+            Assert.True(broker.ExitCode == 0, File.Exists(result + ".error") ? File.ReadAllText(result + ".error") : "Background startup failed.");
+            return int.Parse(File.ReadAllText(result), CultureInfo.InvariantCulture);
+        }
+        using var app = new AppHandle(Process.GetProcessById(await StartAsync()));
+        try
+        {
+            var client = new GameLibraryPipe(sandbox.ConfigPath);
+            var ready = await client.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.List });
+            Assert.True(ready.Success, ready.Error);
+            Assert.True(ready.MonitorRunning);
+            Assert.Equal(ready.RuntimeProcessId, await StartAsync());
+            Assert.Contains(new EtwRuntime(null).GetActiveSessionNames(), name => name.StartsWith($"GameHelper-ETW-{ready.RuntimeProcessId}-", StringComparison.Ordinal));
+            using var probe = StartProbe(sandbox, "/c ping 127.0.0.1 -n 4 > NUL");
+            await WaitUntilAsync(() => ReadProbeRows(sandbox.CsvPath).Count > 0, PersistTimeout, "background runtime tracked game without a console");
+            Assert.True(File.Exists(sandbox.ConfigPath + ".runtime.log"));
+        }
+        finally { StopAppAndSweepSessions(app); }
+    }
+
+    [WindowsOnlyFact]
+    public async Task GameLibrary_PublishedRuntime_SavesLaunchesTracksAndRendersDesktop()
+    {
+        if (!TryGuard(out var exePath)) return;
+        using var sandbox = CreateSandbox();
+        var source = new YamlConfigProvider(sandbox.ConfigPath);
+        source.Change(config => config.Games.Single().Launch = new GameLaunchOptions
+        {
+            Target = sandbox.ProbeExePath, Arguments = "/c ping 127.0.0.1 -n 5 > NUL"
+        });
+        using var app = StartApp(exePath!, sandbox);
+        try
+        {
+            await WaitUntilOutputAsync(app, sandbox, text => text.Contains("GameAutomationService started"), ReadyTimeout, "library runtime ready");
+            var client = new GameLibraryPipe(sandbox.ConfigPath);
+            var listed = await client.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.List });
+            Assert.True(listed.Success, listed.Error);
+            Assert.True(listed.MonitorRunning);
+            var original = Assert.Single(listed.Games);
+            original.Config.DisplayName = "Library Sandbox Probe";
+            var saved = await client.ExecuteAsync(new GameLibraryRequest
+            {
+                Operation = GameLibraryOperation.Save, DataKey = ProbeDataKey, ExpectedRevision = original.Revision, Game = original.Config
+            });
+            Assert.True(saved.Success, saved.Error);
+            var stale = await client.ExecuteAsync(new GameLibraryRequest
+            {
+                Operation = GameLibraryOperation.Save, DataKey = ProbeDataKey, ExpectedRevision = original.Revision, Game = original.Config
+            });
+            Assert.False(stale.Success);
+            Assert.Equal("Library Sandbox Probe", source.Read().Games.Single().DisplayName);
+            var launched = await client.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Launch, DataKey = ProbeDataKey });
+            Assert.True(launched.Success, launched.Error);
+            await WaitUntilOutputAsync(app, sandbox, text => text.Contains("Process start") && text.Contains(ProbeDataKey), ReadyTimeout, "library launch observed");
+            await WaitUntilAsync(() => ReadProbeRows(sandbox.CsvPath).Count > 0, PersistTimeout, "library launch persisted playtime");
+
+            var desktop = Path.Combine(Path.GetDirectoryName(exePath)!, "desktop", "GameHelper.Desktop.exe");
+            Assert.True(File.Exists(desktop), "ConsoleHost publish must include the WPF desktop.");
+            var screenshots = Environment.GetEnvironmentVariable("GAMEHELPER_TEST_LIBRARY_SCREENSHOTS") ?? Path.Combine(sandbox.RootDir, "ui");
+            var start = new ProcessStartInfo(desktop) { UseShellExecute = false, CreateNoWindow = true };
+            start.ArgumentList.Add("--config"); start.ArgumentList.Add(sandbox.ConfigPath);
+            start.ArgumentList.Add("--snapshot"); start.ArgumentList.Add(screenshots);
+            start.Environment["GAMEHELPER_DATA_DIR"] = sandbox.RootDir;
+            start.Environment["GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE"] = "1";
+            using var ui = Process.Start(start)!;
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+            try { await ui.WaitForExitAsync(deadline.Token); }
+            finally { if (!ui.HasExited) ui.Kill(entireProcessTree: true); }
+            Assert.Equal(0, ui.ExitCode);
+            Assert.True(File.Exists(Path.Combine(screenshots, "verification.txt")), "The WPF rendering probe did not finish.");
+            Assert.Equal("Library Sandbox Probe", source.Read().Games.Single().DisplayName);
+            output.WriteLine("Library IPC, optimistic save, native launch/ETW/CSV and desktop rendering passed: " + screenshots);
+        }
+        finally { StopAppAndSweepSessions(app); }
+    }
 
     [WindowsOnlyFact]
     public async Task Monitor_WhenElevatedWithPublishedExe_CapturesSessionIntoCsv()

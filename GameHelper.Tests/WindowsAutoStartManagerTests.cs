@@ -9,6 +9,12 @@ namespace GameHelper.Tests
     /// </summary>
     public class WindowsAutoStartManagerTests
     {
+        [Fact]
+        public void BackgroundRegistration_UsesWindowlessDesktopEntry()
+        {
+            Assert.Equal("\"D:\\My Apps\\desktop\\GameHelper.Desktop.exe\" --background",
+                WindowsAutoStartManager.BuildBackgroundRegistration(@"D:\My Apps\desktop\GameHelper.Desktop.exe"));
+        }
         [Theory]
         [InlineData(@"D:\Apps\GameHelper.ConsoleHost.exe", @"D:\Apps\GameHelper.ConsoleHost.exe", true)]
         [InlineData(@"""D:\Apps\GameHelper.ConsoleHost.exe""", @"D:\Apps\GameHelper.ConsoleHost.exe", true)]

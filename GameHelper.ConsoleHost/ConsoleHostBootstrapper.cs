@@ -129,6 +129,11 @@ public static class ConsoleHostBootstrapper
             return new NoOpAutoStartManager();
         });
         services.AddSingleton<IGameAutomationService, GameAutomationService>();
+        services.AddSingleton<IGameLauncher, WindowsGameLauncher>();
+        services.AddSingleton<IGameLaunchCoordinator>(sp => (IGameLaunchCoordinator)sp.GetRequiredService<IGameAutomationService>());
+        services.AddSingleton<IGameLibrary, GameLibrary>();
+        services.AddSingleton<GameLibraryServer>();
+        services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<GameLibraryServer>());
         services.AddSingleton<IConfigWatcher>(sp =>
         {
             var configPath = ((IConfigPathProvider)sp.GetRequiredService<IGameConfiguration>()).ConfigPath;

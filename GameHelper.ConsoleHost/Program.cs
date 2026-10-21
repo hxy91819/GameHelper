@@ -8,14 +8,14 @@ using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 
-ConsoleEncoding.EnsureUtf8();
-
 // Parse command line arguments
 var parsedArgs = ArgumentParser.Parse(args);
+using var backgroundOutput = parsedArgs.Background ? BackgroundConsoleOutput.Open(parsedArgs.ConfigOverride) : null;
+if (!parsedArgs.Background) ConsoleEncoding.EnsureUtf8();
 var isFileDropRequest = FileDropHandler.LooksLikeFilePaths(parsedArgs.EffectiveArgs);
 
 // 正常打开交互窗口，条件允许时尽早交给 Windows Terminal；否则保留当前控制台。
-if (WindowsTerminalHost.TryRelaunch(args, isFileDropRequest))
+if (!parsedArgs.Background && WindowsTerminalHost.TryRelaunch(args, isFileDropRequest))
 {
     return;
 }
