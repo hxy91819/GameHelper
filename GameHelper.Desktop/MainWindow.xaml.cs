@@ -15,12 +15,14 @@ public partial class MainWindow : Window
 {
     private readonly LibraryViewModel _model;
     private readonly DispatcherTimer _refreshTimer;
+    private bool _showStatistics;
 
     public MainWindow(LibraryViewModel model)
     {
         _model = model;
         InitializeComponent();
         DataContext = model;
+        StatisticsPage.DataContext = model.Statistics;
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _refreshTimer.Tick += OnTick;
         _refreshTimer.Start();
@@ -28,7 +30,21 @@ public partial class MainWindow : Window
         Closed += (_, _) => { _refreshTimer.Stop(); _refreshTimer.Tick -= OnTick; _model.Dispose(); };
     }
 
-    private async void OnTick(object? sender, EventArgs e) => await _model.RefreshAsync();
+    private async void OnTick(object? sender, EventArgs e) { if (!_showStatistics) await _model.RefreshAsync(); }
+    private void Navigate(bool statistics)
+    {
+        _showStatistics = statistics;
+        Title = statistics ? "GameHelper · 游玩档案" : "GameHelper · 游戏库";
+        StatisticsPage.Visibility = statistics ? Visibility.Visible : Visibility.Collapsed;
+        LibraryPage.Visibility = statistics ? Visibility.Collapsed : Visibility.Visible;
+        LibraryTools.Visibility = statistics ? Visibility.Collapsed : Visibility.Visible;
+        LibraryNav.Background = statistics ? Brushes.Transparent : (Brush)new BrushConverter().ConvertFromString("#2B3E60")!;
+        StatisticsNav.Background = statistics ? (Brush)new BrushConverter().ConvertFromString("#2B3E60")! : Brushes.Transparent;
+        ReloadButton.Content = statistics ? "刷新统计" : "重新载入";
+        ReloadButton.ToolTip = statistics ? "重新读取历史游玩记录" : "放弃未保存设置并重新载入";
+    }
+    private async void OnStatistics(object sender, RoutedEventArgs e) { Navigate(true); await _model.Statistics.EnsureLoadedAsync(); }
+    private async void OnLibrary(object sender, RoutedEventArgs e) { Navigate(false); await _model.RefreshAsync(); }
     private void OnFilter(object sender, RoutedEventArgs e) => _model.SetFilter((string)((Button)sender).Tag);
     private void OnLayout(object sender, RoutedEventArgs e) => SetLayout((string)((Button)sender).Tag);
     private void SetLayout(string layout)
@@ -68,6 +84,7 @@ public partial class MainWindow : Window
 
     private async void OnReload(object sender, RoutedEventArgs e)
     {
+        if (_showStatistics) { await _model.Statistics.RefreshAsync(); return; }
         if (_model.HasUnsavedChanges && MessageBox.Show(this, "放弃未保存的修改并重新载入？", "重新载入", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         await _model.RefreshAsync(discardDrafts: true);
     }
@@ -84,7 +101,9 @@ public partial class MainWindow : Window
     {
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F)
         {
-            SearchBox.Focus(); SearchBox.SelectAll(); e.Handled = true;
+            if (_showStatistics) StatisticsPage.FocusSearch();
+            else { SearchBox.Focus(); SearchBox.SelectAll(); }
+            e.Handled = true;
         }
         else if (e.Key == Key.Escape && SearchBox.IsKeyboardFocused) SearchBox.Clear();
     }
@@ -92,6 +111,8 @@ public partial class MainWindow : Window
     /// <summary>Read-only rendering probe against an explicitly selected running host.</summary>
     public async Task CaptureAsync(string directory)
     {
+        var originalWidth = Width;
+        var originalHeight = Height;
         _refreshTimer.Stop();
         await _model.WaitForArtworkAsync().WaitAsync(TimeSpan.FromSeconds(25));
         Directory.CreateDirectory(directory);
@@ -110,7 +131,23 @@ public partial class MainWindow : Window
         Width = MinWidth; Height = MinHeight;
         await Task.Delay(100);
         Capture(Path.Combine(directory, "small-window.png"));
-        await File.WriteAllTextAsync(Path.Combine(directory, "verification.txt"), $"PASS: connected to host; grid/list render; empty search; minimum window size. Posters: {_model.PosterCount}. No settings changed or games launched.");
+        Width = originalWidth; Height = originalHeight;
+        Navigate(true);
+        await _model.Statistics.RefreshAsync();
+        if (!_model.Statistics.HasLoaded) throw new InvalidOperationException(_model.Statistics.Status);
+        await Task.Delay(200);
+        Capture(Path.Combine(directory, "statistics.png"));
+        await _model.Statistics.SetRangeAsync(0);
+        if (_model.Statistics.Days != 0) throw new InvalidOperationException(_model.Statistics.Status);
+        await Task.Delay(150);
+        Capture(Path.Combine(directory, "statistics-all.png"));
+        await StatisticsPage.ScrollToCalendarAsync();
+        Capture(Path.Combine(directory, "statistics-calendar.png"));
+        StatisticsPage.ScrollToTop();
+        Width = MinWidth; Height = MinHeight;
+        await Task.Delay(150);
+        Capture(Path.Combine(directory, "statistics-small.png"));
+        await File.WriteAllTextAsync(Path.Combine(directory, "verification.txt"), $"PASS: connected to host; grid/list render; empty search; minimum window size; statistics/trend/calendar/tables render. Posters: {_model.PosterCount}. No settings changed or games launched.");
     }
 
     private void Capture(string path)

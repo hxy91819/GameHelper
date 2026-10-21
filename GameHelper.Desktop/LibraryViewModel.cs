@@ -29,6 +29,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public LibraryViewModel(IGameLibrary library, string? configPath = null)
     {
         _library = library;
+        Statistics = new StatisticsViewModel(library);
         _posters = new SteamPosterLibrary(configPath, allowNetwork: configPath is not null);
         if (configPath is not null)
         {
@@ -49,6 +50,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     }
 
     public ICollectionView Games { get; }
+    public StatisticsViewModel Statistics { get; }
     public ICommand RefreshCommand { get; }
     public ICommand SaveCommand { get; }
     public ICommand LaunchCommand { get; }
@@ -228,5 +230,5 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         { Status = "草稿未能写入磁盘，更新或关闭前请保存设置：" + ex.Message; }
     }
-    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+    public void Dispose() { Statistics.Dispose(); _lifetime.Cancel(); _lifetime.Dispose(); }
 }

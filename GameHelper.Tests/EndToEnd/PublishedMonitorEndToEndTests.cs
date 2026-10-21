@@ -33,6 +33,66 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan PersistTimeout = TimeSpan.FromSeconds(75);
 
+    [WindowsOnlyFact]
+    public async Task Statistics_PublishedRuntimeRendersDashboardAndPaginatesWithoutChangingHistory()
+    {
+        if (!TryGuard(out var exePath)) return;
+        using var sandbox = CreateSandbox();
+        var source = new YamlConfigProvider(sandbox.ConfigPath);
+        var names = new[] { "Hades II", "Stardew Valley", "Baldur's Gate 3", "Elden Ring" };
+        source.Change(config => config.Games = names.Select((name, index) => new GameConfig
+        { DataKey = "stats-" + index, Executable = "gh-stats-never-running-" + index + ".exe", DisplayName = name, IsEnabled = false }).ToList());
+        var anchor = TimeProvider.System.GetLocalNow().DateTime.AddHours(-2);
+        var csv = new StringBuilder("game,start_time,end_time,duration_minutes\n");
+        long totalMinutes = 0;
+        for (var index = 0; index < 46; index++)
+        {
+            var minutes = (index % 5 + 1) * 25;
+            var end = index == 45 ? anchor.AddDays(-500) : anchor.AddDays(-index);
+            var key = index == 45 ? "removed-game" : "stats-" + index % 4;
+            csv.AppendLine(FormattableString.Invariant($"{key},{end.AddMinutes(-minutes):O},{end:O},{minutes}"));
+            totalMinutes += minutes;
+        }
+        File.WriteAllText(sandbox.CsvPath, csv.ToString());
+        var original = File.ReadAllBytes(sandbox.CsvPath);
+        using var app = StartApp(exePath!, sandbox);
+        try
+        {
+            await WaitUntilOutputAsync(app, sandbox, text => text.Contains("GameAutomationService started"), ReadyTimeout, "statistics runtime ready");
+            var client = new GameLibraryPipe(sandbox.ConfigPath);
+            var all = await client.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Statistics, Statistics = new(0) });
+            Assert.True(all.Success, all.Error);
+            var data = Assert.IsType<PlaytimeDashboard>(all.Statistics);
+            Assert.Equal(totalMinutes, data.Minutes);
+            Assert.Equal(46, data.Sessions);
+            Assert.Equal(5, data.GamesPlayed);
+            Assert.Equal(30, data.Recent.Count);
+            Assert.Contains(data.Games, game => game.Name == "Hades II");
+            Assert.Contains(data.Games, game => game.DataKey == "removed-game");
+            var next = await client.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Statistics, Statistics = new(0, Offset: 30) });
+            Assert.Equal(16, next.Statistics!.Recent.Count);
+            Assert.Equal(totalMinutes, next.Statistics.Minutes);
+            var desktop = Path.Combine(Path.GetDirectoryName(exePath)!, "desktop", "GameHelper.Desktop.exe");
+            var screenshots = Environment.GetEnvironmentVariable("GAMEHELPER_TEST_STATISTICS_SCREENSHOTS") ?? Path.Combine(sandbox.RootDir, "statistics-ui");
+            var start = new ProcessStartInfo(desktop) { UseShellExecute = false, CreateNoWindow = true };
+            start.ArgumentList.Add("--config"); start.ArgumentList.Add(sandbox.ConfigPath);
+            start.ArgumentList.Add("--snapshot"); start.ArgumentList.Add(screenshots);
+            start.Environment["GAMEHELPER_DATA_DIR"] = sandbox.RootDir;
+            start.Environment["GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE"] = "1";
+            using var ui = Process.Start(start)!;
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(35));
+            try { await ui.WaitForExitAsync(deadline.Token); }
+            finally { if (!ui.HasExited) ui.Kill(); }
+            Assert.Equal(0, ui.ExitCode);
+            Assert.True(File.Exists(Path.Combine(screenshots, "statistics-all.png")));
+            Assert.True(File.Exists(Path.Combine(screenshots, "statistics-calendar.png")));
+            Assert.True(File.Exists(Path.Combine(screenshots, "statistics-small.png")));
+            Assert.Equal(original, await File.ReadAllBytesAsync(sandbox.CsvPath));
+            output.WriteLine("Read-only statistics IPC, persisted totals, unknown-game retention, pagination and native WPF dashboard verified: " + screenshots);
+        }
+        finally { StopAppAndSweepSessions(app); }
+    }
+
     [SteamPosterLiveFact]
     public async Task SteamPoster_PublishedDesktopDownloadsCachesAndRendersWithoutChangingGameSettings()
     {
