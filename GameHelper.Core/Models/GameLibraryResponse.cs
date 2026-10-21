@@ -11,4 +11,5 @@ public sealed record GameLibraryResponse
     public IReadOnlyList<LibraryGame> Games { get; init; } = [];
     public IReadOnlyList<SteamInstalledGame> SteamGames { get; init; } = [];
     public PlaytimeDashboard? Statistics { get; init; }
+    public LocalGameScan? LocalScan { get; init; }
 }

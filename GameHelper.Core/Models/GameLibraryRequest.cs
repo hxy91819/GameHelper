@@ -9,4 +9,6 @@ public sealed record GameLibraryRequest
     public GameConfig? Game { get; init; }
     public string[] SteamAppIds { get; init; } = [];
     public PlaytimeDashboardQuery? Statistics { get; init; }
+    public string? Directory { get; init; }
+    public IReadOnlyList<LocalGameCandidate> LocalGames { get; init; } = [];
 }

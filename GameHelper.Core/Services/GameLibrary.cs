@@ -8,7 +8,7 @@ namespace GameHelper.Core.Services;
 public sealed class GameLibrary(
     IGameConfiguration configuration, IGameCatalogService catalog, IGameAutomationService automation,
     IMonitorControlService monitor, IGameLaunchCoordinator launch, ISteamGameResolver steam,
-    IPlaytimeSnapshotProvider history, TimeProvider? timeProvider = null) : IGameLibrary
+    IPlaytimeSnapshotProvider history, TimeProvider? timeProvider = null, ILocalGameDiscovery? localGames = null) : IGameLibrary
 {
     public Task<GameLibraryResponse> ExecuteAsync(GameLibraryRequest request, CancellationToken cancellationToken = default)
     {
@@ -57,6 +57,25 @@ public sealed class GameLibrary(
                 break;
             case GameLibraryOperation.DiscoverSteam:
                 return Task.FromResult(new GameLibraryResponse { Success = true, SteamGames = steam.TryEnumerateInstalledGames() });
+            case GameLibraryOperation.DiscoverDirectory:
+                return ScanDirectoryAsync(request.Directory ?? string.Empty, cancellationToken);
+            case GameLibraryOperation.ImportDirectory:
+                if (request.LocalGames.Count > 1000) throw new ArgumentException("每次最多导入 1000 个候选程序。");
+                var localRequests = request.LocalGames.DistinctBy(item => item.ExecutablePath, StringComparer.OrdinalIgnoreCase).Select(item =>
+                {
+                    if (!Path.IsPathFullyQualified(item.ExecutablePath) || !item.ExecutablePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                        || !File.Exists(item.ExecutablePath)) throw new ArgumentException("游戏程序已不存在，请重新扫描目录。");
+                    return new GameCatalogIntakeRequest
+                    {
+                        Executable = ExecutableIdentity.Parse(item.ExecutablePath), DisplayName = item.Name,
+                        HdrEnabled = false, SpeedMultiplier = null, SkipExisting = true,
+                        Launch = new GameLaunchOptions { Target = item.ExecutablePath }
+                    };
+                }).ToList();
+                var localAdded = catalog.BatchIntake(localRequests).Count(result => result.WasAdded);
+                automation.ReloadConfig();
+                message = $"已添加 {localAdded} 款游戏；已有条目保持原设置，新增游戏的 HDR 和倍速默认关闭。";
+                break;
             case GameLibraryOperation.ImportSteam:
                 var chosen = request.SteamAppIds.ToHashSet(StringComparer.Ordinal);
                 var requests = steam.TryEnumerateInstalledGames().Where(item => chosen.Contains(item.AppId))
@@ -78,16 +97,25 @@ public sealed class GameLibrary(
         }
         var states = launch.GetGameStates();
         var records = history.GetPlaytimeRecords();
+        var configs = configuration.Read().Games;
+        var installations = localGames?.Assess(configs);
         return Task.FromResult(new GameLibraryResponse
         {
             Success = true, Message = message, ConfigPath = (configuration as IConfigPathProvider)?.ConfigPath ?? string.Empty,
             MonitorRunning = monitor.IsRunning,
-            Games = configuration.Read().Games.Select(game => new LibraryGame
+            Games = configs.Select(game => new LibraryGame
             {
                 Config = game, Revision = GameConfigRevision.For(game), State = states.GetValueOrDefault(game.DataKey, game.IsEnabled ? "未运行" : "自动化已暂停"),
+                Installation = installations?.GetValueOrDefault(game.DataKey) ?? new(GameInstallationState.Unknown, "尚未检查本地安装位置"),
                 TotalMinutes = records.Where(record => record.GameName.Equals(game.DataKey, StringComparison.OrdinalIgnoreCase))
                     .SelectMany(record => record.Sessions).Sum(session => session.DurationMinutes)
             }).ToList()
         });
+    }
+
+    private async Task<GameLibraryResponse> ScanDirectoryAsync(string directory, CancellationToken cancellationToken)
+    {
+        if (localGames is null) throw new InvalidOperationException("当前运行时不支持目录扫描，请更新后重试。");
+        return new GameLibraryResponse { Success = true, LocalScan = await localGames.ScanAsync(directory, configuration.Read().Games, cancellationToken).ConfigureAwait(false) };
     }
 }

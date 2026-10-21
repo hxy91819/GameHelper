@@ -125,6 +125,33 @@ public sealed class GameLibraryTests
         finally { Directory.Delete(root, true); }
     }
 
+    [Fact]
+    public async Task DirectoryImport_IsAtomicDefaultsToNoHdrOrSpeedAndPreservesExistingPreferences()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gh-directory-import", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var old = Path.Combine(root, "old.exe"); var added = Path.Combine(root, "new.exe");
+            File.WriteAllBytes(old, [1]); File.WriteAllBytes(added, [1]);
+            var source = new MemoryConfiguration(new AppConfig { Games = [new() { DataKey = "old", Executable = old, IsEnabled = false, HdrEnabled = true, SpeedMultiplier = 2 }] });
+            var launch = new Mock<IGameLaunchCoordinator>(); launch.Setup(item => item.GetGameStates()).Returns(new Dictionary<string, string>());
+            var library = new GameLibrary(source, new GameCatalogService(source), Mock.Of<IGameAutomationService>(),
+                Mock.Of<IMonitorControlService>(), launch.Object, Mock.Of<ISteamGameResolver>(), History());
+            var chosen = new[] { new LocalGameCandidate("Old", old, root, true, true), new LocalGameCandidate("New", added, root, true, false) };
+            await Assert.ThrowsAsync<ArgumentException>(() => library.ExecuteAsync(new GameLibraryRequest
+            { Operation = GameLibraryOperation.ImportDirectory, LocalGames = [chosen[1], new("Missing", Path.Combine(root, "missing.exe"), root, true, false)] }));
+            Assert.Single(source.Read().Games);
+            var response = await library.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.ImportDirectory, LocalGames = [.. chosen, chosen[1]] });
+            Assert.True(response.Success); Assert.Equal(2, source.Read().Games.Count);
+            var existing = source.Read().Games.Single(item => item.DataKey == "old");
+            Assert.False(existing.IsEnabled); Assert.True(existing.HdrEnabled); Assert.Equal(2, existing.SpeedMultiplier);
+            var imported = source.Read().Games.Single(item => item.Executable == added);
+            Assert.False(imported.HdrEnabled); Assert.Null(imported.SpeedMultiplier); Assert.Equal(added, imported.Launch!.Target);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static IPlaytimeSnapshotProvider History()
     {
         var history = new Mock<IPlaytimeSnapshotProvider>();

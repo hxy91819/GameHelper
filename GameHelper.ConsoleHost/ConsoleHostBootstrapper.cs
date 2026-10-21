@@ -149,6 +149,7 @@ public static class ConsoleHostBootstrapper
         services.AddSingleton<IPlaytimeSnapshotProvider, FilePlaytimeSnapshotProvider>();
         services.AddSingleton<IStatisticsService, StatisticsService>();
         services.AddSingleton<ISteamGameResolver, SteamGameResolver>();
+        services.AddSingleton<ILocalGameDiscovery, LocalGameDiscovery>();
 
         services.AddSingleton<TimeProvider>(TimeProvider.System);
         services.AddSingleton<StatsReportBuilder>();
