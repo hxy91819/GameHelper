@@ -23,6 +23,10 @@ GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、
 
 开机自启、桌面快捷方式和部署后重启统一直接运行 `GameHelper.ConsoleHost.exe`，正常打开可见交互窗口，保留彩色界面与 Windows Terminal 宿主判断。后台无焦点启动方向已废弃；旧 Launcher 快捷方式会在部署时迁回正常入口。详见[启动窗口宿主](docs/guides/terminal-host.md)。
 
+### WPF 游戏库体验原型
+
+运行 `powershell -ExecutionPolicy Bypass -File scripts/open-wpf-prototype.ps1`，打开独立的 WPF 游戏库窗口。可以切换封面网格、紧凑列表和详情视图，搜索已登记游戏，并预览 HDR / 倍速启动步骤。当前只读载入配置，偏好调整不保存，也不启动游戏或接管监控。它尚未替代 ConsoleHost 和开机启动入口。详见[原型说明](docs/guides/wpf-prototype.md)。
+
 ### 常用 CLI 命令
 
 ```powershell

@@ -12,6 +12,7 @@ GameHelper is a Windows-focused .NET 8 application for game process monitoring, 
 ```
 
 - Shells own presentation, command routing, and desktop-specific user experience.
+- `prototypes/GameHelper.WpfPrototype` is a separate, disposable read-only WPF layout experiment; it is not a production shell and does not own automation or startup. See [its scope](../guides/wpf-prototype.md).
 - `GameHelper.Core` owns models, contracts, orchestration, catalog matching policy, settings, statistics, and monitor lifecycle coordination.
 - `GameHelper.Infrastructure` owns concrete adapters for process monitors, YAML/CSV persistence, HDR control, DDC/CI monitor preset control, Steam resolution, and Windows startup integration.
 - Dependency direction is enforced by tests and documented in [Dependency Direction Rules](./dependency-direction.md).

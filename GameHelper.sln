@@ -11,6 +11,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GameHelper.ConsoleHost", "G
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GameHelper.Tests", "GameHelper.Tests\GameHelper.Tests.csproj", "{39659EA7-724A-43E9-A758-CCCD6F99B28D}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "prototypes", "prototypes", "{5F536091-F3B1-41AA-ABB0-86316B86B4BA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GameHelper.WpfPrototype", "prototypes\GameHelper.WpfPrototype\GameHelper.WpfPrototype.csproj", "{F4FA71B0-CC5C-461F-9516-EEA1B0DC3A5C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,8 +73,23 @@ Global
 		{39659EA7-724A-43E9-A758-CCCD6F99B28D}.Release|x64.Build.0 = Release|Any CPU
 		{39659EA7-724A-43E9-A758-CCCD6F99B28D}.Release|x86.ActiveCfg = Release|Any CPU
 		{39659EA7-724A-43E9-A758-CCCD6F99B28D}.Release|x86.Build.0 = Release|Any CPU
+		{F4FA71B0-CC5C-461F-9516-EEA1B0DC3A5C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F4FA71B0-CC5C-461F-9516-EEA1B0DC3A5C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F4FA71B0-CC5C-461F-9516-EEA1B0DC3A5C}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{F4FA71B0-CC5C-461F-9516-EEA1B0DC3A5C}.Debug|x64.Build.0 = Debug|Any CPU
+		{F4FA71B0-CC5C-461F-9516-EEA1B0DC3A5C}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{F4FA71B0-CC5C-461F-9516-EEA1B0DC3A5C}.Debug|x86.Build.0 = Debug|Any CPU
+		{F4FA71B0-CC5C-461F-9516-EEA1B0DC3A5C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F4FA71B0-CC5C-461F-9516-EEA1B0DC3A5C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F4FA71B0-CC5C-461F-9516-EEA1B0DC3A5C}.Release|x64.ActiveCfg = Release|Any CPU
+		{F4FA71B0-CC5C-461F-9516-EEA1B0DC3A5C}.Release|x64.Build.0 = Release|Any CPU
+		{F4FA71B0-CC5C-461F-9516-EEA1B0DC3A5C}.Release|x86.ActiveCfg = Release|Any CPU
+		{F4FA71B0-CC5C-461F-9516-EEA1B0DC3A5C}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{F4FA71B0-CC5C-461F-9516-EEA1B0DC3A5C} = {5F536091-F3B1-41AA-ABB0-86316B86B4BA}
 	EndGlobalSection
 EndGlobal

@@ -18,6 +18,7 @@
 | --- | --- | --- | --- |
 | 依赖注入 & 宿主 | `Microsoft.Extensions.Hosting` | 9.0.8 | 构建通用 Host、注册后台服务。|
 | 控制台 UI | `Spectre.Console` | 0.47.0 | 渲染 CLI、交互式 Shell。|
+| 游戏库体验原型 | WPF | .NET 8 Windows Desktop | 独立只读布局实验，不替代正式 ConsoleHost；见 [WPF 原型](../guides/wpf-prototype.md)。|
 | 配置解析 | `YamlDotNet` | 13.7.1 | 解析 `config.yml`，兼容旧字段。|
 | 进程监控 (ETW) | `Microsoft.Diagnostics.Tracing.TraceEvent` | 3.1.8 | 低延迟内核事件监控。|
 | 进程监控 (WMI) | `System.Management` | 8.0.0 | 兼容性更高的 WMI 事件订阅。|
