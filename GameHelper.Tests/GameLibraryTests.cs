@@ -87,6 +87,44 @@ public sealed class GameLibraryTests
         await Assert.ThrowsAsync<InvalidDataException>(() => GameLibraryPipe.ReadAsync<GameLibraryRequest>(stream, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task Statistics_DistinguishesMissingHistoryFromReadFailureAndCanRecover()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "GameHelper.Statistics.Read." + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var provider = new FilePlaytimeSnapshotProvider(root);
+            var source = new MemoryConfiguration(new AppConfig());
+            var library = new GameLibrary(source, Mock.Of<IGameCatalogService>(), Mock.Of<IGameAutomationService>(),
+                Mock.Of<IMonitorControlService>(), Mock.Of<IGameLaunchCoordinator>(), Mock.Of<ISteamGameResolver>(), provider);
+            var request = new GameLibraryRequest { Operation = GameLibraryOperation.Statistics, Statistics = new(0) };
+            var empty = await library.ExecuteAsync(request);
+            Assert.True(empty.Success);
+            Assert.Equal(0, empty.Statistics!.Sessions);
+            var path = Path.Combine(root, "playtime.csv");
+            File.WriteAllText(path, "game,start_time,end_time,duration_minutes\n" +
+                "game.exe,2020-01-01T10:00:00,2020-01-01T10:30:00,30\n");
+            var loaded = await library.ExecuteAsync(request);
+            Assert.True(loaded.Success);
+            Assert.Equal(30, loaded.Statistics!.Minutes);
+            using (var locked = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                Assert.True(provider.GetSnapshot().ReadFailed);
+                Assert.Empty(provider.GetPlaytimeRecords()); // Existing shell fallback remains resilient.
+                var failed = await library.ExecuteAsync(request);
+                Assert.False(failed.Success);
+                Assert.Null(failed.Statistics);
+                Assert.Contains("刷新重试", failed.Error);
+            }
+            var recovered = await library.ExecuteAsync(request);
+            Assert.True(recovered.Success);
+            Assert.Equal(30, recovered.Statistics!.Minutes);
+            Assert.False(provider.GetSnapshot().ReadFailed);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static IPlaytimeSnapshotProvider History()
     {
         var history = new Mock<IPlaytimeSnapshotProvider>();

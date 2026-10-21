@@ -70,6 +70,7 @@ public sealed class FilePlaytimeSnapshotProvider : IPlaytimeSnapshotProvider
         catch
         {
             // Keep shell flows resilient to corrupt or unreadable history files.
+            return new PlaytimeSnapshot(Array.Empty<GamePlaytimeRecord>(), null, ReadFailed: true);
         }
 
         return new PlaytimeSnapshot(Array.Empty<GamePlaytimeRecord>(), null);

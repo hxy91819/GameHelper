@@ -10,4 +10,5 @@ public sealed record GameLibraryResponse
     public int RuntimeProcessId { get; init; }
     public IReadOnlyList<LibraryGame> Games { get; init; } = [];
     public IReadOnlyList<SteamInstalledGame> SteamGames { get; init; } = [];
+    public PlaytimeDashboard? Statistics { get; init; }
 }

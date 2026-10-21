@@ -8,7 +8,7 @@ namespace GameHelper.Core.Services;
 public sealed class GameLibrary(
     IGameConfiguration configuration, IGameCatalogService catalog, IGameAutomationService automation,
     IMonitorControlService monitor, IGameLaunchCoordinator launch, ISteamGameResolver steam,
-    IPlaytimeSnapshotProvider history) : IGameLibrary
+    IPlaytimeSnapshotProvider history, TimeProvider? timeProvider = null) : IGameLibrary
 {
     public Task<GameLibraryResponse> ExecuteAsync(GameLibraryRequest request, CancellationToken cancellationToken = default)
     {
@@ -16,6 +16,16 @@ public sealed class GameLibrary(
         string? message = null;
         switch (request.Operation)
         {
+            case GameLibraryOperation.Statistics:
+                var snapshot = history.GetSnapshot();
+                if (snapshot.ReadFailed)
+                    return Task.FromResult(new GameLibraryResponse { Success = false, Error = "无法读取历史文件，请稍后刷新重试。" });
+                return Task.FromResult(new GameLibraryResponse
+                {
+                    Success = true,
+                    Statistics = PlaytimeDashboardBuilder.Build(snapshot.Records, configuration.Read().Games,
+                        request.Statistics ?? new PlaytimeDashboardQuery(), timeProvider)
+                });
             case GameLibraryOperation.List: break;
             case GameLibraryOperation.Save:
                 var game = request.Game ?? throw new ArgumentException("缺少游戏设置。");

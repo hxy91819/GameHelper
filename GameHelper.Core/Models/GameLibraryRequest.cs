@@ -8,4 +8,5 @@ public sealed record GameLibraryRequest
     public string? ExpectedRevision { get; init; }
     public GameConfig? Game { get; init; }
     public string[] SteamAppIds { get; init; } = [];
+    public PlaytimeDashboardQuery? Statistics { get; init; }
 }
