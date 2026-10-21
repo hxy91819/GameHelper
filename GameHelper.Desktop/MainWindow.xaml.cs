@@ -43,6 +43,15 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) == true) await _model.AddAsync(dialog.FileName);
     }
 
+    private async void OnPoster(object sender, RoutedEventArgs e)
+    {
+        if (_model.Selected is not { } game) return;
+        var dialog = new SteamPosterWindow(_model, game.Name) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+        try { await _model.AssociatePosterAsync(game, dialog.SelectedAppId); }
+        catch (Exception ex) { _model.Status = "海报关联未能保存：" + ex.Message; }
+    }
+
     private void OnChooseEntry(object sender, RoutedEventArgs e)
     {
         if (_model.Selected is null) return;
@@ -84,6 +93,7 @@ public partial class MainWindow : Window
     public async Task CaptureAsync(string directory)
     {
         _refreshTimer.Stop();
+        await _model.WaitForArtworkAsync().WaitAsync(TimeSpan.FromSeconds(25));
         Directory.CreateDirectory(directory);
         foreach (var layout in new[] { "grid", "list" })
         {
@@ -100,7 +110,7 @@ public partial class MainWindow : Window
         Width = MinWidth; Height = MinHeight;
         await Task.Delay(100);
         Capture(Path.Combine(directory, "small-window.png"));
-        await File.WriteAllTextAsync(Path.Combine(directory, "verification.txt"), "PASS: connected to host; grid/list render; empty search; minimum window size. No settings changed or games launched.");
+        await File.WriteAllTextAsync(Path.Combine(directory, "verification.txt"), $"PASS: connected to host; grid/list render; empty search; minimum window size. Posters: {_model.PosterCount}. No settings changed or games launched.");
     }
 
     private void Capture(string path)

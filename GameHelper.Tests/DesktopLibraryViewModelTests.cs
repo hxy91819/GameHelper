@@ -8,6 +8,62 @@ namespace GameHelper.Tests;
 public sealed class DesktopLibraryViewModelTests
 {
     [Fact]
+    public Task PosterRefresh_WhenOfflineRetainsSteamClientCache() => OnSta(() =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gh-poster-offline", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var local = Path.Combine(root, "steam-client.jpg");
+            var frame = System.Windows.Media.Imaging.BitmapSource.Create(200, 300, 96, 96,
+                System.Windows.Media.PixelFormats.Bgra32, null, new byte[200 * 300 * 4], 200 * 4);
+            var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(frame));
+            using (var stream = File.Create(local)) encoder.Save(stream);
+            using var handler = new OfflinePosterHandler();
+            using var http = new System.Net.Http.HttpClient(handler);
+            var client = new GameHelper.Infrastructure.Artwork.SteamArtworkClient(http, Path.Combine(root, "cache"),
+                GameHelper.Desktop.LocalGameArtwork.IsValidPoster);
+            var library = new GameHelper.Desktop.SteamPosterLibrary(null, true, client, _ => local);
+            var artwork = library.LoadAsync("a", "unknown.exe", "steam://rungameid/620", CancellationToken.None, refresh: true).GetAwaiter().GetResult();
+            Assert.True(artwork.IsCover);
+            Assert.NotNull(artwork.Image);
+            Assert.True(artwork.Image!.IsFrozen);
+            Assert.False(File.Exists(Path.Combine(root, "cache", "620.jpg")));
+        }
+        finally { Directory.Delete(root, true); }
+    });
+
+    private sealed class OfflinePosterHandler : System.Net.Http.HttpMessageHandler
+    {
+        protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.NotFound));
+    }
+    [Fact]
+    public Task PosterAssociation_PersistsSeparatelyWithoutChangingLaunchOrAutomation() => OnSta(() =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gh-poster-links", Guid.NewGuid().ToString("N"));
+        var config = Path.Combine(root, "config.yml");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(config, "original config");
+        try
+        {
+            var posters = new GameHelper.Desktop.SteamPosterLibrary(config, allowNetwork: false);
+            posters.Associate("a", 620);
+            var payload = File.ReadAllText(config + ".desktop-artwork.json");
+            Assert.Contains("620", payload);
+            Assert.Equal("original config", File.ReadAllText(config));
+            var reopened = new GameHelper.Desktop.SteamPosterLibrary(config, allowNetwork: false);
+            reopened.Associate("b", 621);
+            Assert.Contains("620", File.ReadAllText(config + ".desktop-artwork.json"));
+            reopened.Associate("a", null);
+            Assert.DoesNotContain("620", File.ReadAllText(config + ".desktop-artwork.json"));
+            Assert.Contains("621", File.ReadAllText(config + ".desktop-artwork.json"));
+            Assert.Empty(Directory.GetFiles(root, "*.tmp"));
+        }
+        finally { Directory.Delete(root, true); }
+    });
+    [Fact]
     public Task ClearingEmptySearch_RestoresSelectionAndItsDraft() => OnSta(() =>
     {
         using var model = new LibraryViewModel(new Backend());

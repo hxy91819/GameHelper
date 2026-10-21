@@ -1,0 +1,91 @@
+using System.IO;
+using System.Net.Http;
+using System.Text.Json;
+using System.Windows.Media;
+using GameHelper.Core.Utilities;
+using GameHelper.Infrastructure.Artwork;
+using Microsoft.Win32;
+
+namespace GameHelper.Desktop;
+
+internal sealed record GameArtwork(ImageSource? Image, bool IsCover, string Description);
+
+/// <summary>Artwork belongs to the desktop; associations never change launch or automation settings.</summary>
+internal sealed class SteamPosterLibrary
+{
+    private static readonly HttpClient Http = new(new SocketsHttpHandler { AllowAutoRedirect = false })
+    { Timeout = TimeSpan.FromSeconds(20) };
+    private readonly SteamArtworkClient _client;
+    private readonly string? _linksPath;
+    private readonly bool _allowNetwork;
+    private readonly Dictionary<string, uint> _links;
+    private readonly Func<uint, string?> _localPoster;
+
+    public SteamPosterLibrary(string? configPath, bool allowNetwork) : this(configPath, allowNetwork,
+        new SteamArtworkClient(Http, Path.Combine(AppDataPath.GetGameHelperDirectory(), "cache", "steam-posters"), LocalGameArtwork.IsValidPoster), LocalPoster) { }
+
+    internal SteamPosterLibrary(string? configPath, bool allowNetwork, SteamArtworkClient client, Func<uint, string?> localPoster)
+    {
+        _allowNetwork = allowNetwork;
+        _linksPath = configPath is null ? null : configPath + ".desktop-artwork.json";
+        _client = client;
+        _localPoster = localPoster;
+        try { _links = _linksPath is not null && File.Exists(_linksPath)
+            ? JsonSerializer.Deserialize<Dictionary<string, uint>>(File.ReadAllText(_linksPath)) ?? [] : []; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { _links = []; }
+    }
+
+    public Task<IReadOnlyList<SteamArtworkGame>> SearchAsync(string query, CancellationToken cancellationToken) => _client.SearchAsync(query, cancellationToken);
+
+    public void Associate(string dataKey, uint? appId)
+    {
+        if (_linksPath is null) throw new InvalidOperationException("此只读界面不能保存海报关联。");
+        var next = new Dictionary<string, uint>(_links, StringComparer.OrdinalIgnoreCase);
+        if (appId is > 0) next[dataKey] = appId.Value;
+        else next.Remove(dataKey);
+        var temporary = _linksPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_linksPath))!);
+            File.WriteAllText(temporary, JsonSerializer.Serialize(next));
+            File.Move(temporary, _linksPath, true);
+            _links.Clear();
+            foreach (var pair in next) _links.Add(pair.Key, pair.Value);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+
+    public async Task<GameArtwork> LoadAsync(string dataKey, string executable, string target, CancellationToken cancellationToken, bool refresh)
+    {
+        uint? id = _links.TryGetValue(dataKey, out var linked) ? linked : null;
+        id ??= await Task.Run(() => SteamArtworkIdentity.Resolve(executable, target), cancellationToken);
+        var fallback = await Task.Run(() => LocalGameArtwork.LoadIcon(executable), cancellationToken);
+        if (id is null) return new GameArtwork(fallback, false, "尚未关联 Steam 海报");
+        try
+        {
+            var cached = await Task.Run(() => _client.GetCachedPoster(id.Value) ?? _localPoster(id.Value), cancellationToken);
+            if (!refresh && cached is not null && await Task.Run(() => LocalGameArtwork.LoadPoster(cached), cancellationToken) is { } local)
+                return new GameArtwork(local, true, $"Steam 海报 · {id}");
+            var downloaded = _allowNetwork ? await _client.GetPosterAsync(id.Value, cancellationToken, refresh) : cached;
+            downloaded ??= cached;
+            if (downloaded is not null && await Task.Run(() => LocalGameArtwork.LoadPoster(downloaded), cancellationToken) is { } poster)
+                return new GameArtwork(poster, true, $"Steam 海报 · {id}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or HttpRequestException or JsonException or OperationCanceledException) { }
+        return new GameArtwork(fallback, false, $"Steam {id} 海报暂不可用，可重新匹配后重试");
+    }
+
+    private static string? LocalPoster(uint appId)
+    {
+        var steam = Environment.GetEnvironmentVariable("GAMEHELPER_STEAM_ROOT")
+            ?? Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null) as string;
+        if (steam is null) return null;
+        var cache = Path.Combine(steam, "appcache", "librarycache");
+        var older = Path.Combine(cache, appId + "_library_600x900.jpg");
+        if (File.Exists(older) && LocalGameArtwork.LoadPoster(older) is not null) return older;
+        var modern = Path.Combine(cache, appId.ToString());
+        if (!Directory.Exists(modern)) return null;
+        return Directory.EnumerateFiles(modern, "*library_600x900*.jpg", SearchOption.TopDirectoryOnly)
+            .FirstOrDefault(path => LocalGameArtwork.LoadPoster(path) is not null);
+    }
+}

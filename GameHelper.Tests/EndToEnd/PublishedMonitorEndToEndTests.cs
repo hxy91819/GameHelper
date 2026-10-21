@@ -33,6 +33,58 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan PersistTimeout = TimeSpan.FromSeconds(75);
 
+    [SteamPosterLiveFact]
+    public async Task SteamPoster_PublishedDesktopDownloadsCachesAndRendersWithoutChangingGameSettings()
+    {
+        if (!TryGuard(out var exePath)) return;
+        using var sandbox = CreateSandbox();
+        var source = new YamlConfigProvider(sandbox.ConfigPath);
+        source.Change(config =>
+        {
+            var game = config.Games.Single();
+            game.DisplayName = "Portal 2";
+            game.Launch = new GameLaunchOptions { Target = "steam://rungameid/620" };
+        });
+        var original = File.ReadAllText(sandbox.ConfigPath);
+        using var app = StartApp(exePath!, sandbox);
+        var desktop = Path.Combine(Path.GetDirectoryName(exePath)!, "desktop", "GameHelper.Desktop.exe");
+        ProcessStartInfo StartDesktop(params string[] arguments)
+        {
+            var start = new ProcessStartInfo(desktop) { UseShellExecute = false, CreateNoWindow = true };
+            start.ArgumentList.Add("--config"); start.ArgumentList.Add(sandbox.ConfigPath);
+            foreach (var argument in arguments) start.ArgumentList.Add(argument);
+            start.Environment["GAMEHELPER_DATA_DIR"] = sandbox.RootDir;
+            start.Environment["GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE"] = "1";
+            start.Environment["GAMEHELPER_ALLOW_MULTIPLE_INSTANCES"] = "1";
+            return start;
+        }
+        Process? ui = null;
+        try
+        {
+            await WaitUntilOutputAsync(app, sandbox, text => text.Contains("GameAutomationService started"), ReadyTimeout, "poster runtime ready");
+            ui = Process.Start(StartDesktop("--restore"))!;
+            var cached = Path.Combine(sandbox.GameHelperDir, "cache", "steam-posters", "620.jpg");
+            await WaitUntilAsync(() => File.Exists(cached), TimeSpan.FromSeconds(45), "official Steam poster downloaded to isolated cache");
+            ui.Refresh();
+            Assert.False(ui.HasExited);
+            Assert.NotEqual(IntPtr.Zero, ui.MainWindowHandle);
+            var screenshots = Environment.GetEnvironmentVariable("GAMEHELPER_TEST_POSTER_SCREENSHOTS") ?? Path.Combine(sandbox.RootDir, "posters-ui");
+            using var snapshot = Process.Start(StartDesktop("--snapshot", screenshots))!;
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            try { await snapshot.WaitForExitAsync(deadline.Token); }
+            finally { if (!snapshot.HasExited) snapshot.Kill(); }
+            Assert.Equal(0, snapshot.ExitCode);
+            Assert.Contains("Posters: 1", await File.ReadAllTextAsync(Path.Combine(screenshots, "verification.txt")));
+            Assert.Equal(original, await File.ReadAllTextAsync(sandbox.ConfigPath));
+            output.WriteLine("Official Steam poster download, isolated persistent cache and WPF grid/list rendering passed: " + screenshots);
+        }
+        finally
+        {
+            if (ui is not null) { if (!ui.HasExited) { ui.Kill(); ui.WaitForExit(5000); } ui.Dispose(); }
+            StopAppAndSweepSessions(app);
+        }
+    }
+
     [WindowsOnlyFact]
     public async Task BackgroundEntry_DeploymentStartsOneWindowlessRuntimeAndTracksGame()
     {
@@ -565,5 +617,14 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             try { Directory.Delete(RootDir, recursive: true); }
             catch { /* 沙盒清理失败不应掩盖测试结果。 */ }
         }
+    }
+}
+
+public sealed class SteamPosterLiveFactAttribute : FactAttribute
+{
+    public SteamPosterLiveFactAttribute()
+    {
+        if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("GAMEHELPER_TEST_STEAM_POSTER") != "1")
+            Skip = "Live Steam poster verification requires GAMEHELPER_TEST_STEAM_POSTER=1.";
     }
 }

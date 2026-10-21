@@ -10,7 +10,19 @@
 - 使用 Mod、平台启动器的游戏，选择原本使用的快捷方式。用于识别的程序仍填写实际游戏进程，两者可以不同。
 - “添加游戏”选择 exe；“扫描 Steam”读取本地游戏库，确认选中条目后导入。新条目使用 Steam 平台入口，重复导入保留已有条目的全部设置。
 - “从目录移除”需要确认，历史记录保留。关闭自动化后仍可普通启动，但不应用 HDR、倍速或计时。
-- 本地 Steam 封面缓存可定位时使用缓存，否则显示程序图标或名称。不会联网抓取封面。
+- 海报优先使用工具缓存和 Steam 客户端本地缓存，缺少时从 Steam 官方站点自动下载。下载在后台执行，不阻塞游戏启动。
+
+## Steam 海报
+
+明确的 Steam App ID 来自已确认的海报关联、Steam 启动 URI / `.url`、本地 `appmanifest_*.acf` 或附近的 `steam_appid.txt`。安装清单优先于旁边的 ID 文件；不凭模糊名称自动绑定海报。
+
+选中游戏后点击“匹配 / 重试 Steam 海报”，使用中文或英文名称搜索并选择对应版本，或填写 Steam 商店链接 / App ID。选择立即保存，可重试下载；“恢复自动识别”清除手动关联。搜索只发送输入的名称，不发送本地程序路径。无需 Steam 登录或 Web API Key。
+
+官方竖版图形规格见 [Steamworks Library Assets](https://partner.steamgames.com/doc/store/assets/libraryassets)。客户端读取公开的 StoreBrowse 图形元数据，支持带版本哈希的图片路径，并以传统 library capsule 地址兜底。公开服务格式和资源可用性可能变化，获取失败时使用已有缓存或图标，不影响监控、计时和启动。
+
+下载限制为两笔并发、每个 App ID 一次共享请求，单笔海报最大 5 MiB；解码验证后原子写入 `%AppData%\GameHelper\cache\steam-posters\<AppID>.jpg`。相同窗口不会在状态轮询时重复下载。失败标记退避五分钟；重新打开后可自动再试，手动匹配 / 重试可立即重试。已有有效缓存离线仍可使用。
+
+手动关联单独保存在配置旁 `config.yml.desktop-artwork.json`，更新或关闭后保留，不修改 `config.yml`、启动入口或 HDR / 倍速设置。后台开机模式不创建游戏库，也不下载海报。
 
 ## HDR 和启动失败
 
@@ -50,5 +62,7 @@ games:
 发布 ConsoleHost 的 win-x64 产物会在 `desktop/` 一起发布 WPF；不能把另一种运行时布局逐文件覆盖进去。完整部署仍执行 `scripts/verify-on-machine.ps1`。脚本会一并原子换入两个入口，重启原本打开的游戏库，并通过实际 IPC 查询验证连接。
 
 只读验收支持 `GameHelper.Desktop.exe --config <沙盒配置> --snapshot <输出目录>`：不激活地显示渲染窗口，连接指定隔离实例，输出网格、列表、空搜索和最小窗口截图后退出，不保存设置或启动游戏。`--check <输出JSON>` 执行无窗口的只读连接探针。
+
+快照模式仅用已有海报缓存，不联网。实际下载与渲染回归需显式设置 `GAMEHELPER_TEST_STEAM_POSTER=1`，测试通过隔离数据目录启动不激活的真实 WPF 窗口，再检查缓存和只读截图；默认测试用 HTTP 替身验证缓存、坏响应、限流、大小限制和取消，不依赖网络。
 
 `--background` 无窗口连接或启动监控；可组合 `--check` 返回就绪信息和运行时 PID。`--restore` 恢复游戏库但不激活窗口。后台运行时的输出在配置旁 `config.yml.runtime.log`，超过 5 MiB 时下次启动轮转为 `.previous`。排错仍可手动从终端运行 ConsoleHost 命令。

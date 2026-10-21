@@ -16,6 +16,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private readonly List<AsyncCommand> _commands = [];
     private readonly ObservableCollection<LibraryGameItem> _games = [];
     private readonly LibraryDraftStore? _draftStore;
+    private readonly SteamPosterLibrary _posters;
     private Dictionary<string, LibraryDraft> _restoredDrafts = new(StringComparer.OrdinalIgnoreCase);
     private LibraryGameItem? _selected;
     private bool _busy;
@@ -28,6 +29,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public LibraryViewModel(IGameLibrary library, string? configPath = null)
     {
         _library = library;
+        _posters = new SteamPosterLibrary(configPath, allowNetwork: configPath is not null);
         if (configPath is not null)
         {
             _draftStore = new LibraryDraftStore(configPath);
@@ -146,7 +148,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
                 item = LibraryGameItem.RestoreDraft(restored);
                 item.RefreshRuntime(row);
                 item.PropertyChanged += OnItemChanged;
-                _ = item.LoadArtworkAsync();
+                item.ArtworkLoading = item.LoadArtworkAsync(_posters, _lifetime.Token);
             }
             else if (!discardDrafts && old.TryGetValue(row.Config.DataKey, out var draft) && (draft.IsDirty || draft.Revision == row.Revision))
             {
@@ -157,7 +159,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             {
                 item = new LibraryGameItem(row);
                 item.PropertyChanged += OnItemChanged;
-                _ = item.LoadArtworkAsync();
+                item.ArtworkLoading = item.LoadArtworkAsync(_posters, _lifetime.Token);
             }
             updated.Add(item);
         }
@@ -205,6 +207,14 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     }
 
     public Task ImportAsync(string[] ids) => RunAsync(() => SendAsync(new GameLibraryRequest { Operation = GameLibraryOperation.ImportSteam, SteamAppIds = ids }));
+    internal Task<IReadOnlyList<GameHelper.Infrastructure.Artwork.SteamArtworkGame>> SearchPostersAsync(string query, CancellationToken cancellationToken) => _posters.SearchAsync(query, cancellationToken);
+    internal Task WaitForArtworkAsync() => Task.WhenAll(_games.Select(game => game.ArtworkLoading));
+    internal int PosterCount => _games.Count(game => game.ArtworkIsCover);
+    internal async Task AssociatePosterAsync(LibraryGameItem game, uint? appId)
+    {
+        _posters.Associate(game.DataKey, appId);
+        await game.LoadArtworkAsync(_posters, _lifetime.Token, refresh: true);
+    }
     private void OnItemChanged(object? sender, PropertyChangedEventArgs e)
     {
         RefreshCommands();

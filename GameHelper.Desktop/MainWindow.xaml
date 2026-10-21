@@ -9,13 +9,13 @@
   <ItemsPanelTemplate x:Key="RowsPanel"><VirtualizingStackPanel /></ItemsPanelTemplate>
   <DataTemplate x:Key="CardTemplate">
    <StackPanel Width="206" Margin="6">
-    <Border Height="150" CornerRadius="9" ClipToBounds="True">
+    <Border Height="309" CornerRadius="9" ClipToBounds="True">
      <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#355A83" /><GradientStop Color="#1B2333" Offset="1" /></LinearGradientBrush></Border.Background>
      <Grid>
       <Image Source="{Binding Artwork}" Stretch="UniformToFill" Visibility="{Binding ArtworkIsCover, Converter={StaticResource BoolVisibility}}" />
-      <Ellipse Width="160" Height="160" Stroke="#1EFFFFFF" StrokeThickness="24" HorizontalAlignment="Right" Margin="0,-50,-35,0" />
-      <TextBlock Text="{Binding Initial}" FontSize="48" Margin="18" VerticalAlignment="Center" />
-      <Image Source="{Binding Artwork}" Stretch="Uniform" Width="64" Height="64" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="15" />
+      <Ellipse Width="160" Height="160" Stroke="#1EFFFFFF" StrokeThickness="24" HorizontalAlignment="Right" Margin="0,-50,-35,0" Visibility="{Binding ArtworkIsIcon, Converter={StaticResource BoolVisibility}}" />
+      <TextBlock Text="{Binding Initial}" FontSize="48" Margin="18" VerticalAlignment="Center" Visibility="{Binding ArtworkIsIcon, Converter={StaticResource BoolVisibility}}" />
+      <Image Source="{Binding Artwork}" Stretch="Uniform" Width="64" Height="64" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="15" Visibility="{Binding ArtworkIsIcon, Converter={StaticResource BoolVisibility}}" />
       <Border Background="#C015233A" CornerRadius="5" Padding="8,4" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10"><TextBlock Text="{Binding State}" FontSize="11" /></Border>
      </Grid>
     </Border>
@@ -72,6 +72,8 @@
       <StackPanel>
        <TextBlock Text="{Binding Selected.Name, TargetNullValue=请选择游戏, FallbackValue=请选择游戏}" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" />
        <TextBlock Text="{Binding Selected.State}" Foreground="#A9C6FF" Margin="0,10,0,4" /><TextBlock Text="{Binding Selected.Playtime}" Foreground="{StaticResource Muted}" FontSize="12" />
+       <TextBlock Text="{Binding Selected.PosterStatus}" Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0" />
+       <Button Content="匹配 / 重试 Steam 海报…" Click="OnPoster" IsEnabled="{Binding Ready}" Margin="0,10,0,0" />
        <Button Content="启动游戏  →" Command="{Binding LaunchCommand}" Background="#6389E7" Margin="0,20,0,12" ToolTip="填写启动入口后可启动；未保存的设置会先保存" />
        <StackPanel DataContext="{Binding Selected}" IsEnabled="{Binding DataContext.Ready, RelativeSource={RelativeSource AncestorType=Window}}">
         <TextBlock Text="游戏名称" Foreground="{StaticResource Muted}" FontSize="12" />

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO;
 using System.Windows.Media;
 using GameHelper.Core.Models;
 
@@ -19,7 +20,11 @@ public sealed class LibraryGameItem : ObservableState
     private string _state;
     private long _minutes;
     private ImageSource? _artwork;
+    private bool _artworkIsCover;
+    private string _posterStatus = "正在读取海报…";
+    private int _artworkVersion;
     private readonly LibraryGame _baseline;
+    internal Task ArtworkLoading { get; set; } = Task.CompletedTask;
 
     public LibraryGameItem(LibraryGame row)
     {
@@ -52,8 +57,10 @@ public sealed class LibraryGameItem : ObservableState
     public bool UseSpeed { get => _useSpeed; set { if (Set(ref _useSpeed, value)) Edited(); } }
     public bool IsDirty { get => _dirty; private set => Set(ref _dirty, value); }
     public string State { get => _state; private set => Set(ref _state, value); }
-    public ImageSource? Artwork { get => _artwork; private set { if (Set(ref _artwork, value)) Changed(nameof(ArtworkIsCover)); } }
-    public bool ArtworkIsCover => Artwork is System.Windows.Media.Imaging.BitmapSource { PixelHeight: > 128 };
+    public ImageSource? Artwork { get => _artwork; private set => Set(ref _artwork, value); }
+    public bool ArtworkIsCover { get => _artworkIsCover; private set { if (Set(ref _artworkIsCover, value)) Changed(nameof(ArtworkIsIcon)); } }
+    public bool ArtworkIsIcon => !ArtworkIsCover;
+    public string PosterStatus { get => _posterStatus; private set => Set(ref _posterStatus, value); }
     public string Playtime => $"历史时长 {_minutes / 60d:0.#} 小时";
     public string Summary => !Enabled ? "自动化已暂停" : string.Join(" · ", new[] { Hdr ? "HDR" : "SDR", UseSpeed ? $"{Speed}×" : null }.Where(value => value is not null));
     public string Initial => string.IsNullOrEmpty(Name) ? "G" : StringInfo.GetNextTextElement(Name);
@@ -72,9 +79,20 @@ public sealed class LibraryGameItem : ObservableState
         Changed(nameof(Playtime));
     }
 
-    public async Task LoadArtworkAsync()
+    internal async Task LoadArtworkAsync(SteamPosterLibrary posters, CancellationToken cancellationToken, bool refresh = false)
     {
-        Artwork = await Task.Run(() => LocalGameArtwork.Load(Executable, Target));
+        var version = ++_artworkVersion;
+        try
+        {
+            var artwork = await posters.LoadAsync(DataKey, Executable, Target, cancellationToken, refresh);
+            if (cancellationToken.IsCancellationRequested || version != _artworkVersion) return;
+            Artwork = artwork.Image;
+            ArtworkIsCover = artwork.IsCover;
+            PosterStatus = artwork.Description;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or System.Text.Json.JsonException)
+        { if (version == _artworkVersion) PosterStatus = "海报暂不可用，可重新匹配后重试"; }
     }
 
     internal LibraryDraft ExportDraft() => new(_baseline, Name, Executable, Target, Arguments, Directory, Speed, Hdr, Enabled, UseSpeed);

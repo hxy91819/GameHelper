@@ -12,6 +12,7 @@ GameHelper is a Windows-focused .NET 8 application for game launching, process m
 
 - Shells own presentation, command routing, and desktop-specific user experience.
 - `GameHelper.Desktop` owns WPF views, view models, local artwork, and separately persisted UI drafts. It constructs no monitoring or HDR/CE controller. The selected prototype is archived at `codex/wpf-library-prototype`.
+- Steam artwork stays outside the automation runtime. Infrastructure resolves explicit Steam identity, reads public metadata and bounds/cache-writes downloads; Desktop decodes/freezes images and stores manual artwork associations separately from game configuration. Ambiguous names require a user choice. Read-only snapshots use caches; live network rendering tests are opt-in.
 - `GameHelper.Core` owns models, contracts, orchestration, catalog matching policy, settings, statistics, and monitor lifecycle coordination.
 - `GameHelper.Infrastructure` owns concrete adapters for process monitors, YAML/CSV persistence, HDR control, DDC/CI monitor preset control, Steam resolution, and Windows startup integration.
 - Dependency direction is enforced by tests and documented in [Dependency Direction Rules](./dependency-direction.md).

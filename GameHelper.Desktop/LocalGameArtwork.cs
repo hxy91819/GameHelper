@@ -4,12 +4,41 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using Microsoft.Win32;
 
 namespace GameHelper.Desktop;
 
 internal static class LocalGameArtwork
 {
+    public static BitmapSource? LoadPoster(string path)
+    {
+        try { return DecodePoster(File.ReadAllBytes(path)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or System.IO.FileFormatException or COMException) { return null; }
+    }
+
+    public static bool IsValidPoster(byte[] bytes) => DecodePoster(bytes) is not null;
+
+    private static BitmapSource? DecodePoster(byte[] bytes)
+    {
+        if (bytes.Length < 32 || bytes.Length > 5 * 1024 * 1024) return null;
+        try
+        {
+            using var stream = new MemoryStream(bytes, writable: false);
+            var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
+            var frame = decoder.Frames[0];
+            if (frame.PixelWidth is < 200 or > 8192 || frame.PixelHeight is < 200 or > 8192) return null;
+            stream.Position = 0;
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.DecodePixelWidth = 320;
+            bitmap.StreamSource = stream;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            return bitmap;
+        }
+        catch (Exception ex) when (ex is NotSupportedException or ArgumentException or System.IO.FileFormatException or IOException or COMException) { return null; }
+    }
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct ShellFileInfo
     {
@@ -24,35 +53,10 @@ internal static class LocalGameArtwork
     private static extern IntPtr SHGetFileInfo(string path, uint attributes, ref ShellFileInfo info, uint size, uint flags);
     [DllImport("user32.dll")] private static extern bool DestroyIcon(IntPtr icon);
 
-    public static ImageSource? Load(string executable, string launchTarget)
+    public static ImageSource? LoadIcon(string executable)
     {
         try
         {
-            // Local Steam cache only; no scraping, network requests, or downloads.
-            const string prefix = "steam://rungameid/";
-            if (launchTarget.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            {
-                var appId = launchTarget[prefix.Length..].TrimEnd('/');
-                if (appId.Length > 0 && appId.All(char.IsAsciiDigit))
-                {
-                    var steam = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null) as string;
-                    if (steam is not null)
-                    {
-                        var cover = Path.Combine(steam, "appcache", "librarycache", appId + "_library_600x900.jpg");
-                        if (File.Exists(cover))
-                        {
-                            var bitmap = new BitmapImage();
-                            bitmap.BeginInit();
-                            bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                            bitmap.DecodePixelWidth = 320;
-                            bitmap.UriSource = new Uri(cover);
-                            bitmap.EndInit();
-                            bitmap.Freeze();
-                            return bitmap;
-                        }
-                    }
-                }
-            }
             if (!Path.IsPathFullyQualified(executable) || executable.StartsWith(@"\\", StringComparison.Ordinal) || !File.Exists(executable)) return null;
             var info = new ShellFileInfo();
             SHGetFileInfo(executable, 0, ref info, (uint)Marshal.SizeOf<ShellFileInfo>(), 0x100);
