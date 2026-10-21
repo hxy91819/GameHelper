@@ -97,15 +97,9 @@ namespace GameHelper.Infrastructure.Startup
             }
         }
 
-        private string BuildRegistrationValue() => QuotePath(GetStartupExecutable(_executablePath));
+        private string BuildRegistrationValue() => QuotePath(_executablePath);
 
-        private bool IsCurrentRegistration(string? value) => IsRegistrationFor(value, GetStartupExecutable(_executablePath));
-
-        private static string GetStartupExecutable(string executablePath)
-        {
-            var launcher = Path.Combine(Path.GetDirectoryName(executablePath) ?? string.Empty, "GameHelper.Launcher.exe");
-            return File.Exists(launcher) ? launcher : executablePath;
-        }
+        private bool IsCurrentRegistration(string? value) => IsRegistrationFor(value, _executablePath);
 
         /// <summary>判断注册值是否指向指定可执行文件（允许引号与历史遗留的启动参数）。</summary>
         internal static bool IsRegistrationFor(string? commandLine, string executablePath)

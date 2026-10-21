@@ -9,7 +9,7 @@ namespace GameHelper.ConsoleHost.Utilities
 {
     /// <summary>
     /// 直接启动 ConsoleHost 时的宿主守卫：条件允许时用 wt.exe 重新拉起，统一终端样式。
-    /// 被动启动器使用内部标记保留其不抢焦点的经典控制台，不参与自动转移。
+    /// 内部标记仅用于阻止同一启动链重复转移宿主。
     /// 任意一个前置条件不满足时保持当前宿主，启动流程不受影响。
     /// </summary>
     internal static class WindowsTerminalHost

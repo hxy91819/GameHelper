@@ -14,8 +14,7 @@ ConsoleEncoding.EnsureUtf8();
 var parsedArgs = ArgumentParser.Parse(args);
 var isFileDropRequest = FileDropHandler.LooksLikeFilePaths(parsedArgs.EffectiveArgs);
 
-// 直接启动 ConsoleHost 时尽早尝试 Windows Terminal 托管；被动启动器附加内部标记，
-// 明确保留其不抢焦点的经典控制台。无法满足转移条件时也保留当前宿主。
+// 正常打开交互窗口，条件允许时尽早交给 Windows Terminal；否则保留当前控制台。
 if (WindowsTerminalHost.TryRelaunch(args, isFileDropRequest))
 {
     return;
@@ -62,20 +61,6 @@ try
     }
 
     CommandHelpers.PrintBuildInfo(parsedArgs.EnableDebug);
-
-    // The passive GUI launcher shows this console without activation after initialization.
-    var launchReadyEvent = Environment.GetEnvironmentVariable("GAMEHELPER_LAUNCH_READY_EVENT");
-    if (!string.IsNullOrWhiteSpace(launchReadyEvent))
-    {
-        try
-        {
-            using var ready = EventWaitHandle.OpenExisting(launchReadyEvent);
-            ready.Set();
-        }
-        catch (WaitHandleCannotBeOpenedException) { }
-        catch (UnauthorizedAccessException) { }
-        Environment.SetEnvironmentVariable("GAMEHELPER_LAUNCH_READY_EVENT", null);
-    }
 
     try
     {

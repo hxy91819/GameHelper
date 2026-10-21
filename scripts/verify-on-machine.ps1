@@ -247,25 +247,23 @@ try {
     }
     $deployed = $true
 
-    # Keep existing desktop entry points on the passive launcher; leave unrelated shortcuts alone.
+    # Migrate retired passive-launcher shortcuts back to the normal interactive entry.
     $launcherExe = Join-Path $publishDir 'GameHelper.Launcher.exe'
-    if (Test-Path -LiteralPath $launcherExe) {
-        try {
+    try {
             $shortcutShell = New-Object -ComObject WScript.Shell
             foreach ($desktop in @([Environment]::GetFolderPath('DesktopDirectory'), [Environment]::GetFolderPath('CommonDesktopDirectory')) | Select-Object -Unique) {
                 foreach ($shortcutFile in Get-ChildItem -LiteralPath $desktop -Filter '*.lnk' -ErrorAction SilentlyContinue) {
                     $shortcut = $shortcutShell.CreateShortcut($shortcutFile.FullName)
-                    if ($shortcut.TargetPath -eq (Join-Path $publishDir $exeName)) {
+                    if ($shortcut.TargetPath -eq $launcherExe) {
                         if ([string]::IsNullOrWhiteSpace($shortcut.IconLocation)) { $shortcut.IconLocation = (Join-Path $publishDir $exeName) + ',0' }
-                        $shortcut.TargetPath = $launcherExe
+                        $shortcut.TargetPath = Join-Path $publishDir $exeName
                         $shortcut.Save()
-                        Write-Host "Updated passive desktop entry: $($shortcutFile.Name)"
+                        Write-Host "Restored normal desktop entry: $($shortcutFile.Name)"
                     }
                 }
             }
-        }
-        catch { Write-Warning "Deployment passed, but a desktop shortcut could not be updated: $_" }
     }
+    catch { Write-Warning "Deployment passed, but a desktop shortcut could not be updated: $_" }
 
     # Keep the backup until startup has passed. Cleanup failure is harmless after a
     # successful deploy and must not trigger rollback of a running new instance.

@@ -14,15 +14,14 @@ public sealed class PublishedInteractiveStartupTests(ITestOutputHelper output)
     public Task DeploymentLaunch_RejectsHiddenInteractiveWindow() => VerifyLaunchAsync(hidden: true);
 
     [WindowsOnlyFact]
-    public Task DeploymentLaunch_LauncherStillRunning_AlwaysTracksConsoleHost() => VerifyLaunchAsync(hidden: false, launcherStillRunning: true);
-
-    [WindowsOnlyFact]
     public Task ConsoleProbe_HiddenCompatibilityWindow_UsesVisibleTerminalOwner() => VerifyLaunchAsync(hidden: false, terminalOwner: true);
 
-    private async Task VerifyLaunchAsync(bool hidden, bool terminalOwner = false, bool launcherStillRunning = false)
+    private async Task VerifyLaunchAsync(bool hidden, bool terminalOwner = false)
     {
         var exe = PublishedExeEndToEndTests.ResolvePublishExePath();
         if (exe is null) return;
+        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(exe)!, "GameHelper.Launcher.exe")),
+            "The retired passive launcher must not be included in the published artifact.");
         var sandbox = Path.Combine(Path.GetTempPath(), "gh-interactive-startup", Guid.NewGuid().ToString("N"));
         var data = Path.Combine(sandbox, "GameHelper");
         Directory.CreateDirectory(data);
@@ -38,53 +37,21 @@ public sealed class PublishedInteractiveStartupTests(ITestOutputHelper output)
         File.WriteAllText(fixture, """
             $ErrorActionPreference = 'Stop'
             . $env:GH_STARTUP_SCRIPT
-            # Substitute only the OS observations needed by each fixture. The launch module
-            # is imported unchanged, exactly as deployment imports it.
-            function Test-Path {
-                param([string] $LiteralPath)
-                if (($env:GH_STARTUP_HIDE -eq '1' -or $env:GH_STARTUP_TERMINAL_OWNER -eq '1') -and
-                    $LiteralPath -like '*GameHelper.Launcher.exe') {
-                    # Exercise the existing direct-console fallback without changing publish files.
-                    return $false
-                }
-                Microsoft.PowerShell.Management\Test-Path -LiteralPath $LiteralPath
-            }
+            # Substitute only window visibility; deployment imports this same unchanged module.
             function Start-Process {
                 param($FilePath, $WorkingDirectory, $WindowStyle, [switch]$PassThru)
                 if ($env:GH_STARTUP_HIDE -eq '1') {
                     $PSBoundParameters['WindowStyle'] = 'Hidden'
                 }
-                $real = Microsoft.PowerShell.Management\Start-Process @PSBoundParameters
-                if ($env:GH_STARTUP_SLOW_LAUNCHER -eq '1' -and $FilePath -like '*GameHelper.Launcher.exe') {
-                    # Keep the real console, but model a launcher whose ready wait is still pending.
-                    $proxy = [pscustomobject]@{ Id = $real.Id; HasExited = $false; ExitCode = 0 }
-                    $proxy | Add-Member ScriptMethod Refresh { }
-                    $proxy | Add-Member ScriptMethod WaitForExit { param($milliseconds) $true }
-                    return $proxy
-                }
-                return $real
+                Microsoft.PowerShell.Management\Start-Process @PSBoundParameters
             }
             Add-Type -TypeDefinition @'
             using System;
-            using System.Collections.Concurrent;
             using System.Runtime.InteropServices;
-            using System.Threading;
-            public static class StartupFocusProbe {
-                [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            public static class StartupWindowState {
                 [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
-                public static readonly ConcurrentQueue<long> Samples = new ConcurrentQueue<long>();
-                private static volatile bool running;
-                private static Thread worker;
-                public static void Start() {
-                    running = true;
-                    worker = new Thread(() => { while (running) { Samples.Enqueue(GetForegroundWindow().ToInt64()); Thread.Sleep(10); } });
-                    worker.IsBackground = true;
-                    worker.Start();
-                }
-                public static void Stop() { running = false; worker.Join(); }
             }
             '@
-            [StartupFocusProbe]::Start()
             $instance = $null
             $terminalWindow = [IntPtr]::Zero
             $previousOwner = [IntPtr]::Zero
@@ -92,7 +59,6 @@ public sealed class PublishedInteractiveStartupTests(ITestOutputHelper output)
                 $probeScript = Join-Path (Split-Path -Parent $env:GH_STARTUP_SCRIPT) 'probe-console-window.ps1'
                 $instance = Start-CheckedInstance (Split-Path -Parent $env:GH_STARTUP_EXE) ([ref]$instance) $probeScript
                 $instance.Refresh()
-                [StartupFocusProbe]::Stop()
                 Add-Type -TypeDefinition @'
             using System;
             using System.Runtime.InteropServices;
@@ -114,8 +80,7 @@ public sealed class PublishedInteractiveStartupTests(ITestOutputHelper output)
                 $display = [StartupWindowProbe]::GetAncestor($window, 3)
                 if ($display -eq [IntPtr]::Zero) { $display = $window }
                 $visible = [StartupWindowProbe]::IsWindowVisible($display)
-                $minimized = [StartupFocusProbe]::IsIconic($display)
-                $activated = [StartupFocusProbe]::Samples.ToArray() -contains $display.ToInt64()
+                $minimized = [StartupWindowState]::IsIconic($display)
                 [StartupWindowProbe]::FreeConsole() | Out-Null
                 if ($env:GH_STARTUP_TERMINAL_OWNER -eq '1') {
                     # Reproduce ConPTY's ownership topology with real Win32 windows:
@@ -129,7 +94,7 @@ public sealed class PublishedInteractiveStartupTests(ITestOutputHelper output)
                     $probe = $probeText | ConvertFrom-Json
                     $visible = $probe.Visible -and $probe.DisplayWindowHandle -eq $terminalWindow.ToInt64() -and -not [StartupWindowProbe]::IsWindowVisible($window) -and [StartupWindowProbe]::IsWindowVisible($terminalWindow)
                 }
-                $result = @{ pid = $instance.Id; attached = $attached; window = $window.ToInt64(); visible = $visible; minimized = $minimized; activated = $activated; error = $null }
+                $result = @{ pid = $instance.Id; attached = $attached; window = $window.ToInt64(); visible = $visible; minimized = $minimized; error = $null }
             }
             catch { $result = @{ pid = 0; visible = $false; error = $_.ToString() } }
             finally {
@@ -164,7 +129,6 @@ public sealed class PublishedInteractiveStartupTests(ITestOutputHelper output)
             start.Environment["GH_STARTUP_EXE"] = exe;
             start.Environment["GH_STARTUP_HIDE"] = hidden ? "1" : "0";
             start.Environment["GH_STARTUP_TERMINAL_OWNER"] = terminalOwner ? "1" : "0";
-            start.Environment["GH_STARTUP_SLOW_LAUNCHER"] = launcherStillRunning ? "1" : "0";
             start.Environment["GH_STARTUP_SCRIPT"] = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../..", "scripts/start-checked-instance.ps1"));
             start.Environment["GH_STARTUP_RESULT"] = resultFile;
             using var process = Process.Start(start)!;
@@ -183,9 +147,7 @@ public sealed class PublishedInteractiveStartupTests(ITestOutputHelper output)
             {
                 Assert.True(result.GetProperty("visible").GetBoolean(),
                     "Deployment left the interactive app invisible: " + result);
-                Assert.False(result.GetProperty("minimized").GetBoolean(), "Launcher left the console minimized: " + result);
-                if (!terminalOwner)
-                    Assert.False(result.GetProperty("activated").GetBoolean(), "Startup stole foreground focus: " + result);
+                Assert.False(result.GetProperty("minimized").GetBoolean(), "Startup left the console minimized: " + result);
             }
         }
         finally

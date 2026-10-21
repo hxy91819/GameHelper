@@ -21,7 +21,7 @@ GameHelper 是一个面向 Windows 玩家的桌面助手，提供进程监控、
 
 ### 启动窗口与焦点
 
-发布目录提供 `GameHelper.Launcher.exe`：开机自启、已有桌面快捷方式和部署后重启均使用这个入口，显示正常大小的交互窗口，同时保留当前游戏或编辑器的焦点。它先以不激活方式创建控制台，再在初始化就绪后显示，不进行 Windows Terminal 二次开窗。直接运行 `GameHelper.ConsoleHost.exe`、`dotnet run` 的 CLI 用法保持可用；主动从终端启动时沿用原宿主规则。详见[启动窗口宿主](docs/guides/terminal-host.md)。
+开机自启、桌面快捷方式和部署后重启统一直接运行 `GameHelper.ConsoleHost.exe`，正常打开可见交互窗口，保留彩色界面与 Windows Terminal 宿主判断。后台无焦点启动方向已废弃；旧 Launcher 快捷方式会在部署时迁回正常入口。详见[启动窗口宿主](docs/guides/terminal-host.md)。
 
 ### 常用 CLI 命令
 
@@ -122,7 +122,7 @@ dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release
 
 U2720QM 默认护眼配方改为单笔 `F0=0x0C`，固件联动完成 `DC=00 / E2=1D / F0=0C`，从游戏模式直接进入护眼；自定义配方仍按原顺序写入。`SetVCPFeature` 每次只写一个码，没有多码原子事务。
 
-显示器每 10 秒仍会检查连接状态；连接提示仅在启动、断开或恢复时输出，持续在线不会反复刷“恢复可用”日志。
+每 10 秒查询 Windows 当前 HDR 状态：HDR 开启或状态无法确认时，暂停 DDC 探测与读写；确认关闭后自动恢复当前游戏/日照规则，也能识别手动切换 HDR。SDR 下继续检查显示器连接，连接提示仅在启动、断开或恢复时输出。
 
 ### 更新重启不断计时（会话跨重启续算）
 
