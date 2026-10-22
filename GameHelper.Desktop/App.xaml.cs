@@ -46,7 +46,8 @@ public partial class App : Application
             var model = new LibraryViewModel(new GameLibraryPipe(config), snapshot is null ? config : null);
             var window = new MainWindow(model);
             window.ShowActivated = snapshot is null && !restore;
-            if (snapshot is not null) window.ShowInTaskbar = false;
+            if (snapshot is not null || (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GAMEHELPER_DATA_DIR"))
+                && Environment.GetEnvironmentVariable("GAMEHELPER_TEST_OFFSCREEN") == "1")) WindowSnapshot.PrepareOffscreen(window);
             MainWindow = window;
             window.Show();
             await model.RefreshAsync();

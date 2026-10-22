@@ -173,6 +173,7 @@ public partial class MainWindow : Window
         {
             var scan = await _model.DiscoverDirectoryAsync(scanDirectory) ?? throw new InvalidOperationException(_model.Status);
             var dialog = new DirectoryImportWindow(scan) { Owner = this, ShowActivated = false, ShowInTaskbar = false };
+            WindowSnapshot.PrepareOffscreen(dialog);
             try { dialog.Show(); await Task.Delay(150); WindowSnapshot.Save(dialog, Path.Combine(directory, "directory-scan.png")); }
             finally { dialog.Close(); }
         }

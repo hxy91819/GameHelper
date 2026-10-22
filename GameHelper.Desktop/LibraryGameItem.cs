@@ -87,10 +87,12 @@ public sealed class LibraryGameItem : ObservableState
     public void RefreshRuntime(LibraryGame row)
     {
         State = row.State;
-        _installation = row.Installation;
-        Changed(nameof(InstallationState)); Changed(nameof(InstallationLabel)); Changed(nameof(InstallationDetail));
-        _minutes = row.TotalMinutes;
-        Changed(nameof(Playtime));
+        if (_installation != row.Installation)
+        {
+            _installation = row.Installation;
+            Changed(nameof(InstallationState)); Changed(nameof(InstallationLabel)); Changed(nameof(InstallationDetail));
+        }
+        if (_minutes != row.TotalMinutes) { _minutes = row.TotalMinutes; Changed(nameof(Playtime)); }
     }
 
     internal async Task LoadArtworkAsync(SteamPosterLibrary posters, CancellationToken cancellationToken, bool refresh = false)

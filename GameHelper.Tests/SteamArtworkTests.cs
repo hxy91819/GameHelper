@@ -148,7 +148,41 @@ public sealed class SteamArtworkTests
         var client = new SteamArtworkClient(http, root.Path, _ => false);
         var game = Assert.Single(await client.SearchAsync("Portal & 2", CancellationToken.None));
         Assert.Equal(620u, game.AppId);
-        Assert.Contains("term=Portal%20%26%202", handler.Uris.Single().AbsoluteUri);
+        Assert.All(handler.Uris.Where(uri => uri.Host == "store.steampowered.com"), uri => Assert.Contains("term=Portal%20%26%202", uri.AbsoluteUri));
+        Assert.Empty(Directory.GetFiles(root.Path));
+    }
+
+    [Fact]
+    public void BestMatch_UsesEnglishAliasRejectsSupplementSequelsEditionsAndAmbiguity()
+    {
+        var game = new SteamArtworkGame(1280930, "星界战士", "Astral Ascent", true);
+        var dlc = new SteamArtworkGame(2633220, "星界战士画集", "Astral Ascent Artbook", false);
+        Assert.Equal(game, SteamArtworkNameMatcher.BestMatch("Astral Ascent", [dlc, game]));
+        Assert.Equal(game, SteamArtworkNameMatcher.BestMatch("Astral Ascnet.exe - 快捷方式", [dlc, game]));
+        Assert.Null(SteamArtworkNameMatcher.BestMatch("Astral Ascent", [dlc]));
+        Assert.Null(SteamArtworkNameMatcher.BestMatch("Slay the Spire 2", [new(1, "Slay the Spire", IsGame: true)]));
+        Assert.Null(SteamArtworkNameMatcher.BestMatch("Resident Evil VII", [new(1, "Resident Evil VIII", IsGame: true)]));
+        Assert.Null(SteamArtworkNameMatcher.BestMatch("Astral Ascent", [game, game with { AppId = 2 }]));
+        Assert.Null(SteamArtworkNameMatcher.BestMatch("Astral Ascent", [new(1, "Astral Ascent Deluxe", IsGame: true)]));
+        Assert.Equal(1u, SteamArtworkNameMatcher.BestMatch("Hades 2", [new(1, "Hades II", IsGame: true)])?.AppId);
+    }
+
+    [Fact]
+    public async Task Search_MergesLocalizedAliasesAndVerifiesBaseGameTypeBeforeAutomaticChoice()
+    {
+        using var root = new TemporaryDirectory();
+        using var handler = new Handler(request => new(HttpStatusCode.OK)
+        { Content = new StringContent(request.RequestUri!.Host == "api.steampowered.com"
+            ? """{"response":{"store_items":[{"appid":1280930,"name":"Astral Ascent","type":0},{"appid":2633220,"name":"Astral Ascent Artbook","type":4}]}}"""
+            : request.RequestUri.Query.Contains("l=english", StringComparison.Ordinal)
+                ? """{"items":[{"id":1280930,"name":"Astral Ascent","type":"app"},{"id":2633220,"name":"Astral Ascent Artbook","type":"app"}]}"""
+                : """{"items":[{"id":1280930,"name":"星界战士","type":"app"},{"id":2633220,"name":"星界战士画集","type":"app"}]}""") });
+        using var http = new HttpClient(handler);
+        var results = await new SteamArtworkClient(http, root.Path, _ => false).SearchAsync("Astral Ascent", CancellationToken.None);
+        Assert.Equal(2, results.Count); Assert.Equal(1280930u, results[0].AppId);
+        Assert.Equal("星界战士", results[0].Name); Assert.Equal("Astral Ascent", results[0].EnglishName);
+        Assert.True(results[0].IsGame); Assert.False(results[1].IsGame);
+        Assert.Equal(1280930u, SteamArtworkNameMatcher.BestMatch("Astral Ascent", results)?.AppId);
         Assert.Empty(Directory.GetFiles(root.Path));
     }
 

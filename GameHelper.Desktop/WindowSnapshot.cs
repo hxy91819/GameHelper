@@ -7,6 +7,13 @@ namespace GameHelper.Desktop;
 
 internal static class WindowSnapshot
 {
+    internal static void PrepareOffscreen(Window window)
+    {
+        window.ShowActivated = false; window.ShowInTaskbar = false;
+        window.WindowStartupLocation = WindowStartupLocation.Manual;
+        window.Left = -32000; window.Top = -32000;
+    }
+
     internal static void Save(Window window, string path)
     {
         window.UpdateLayout();

@@ -42,7 +42,7 @@ internal sealed class SteamPosterLibrary
         if (HasAssociation(dataKey)) return false;
         var found = await SearchAsync(title, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        if (HasAssociation(dataKey) || SteamArtworkNameMatcher.ExactMatch(title, found) is not { } exact) return false;
+        if (HasAssociation(dataKey) || SteamArtworkNameMatcher.BestMatch(title, found) is not { } exact) return false;
         Associate(dataKey, exact.AppId);
         return true;
     }

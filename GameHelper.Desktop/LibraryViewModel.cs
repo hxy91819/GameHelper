@@ -20,6 +20,8 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private Dictionary<string, LibraryDraft> _restoredDrafts = new(StringComparer.OrdinalIgnoreCase);
     private LibraryGameItem? _selected;
     private bool _busy;
+    private bool _refreshing;
+    private long _generation;
     private bool _connected;
     private string _status = "正在连接游戏监控…";
     private string _search = string.Empty;
@@ -57,12 +59,12 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public ICommand RefreshCommand { get; }
     public ICommand SaveCommand { get; }
     public ICommand LaunchCommand { get; }
-    public bool IsBusy { get => _busy; private set { Set(ref _busy, value); Changed(nameof(Ready)); RefreshCommands(); } }
-    public bool Connected { get => _connected; private set { Set(ref _connected, value); Changed(nameof(Ready)); } }
+    public bool IsBusy { get => _busy; private set { if (Set(ref _busy, value)) { Changed(nameof(Ready)); RefreshCommands(); } } }
+    public bool Connected { get => _connected; private set { if (Set(ref _connected, value)) { Changed(nameof(Ready)); RefreshCommands(); } } }
     public bool Ready => Connected && !IsBusy;
     public string Status { get => _status; set => Set(ref _status, value); }
     public string ConfigPath { get => _configPath; private set => Set(ref _configPath, value); }
-    public string Count => $"{Games.Cast<object>().Count()} / {_games.Count} 款游戏";
+    public string Count => $"{Games.Cast<object>().Count()} / {_games.Count} 款游戏 · 最近活动优先";
     public string InstallationSummary => $"本机 {_games.Count(game => game.InstallationState == GameInstallationState.Installed)} · 未找到 {_games.Count(game => game.InstallationState == GameInstallationState.Missing)} · 待确认 {_games.Count(game => game.InstallationState == GameInstallationState.Unknown)}";
     public string InstallationGroup => _group;
     public string Search { get => _search; set { if (Set(ref _search, value)) Filter(); } }
@@ -106,16 +108,27 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public async Task RefreshAsync(bool discardDrafts = false)
     {
         if (IsBusy) return;
-        await RunAsync(async () =>
+        if (discardDrafts)
+        {
+            await RunAsync(async () => Apply(await _library.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.List }, _lifetime.Token), true));
+            return;
+        }
+        if (_refreshing || _lifetime.IsCancellationRequested) return;
+        _refreshing = true; var generation = _generation;
+        try
         {
             var response = await _library.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.List }, _lifetime.Token);
-            Apply(response, discardDrafts);
-        });
+            if (!_lifetime.IsCancellationRequested && generation == _generation && !IsBusy) Apply(response);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex) { if (generation == _generation && !_lifetime.IsCancellationRequested) Report(ex); }
+        finally { _refreshing = false; }
     }
 
     private async Task RunAsync(Func<Task> action)
     {
         if (IsBusy) return;
+        _generation++;
         IsBusy = true;
         try { await action(); }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
@@ -147,11 +160,16 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
 
     private void Apply(GameLibraryResponse response, bool discardDrafts = false, string? selectedKey = null)
     {
+        if (_lifetime.IsCancellationRequested) return;
         if (!response.Success) throw new InvalidOperationException(response.Error ?? "游戏库操作失败。");
         var key = selectedKey ?? Selected?.DataKey;
         var old = _games.ToDictionary(game => game.DataKey, StringComparer.OrdinalIgnoreCase);
         var updated = new List<LibraryGameItem>();
-        foreach (var row in response.Games.OrderBy(row => row.Config.DisplayName ?? row.Config.DataKey, StringComparer.CurrentCultureIgnoreCase))
+        foreach (var row in response.Games.Select((game, index) => (Game: game, Index: index))
+            .OrderByDescending(item => item.Game.State == "运行中")
+            .ThenByDescending(item => Activity(item.Game))
+            .ThenByDescending(item => item.Game.LastPlayedAt)
+            .ThenByDescending(item => item.Index).Select(item => item.Game))
         {
             LibraryGameItem item;
             if (!discardDrafts && _restoredDrafts.Remove(row.Config.DataKey, out var restored))
@@ -174,18 +192,27 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             }
             updated.Add(item);
         }
-        if (!_games.SequenceEqual(updated))
+        for (var index = 0; index < updated.Count; index++)
         {
-            _games.Clear();
-            foreach (var item in updated) _games.Add(item);
+            if (index < _games.Count && ReferenceEquals(_games[index], updated[index])) continue;
+            var oldIndex = _games.IndexOf(updated[index]);
+            if (oldIndex >= 0) _games.Move(oldIndex, index); else _games.Insert(index, updated[index]);
         }
-        Filter();
+        while (_games.Count > updated.Count) _games.RemoveAt(_games.Count - 1);
+        if (!Games.Cast<LibraryGameItem>().SequenceEqual(_games.Where(item => Matches(item)))) Games.Refresh();
+        Changed(nameof(Count)); Changed(nameof(InstallationSummary));
         Selected = Games.Cast<LibraryGameItem>().FirstOrDefault(game => game.DataKey == key) ?? Games.Cast<LibraryGameItem>().FirstOrDefault();
         if (discardDrafts) _restoredDrafts.Clear();
         Connected = true;
         ConfigPath = response.ConfigPath;
         Status = response.Message ?? (response.MonitorRunning ? "监控已就绪 · 关闭游戏库后继续监控" : "监控未运行 · 启动游戏时会先开启监控");
         PersistDrafts();
+    }
+
+    private static DateTimeOffset Activity(LibraryGame game)
+    {
+        var played = game.LastPlayedAt ?? DateTimeOffset.MinValue;
+        return game.Config.AddedAt is { } added && added > played ? added : played;
     }
 
     public async Task AddAsync(string executable)
@@ -248,10 +275,10 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         => _posters.PreviewAsync(appId, _lifetime.Token).WaitAsync(cancellationToken);
     internal Task WaitForArtworkAsync() => Task.WhenAll(_games.Select(game => game.ArtworkLoading));
     internal int PosterCount => _games.Count(game => game.ArtworkIsCover);
-    internal async Task AssociatePosterAsync(LibraryGameItem game, uint? appId)
+    internal async Task AssociatePosterAsync(LibraryGameItem game, uint? appId, bool refresh = true)
     {
         _posters.Associate(game.DataKey, appId);
-        await game.LoadArtworkAsync(_posters, _lifetime.Token, refresh: true);
+        await game.LoadArtworkAsync(_posters, _lifetime.Token, refresh);
     }
     private void OnItemChanged(object? sender, PropertyChangedEventArgs e)
     {

@@ -2,6 +2,7 @@ using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Utilities;
 using GameHelper.Desktop;
+using Moq;
 
 namespace GameHelper.Tests;
 
@@ -217,6 +218,45 @@ public sealed class DesktopLibraryViewModelTests
             Assert.Null(backend.Game.Launch!.Ds4WindowsPath); Assert.Equal(@"C:\a.exe", backend.Game.Launch.Target);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    });
+
+    [Fact]
+    public Task PassivePolling_DoesNotDisableMenusOrResetUnchangedGameView() => OnSta(() =>
+    {
+        using var model = new LibraryViewModel(new Backend()); model.RefreshAsync().GetAwaiter().GetResult();
+        var selected = model.Selected;
+        var ready = new List<bool>(); var resets = 0;
+        model.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(model.Ready)) ready.Add(model.Ready); };
+        model.Games.CollectionChanged += (_, e) => { if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset) resets++; };
+        model.RefreshAsync().GetAwaiter().GetResult();
+        Assert.DoesNotContain(false, ready);
+        Assert.Equal(0, resets); Assert.Same(selected, model.Selected);
+    });
+
+    [Fact]
+    public Task FirstConnection_NotifiesBoundLaunchButtonWhenItBecomesAvailable() => OnSta(() =>
+    {
+        using var model = new LibraryViewModel(new Backend());
+        var buttonEnabled = model.LaunchCommand.CanExecute(null);
+        model.LaunchCommand.CanExecuteChanged += (_, _) => buttonEnabled = model.LaunchCommand.CanExecute(null);
+        Assert.False(buttonEnabled); model.RefreshAsync().GetAwaiter().GetResult(); Assert.True(buttonEnabled);
+    });
+
+    [Fact]
+    public Task RecentActivity_OrdersRunningThenNewestPlayedOrAddedAndRetainsDraftOnMove() => OnSta(() =>
+    {
+        var now = new DateTimeOffset(2026, 1, 10, 12, 0, 0, TimeSpan.Zero);
+        LibraryGame Row(string key, DateTimeOffset? added = null, DateTimeOffset? played = null, string state = "未运行") => new()
+        { Config = new() { DataKey = key, Executable = key + ".exe", DisplayName = key, AddedAt = added }, LastPlayedAt = played, State = state, Installation = new(GameInstallationState.Installed, "test") };
+        var rows = new List<LibraryGame> { Row("played", played: now.AddHours(-1)), Row("added", added: now), Row("running", state: "运行中"), Row("legacy1"), Row("legacy2") };
+        var backend = new Moq.Mock<IGameLibrary>();
+        backend.Setup(item => item.ExecuteAsync(Moq.It.IsAny<GameLibraryRequest>(), Moq.It.IsAny<CancellationToken>())).ReturnsAsync(() => new GameLibraryResponse { Success = true, Games = rows });
+        using var model = new LibraryViewModel(backend.Object); model.RefreshAsync().GetAwaiter().GetResult();
+        Assert.Equal(new[] { "running", "added", "played", "legacy2", "legacy1" }, model.Games.Cast<LibraryGameItem>().Select(item => item.DataKey));
+        var selected = model.Games.Cast<LibraryGameItem>().Single(item => item.DataKey == "played"); model.Selected = selected; selected.Name = "Draft";
+        rows[0] = Row("played", played: now.AddMinutes(1)); model.RefreshAsync().GetAwaiter().GetResult();
+        Assert.Equal("played", model.Games.Cast<LibraryGameItem>().ElementAt(1).DataKey);
+        Assert.Same(selected, model.Selected); Assert.Equal("Draft", selected.Name); Assert.True(selected.IsDirty);
     });
 
     private static Task OnSta(Action action)

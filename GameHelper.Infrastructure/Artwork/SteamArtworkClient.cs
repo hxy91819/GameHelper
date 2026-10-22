@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace GameHelper.Infrastructure.Artwork;
 
-public sealed record SteamArtworkGame(uint AppId, string Name);
+public sealed record SteamArtworkGame(uint AppId, string Name, string? EnglishName = null, bool? IsGame = null);
 
 /// <summary>Reads public Steam artwork metadata and atomically caches bounded image downloads.</summary>
 public sealed class SteamArtworkClient(HttpClient http, string cacheDirectory,
@@ -40,19 +40,48 @@ public sealed class SteamArtworkClient(HttpClient http, string cacheDirectory,
     {
         query = query.Trim();
         if (query.Length is < 1 or > 120) return [];
-        var url = "https://store.steampowered.com/api/storesearch/?l=schinese&cc=CN&term=" + Uri.EscapeDataString(query);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(12));
-        using var json = JsonDocument.Parse(await ReadAsync(url, 512 * 1024, timeout.Token));
-        if (json.RootElement.ValueKind != JsonValueKind.Object || !json.RootElement.TryGetProperty("items", out var items)
-            || items.ValueKind != JsonValueKind.Array) return [];
-        var found = new List<SteamArtworkGame>();
-        foreach (var item in items.EnumerateArray())
-            if (item.ValueKind == JsonValueKind.Object && item.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "app"
-                && item.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.Number && id.TryGetUInt32(out var number) && number != 0
-                && item.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(name.GetString()))
-                found.Add(new SteamArtworkGame(number, name.GetString()!));
-        return found.DistinctBy(item => item.AppId).Take(20).ToList();
+        var found = new Dictionary<uint, SteamArtworkGame>();
+        foreach (var language in new[] { "schinese", "english" })
+        {
+            try
+            {
+                var url = $"https://store.steampowered.com/api/storesearch/?l={language}&cc=CN&term=" + Uri.EscapeDataString(query);
+                using var json = JsonDocument.Parse(await ReadAsync(url, 512 * 1024, timeout.Token));
+                if (json.RootElement.ValueKind != JsonValueKind.Object || !json.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array) continue;
+                foreach (var item in items.EnumerateArray().Take(20))
+                {
+                    if (item.ValueKind != JsonValueKind.Object || !item.TryGetProperty("type", out var type) || type.ValueKind != JsonValueKind.String || type.GetString() != "app"
+                        || !item.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.Number || !id.TryGetUInt32(out var number) || number == 0
+                        || !item.TryGetProperty("name", out var name) || name.ValueKind != JsonValueKind.String || name.GetString() is not { Length: > 0 and <= 300 } title) continue;
+                    found[number] = found.TryGetValue(number, out var old)
+                        ? old with { EnglishName = language == "english" ? title : old.EnglishName }
+                        : new(number, title, language == "english" ? title : null);
+                }
+            }
+            catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidDataException or OperationCanceledException) { cancellationToken.ThrowIfCancellationRequested(); }
+        }
+        if (found.Count > 0 && !timeout.IsCancellationRequested)
+        {
+            try
+            {
+                var input = JsonSerializer.Serialize(new { ids = found.Keys.Select(id => new { appid = id }), context = new { language = "english", country_code = "US" } });
+                using var metadata = JsonDocument.Parse(await ReadAsync("https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=" + Uri.EscapeDataString(input), 512 * 1024, timeout.Token));
+                if (metadata.RootElement.ValueKind == JsonValueKind.Object && metadata.RootElement.TryGetProperty("response", out var response) && response.ValueKind == JsonValueKind.Object
+                    && response.TryGetProperty("store_items", out var items) && items.ValueKind == JsonValueKind.Array)
+                    foreach (var item in items.EnumerateArray())
+                    {
+                        if (item.ValueKind != JsonValueKind.Object || !item.TryGetProperty("appid", out var id) || id.ValueKind != JsonValueKind.Number || !id.TryGetUInt32(out var appId) || !found.TryGetValue(appId, out var old)) continue;
+                        var english = item.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String && name.GetString() is { Length: > 0 and <= 300 } title ? title : old.EnglishName;
+                        bool? game = item.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.Number && type.TryGetInt32(out var kind) ? kind == 0 : null;
+                        found[appId] = old with { EnglishName = english, IsGame = game };
+                    }
+            }
+            catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidDataException or OperationCanceledException) { cancellationToken.ThrowIfCancellationRequested(); }
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        return found.Values.OrderByDescending(item => SteamArtworkNameMatcher.Score(query, item)).Take(20).ToList();
     }
 
     private async Task<string?> DownloadAsync(uint appId, CancellationToken lifetime, bool refresh)

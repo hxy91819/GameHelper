@@ -49,7 +49,7 @@ internal sealed class SteamPosterWindow : Window
         };
         actions.Children.Add(automatic); actions.Children.Add(_select);
         DockPanel.SetDock(actions, Dock.Bottom); root.Children.Add(actions);
-        _results = new ListBox { DisplayMemberPath = nameof(SteamArtworkGame.Name), Background = Brushes.Transparent, Foreground = Brushes.White, BorderThickness = new Thickness(0) };
+        _results = new DarkListBox { DisplayMemberPath = nameof(SteamArtworkGame.Name), Background = Brushes.Transparent, Foreground = Brushes.White, BorderThickness = new Thickness(0) };
         _results.SelectionChanged += (_, _) => RefreshChoice();
         _id.TextChanged += (_, _) => RefreshChoice();
         root.Children.Add(_results); Content = root;

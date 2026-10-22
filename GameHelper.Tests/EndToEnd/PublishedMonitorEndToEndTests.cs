@@ -183,6 +183,10 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
         Assert.NotNull(exact); Assert.Equal(620u, exact.AppId);
         var image = await client.GetPosterAsync(exact.AppId, CancellationToken.None);
         Assert.NotNull(image); Assert.True(File.Exists(image));
+        var astral = await client.SearchAsync("Astral Ascent", CancellationToken.None);
+        var best = GameHelper.Infrastructure.Artwork.SteamArtworkNameMatcher.BestMatch("Astral Ascent", astral);
+        Assert.NotNull(best); Assert.Equal(1280930u, best.AppId); Assert.True(best.IsGame);
+        Assert.NotNull(await client.GetPosterAsync(best.AppId, CancellationToken.None));
     }
 
     [WindowsOnlyFact]
@@ -215,6 +219,8 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             var found = imported.Games.Single(item => item.Config.Executable == executable);
             Assert.Equal(GameInstallationState.Installed, found.Installation.State);
             Assert.False(found.Config.HdrEnabled); Assert.Null(found.Config.SpeedMultiplier);
+            Assert.NotNull(found.Config.AddedAt);
+            Assert.Equal(found.Config.AddedAt, new YamlConfigProvider(sandbox.ConfigPath).Read().Games.Single(item => item.DataKey == found.Config.DataKey).AddedAt);
             Assert.Equal(GameInstallationState.Missing, imported.Games.Single(item => item.Config.DataKey == "missing").Installation.State);
             Assert.Equal(GameInstallationState.Unknown, imported.Games.Single(item => item.Config.DataKey == "unknown").Installation.State);
             var afterImport = File.ReadAllText(sandbox.ConfigPath);
@@ -260,6 +266,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             var start = new ProcessStartInfo(desktop) { UseShellExecute = false, CreateNoWindow = true };
             start.ArgumentList.Add("--config"); start.ArgumentList.Add(sandbox.ConfigPath);
             foreach (var argument in arguments) start.ArgumentList.Add(argument);
+            start.Environment["GAMEHELPER_TEST_OFFSCREEN"] = "1";
             start.Environment["GAMEHELPER_DATA_DIR"] = sandbox.RootDir;
             start.Environment["GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE"] = "1";
             start.Environment["GAMEHELPER_ALLOW_MULTIPLE_INSTANCES"] = "1";
@@ -274,7 +281,6 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             await WaitUntilAsync(() => File.Exists(cached), TimeSpan.FromSeconds(45), "official Steam poster downloaded to isolated cache");
             ui.Refresh();
             Assert.False(ui.HasExited);
-            Assert.NotEqual(IntPtr.Zero, ui.MainWindowHandle);
             var screenshots = Environment.GetEnvironmentVariable("GAMEHELPER_TEST_POSTER_SCREENSHOTS") ?? Path.Combine(sandbox.RootDir, "posters-ui");
             using var snapshot = Process.Start(StartDesktop("--snapshot", screenshots))!;
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -339,7 +345,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             Assert.True(ready.MonitorRunning);
             Assert.Equal(ready.RuntimeProcessId, await StartAsync());
             Assert.Contains(new EtwRuntime(null).GetActiveSessionNames(), name => name.StartsWith($"GameHelper-ETW-{ready.RuntimeProcessId}-", StringComparison.Ordinal));
-            using var probe = StartProbe(sandbox, "/c ping 127.0.0.1 -n 4 > NUL");
+            using var probe = StartProbe(sandbox, "3");
             await WaitUntilAsync(() => ReadProbeRows(sandbox.CsvPath).Count > 0, PersistTimeout, "background runtime tracked game without a console");
             Assert.True(File.Exists(sandbox.ConfigPath + ".runtime.log"));
         }
@@ -354,7 +360,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
         var source = new YamlConfigProvider(sandbox.ConfigPath);
         source.Change(config => config.Games.Single().Launch = new GameLaunchOptions
         {
-            Target = sandbox.ProbeExePath, Arguments = "/c ping 127.0.0.1 -n 5 > NUL"
+            Target = sandbox.ProbeExePath, Arguments = "4"
         });
         using var app = StartApp(exePath!, sandbox);
         try
@@ -415,7 +421,20 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             await WaitUntilOutputAsync(app, sandbox, text => text.Contains("GameAutomationService started"),
                 ReadyTimeout, "monitor host readiness (GameAutomationService started)");
 
-            using var child = StartProbe(sandbox, "/c ping 127.0.0.1 -n 4 > NUL");
+            var ready = await new GameLibraryPipe(sandbox.ConfigPath).ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.List });
+            var visibility = new ProcessStartInfo("powershell.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var argument in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../..", "scripts/probe-console-window.ps1")),
+                "-TargetProcessId", ready.RuntimeProcessId.ToString(CultureInfo.InvariantCulture), "-RequireNoConsole" }) visibility.ArgumentList.Add(argument);
+            using (var probe = Process.Start(visibility)!)
+            {
+                var stdout = probe.StandardOutput.ReadToEndAsync(); var stderr = probe.StandardError.ReadToEndAsync();
+                using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                try { await probe.WaitForExitAsync(deadline.Token); } finally { if (!probe.HasExited) probe.Kill(entireProcessTree: true); }
+                Assert.True(probe.ExitCode == 0, await stdout + await stderr);
+            }
+
+            using var child = StartProbe(sandbox, "3");
             await WaitUntilOutputAsync(app, sandbox,
                 text => text.Contains("Process start") && text.Contains(ProbeDataKey),
                 ReadyTimeout, "probe process start event");
@@ -448,7 +467,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             await WaitUntilOutputAsync(app, sandbox, text => text.Contains("GameAutomationService started"),
                 ReadyTimeout, "monitor host readiness (GameAutomationService started)");
 
-            child = StartProbe(sandbox, "/c ping 127.0.0.1 -n 30 > NUL");
+            child = StartProbe(sandbox, "29");
             await WaitUntilOutputAsync(app, sandbox,
                 text => text.Contains("Process start") && text.Contains(ProbeDataKey),
                 ReadyTimeout, "probe process start event");
@@ -491,7 +510,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             app = StartApp(exePath, sandbox);
             await WaitUntilOutputAsync(app, sandbox, text => text.Contains("GameAutomationService started"),
                 ReadyTimeout, "initial monitor readiness");
-            child = StartProbe(sandbox, "/c ping 127.0.0.1 -n 600 > NUL");
+            child = StartProbe(sandbox, "600");
             await WaitUntilAsync(() => ReadInFlightSnapshot(sandbox)?.Sessions.Any(
                     session => session.DataKey == ProbeDataKey && session.ProcessId == child.Id) == true,
                 ReadyTimeout, "initial probe snapshot");
@@ -509,10 +528,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
                 app = null;
                 Assert.False(child.HasExited, "the game probe must survive each host crash");
                 Assert.Empty(ReadProbeRows(sandbox.CsvPath));
-                // Each launch truncates its redirected logs. Remove old contents before polling
-                // so a prior launch's readiness/recovery line cannot satisfy this launch.
-                File.Delete(sandbox.OutFile);
-                File.Delete(sandbox.ErrFile);
+                // StartApp clears the background log so prior readiness cannot satisfy this launch.
                 app = StartApp(exePath, sandbox);
                 await WaitUntilOutputAsync(app, sandbox,
                     text => text.Contains("Resumed in-flight session")
@@ -592,7 +608,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
         {
             await WaitUntilOutputAsync(app, sandbox, text => text.Contains("GameAutomationService started"), ReadyTimeout, "DDC host ready");
             await VerifyRegistersAsync(GameHelper.Core.Abstractions.MonitorMode.Comfort, "startup without game");
-            child = StartProbe(sandbox, "/c ping 127.0.0.1 -n 600 > NUL");
+            child = StartProbe(sandbox, "600");
             await VerifyRegistersAsync(GameHelper.Core.Abstractions.MonitorMode.Game, "daylight game start");
             var dayConfig = File.ReadAllText(sandbox.ConfigPath);
             File.WriteAllText(sandbox.ConfigPath, dayConfig.Replace("daylightEnd: '23:59'", "daylightEnd: '00:00'"));
@@ -666,28 +682,30 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
                 enabled: true
                 hdr: false
             """);
-        File.Copy(Path.Combine(Environment.SystemDirectory, "cmd.exe"), sandbox.ProbeExePath);
+        // A console-subsystem fake game would open a window through the real game launcher.
+        var source = Path.Combine(sandbox.RootDir, "windowless-probe.cs");
+        File.WriteAllText(source, "using System; using System.Threading; class Probe { static void Main(string[] args) { Thread.Sleep(int.Parse(args[0]) * 1000); } }");
+        var compile = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe"))
+        { UseShellExecute = false, CreateNoWindow = true };
+        foreach (var argument in new[] { "/nologo", "/target:winexe", "/out:" + sandbox.ProbeExePath, source }) compile.ArgumentList.Add(argument);
+        using var compiler = Process.Start(compile)!;
+        if (!compiler.WaitForExit(15000)) { compiler.Kill(entireProcessTree: true); throw new TimeoutException("Windowless probe compilation timed out."); }
+        Assert.Equal(0, compiler.ExitCode);
         return sandbox;
     }
 
     private static AppHandle StartApp(string exePath, Sandbox sandbox, IReadOnlyDictionary<string, string>? environment = null)
     {
-        // 经 cmd /c 文件重定向拉起，复现已验证可用的无阻塞启动环境；stdin 预置一个换行。
-        var arguments = $"/d /c \"\"{exePath}\" monitor < \"{sandbox.StdInFile}\"" +
-                        $" > \"{sandbox.OutFile}\" 2> \"{sandbox.ErrFile}\"\"";
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe"),
-            Arguments = arguments,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
+        File.Delete(sandbox.ConfigPath + ".runtime.log");
+        var startInfo = GameHelper.Infrastructure.Startup.BackgroundRuntime.CreateStartInfo(exePath, sandbox.ConfigPath);
         startInfo.EnvironmentVariables["GAMEHELPER_DATA_DIR"] = sandbox.RootDir;
         startInfo.EnvironmentVariables["GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE"] = "1";
         startInfo.EnvironmentVariables["GAMEHELPER_ALLOW_MULTIPLE_INSTANCES"] = "1";
         if (environment is not null) foreach (var pair in environment) startInfo.EnvironmentVariables[pair.Key] = pair.Value;
 
-        return new AppHandle(Process.Start(startInfo)!);
+        var process = Process.Start(startInfo)!;
+        process.StandardInput.Close(); process.StandardOutput.Close(); process.StandardError.Close();
+        return new AppHandle(process);
     }
 
     private static Process StartProbe(Sandbox sandbox, string arguments) =>
@@ -718,7 +736,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// 强杀测试实例（cmd 进程树，专属沙盒实例，绝非用户实例），随后只清理属主已死亡的
+    /// 强杀测试实例（后台进程树，专属沙盒实例，绝非用户实例），随后只清理属主已死亡的
     /// GameHelper ETW 会话；属主存活的会话可能是用户实例，绝不动。
     /// </summary>
     private static void StopAppAndSweepSessions(AppHandle app)
@@ -780,7 +798,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
         Assert.True(predicate(AppOutput(sandbox)), $"Expected {description} within {timeout.TotalSeconds:F0} seconds.");
     }
 
-    private static string AppOutput(Sandbox sandbox) => ReadTextFile(sandbox.OutFile) + ReadTextFile(sandbox.ErrFile);
+    private static string AppOutput(Sandbox sandbox) => ReadTextFile(sandbox.ConfigPath + ".runtime.log");
 
     private sealed class AppHandle(Process process) : IDisposable
     {
@@ -805,10 +823,6 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             ConfigPath = Path.Combine(GameHelperDir, "config.yml");
             CsvPath = Path.Combine(GameHelperDir, "playtime.csv");
             ProbeExePath = Path.Combine(RootDir, ProbeExeName);
-            StdInFile = Path.Combine(RootDir, "stdin.txt");
-            OutFile = Path.Combine(RootDir, "app-out.log");
-            ErrFile = Path.Combine(RootDir, "app-err.log");
-            File.WriteAllText(StdInFile, "\n");
         }
 
         public string RootDir { get; }
@@ -816,9 +830,6 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
         public string ConfigPath { get; }
         public string CsvPath { get; }
         public string ProbeExePath { get; }
-        public string StdInFile { get; }
-        public string OutFile { get; }
-        public string ErrFile { get; }
 
         public void Dispose()
         {

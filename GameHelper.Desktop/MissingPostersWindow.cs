@@ -12,15 +12,16 @@ internal sealed class MissingPostersWindow : Window
     private readonly LibraryViewModel _model;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly CancellationToken _token;
-    private readonly ListBox _games = new();
-    private readonly ListBox _results = new();
+    private readonly ListBox _games = new DarkListBox();
+    private readonly ListBox _results = new DarkListBox();
     private readonly TextBox _query = new() { MaxLength = 120 };
     private readonly Image _preview = new() { Width = 150, Height = 225, Stretch = Stretch.UniformToFill };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 12), Foreground = Brushes.LightSteelBlue };
     private readonly TextBlock _identity = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap };
     private readonly CheckBox _include = new() { Content = "包括本地未找到 / 待确认游戏", Margin = new Thickness(0, 10, 0, 10) };
     private readonly Button _search = new() { Content = "按名称搜索", Margin = new Thickness(10, 0, 0, 0) };
-    private readonly Button _automatic = new() { Content = "自动匹配唯一同名", Margin = new Thickness(0, 0, 12, 0) };
+    private readonly Button _automatic = new() { Content = "批量采用最佳匹配", Margin = new Thickness(0, 0, 12, 0) };
+    private readonly CheckBox _autoApply = new() { Content = "搜索后自动采用最佳匹配", IsChecked = true, Margin = new Thickness(0, 0, 0, 8) };
     private readonly Button _apply = new() { Content = "使用选中的海报", IsEnabled = false };
     private bool _working;
     private bool _closed;
@@ -38,8 +39,8 @@ internal sealed class MissingPostersWindow : Window
         var root = new DockPanel { Margin = new Thickness(24) };
         var heading = new StackPanel();
         heading.Children.Add(new TextBlock { Text = "让游戏库有封面", FontSize = 26, FontWeight = FontWeights.SemiBold });
-        heading.Children.Add(new TextBlock { Text = "按游戏名称搜索 Steam；唯一同名可自动关联，多个版本由你确认。手工关联的海报不会被批量覆盖。", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) });
-        heading.Children.Add(_include); DockPanel.SetDock(heading, Dock.Top); root.Children.Add(heading);
+        heading.Children.Add(new TextBlock { Text = "中英文名称综合匹配，优先原版游戏；明确的最佳结果可自动保存，接近或不确定的结果由你选择。已有海报关联不会被自动覆盖。", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) });
+        heading.Children.Add(_include); heading.Children.Add(_autoApply); DockPanel.SetDock(heading, Dock.Top); root.Children.Add(heading);
         var footer = new DockPanel { Margin = new Thickness(0, 18, 0, 0) };
         DockPanel.SetDock(_apply, Dock.Right); footer.Children.Add(_apply);
         DockPanel.SetDock(_automatic, Dock.Left); footer.Children.Add(_automatic);
@@ -92,6 +93,7 @@ internal sealed class MissingPostersWindow : Window
     {
         _working = busy;
         _search.IsEnabled = !busy; _automatic.IsEnabled = !busy; _include.IsEnabled = !busy; _games.IsEnabled = !busy;
+        _autoApply.IsEnabled = !busy;
         _apply.IsEnabled = !busy && _results.SelectedItem is SteamArtworkGame && _games.SelectedItem is LibraryGameItem;
     }
 
@@ -107,6 +109,18 @@ internal sealed class MissingPostersWindow : Window
             if (_closed || request != _request) return;
             _results.ItemsSource = found;
             _status.Text = found.Count == 0 ? "没有找到结果，可尝试原文名称或调整关键词。单款匹配入口也支持商店链接 / App ID。" : $"找到 {found.Count} 个结果。选择后可预览，确认名称和版本再应用。";
+            if (_games.SelectedItem is LibraryGameItem game)
+            {
+                var best = SteamArtworkNameMatcher.BestMatch(game.Name, found);
+                _results.SelectedItem = best ?? found.FirstOrDefault(item => item.IsGame == true);
+                if (best is not null && _autoApply.IsChecked == true && !_model.HasPosterAssociation(game))
+                {
+                    _token.ThrowIfCancellationRequested();
+                    await _model.AssociatePosterAsync(game, best.AppId, refresh: false);
+                    if (!_closed) _status.Text = $"已自动采用最佳匹配：{best.Name} · Steam {best.AppId}。可手动选择其他结果替换。";
+                }
+                else if (best is null && found.Count > 0) _status.Text = "候选结果接近或匹配度不足，请预览后选择；不会把续作、DLC 或画集自动用作原版海报。";
+            }
         }
         catch (Exception ex) { if (!_closed) _status.Text = "搜索暂不可用，可重试：" + ex.Message; }
         finally { if (!_closed) Busy(false); }
@@ -157,7 +171,7 @@ internal sealed class MissingPostersWindow : Window
                 catch (OperationCanceledException) when (_closed) { return; }
                 catch (Exception) { failed++; }
             }
-            if (!_closed) _status.Text = $"已关联 {matched} 款唯一同名游戏；其余可逐款调整关键词确认。{(failed > 0 ? $" {failed} 项网络或保存失败，可重试。" : "")}";
+            if (!_closed) _status.Text = $"已为 {matched} 款游戏采用最佳匹配；其余可逐款调整关键词确认。{(failed > 0 ? $" {failed} 项网络或保存失败，可重试。" : "")}";
         }
         catch (OperationCanceledException) when (_closed) { }
         finally { if (!_closed) Busy(false); }
