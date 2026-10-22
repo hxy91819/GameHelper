@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Threading;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 
@@ -28,12 +29,15 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private string _filter = "all";
     private string _group = "installed";
     private string _configPath = string.Empty;
+    private readonly DispatcherTimer? _elapsedTimer;
+    private readonly TimeProvider _timeProvider;
 
     public LibraryViewModel(IGameLibrary library, string? configPath = null) : this(library, configPath, null) { }
 
-    internal LibraryViewModel(IGameLibrary library, string? configPath, SteamPosterLibrary? posters)
+    internal LibraryViewModel(IGameLibrary library, string? configPath, SteamPosterLibrary? posters, TimeProvider? timeProvider = null)
     {
         _library = library;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         Statistics = new StatisticsViewModel(library);
         _posters = posters ?? new SteamPosterLibrary(configPath, allowNetwork: configPath is not null);
         if (configPath is not null)
@@ -52,6 +56,10 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             if (Selected?.IsDirty == true) await SaveSelectedAsync();
             if (Selected is not null) await SendAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Launch, DataKey = Selected.DataKey });
         }), () => Ready && Selected is not null && !string.IsNullOrWhiteSpace(Selected.Target) && Selected.State is not ("运行中" or "启动中"));
+        // 秒级计时时钟只在 UI 线程泵下跳；测试线程可直接调 OnClockTick 驱动。
+        _elapsedTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _elapsedTimer.Tick += (_, _) => OnClockTick();
+        _elapsedTimer.Start();
     }
 
     public ICollectionView Games { get; }
@@ -88,6 +96,13 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
 
     public void SetFilter(string filter) { _filter = filter; Filter(); }
     public void SetInstallationGroup(string group) { _group = group; Changed(nameof(InstallationGroup)); Filter(); }
+
+    /// <summary>推进所有运行中卡片的本局计时；测试可在无消息泵的线程直接调用来模拟秒级时钟。</summary>
+    internal void OnClockTick()
+    {
+        var now = _timeProvider.GetLocalNow().DateTime;
+        foreach (var game in _games) game.OnSecondTick(now);
+    }
     private bool Matches(object value)
     {
         var game = (LibraryGameItem)value;
@@ -294,5 +309,11 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         { Status = "草稿未能写入磁盘，更新或关闭前请保存设置：" + ex.Message; }
     }
-    public void Dispose() { Statistics.Dispose(); _lifetime.Cancel(); _lifetime.Dispose(); }
+    public void Dispose()
+    {
+        _elapsedTimer?.Stop();
+        Statistics.Dispose();
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
 }

@@ -22,6 +22,41 @@ namespace GameHelper.Tests
         }
 
         [Fact]
+        public void ShiftActiveStarts_ExcludesPausedSpanFromDurationAndKeepsEndStartConsistent()
+        {
+            var clock = new MutableClock(new DateTimeOffset(2026, 10, 22, 20, 0, 0, TimeSpan.Zero));
+            var svc = new CsvBackedPlayTimeService(_dir, logger: null, clock);
+            var name = "sleepy.exe";
+
+            // 玩 1 小时 → 挂起后时钟真实睡 11 小时 → 唤醒时整体前移会话开始 → 再玩 1 小时。
+            svc.StartTracking(name);
+            clock.Advance(TimeSpan.FromHours(1));
+            clock.Advance(TimeSpan.FromHours(11));
+            svc.ShiftActiveStarts(TimeSpan.FromHours(11));
+            clock.Advance(TimeSpan.FromHours(1));
+
+            var session = svc.StopTracking(name);
+            Assert.NotNull(session);
+            // 20:00-21:00 + 08:00-09:00 的墙钟是 13 小时，但实际游玩只有 2 小时。
+            Assert.Equal(TimeSpan.FromHours(2), session!.Duration);
+            Assert.Equal(120, session.DurationMinutes);
+            Assert.Equal(session.EndTime - session.StartTime, session.Duration);
+
+            var rows = File.ReadAllLines(_csvFile);
+            var targetRow = rows.Skip(1).Single(line => line.StartsWith("sleepy.exe,", StringComparison.OrdinalIgnoreCase));
+            Assert.EndsWith($",{session.DurationMinutes}", targetRow, StringComparison.Ordinal);
+        }
+
+        private sealed class MutableClock : TimeProvider
+        {
+            private DateTimeOffset _now;
+            public MutableClock(DateTimeOffset now) => _now = now;
+            public void Advance(TimeSpan duration) => _now += duration;
+            public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+            public override DateTimeOffset GetUtcNow() => _now;
+        }
+
+        [Fact]
         public void StartStop_CreatesFile_WithHeaderAndSingleSession()
         {
             var svc = new CsvBackedPlayTimeService(_dir);

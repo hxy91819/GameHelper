@@ -102,6 +102,21 @@ namespace GameHelper.Infrastructure.Providers
             }
         }
 
+        /// <inheritdoc />
+        public void ShiftActiveStarts(TimeSpan offset)
+        {
+            if (offset == TimeSpan.Zero || _starts.Count == 0) return;
+
+            lock (_gate)
+            {
+                if (_starts.Count == 0) return;
+                foreach (var gameName in _starts.Keys.ToList())
+                {
+                    _starts[gameName] += offset;
+                }
+            }
+        }
+
         public PlaySession? StopTracking(string gameName)
         {
             if (string.IsNullOrWhiteSpace(gameName)) return null;

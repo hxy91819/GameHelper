@@ -31,5 +31,11 @@ namespace GameHelper.Core.Abstractions
     /// (the game exited while GameHelper was down). Does not touch live tracking state.
     /// </summary>
     void WriteRecoveredSession(string gameName, DateTime startTime, DateTime endTime);
+
+    /// <summary>
+    /// 把当前所有活跃会话的开始时间整体前移 <paramref name="offset"/>，把系统睡眠 / 休眠期间
+    /// 的墙钟时间排除出游玩时长（offset 为实际暂停跨度，即唤醒时间 - 休眠时间）。
+    /// </summary>
+    void ShiftActiveStarts(TimeSpan offset);
     }
 }

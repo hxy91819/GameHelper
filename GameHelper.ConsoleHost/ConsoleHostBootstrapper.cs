@@ -8,6 +8,7 @@ using GameHelper.Core.Utilities;
 using GameHelper.Infrastructure.Controllers;
 using GameHelper.Infrastructure.Notifications;
 using GameHelper.Infrastructure.Processes;
+using GameHelper.Infrastructure.Power;
 using GameHelper.Infrastructure.Providers;
 using GameHelper.Infrastructure.Resolvers;
 using GameHelper.Infrastructure.Startup;
@@ -106,6 +107,7 @@ public static class ConsoleHostBootstrapper
             services.AddSingleton<IInFlightSessionStore>(_ => new JsonInFlightSessionStore(
                 AppDataPath.GetInFlightSessionsPath(),
                 _.GetRequiredService<ILoggerFactory>().CreateLogger<JsonInFlightSessionStore>()));
+            services.AddSingleton<ISystemPowerEvents, WindowsSystemPowerEvents>();
         }
         else
         {

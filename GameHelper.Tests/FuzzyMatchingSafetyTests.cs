@@ -44,6 +44,7 @@ namespace GameHelper.Tests
             public void StartTracking(string gameName) => Started.Add(gameName);
             public void ResumeTracking(string gameName, DateTime startTime) => Started.Add(gameName);
             public void WriteRecoveredSession(string gameName, DateTime startTime, DateTime endTime) => Stopped.Add(gameName);
+            public void ShiftActiveStarts(TimeSpan offset) { }
             public PlaySession? StopTracking(string gameName)
             {
                 Stopped.Add(gameName);

@@ -22,6 +22,8 @@ public sealed class LibraryGameItem : ObservableState
     private bool _dirty;
     private string _state;
     private long _minutes;
+    private DateTime? _runningStartedAt;
+    private string? _runningElapsed;
     private ImageSource? _artwork;
     private bool _artworkIsCover;
     private string _posterStatus = "正在读取海报…";
@@ -49,6 +51,7 @@ public sealed class LibraryGameItem : ObservableState
         _speed = (row.Config.SpeedMultiplier ?? 1.5).ToString("0.##", CultureInfo.CurrentCulture);
         _state = row.State;
         _minutes = row.TotalMinutes;
+        _runningStartedAt = row.RunningStartedAt;
     }
 
     public string DataKey { get; }
@@ -66,6 +69,11 @@ public sealed class LibraryGameItem : ObservableState
     public string Ds4WindowsPath { get => _ds4WindowsPath; set { if (Set(ref _ds4WindowsPath, value)) Edited(); } }
     public bool IsDirty { get => _dirty; private set => Set(ref _dirty, value); }
     public string State { get => _state; private set => Set(ref _state, value); }
+    public bool IsRunning => _state == "运行中";
+    /// <summary>状态徽章文本：运行中卡片附加本局实时计时的 mm:ss，其他状态原样。</summary>
+    public string StateDisplay => IsRunning && _runningElapsed is not null ? $"{_state} · {_runningElapsed}" : _state;
+    /// <summary>运行中卡片的会话计时行；停止运行后为 null。</summary>
+    public string? RunningSessionLine => IsRunning && _runningElapsed is not null ? $"本次已玩 {_runningElapsed}" : null;
     public ImageSource? Artwork { get => _artwork; private set => Set(ref _artwork, value); }
     public bool ArtworkIsCover { get => _artworkIsCover; private set { if (Set(ref _artworkIsCover, value)) Changed(nameof(ArtworkIsIcon)); } }
     public bool ArtworkIsIcon => !ArtworkIsCover;
@@ -86,13 +94,48 @@ public sealed class LibraryGameItem : ObservableState
 
     public void RefreshRuntime(LibraryGame row)
     {
+        var startChanged = _runningStartedAt != row.RunningStartedAt;
+        var stateChanged = _state != row.State;
         State = row.State;
+        _runningStartedAt = row.RunningStartedAt;
+        if (startChanged || !IsRunning) _runningElapsed = null;
+        if (startChanged || stateChanged)
+        {
+            Changed(nameof(StateDisplay));
+            Changed(nameof(RunningSessionLine));
+        }
         if (_installation != row.Installation)
         {
             _installation = row.Installation;
             Changed(nameof(InstallationState)); Changed(nameof(InstallationLabel)); Changed(nameof(InstallationDetail));
         }
         if (_minutes != row.TotalMinutes) { _minutes = row.TotalMinutes; Changed(nameof(Playtime)); }
+    }
+
+    /// <summary>每秒推进运行中游戏的"本局已玩"计时（由 <see cref="LibraryViewModel"/> 的时钟驱动）。</summary>
+    internal void OnSecondTick(DateTime now)
+    {
+        if (_state != "运行中")
+        {
+            if (_runningElapsed is not null)
+            {
+                _runningElapsed = null;
+                Changed(nameof(StateDisplay));
+                Changed(nameof(RunningSessionLine));
+            }
+            return;
+        }
+
+        if (_runningStartedAt is not { } start) return;
+        var elapsed = now - start;
+        if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
+        var text = $"{(int)elapsed.TotalHours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}";
+        if (text != _runningElapsed)
+        {
+            _runningElapsed = text;
+            Changed(nameof(StateDisplay));
+            Changed(nameof(RunningSessionLine));
+        }
     }
 
     internal async Task LoadArtworkAsync(SteamPosterLibrary posters, CancellationToken cancellationToken, bool refresh = false)

@@ -89,6 +89,8 @@ public class InFlightSessionRecoveryTests
 
         public List<string> Stopped { get; } = new();
 
+        public List<TimeSpan> ShiftedStarts { get; } = new();
+
         public void StartTracking(string gameName) => Started.Add(gameName);
 
         public void ResumeTracking(string gameName, DateTime startTime) => Resumed.Add((gameName, startTime));
@@ -98,6 +100,8 @@ public class InFlightSessionRecoveryTests
             if (FailRecovery) throw new IOException("History temporarily unavailable");
             Recovered.Add((gameName, startTime, endTime));
         }
+
+        public void ShiftActiveStarts(TimeSpan offset) => ShiftedStarts.Add(offset);
 
         public PlaySession? StopTracking(string gameName)
         {
@@ -492,5 +496,52 @@ public class InFlightSessionRecoveryTests
         Assert.Single(playTime.Stopped);
         Assert.Empty(playTime.Resumed);
         Assert.Empty(playTime.Recovered);
+    }
+
+    [Fact]
+    public void SystemSuspendResume_PersistsShiftedSessionStartInSnapshot()
+    {
+        var monitor = new FakeMonitor();
+        var store = new FakeInFlightStore();
+        var playTime = new FakePlayTime();
+        var power = new FakePowerEvents();
+        var clock = new FakePowerClock();
+        var automation = new GameAutomationService(
+            monitor,
+            CreateConfig().Object,
+            Mock.Of<IHdrController>(),
+            playTime,
+            NullLogger<GameAutomationService>.Instance,
+            inFlightSessionStore: store,
+            timeProvider: clock,
+            powerEvents: power);
+        automation.Start();
+        monitor.RaiseStarted(new ProcessEventInfo("game1.exe", null, 42));
+
+        var startedAt = Assert.Single(store.Saved[^1].Sessions).StartedAt;
+        power.RaiseSuspend();
+        clock.Advance(TimeSpan.FromMinutes(45));
+        power.RaiseResume();
+
+        Assert.Equal(TimeSpan.FromMinutes(45), Assert.Single(playTime.ShiftedStarts));
+        var persisted = Assert.Single(store.Saved[^1].Sessions);
+        Assert.Equal(TimeSpan.FromMinutes(45), persisted.StartedAt - startedAt);
+        automation.Stop();
+    }
+
+    private sealed class FakePowerEvents : ISystemPowerEvents
+    {
+        public event EventHandler? Suspending;
+        public event EventHandler? Resumed;
+        public void RaiseSuspend() => Suspending?.Invoke(this, EventArgs.Empty);
+        public void RaiseResume() => Resumed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private sealed class FakePowerClock : TimeProvider
+    {
+        public FakePowerClock() { }
+        public DateTimeOffset UtcNow { get; private set; } = DateTimeOffset.UnixEpoch.AddYears(55);
+        public void Advance(TimeSpan duration) => UtcNow += duration;
+        public override DateTimeOffset GetUtcNow() => UtcNow;
     }
 }

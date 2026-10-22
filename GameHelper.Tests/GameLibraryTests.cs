@@ -152,6 +152,26 @@ public sealed class GameLibraryTests
         finally { Directory.Delete(root, true); }
     }
 
+    [Fact]
+    public async Task List_ExposesRunningSessionStartForLiveTimer()
+    {
+        var source = new MemoryConfiguration(new AppConfig { Games = [new() { DataKey = "a", Executable = "a.exe" }] });
+        var launch = new Mock<IGameLaunchCoordinator>();
+        launch.Setup(item => item.GetGameStates()).Returns(new Dictionary<string, string> { ["a"] = "运行中" });
+        var started = new DateTime(2026, 10, 22, 20, 0, 0);
+        launch.Setup(item => item.GetRunningSessionStarts()).Returns(new Dictionary<string, DateTime?> { ["a"] = started });
+        // 未登记运行中的游戏拿不到开始时间，界面按无计时处理。
+        var library = new GameLibrary(source, new GameCatalogService(source), Mock.Of<IGameAutomationService>(),
+            Mock.Of<IMonitorControlService>(), launch.Object, Mock.Of<ISteamGameResolver>(), History());
+
+        var response = await library.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.List });
+
+        Assert.True(response.Success);
+        var row = response.Games.Single();
+        Assert.Equal("运行中", row.State);
+        Assert.Equal(started, row.RunningStartedAt);
+    }
+
     private static IPlaytimeSnapshotProvider History()
     {
         var history = new Mock<IPlaytimeSnapshotProvider>();

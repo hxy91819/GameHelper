@@ -96,6 +96,8 @@ public sealed class GameLibrary(
             default: throw new ArgumentException("不支持的游戏库操作。");
         }
         var states = launch.GetGameStates();
+        // 松散 mock / 外部实现的健壮回退：会话开始时间缺失时保持界面旧行为（不显示计时）。
+        var runningStarts = launch.GetRunningSessionStarts() ?? new Dictionary<string, DateTime?>(StringComparer.Ordinal);
         var records = history.GetPlaytimeRecords();
         var lastPlayed = LibraryRecency.LastPlayed(records, timeProvider ?? TimeProvider.System);
         var configs = configuration.Read().Games;
@@ -107,6 +109,7 @@ public sealed class GameLibrary(
             Games = configs.Select(game => new LibraryGame
             {
                 Config = game, Revision = GameConfigRevision.For(game), State = states.GetValueOrDefault(game.DataKey, game.IsEnabled ? "未运行" : "自动化已暂停"),
+                RunningStartedAt = runningStarts.GetValueOrDefault(game.DataKey),
                 Installation = installations?.GetValueOrDefault(game.DataKey) ?? new(GameInstallationState.Unknown, "尚未检查本地安装位置"),
                 LastPlayedAt = lastPlayed.TryGetValue(game.DataKey, out var playedAt) ? playedAt : null,
                 TotalMinutes = records.Where(record => record.GameName.Equals(game.DataKey, StringComparison.OrdinalIgnoreCase))
