@@ -13,11 +13,7 @@ internal static class Ds4WindowsProcess
         lock (Gate)
         {
             if (IsRunning(executable)) return;
-            using var process = Process.Start(new ProcessStartInfo(executable)
-            {
-                UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(executable)!,
-                WindowStyle = ProcessWindowStyle.Minimized
-            }) ?? throw new InvalidOperationException("未能启动 DS4Windows。");
+            using var process = Process.Start(CreateStartInfo(executable)) ?? throw new InvalidOperationException("未能启动 DS4Windows。");
             try
             {
                 var idle = process.WaitForInputIdle(5000);
@@ -31,6 +27,12 @@ internal static class Ds4WindowsProcess
             catch (InvalidOperationException) when (process.HasExited && IsRunning(executable)) { }
         }
     }
+
+    internal static ProcessStartInfo CreateStartInfo(string executable) => new(executable)
+    {
+        UseShellExecute = false, CreateNoWindow = true,
+        WorkingDirectory = Path.GetDirectoryName(executable)!, WindowStyle = ProcessWindowStyle.Hidden
+    };
 
     private static bool IsRunning(string executable)
     {

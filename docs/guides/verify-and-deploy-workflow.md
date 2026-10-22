@@ -153,3 +153,9 @@ Remove-Item Env:GAMEHELPER_TEST_PUBLISH_EXE
 ### WPF 与后台启动入口
 
 用户在 WPF 成为主界面后重新授权后台启动，替代此前正常可见 Console 策略。部署与测试共用 `scripts/start-checked-instance.ps1`，调用 WPF `--background --check`，校验 IPC 返回 PID 的映像路径后才登记为部署拥有的进程。成功后旧 Console / Launcher 桌面入口迁到游戏库，新运行时同步 Run 项。旧版本回滚使用兼容的隐藏 `monitor` 路径。
+
+E2E 监控测试的共享启动助手也必须显式传入 `monitor --background`，不能只隐藏外层 cmd（不能据此保证内部监控进程没有可见控制台）。测试助手复用正式 `BackgroundRuntime.CreateStartInfo`，直接启动后台宿主，不再包装 cmd；读取配置旁 `.runtime.log` 判断就绪；ETW 落盘回归同时通过独立控制台探针断言无可见窗口。
+
+所有自动辅助启动使用隐藏窗口或无控制台参数。CE 和 DS4Windows 请求 Hidden；真实游戏启动仍遵循用户入口。端到端游戏替身必须是 winexe 无窗口程序，不能把 cmd.exe 作为待启动游戏；其启动经过真实 ShellExecute 时仍会分配控制台。可见旧 Console 测试保持显式 opt-in。
+
+WPF `--snapshot` 在屏幕外渲染，不激活、不显示任务栏按钮；沙盒中的长驻 UI 下载验证设置 `GAMEHELPER_TEST_OFFSCREEN=1` 也使用相同位置，测试对话框同步放到屏幕外。该测试开关只在存在 `GAMEHELPER_DATA_DIR` 时生效。

@@ -91,7 +91,8 @@ public sealed class CheatEngineSpeedController : IGameSpeedController
                 FileName = cheatEnginePath,
                 Arguments = $"\"{tablePath}\"",
                 UseShellExecute = false,
-                CreateNoWindow = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
                 WorkingDirectory = Path.GetDirectoryName(cheatEnginePath) ?? string.Empty
             });
 

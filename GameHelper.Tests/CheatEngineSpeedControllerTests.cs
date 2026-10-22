@@ -224,6 +224,8 @@ public sealed class CheatEngineSpeedControllerTests : IDisposable
         Assert.True(launched);
         Assert.NotNull(launchInfo);
         Assert.Equal(cheatEnginePath, launchInfo!.FileName);
+        Assert.False(launchInfo.UseShellExecute); Assert.True(launchInfo.CreateNoWindow);
+        Assert.Equal(ProcessWindowStyle.Hidden, launchInfo.WindowStyle);
         var tablePath = launchInfo.Arguments.Trim('"');
         // CE checks the first five bytes for <?XML; a UTF-8 BOM is misread as a compressed trainer.
         Assert.Equal("<?xml", System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(tablePath), 0, 5));

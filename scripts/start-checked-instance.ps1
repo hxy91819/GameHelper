@@ -23,7 +23,7 @@ function Start-CheckedInstance([string] $Directory, [ref] $StartedProcess,
     if ($Interactive) { return Start-CheckedInteractiveInstance $Directory $StartedProcess $ConsoleProbeScript }
     if ($LegacyBackground) {
         # Rollback may restore a release predating the WPF background entry.
-        $legacy = Start-Process -FilePath (Join-Path $Directory 'GameHelper.ConsoleHost.exe') -ArgumentList 'monitor' `
+        $legacy = Start-Process -FilePath (Join-Path $Directory 'GameHelper.ConsoleHost.exe') -ArgumentList @('monitor', '--background') `
             -WorkingDirectory $Directory -WindowStyle Hidden -PassThru `
             -RedirectStandardOutput (Join-Path $Directory 'rollback-runtime.log') -RedirectStandardError (Join-Path $Directory 'rollback-runtime-error.log')
         $StartedProcess.Value = $legacy

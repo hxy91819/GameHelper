@@ -8,6 +8,14 @@ namespace GameHelper.Tests;
 public sealed class WindowsGameLauncherTests
 {
     [Fact]
+    public void Companion_AutomaticStartRequestsHiddenWindowWithoutConsole()
+    {
+        var start = Ds4WindowsProcess.CreateStartInfo(@"C:\Controller\DS4Windows.exe");
+        Assert.False(start.UseShellExecute); Assert.True(start.CreateNoWindow);
+        Assert.Equal(System.Diagnostics.ProcessWindowStyle.Hidden, start.WindowStyle);
+        Assert.Equal(@"C:\Controller", start.WorkingDirectory);
+    }
+    [Fact]
     public void DisabledCompanion_PreservesPreUpgradeRevisionTokenForSavedDrafts()
     {
         const string legacy = """{"DataKey":"a","Executable":"a.exe","DisplayName":null,"IsEnabled":true,"HdrEnabled":false,"SpeedMultiplier":null,"SpeedAttach":null,"Launch":{"Target":"steam://rungameid/620","Arguments":null,"WorkingDirectory":null}}""";
