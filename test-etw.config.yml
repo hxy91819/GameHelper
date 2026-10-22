@@ -36,6 +36,7 @@ games:
     # speedAttach: immediate
     # launch:
     #   target: C:\Windows\System32\notepad.exe
+    #   ds4WindowsPath: C:\Tools\DS4Windows\DS4Windows.exe # 可选，省略即关闭
   - dataKey: cmd
     executable: cmd.exe
     displayName: Command Prompt

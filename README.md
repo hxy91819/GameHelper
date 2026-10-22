@@ -25,6 +25,8 @@ GameHelper 是一个面向 Windows 玩家的游戏启动器与桌面助手。WPF
 
 ### WPF 游戏库
 
+每款游戏可开启“启动前运行 DS4Windows（PS 手柄）”：先启动指定的手柄兼容程序，已运行则复用，再启动游戏。默认关闭，可自选路径，支持 Steam 入口，游戏退出后保持 DS4Windows 运行。详见[游戏库说明](docs/guides/game-library.md#ps-手柄兼容启动前运行-ds4windows)。
+
 部署后打开桌面的 **GameHelper 游戏库**，或运行发布目录下的 `desktop/GameHelper.Desktop.exe`。支持网格 / 列表、搜索、历史时长、设置保存、添加程序和选择导入 Steam 游戏。启动前确认 HDR，再通过配置的程序、快捷方式或 Steam 入口启动；退出后恢复本工具修改的 HDR。启动失败、两分钟内未识别到进程都会清理，计时只从真实进程开始。未保存的界面草稿单独保留，启动时先保存；关闭游戏库继续监控。详见[游戏库使用说明](docs/guides/game-library.md)。
 
 游戏库会优先读取本地海报，缺少时按明确的 Steam App ID 自动下载官方竖版海报并缓存。Steam 启动入口、本地安装清单和 `steam_appid.txt` 可提供身份；其他游戏可通过“匹配 / 重试 Steam 海报”搜索名称并确认，也可粘贴商店链接或 App ID。关联只影响海报，不改变启动与自动化设置；离线保留已有缓存，失败回退图标。

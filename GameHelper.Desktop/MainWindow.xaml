@@ -76,7 +76,7 @@
     <Border Grid.Column="1" Background="#1A2230" CornerRadius="12" Margin="18,0,0,0">
      <Grid>
       <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-     <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="20">
+     <ScrollViewer x:Name="GameDetailsScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="20">
       <StackPanel>
        <TextBlock Text="{Binding Selected.Name, TargetNullValue=请选择游戏, FallbackValue=请选择游戏}" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" />
        <TextBlock Text="{Binding Selected.State}" Foreground="#A9C6FF" Margin="0,10,0,4" /><TextBlock Text="{Binding Selected.Playtime}" Foreground="{StaticResource Muted}" FontSize="12" />
@@ -93,6 +93,12 @@
         <TextBlock Text="启动入口" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,18,0,0" />
         <TextBox Text="{Binding Target, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" ToolTip="游戏 exe、快捷方式完整路径，或 steam://rungameid/数字" AutomationProperties.Name="启动入口" />
         <Button Content="选择程序或快捷方式…" Click="OnChooseEntry" />
+        <CheckBox Content="启动前运行 DS4Windows（PS 手柄）" IsChecked="{Binding UseDs4Windows}" ToolTip="仅在从本游戏库启动时生效；已运行则复用，退出游戏后保持运行。" />
+        <StackPanel Visibility="{Binding UseDs4Windows, Converter={StaticResource BoolVisibility}}">
+         <TextBox Text="{Binding Ds4WindowsPath, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" AutomationProperties.Name="DS4Windows 程序路径" />
+         <Button Content="选择 DS4Windows 程序…" Click="OnChooseDs4Windows" />
+         <TextBlock Text="先启动手柄兼容程序，再启动游戏。游戏退出后保持运行。" FontSize="11" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,8,0,0" />
+        </StackPanel>
         <Expander Header="启动参数与进程匹配" Foreground="#C2CEE2" Margin="0,8,0,16">
          <StackPanel Margin="0,10,0,0">
           <TextBlock Text="启动参数" FontSize="12" /><TextBox Text="{Binding Arguments, UpdateSourceTrigger=PropertyChanged}" />

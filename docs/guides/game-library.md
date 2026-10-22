@@ -30,6 +30,20 @@
 
 手动关联单独保存在配置旁 `config.yml.desktop-artwork.json`，更新或关闭后保留，不修改 `config.yml`、启动入口或 HDR / 倍速设置。后台开机模式不创建游戏库，也不下载海报。
 
+## PS 手柄兼容：启动前运行 DS4Windows
+
+在游戏详情中勾选“启动前运行 DS4Windows（PS 手柄）”，路径预填为本机的 `D:\Program Files\DS4Windows\DS4Windows\DS4Windows.exe`，也可选择其他位置。按游戏独立保存，默认关闭；仅从本游戏库启动时生效，普通 exe、快捷方式和 Steam 入口均支持，与游戏自动化开关独立。
+
+启动前先检查游戏与 DS4Windows 路径，之后依照既有 HDR 流程，先确保 DS4Windows 运行，再发起游戏启动。只复用完整路径一致的进程；新启动以最小化方式请求，最多等待 5 秒进入 GUI 空闲状态。程序不存在、启动失败或未能完成启动时会提示错误，不继续启动游戏，已开启的本工具 HDR 会按既有失败流程恢复。GUI 空闲不代表驱动、手柄连接或虚拟手柄已经就绪；这些仍由 DS4Windows 的配置决定。游戏退出或 GameHelper 重启不会关闭它。
+
+YAML 对应 `games[].launch.ds4WindowsPath`，省略或在界面取消勾选即关闭。例如：
+
+```yaml
+launch:
+  target: steam://rungameid/620
+  ds4WindowsPath: C:\Tools\DS4Windows\DS4Windows.exe
+```
+
 ## HDR 和启动失败
 
 开启监控 → 确认系统 HDR → 原入口启动 → 等待游戏进程 → 真实计时和倍速。HDR 查询失败或未能确认开启时不启动游戏。平台入口返回不等于游戏成功运行；两分钟内未识别到已登记进程会显示超时并释放 HDR。启动中的同一游戏不能重复发起。
@@ -69,7 +83,7 @@ games:
 
 只读验收支持 `GameHelper.Desktop.exe --config <沙盒配置> --snapshot <输出目录>`：不激活地显示渲染窗口，连接指定隔离实例，输出网格、列表、空搜索和最小窗口截图后退出，不保存设置或启动游戏。`--check <输出JSON>` 执行无窗口的只读连接探针。
 
-快照还输出 `installed-default.png`、`missing-games.png`、`unknown-games.png` 以核对安装分组；后续布局截图会选择全部分组，以覆盖隔离测试中已不存在的示例路径。设置 `GAMEHELPER_TEST_SCAN_DIRECTORY` 可附加只读扫描与 `directory-scan.png`，不会导入候选。
+快照还输出 `installed-default.png`、`missing-games.png`、`unknown-games.png` 以核对安装分组，`launch-options.png` 展示滚动后的启动设置；后续布局截图会选择全部分组，以覆盖隔离测试中已不存在的示例路径。设置 `GAMEHELPER_TEST_SCAN_DIRECTORY` 可附加只读扫描与 `directory-scan.png`，不会导入候选。
 
 快照模式仅用已有海报缓存，不联网。实际下载与渲染回归需显式设置 `GAMEHELPER_TEST_STEAM_POSTER=1`，测试通过隔离数据目录启动不激活的真实 WPF 窗口，再检查缓存和只读截图；默认测试用 HTTP 替身验证缓存、坏响应、限流、大小限制和取消，不依赖网络。
 

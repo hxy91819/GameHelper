@@ -197,6 +197,28 @@ public sealed class DesktopLibraryViewModelTests
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     });
 
+    [Fact]
+    public Task ControllerCompanion_DraftSurvivesRestartAndCanBeDisabledWithoutAffectingGame() => OnSta(() =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gh-controller-draft", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(root, "config.yml"); var backend = new Backend();
+        try
+        {
+            using (var model = new LibraryViewModel(backend, path))
+            {
+                model.RefreshAsync().GetAwaiter().GetResult(); Assert.False(model.Selected!.UseDs4Windows);
+                model.Selected.UseDs4Windows = true; model.Selected.Ds4WindowsPath = @"C:\Controller\DS4Windows.exe";
+            }
+            using var reopened = new LibraryViewModel(backend, path); reopened.RefreshAsync().GetAwaiter().GetResult();
+            Assert.True(reopened.Selected!.UseDs4Windows); Assert.True(reopened.Selected.IsDirty);
+            Assert.Equal(@"C:\Controller\DS4Windows.exe", reopened.Selected.ToConfig().Launch!.Ds4WindowsPath);
+            reopened.SaveCommand.Execute(null); Assert.Equal(@"C:\Controller\DS4Windows.exe", backend.Game.Launch!.Ds4WindowsPath);
+            reopened.Selected!.UseDs4Windows = false; reopened.SaveCommand.Execute(null);
+            Assert.Null(backend.Game.Launch!.Ds4WindowsPath); Assert.Equal(@"C:\a.exe", backend.Game.Launch.Target);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    });
+
     private static Task OnSta(Action action)
     {
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

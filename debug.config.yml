@@ -47,6 +47,7 @@ games:
     #   target: C:\Games\Project_Plague.exe
     #   arguments: -windowed
     #   workingDirectory: C:\Games
+    #   ds4WindowsPath: C:\Tools\DS4Windows\DS4Windows.exe # 可选，启动前运行，已运行时复用
   - dataKey: talesofarise
     executable: Tales of Arise.exe
     displayName: Tales of Arise

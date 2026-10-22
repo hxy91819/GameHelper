@@ -7,6 +7,9 @@ namespace GameHelper.Desktop;
 
 public sealed class LibraryGameItem : ObservableState
 {
+    internal const string DefaultDs4WindowsPath = @"D:\Program Files\DS4Windows\DS4Windows\DS4Windows.exe";
+    private bool _useDs4Windows;
+    private string _ds4WindowsPath;
     private string _name;
     private string _executable;
     private string _target;
@@ -36,6 +39,8 @@ public sealed class LibraryGameItem : ObservableState
         _name = row.Config.DisplayName ?? DataKey;
         _executable = row.Config.Executable ?? string.Empty;
         _target = row.Config.Launch?.Target ?? row.Config.ExecutablePath ?? string.Empty;
+        _useDs4Windows = row.Config.Launch?.Ds4WindowsPath is not null;
+        _ds4WindowsPath = row.Config.Launch?.Ds4WindowsPath ?? DefaultDs4WindowsPath;
         _arguments = row.Config.Launch?.Arguments ?? string.Empty;
         _directory = row.Config.Launch?.WorkingDirectory ?? string.Empty;
         _hdr = row.Config.HdrEnabled;
@@ -57,6 +62,8 @@ public sealed class LibraryGameItem : ObservableState
     public bool Hdr { get => _hdr; set { if (Set(ref _hdr, value)) Edited(); } }
     public bool Enabled { get => _enabled; set { if (Set(ref _enabled, value)) Edited(); } }
     public bool UseSpeed { get => _useSpeed; set { if (Set(ref _useSpeed, value)) Edited(); } }
+    public bool UseDs4Windows { get => _useDs4Windows; set { if (Set(ref _useDs4Windows, value)) Edited(); } }
+    public string Ds4WindowsPath { get => _ds4WindowsPath; set { if (Set(ref _ds4WindowsPath, value)) Edited(); } }
     public bool IsDirty { get => _dirty; private set => Set(ref _dirty, value); }
     public string State { get => _state; private set => Set(ref _state, value); }
     public ImageSource? Artwork { get => _artwork; private set => Set(ref _artwork, value); }
@@ -102,14 +109,15 @@ public sealed class LibraryGameItem : ObservableState
         { if (version == _artworkVersion) PosterStatus = "海报暂不可用，可重新匹配后重试"; }
     }
 
-    internal LibraryDraft ExportDraft() => new(_baseline, Name, Executable, Target, Arguments, Directory, Speed, Hdr, Enabled, UseSpeed);
+    internal LibraryDraft ExportDraft() => new(_baseline, Name, Executable, Target, Arguments, Directory, Speed, Hdr, Enabled, UseSpeed, UseDs4Windows, Ds4WindowsPath);
     internal static LibraryGameItem RestoreDraft(LibraryDraft draft)
     {
         return new LibraryGameItem(draft.Baseline)
         {
             _name = draft.Name, _executable = draft.Executable, _target = draft.Target,
             _arguments = draft.Arguments, _directory = draft.Directory, _speed = draft.Speed,
-            _hdr = draft.Hdr, _enabled = draft.Enabled, _useSpeed = draft.UseSpeed, _dirty = true
+            _hdr = draft.Hdr, _enabled = draft.Enabled, _useSpeed = draft.UseSpeed, _dirty = true,
+            _useDs4Windows = draft.UseDs4Windows, _ds4WindowsPath = draft.Ds4WindowsPath ?? DefaultDs4WindowsPath
         };
     }
 
@@ -123,13 +131,15 @@ public sealed class LibraryGameItem : ObservableState
             speed = parsed;
         }
         if (string.IsNullOrWhiteSpace(Name)) throw new ArgumentException("请输入游戏名称。");
+        if (UseDs4Windows && string.IsNullOrWhiteSpace(Target)) throw new ArgumentException("启用 DS4Windows 前，请先配置游戏启动入口。");
         return new GameConfig
         {
             DataKey = DataKey, DisplayName = Name.Trim(), Executable = Executable.Trim(),
             IsEnabled = Enabled, HdrEnabled = Hdr, SpeedMultiplier = speed,
             Launch = string.IsNullOrWhiteSpace(Target) ? null : new GameLaunchOptions
             {
-                Target = Target.Trim(), Arguments = NullIfEmpty(Arguments), WorkingDirectory = NullIfEmpty(Directory)
+                Target = Target.Trim(), Arguments = NullIfEmpty(Arguments), WorkingDirectory = NullIfEmpty(Directory),
+                Ds4WindowsPath = UseDs4Windows ? Ds4WindowsPath.Trim() : null
             }
         };
     }

@@ -34,6 +34,84 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
     private static readonly TimeSpan PersistTimeout = TimeSpan.FromSeconds(75);
 
     [WindowsOnlyFact]
+    public async Task ControllerCompanion_PublishedLaunchStartsHelperFirstAndReusesItAcrossGames()
+    {
+        if (!TryGuard(out var exePath)) return;
+        using var sandbox = CreateSandbox();
+        var compiler = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe");
+        Assert.True(File.Exists(compiler), "Windows .NET Framework compiler required for an isolated GUI probe.");
+        var code = Path.Combine(sandbox.RootDir, "probe.cs");
+        var companion = Path.Combine(sandbox.RootDir, "gh-controller-" + Guid.NewGuid().ToString("N") + ".exe");
+        var game = Path.Combine(sandbox.RootDir, "gh-controlled-game.exe");
+        var marker = Path.Combine(sandbox.RootDir, "markers"); Directory.CreateDirectory(marker);
+        await File.WriteAllTextAsync(code, """
+            using System;
+            using System.Diagnostics;
+            using System.IO;
+            using System.Windows.Forms;
+            class QuietForm : Form { protected override bool ShowWithoutActivation { get { return true; } } }
+            class Probe {
+              [STAThread] static void Main() {
+                var marker = Environment.GetEnvironmentVariable("GH_TEST_COMPANION_MARKER");
+                var name = Path.GetFileNameWithoutExtension(Application.ExecutablePath);
+                if (name == "gh-controlled-game" && Directory.GetFiles(marker, "gh-controller-*.txt").Length != 1) return;
+                File.WriteAllText(Path.Combine(marker, name + ".txt"), Process.GetCurrentProcess().Id.ToString());
+                Application.Run(new QuietForm { Opacity = 0, ShowInTaskbar = false, WindowState = FormWindowState.Minimized });
+              }
+            }
+            """);
+        var compile = new ProcessStartInfo(compiler) { UseShellExecute = false, CreateNoWindow = true };
+        foreach (var arg in new[] { "/nologo", "/target:winexe", "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll", "/out:" + companion, code }) compile.ArgumentList.Add(arg);
+        using (var compilerProcess = Process.Start(compile)!) { await compilerProcess.WaitForExitAsync(); Assert.Equal(0, compilerProcess.ExitCode); }
+        File.Copy(companion, game);
+        var source = new YamlConfigProvider(sandbox.ConfigPath);
+        source.Change(config => config.Games = [new() { DataKey = "controller-game", Executable = game, DisplayName = "PS Controller Game", IsEnabled = false,
+            Launch = new() { Target = game, Ds4WindowsPath = companion } }]);
+        using var app = StartApp(exePath!, sandbox, new Dictionary<string, string> { ["GH_TEST_COMPANION_MARKER"] = marker });
+        try
+        {
+            await WaitUntilOutputAsync(app, sandbox, text => text.Contains("GameAutomationService started"), ReadyTimeout, "controller runtime ready");
+            var client = new GameLibraryPipe(sandbox.ConfigPath);
+            var request = new GameLibraryRequest { Operation = GameLibraryOperation.Launch, DataKey = "controller-game" };
+            var first = await client.ExecuteAsync(request); Assert.True(first.Success, first.Error);
+            var gameMarker = Path.Combine(marker, "gh-controlled-game.txt");
+            await WaitUntilAsync(() => int.TryParse(ReadTextFile(gameMarker), out _), ReadyTimeout, "companion started before game");
+            var companionMarker = Directory.GetFiles(marker, "gh-controller-*.txt").Single();
+            var companionId = int.Parse(File.ReadAllText(companionMarker), CultureInfo.InvariantCulture);
+            using (var child = Process.GetProcessById(int.Parse(File.ReadAllText(gameMarker), CultureInfo.InvariantCulture)))
+            { child.Kill(); await child.WaitForExitAsync(); }
+            File.Delete(gameMarker);
+            var second = await client.ExecuteAsync(request); Assert.True(second.Success, second.Error);
+            await WaitUntilAsync(() => int.TryParse(ReadTextFile(gameMarker), out _), ReadyTimeout, "second game launch");
+            Assert.Equal(companionId.ToString(CultureInfo.InvariantCulture), File.ReadAllText(companionMarker));
+            using var running = Process.GetProcessById(companionId); Assert.False(running.HasExited);
+            var screenshots = Environment.GetEnvironmentVariable("GAMEHELPER_TEST_CONTROLLER_SCREENSHOTS") ?? Path.Combine(sandbox.RootDir, "controller-ui");
+            var start = new ProcessStartInfo(Path.Combine(Path.GetDirectoryName(exePath)!, "desktop", "GameHelper.Desktop.exe")) { UseShellExecute = false, CreateNoWindow = true };
+            foreach (var arg in new[] { "--config", sandbox.ConfigPath, "--snapshot", screenshots }) start.ArgumentList.Add(arg);
+            start.Environment["GAMEHELPER_DATA_DIR"] = sandbox.RootDir;
+            using var ui = Process.Start(start)!;
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(35));
+            try { await ui.WaitForExitAsync(deadline.Token); } finally { if (!ui.HasExited) ui.Kill(); }
+            Assert.Equal(0, ui.ExitCode); Assert.True(File.Exists(Path.Combine(screenshots, "launch-options.png")));
+            output.WriteLine("Isolated GUI companion started before the game, reused across launches, and remains running; native option screenshot: " + screenshots);
+        }
+        finally
+        {
+            StopAppAndSweepSessions(app);
+            foreach (var file in Directory.GetFiles(marker, "*.txt"))
+            {
+                try
+                {
+                    using var owned = Process.GetProcessById(int.Parse(File.ReadAllText(file), CultureInfo.InvariantCulture));
+                    if (owned.MainModule?.FileName is { } path && (path.Equals(game, StringComparison.OrdinalIgnoreCase) || path.Equals(companion, StringComparison.OrdinalIgnoreCase)))
+                    { owned.Kill(); await owned.WaitForExitAsync(); }
+                }
+                catch (ArgumentException) { /* Owned probe already exited. */ }
+            }
+        }
+    }
+
+    [WindowsOnlyFact]
     public async Task Statistics_PublishedRuntimeRendersDashboardAndPaginatesWithoutChangingHistory()
     {
         if (!TryGuard(out var exePath)) return;
@@ -592,7 +670,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
         return sandbox;
     }
 
-    private static AppHandle StartApp(string exePath, Sandbox sandbox)
+    private static AppHandle StartApp(string exePath, Sandbox sandbox, IReadOnlyDictionary<string, string>? environment = null)
     {
         // 经 cmd /c 文件重定向拉起，复现已验证可用的无阻塞启动环境；stdin 预置一个换行。
         var arguments = $"/d /c \"\"{exePath}\" monitor < \"{sandbox.StdInFile}\"" +
@@ -607,6 +685,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
         startInfo.EnvironmentVariables["GAMEHELPER_DATA_DIR"] = sandbox.RootDir;
         startInfo.EnvironmentVariables["GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE"] = "1";
         startInfo.EnvironmentVariables["GAMEHELPER_ALLOW_MULTIPLE_INSTANCES"] = "1";
+        if (environment is not null) foreach (var pair in environment) startInfo.EnvironmentVariables[pair.Key] = pair.Value;
 
         return new AppHandle(Process.Start(startInfo)!);
     }

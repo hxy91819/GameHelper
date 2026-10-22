@@ -97,6 +97,13 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) == true) _model.Selected.Target = dialog.FileName;
     }
 
+    private void OnChooseDs4Windows(object sender, RoutedEventArgs e)
+    {
+        if (_model.Selected is null) return;
+        var dialog = new OpenFileDialog { Title = "选择 DS4Windows 程序", Filter = "程序|*.exe", CheckFileExists = true };
+        if (dialog.ShowDialog(this) == true) _model.Selected.Ds4WindowsPath = dialog.FileName;
+    }
+
     private async void OnRemove(object sender, RoutedEventArgs e)
     {
         if (_model.Selected is not { } game) return;
@@ -139,6 +146,9 @@ public partial class MainWindow : Window
         await _model.WaitForArtworkAsync().WaitAsync(TimeSpan.FromSeconds(25));
         Directory.CreateDirectory(directory);
         Capture(Path.Combine(directory, "installed-default.png"));
+        GameDetailsScroll.ScrollToVerticalOffset(350); await Task.Delay(100);
+        Capture(Path.Combine(directory, "launch-options.png"));
+        GameDetailsScroll.ScrollToHome();
         SetInstallationGroup("all");
         foreach (var layout in new[] { "grid", "list" })
         {

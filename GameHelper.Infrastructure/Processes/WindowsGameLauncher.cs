@@ -7,9 +7,21 @@ namespace GameHelper.Infrastructure.Processes;
 /// <summary>Uses the original executable, shortcut or Steam entry without wrapping it in a shell command.</summary>
 public sealed class WindowsGameLauncher : IGameLauncher
 {
+    private readonly Action<string> _ensureCompanion;
+    private readonly Action<GameLaunchOptions> _startEntry;
+    public WindowsGameLauncher() : this(Ds4WindowsProcess.EnsureRunning, StartEntry) { }
+    internal WindowsGameLauncher(Action<string> ensureCompanion, Action<GameLaunchOptions> startEntry)
+    { _ensureCompanion = ensureCompanion; _startEntry = startEntry; }
+
     public void Start(GameLaunchOptions options)
     {
         Validate(options);
+        if (options.Ds4WindowsPath is { } companion) _ensureCompanion(companion);
+        _startEntry(options);
+    }
+
+    private static void StartEntry(GameLaunchOptions options)
+    {
         using var process = Process.Start(new ProcessStartInfo(options.Target)
         {
             Arguments = options.Arguments ?? string.Empty,
@@ -23,6 +35,8 @@ public sealed class WindowsGameLauncher : IGameLauncher
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
+        if (options.Ds4WindowsPath is { } companion && !File.Exists(companion))
+            throw new ArgumentException("DS4Windows 程序不存在，请重新选择路径，或关闭启动前运行选项。");
         if (options.Target.StartsWith("steam:", StringComparison.OrdinalIgnoreCase)) return;
         if (!File.Exists(options.Target)) throw new ArgumentException("游戏启动入口不存在，请重新选择程序或快捷方式。");
         if (!string.IsNullOrWhiteSpace(options.WorkingDirectory) && !Directory.Exists(options.WorkingDirectory))

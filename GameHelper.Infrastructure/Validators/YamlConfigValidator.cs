@@ -263,7 +263,7 @@ namespace GameHelper.Infrastructure.Validators
             foreach (var entry in mapping.Children)
             {
                 var key = (entry.Key as YamlScalarNode)?.Value;
-                if (key is not ("target" or "arguments" or "workingDirectory"))
+                if (key is not ("target" or "arguments" or "workingDirectory" or "ds4WindowsPath"))
                     result.Warnings.Add($"games[{index}].launch unknown field: '{key}'");
                 if (entry.Value is not YamlScalarNode) result.Errors.Add($"games[{index}].launch.{key} must be a scalar.");
             }

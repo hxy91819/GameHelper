@@ -17,6 +17,7 @@ GameHelper is a Windows-focused .NET 8 application for game launching, process m
 - The read-only playtime dashboard aggregates one history snapshot in Core, using an injected clock and the existing local end-date convention. IPC returns bounded daily/monthly/calendar aggregates, up to 1000 ranked games and one 30-row session page. Desktop owns native charts, sorting/search and latest-request-wins cancellation; it never reads or mutates the CSV directly. See [dashboard semantics](../guides/playtime-dashboard.md).
 - `GameHelper.Core` owns models, contracts, orchestration, catalog matching policy, settings, statistics, and monitor lifecycle coordination.
 - `GameHelper.Infrastructure` owns concrete adapters for process monitors, YAML/CSV persistence, HDR control, DDC/CI monitor preset control, Steam resolution, and Windows startup integration.
+- Optional controller-companion startup stays inside `WindowsGameLauncher`: validate before HDR changes, ensure the configured DS4Windows executable is running before launching the game, and reuse only an exact executable-path match. Desktop stores the per-game path inside launch options and preserves it in drafts; automation/session services never own or stop the companion process.
 - Dependency direction is enforced by tests and documented in [Dependency Direction Rules](./dependency-direction.md).
 
 ## Primary Runtime Flows

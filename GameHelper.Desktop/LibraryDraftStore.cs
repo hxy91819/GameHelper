@@ -5,7 +5,8 @@ using GameHelper.Core.Models;
 namespace GameHelper.Desktop;
 
 internal sealed record LibraryDraft(LibraryGame Baseline, string Name, string Executable, string Target,
-    string Arguments, string Directory, string Speed, bool Hdr, bool Enabled, bool UseSpeed);
+    string Arguments, string Directory, string Speed, bool Hdr, bool Enabled, bool UseSpeed,
+    bool UseDs4Windows = false, string? Ds4WindowsPath = null);
 
 /// <summary>Unsaved UI drafts survive a forced update without becoming game configuration.</summary>
 internal sealed class LibraryDraftStore(string configPath)
