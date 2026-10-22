@@ -29,6 +29,7 @@ public sealed record StatisticsSessionRow(string Name, DateTime Start, DateTime 
 /// <summary>Independent read-only dashboard state; changing pages never touches game drafts or monitoring.</summary>
 public sealed class StatisticsViewModel : ObservableState, IDisposable
 {
+    private const string PolicyNote = "仅统计已结束的会话 · 含已移出游戏库的历史";
     private readonly IGameLibrary _library;
     private readonly CancellationTokenSource _lifetime = new();
     private CancellationTokenSource? _pending;
@@ -40,7 +41,7 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
     private string? _sessionName;
     private int _offset;
     private string _search = string.Empty;
-    private string _status = "仅统计已结束的游玩记录";
+    private string _status = PolicyNote;
     private bool _busy;
     private bool _loaded;
     private bool _disposed;
@@ -82,22 +83,28 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
     public string ActiveDays => _data.ActiveDays.ToString("N0", CultureInfo.CurrentCulture);
     public string GamesPlayed => _data.GamesPlayed.ToString("N0", CultureInfo.CurrentCulture);
     public string Average => _data.Sessions == 0 ? "暂无单次记录" : $"平均单次 {Duration(_data.Minutes / _data.Sessions)}";
-    public string DateRange => _loaded ? $"{_data.Start:yyyy.MM.dd} — {_data.Today:yyyy.MM.dd} · 已结束的会话" : "正在读取历史记录…";
-    public string Change => _days == 0 ? "全部已归档历史" : _data.PreviousMinutes == 0
+    public string DateRange => _loaded ? $"{_data.Start:yyyy.MM.dd} — {_data.Today:yyyy.MM.dd}" : "正在读取历史记录…";
+    public string Change => _days == 0 ? string.Empty : _data.PreviousMinutes == 0
         ? (_data.Minutes > 0 ? "前一周期没有记录" : "本期暂无游玩记录")
         : $"较前 {_days} 天 {(_data.Minutes >= _data.PreviousMinutes ? "↑" : "↓")} {Math.Abs(_data.Minutes / (double)_data.PreviousMinutes - 1):P0}";
-    public string TrendCaption => _days == 0 ? "最近 12 个月 · 按月" : $"近 {_days} 天 · 按日";
+    public string TrendCaption => _days == 0 ? "最近 12 个月" : string.Empty;
     public IReadOnlyList<DashboardBucket> Trend => _data.Trend;
     public IReadOnlyList<DashboardDay> Calendar => _data.Calendar;
-    public string CalendarCaption => $"日历范围内有 {_data.Calendar.Count(day => day.Sessions > 0)} 天留下游玩记录";
-    public string FavouriteName => _data.Games.FirstOrDefault()?.Name ?? "等待下一场冒险";
-    public string FavouriteTime => _data.Games.FirstOrDefault() is { } game ? Duration(game.Minutes) : "有记录后会显示最常玩的游戏";
+    public string FavouriteName => _data.Games.FirstOrDefault()?.Name ?? "暂无记录";
+    public string FavouriteTime => _data.Games.FirstOrDefault() is { } game ? Duration(game.Minutes) : string.Empty;
     public double FavouriteShare => _data.Minutes == 0 ? 0 : (_data.Games.FirstOrDefault()?.Minutes ?? 0) / (double)_data.Minutes;
     public string Longest => _data.Sessions == 0 ? "暂无记录" : Duration(_data.LongestSessionMinutes);
     public IReadOnlyList<StatisticsSessionRow> Recent => _data.Recent.Select(row => new StatisticsSessionRow(row.Name, row.Start, row.End, row.Minutes)).ToList();
     public string RecentTitle => _sessionName is null ? "逐次游玩记录" : $"记录 · {_sessionName}";
     public string PageLabel => _data.RecentTotal == 0 ? "暂无记录" : $"{_data.Offset + 1}–{_data.Offset + _data.Recent.Count} / {_data.RecentTotal}";
-    public string RankingCaption => _data.GamesPlayed > _data.Games.Count ? $"显示前 {_data.Games.Count} 款 · 点击游戏查看记录" : "按时长排行 · 点击游戏查看记录";
+    public string RankingCaption
+    {
+        get
+        {
+            if (_data.Games.Count == 0) return string.Empty;
+            return _data.GamesPlayed > _data.Games.Count ? $"显示前 {_data.Games.Count} 款 · 点击游戏查看记录" : "点击游戏查看记录";
+        }
+    }
 
     public Task EnsureLoadedAsync() => _loaded ? Task.CompletedTask : RefreshAsync();
     public Task SetRangeAsync(int days) { _days = days; _offset = 0; Changed(nameof(Days)); return RefreshAsync(); }
@@ -129,9 +136,9 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
             foreach (var (game, index) in _data.Games.Select((game, index) => (game, index)))
                 _games.Add(new StatisticsGameRow(index + 1, game.DataKey, game.Name, game.Minutes, game.Sessions, game.LastPlayed,
                     _data.Minutes == 0 ? 0 : game.Minutes / (double)_data.Minutes));
-            Status = "按会话结束日归档 · 使用历史记录中的分钟数 · 未计入正在游玩的时间";
+            Status = PolicyNote;
             foreach (var property in new[] { nameof(HasHistory), nameof(TotalHours), nameof(SessionCount), nameof(ActiveDays), nameof(GamesPlayed), nameof(Average),
-                nameof(DateRange), nameof(Change), nameof(TrendCaption), nameof(Trend), nameof(Calendar), nameof(CalendarCaption), nameof(FavouriteName),
+                nameof(DateRange), nameof(Change), nameof(TrendCaption), nameof(Trend), nameof(Calendar), nameof(FavouriteName),
                 nameof(FavouriteTime), nameof(FavouriteShare), nameof(Longest), nameof(Recent), nameof(RecentTitle), nameof(PageLabel), nameof(RankingCaption) }) Changed(property);
         }
         catch (OperationCanceledException) when (pending.IsCancellationRequested || _disposed) { }
