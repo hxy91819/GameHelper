@@ -156,6 +156,28 @@ public sealed class SpeedAttachSchedulerTests : IDisposable
         Assert.Empty(applied);
     }
 
+    [Fact]
+    public void ChainloaderMarker_IsVisibleWhileTheGameHoldsTheLogOpen()
+    {
+        var logPath = Path.Combine(_tempDirectory, "BepInEx", "LogOutput.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+        File.WriteAllText(logPath, "booting\n[Message:   BepInEx] Chainloader startup complete\n");
+
+        // Reproduce the game: BepInEx keeps a write handle open on the log for the whole session.
+        // A File.ReadAllText(FileShare.Read) request conflicts with this live writer, which is how
+        // the gate silently degraded to the full timeout on every attach.
+        using var gameWriter = new FileStream(logPath, FileMode.Open, FileAccess.Write, FileShare.Read);
+        Assert.Throws<IOException>(() => File.ReadAllText(logPath));
+
+        var gateStartedBeforeWrite = DateTime.UtcNow.AddMinutes(-5);
+        Assert.True(GameHelper.Core.Services.SpeedAttachScheduler.TryChainloaderComplete(
+            logPath, gateStartedBeforeWrite));
+
+        // Freshness stays enforced: a floor after the last write must not satisfy the gate.
+        Assert.False(GameHelper.Core.Services.SpeedAttachScheduler.TryChainloaderComplete(
+            logPath, DateTime.UtcNow.AddMinutes(1)));
+    }
+
     public void Dispose()
     {
         try

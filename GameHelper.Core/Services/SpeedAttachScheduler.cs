@@ -247,7 +247,15 @@ public sealed class SpeedAttachScheduler
                 return false;
             }
 
-            return File.ReadAllText(logPath).Contains(ChainloaderCompleteMarker, StringComparison.Ordinal);
+            // The game keeps its loader log open with a write handle for the whole session. A
+            // default File.ReadAllText(FileShare.Read) request conflicts with that live writer and
+            // throws on every poll, so the marker would never be seen and every attach would fall
+            // back to the full timeout (observed: CE attach always ~90 s late). Share with the
+            // writer explicitly instead.
+            using var log = new FileStream(
+                logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(log);
+            return reader.ReadToEnd().Contains(ChainloaderCompleteMarker, StringComparison.Ordinal);
         }
         catch (Exception)
         {
