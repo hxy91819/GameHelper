@@ -239,6 +239,7 @@ namespace GameHelper.Infrastructure.Providers
 
             public string? SpeedAttach { get; set; }
             public GameLaunchOptions? Launch { get; set; }
+            public DateTimeOffset? AddedAt { get; set; }
 
             public GameConfig ToGameConfig() => new()
             {
@@ -249,7 +250,8 @@ namespace GameHelper.Infrastructure.Providers
                 HdrEnabled = HdrEnabled,
                 SpeedMultiplier = SpeedMultiplier,
                 SpeedAttach = SpeedAttach,
-                Launch = Launch
+                Launch = Launch,
+                AddedAt = AddedAt
             };
 
             private static string? FirstNonEmpty(params string?[] values) =>

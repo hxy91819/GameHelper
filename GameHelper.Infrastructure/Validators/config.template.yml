@@ -17,3 +17,4 @@ games:
     speed: number
     speedAttach: string
     launch: object
+    addedAt: string

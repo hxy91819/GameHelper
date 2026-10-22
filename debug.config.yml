@@ -1,3 +1,4 @@
+# addedAt 为工具新增游戏时记录的可选 ISO 8601 时间；旧条目无需补填，编辑或重复导入不会重置。
 # GameHelper debug configuration
 monitor: ETW
 startup:

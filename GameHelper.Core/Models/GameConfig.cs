@@ -58,6 +58,10 @@ namespace GameHelper.Core.Models
         /// <summary>Optional launch entry; legacy absolute executable paths remain launchable.</summary>
         public GameLaunchOptions? Launch { get; set; }
 
+        /// <summary>Catalog intake time; legacy entries remain unknown instead of inventing a date.</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public DateTimeOffset? AddedAt { get; set; }
+
         /// <summary>
         /// Immutable identity view derived from <see cref="Executable"/>.
         /// </summary>

@@ -97,6 +97,7 @@ public sealed class GameLibrary(
         }
         var states = launch.GetGameStates();
         var records = history.GetPlaytimeRecords();
+        var lastPlayed = LibraryRecency.LastPlayed(records, timeProvider ?? TimeProvider.System);
         var configs = configuration.Read().Games;
         var installations = localGames?.Assess(configs);
         return Task.FromResult(new GameLibraryResponse
@@ -107,6 +108,7 @@ public sealed class GameLibrary(
             {
                 Config = game, Revision = GameConfigRevision.For(game), State = states.GetValueOrDefault(game.DataKey, game.IsEnabled ? "未运行" : "自动化已暂停"),
                 Installation = installations?.GetValueOrDefault(game.DataKey) ?? new(GameInstallationState.Unknown, "尚未检查本地安装位置"),
+                LastPlayedAt = lastPlayed.TryGetValue(game.DataKey, out var playedAt) ? playedAt : null,
                 TotalMinutes = records.Where(record => record.GameName.Equals(game.DataKey, StringComparison.OrdinalIgnoreCase))
                     .SelectMany(record => record.Sessions).Sum(session => session.DurationMinutes)
             }).ToList()

@@ -80,3 +80,5 @@ dotnet test GameHelper.sln
 - [Dependency Direction Rules](./dependency-direction.md)
 
 Historical brownfield architecture chapters are archived under `docs/archives/architecture/brownfield/`; the retired WinUI shell design lives at `docs/archives/architecture/ui-shell-design.md`.
+
+- 游戏库保留 `GameConfig.AddedAt` 作为首次登记元数据，配置 provider 和 catalog 的所有复制路径必须保留它；YAML 存储使用 ISO 8601 标量以避免结构化 DateTimeOffset 序列化。历史派生的 `LibraryGame.LastPlayedAt` 不写回配置。桌面按活动时间排序，用增量集合更新稳定视图，主动操作通过 generation 淘汰此前的轮询响应。

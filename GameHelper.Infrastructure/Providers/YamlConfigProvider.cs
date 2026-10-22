@@ -247,7 +247,9 @@ namespace GameHelper.Infrastructure.Providers
             HdrEnabled = storedGameConfig.Hdr ?? false,
             SpeedMultiplier = storedGameConfig.Speed,
             SpeedAttach = storedGameConfig.SpeedAttach,
-            Launch = storedGameConfig.Launch
+            Launch = storedGameConfig.Launch,
+            AddedAt = storedGameConfig.AddedAt is { } addedAt
+                ? DateTimeOffset.Parse(addedAt, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind) : null
         };
 
         private static StoredAppConfig ToStoredAppConfig(AppConfig appConfig) => new()
@@ -306,7 +308,8 @@ namespace GameHelper.Infrastructure.Providers
             Hdr = gameConfig.HdrEnabled,
             Speed = gameConfig.SpeedMultiplier,
             SpeedAttach = gameConfig.SpeedAttach,
-            Launch = gameConfig.Launch
+            Launch = gameConfig.Launch,
+            AddedAt = gameConfig.AddedAt?.ToString("O", System.Globalization.CultureInfo.InvariantCulture)
         };
 
         private sealed class StoredAppConfig
@@ -376,6 +379,7 @@ namespace GameHelper.Infrastructure.Providers
             public string? SpeedAttach { get; set; }
 
             public GameLaunchOptions? Launch { get; set; }
+            public string? AddedAt { get; set; }
         }
     }
 }

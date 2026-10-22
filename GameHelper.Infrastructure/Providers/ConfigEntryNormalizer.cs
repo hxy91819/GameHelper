@@ -129,7 +129,8 @@ internal static class ConfigEntryNormalizer
             HdrEnabled = source.HdrEnabled,
             SpeedMultiplier = speedMultiplier,
             SpeedAttach = NormalizeSpeedAttach(source.SpeedAttach, dataKey, logger, rejectInvalidSpeed),
-            Launch = source.Launch
+            Launch = source.Launch,
+            AddedAt = source.AddedAt
         };
     }
 

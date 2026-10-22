@@ -10,10 +10,12 @@ namespace GameHelper.Core.Services;
 public sealed class GameCatalogService : IGameCatalogService
 {
     private readonly IGameConfiguration _configuration;
+    private readonly TimeProvider _clock;
 
-    public GameCatalogService(IGameConfiguration configuration)
+    public GameCatalogService(IGameConfiguration configuration, TimeProvider? timeProvider = null)
     {
         _configuration = configuration;
+        _clock = timeProvider ?? TimeProvider.System;
     }
 
     public IReadOnlyList<GameEntry> List() => _configuration.Read().Games
@@ -57,7 +59,7 @@ public sealed class GameCatalogService : IGameCatalogService
         _configuration.Change(config =>
         {
             var configs = CreateWorkingMapByDataKey(config.Games.OrEmpty());
-            result = Intake(configs, request);
+            result = Intake(configs, request, _clock.GetUtcNow());
             config.Games = configs.Values.ToList();
         });
 
@@ -86,7 +88,7 @@ public sealed class GameCatalogService : IGameCatalogService
             var configs = CreateWorkingMapByDataKey(config.Games.OrEmpty());
             foreach (var request in batch)
             {
-                results.Add(Intake(configs, request));
+                results.Add(Intake(configs, request, _clock.GetUtcNow()));
             }
 
             config.Games = configs.Values.ToList();
@@ -131,7 +133,8 @@ public sealed class GameCatalogService : IGameCatalogService
                     ? null
                     : request.SpeedMultiplier ?? existing.SpeedMultiplier,
                 SpeedAttach = existing.SpeedAttach,
-                Launch = request.ClearLaunch ? null : request.Launch ?? existing.Launch
+                Launch = request.ClearLaunch ? null : request.Launch ?? existing.Launch,
+                AddedAt = existing.AddedAt
             };
 
             configs[updated.DataKey] = updated;
@@ -167,7 +170,7 @@ public sealed class GameCatalogService : IGameCatalogService
 
     private static GameCatalogIntakeResult Intake(
         IDictionary<string, GameConfig> configs,
-        GameCatalogIntakeRequest request)
+        GameCatalogIntakeRequest request, DateTimeOffset now)
     {
         var existing = FindExisting(configs.Values, request.Executable);
         if (existing is not null && request.SkipExisting)
@@ -183,7 +186,8 @@ public sealed class GameCatalogService : IGameCatalogService
             HdrEnabled = request.HdrEnabled ?? existing?.HdrEnabled ?? false,
             SpeedMultiplier = request.SpeedMultiplier ?? existing?.SpeedMultiplier,
             SpeedAttach = existing?.SpeedAttach,
-            Launch = request.Launch ?? existing?.Launch
+            Launch = request.Launch ?? existing?.Launch,
+            AddedAt = existing is null ? now : existing.AddedAt
         };
 
         if (existing is not null &&
@@ -271,7 +275,8 @@ public sealed class GameCatalogService : IGameCatalogService
                 HdrEnabled = config.HdrEnabled,
                 SpeedMultiplier = config.SpeedMultiplier,
                 SpeedAttach = config.SpeedAttach,
-                Launch = config.Launch
+                Launch = config.Launch,
+                AddedAt = config.AddedAt
             };
         }
 
