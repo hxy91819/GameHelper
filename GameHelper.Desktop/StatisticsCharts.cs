@@ -1,7 +1,10 @@
 using System.Globalization;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using GameHelper.Core.Models;
 
 namespace GameHelper.Desktop;
@@ -15,15 +18,93 @@ internal static class StatisticsDrawing
             new Typeface("Segoe UI"), size, brush, VisualTreeHelper.GetDpi(owner).PixelsPerDip), new Point(x, y));
 }
 
+/// <summary>Hover popup for custom-drawn charts. FrameworkElement.ToolTip only opens on mouse enter, so the charts drive this popup themselves.</summary>
+internal sealed class ChartTooltip
+{
+    private readonly Popup _popup = new() { AllowsTransparency = true, StaysOpen = true, Placement = PlacementMode.Relative, IsHitTestVisible = false };
+    private readonly Border _bubble;
+    private readonly TextBlock _text;
+    private bool _open;
+    private Window? _window;
+
+    public ChartTooltip()
+    {
+        _text = new TextBlock { Foreground = Brushes.White, FontSize = 12 };
+        _bubble = new Border
+        {
+            Background = StatisticsDrawing.Brush("#29364C"),
+            BorderBrush = StatisticsDrawing.Brush("#526783"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(12, 8, 12, 8),
+            Effect = new DropShadowEffect { BlurRadius = 12, ShadowDepth = 1, Opacity = .35, Color = Colors.Black },
+            Child = _text,
+            IsHitTestVisible = false
+        };
+        _popup.Child = _bubble;
+    }
+
+    public void Show(FrameworkElement owner, string text, Point position)
+    {
+        _text.Text = text;
+        _popup.PlacementTarget = owner;
+        _bubble.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var size = _bubble.DesiredSize;
+        var limitWidth = owner.ActualWidth;
+        var limitHeight = owner.ActualHeight;
+        if (Window.GetWindow(owner) is { } window)
+        {
+            if (!ReferenceEquals(_window, window))
+            {
+                if (_window is not null) _window.Deactivated -= OnOwnerDeactivated;
+                _window = window;
+                window.Deactivated += OnOwnerDeactivated;
+            }
+            var origin = owner.TranslatePoint(new Point(0, 0), window);
+            limitWidth = window.ActualWidth - origin.X;
+            limitHeight = window.ActualHeight - origin.Y;
+        }
+        var x = position.X + 14;
+        if (x + size.Width > limitWidth - 4) x = position.X - size.Width - 14;
+        var y = position.Y + 18;
+        if (y + size.Height > limitHeight - 4) y = position.Y - size.Height - 12;
+        _popup.HorizontalOffset = Math.Max(0, x);
+        _popup.VerticalOffset = Math.Max(0, y);
+        if (_open) return;
+        _popup.IsOpen = true;
+        _open = true;
+    }
+
+    public void Hide()
+    {
+        if (!_open) return;
+        _popup.IsOpen = false;
+        _open = false;
+    }
+
+    private void OnOwnerDeactivated(object? sender, EventArgs e) => Hide();
+}
+
 public sealed class PlaytimeTrendChart : FrameworkElement
 {
     public static readonly DependencyProperty PointsProperty = DependencyProperty.Register(nameof(Points), typeof(IReadOnlyList<DashboardBucket>),
-        typeof(PlaytimeTrendChart), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+        typeof(PlaytimeTrendChart), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnPointsChanged));
     public IReadOnlyList<DashboardBucket>? Points { get => (IReadOnlyList<DashboardBucket>?)GetValue(PointsProperty); set => SetValue(PointsProperty, value); }
     private const double Left = 44;
+    private readonly ChartTooltip _tooltip = new();
+
+    public PlaytimeTrendChart()
+    {
+        Unloaded += (_, _) => _tooltip.Hide();
+        IsVisibleChanged += (_, _) => { if (!IsVisible) _tooltip.Hide(); };
+    }
+
+    private static void OnPointsChanged(DependencyObject target, DependencyPropertyChangedEventArgs args) => ((PlaytimeTrendChart)target)._tooltip.Hide();
+
     protected override void OnRender(DrawingContext dc)
     {
         base.OnRender(dc);
+        dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, ActualWidth, ActualHeight));
         var points = Points;
         if (points is null || points.Count == 0 || ActualWidth < 80 || ActualHeight < 60) return;
         var plotHeight = ActualHeight - 27;
@@ -48,26 +129,64 @@ public sealed class PlaytimeTrendChart : FrameworkElement
                 StatisticsDrawing.Text(this, dc, points[index].Label, Math.Min(ActualWidth - 32, Left + index * pitch), plotHeight + 9, 10, StatisticsDrawing.Muted);
         }
     }
+
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (Points is not { Count: > 0 } points || ActualWidth <= Left) return;
-        var x = e.GetPosition(this).X;
-        var index = (int)((x - Left) / ((ActualWidth - Left) / points.Count));
-        ToolTip = x >= Left && index >= 0 && index < points.Count
-            ? $"{points[index].Start:yyyy/MM/dd} — {points[index].End:yyyy/MM/dd}\n{(points[index].Minutes == 0 ? "0 分钟" : StatisticsViewModel.Duration(points[index].Minutes))}" : null;
+        var position = e.GetPosition(this);
+        if (Points is not { Count: > 0 } points || ActualWidth < 80 || ActualHeight < 60
+            || position.X < Left || position.Y > ActualHeight - 27)
+        {
+            _tooltip.Hide();
+            return;
+        }
+        var index = (int)((position.X - Left) / ((ActualWidth - Left) / points.Count));
+        if (index < 0 || index >= points.Count) { _tooltip.Hide(); return; }
+        var point = points[index];
+        var label = point.Start == point.End ? $"{point.Start:yyyy/MM/dd}" : $"{point.Start:yyyy年M月}";
+        _tooltip.Show(this, $"{label}\n{(point.Minutes == 0 ? "无游玩记录" : StatisticsViewModel.Duration(point.Minutes))}", position);
+    }
+
+    protected override void OnMouseLeave(MouseEventArgs e)
+    {
+        base.OnMouseLeave(e);
+        _tooltip.Hide();
+    }
+
+    protected override void OnPreviewMouseWheel(MouseWheelEventArgs e)
+    {
+        base.OnPreviewMouseWheel(e);
+        _tooltip.Hide();
     }
 }
 
 public sealed class PlaytimeCalendar : FrameworkElement
 {
     public static readonly DependencyProperty DaysProperty = DependencyProperty.Register(nameof(Days), typeof(IReadOnlyList<DashboardDay>),
-        typeof(PlaytimeCalendar), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+        typeof(PlaytimeCalendar), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnDaysChanged));
     public IReadOnlyList<DashboardDay>? Days { get => (IReadOnlyList<DashboardDay>?)GetValue(DaysProperty); set => SetValue(DaysProperty, value); }
+    private readonly ChartTooltip _tooltip = new();
+    private int _hovered = -1;
+
+    public PlaytimeCalendar()
+    {
+        Unloaded += (_, _) => _tooltip.Hide();
+        IsVisibleChanged += (_, _) => { if (!IsVisible) _tooltip.Hide(); };
+    }
+
+    private static void OnDaysChanged(DependencyObject target, DependencyPropertyChangedEventArgs args)
+    {
+        var calendar = (PlaytimeCalendar)target;
+        calendar.SetHovered(-1);
+        calendar._tooltip.Hide();
+    }
+
     private double Pitch => Math.Min(19, (ActualWidth - 34) / 53);
+
     protected override void OnRender(DrawingContext dc)
     {
         base.OnRender(dc);
+        dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, ActualWidth, ActualHeight));
         if (Days is not { Count: > 0 } days || Pitch < 3) return;
         for (var weekday = 0; weekday < 7; weekday += 2)
             StatisticsDrawing.Text(this, dc, new[] { "一", "二", "三", "四", "五", "六", "日" }[weekday], 0, 23 + weekday * Pitch, 9, StatisticsDrawing.Muted);
@@ -83,17 +202,49 @@ public sealed class PlaytimeCalendar : FrameworkElement
             dc.DrawRoundedRectangle(StatisticsDrawing.Brush(color), null,
                 new Rect(30 + column * Pitch, 23 + row * Pitch, Pitch - 3, Pitch - 3), 2, 2);
         }
+        if (_hovered >= 0 && _hovered < days.Count)
+            dc.DrawRoundedRectangle(null, new Pen(StatisticsDrawing.Brush("#D9FFF1"), 1.5),
+                new Rect(30 + _hovered / 7 * Pitch - 1, 23 + _hovered % 7 * Pitch - 1, Pitch - 1, Pitch - 1), 3, 3);
     }
+
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        var point = e.GetPosition(this);
-        if (Days is not { Count: > 0 } days || Pitch <= 0) return;
-        var column = (int)Math.Floor((point.X - 30) / Pitch);
-        var row = (int)Math.Floor((point.Y - 23) / Pitch);
+        var pitch = Pitch;
+        var position = e.GetPosition(this);
+        var column = (int)Math.Floor((position.X - 30) / pitch);
+        var row = (int)Math.Floor((position.Y - 23) / pitch);
         var index = column * 7 + row;
-        ToolTip = column >= 0 && row is >= 0 and < 7 && index >= 0 && index < days.Count
-            ? $"{days[index].Date:yyyy/MM/dd dddd}\n{days[index].Sessions} 次游玩 · {(days[index].Sessions == 0 ? "0 分钟" : StatisticsViewModel.Duration(days[index].Minutes))}" : null;
+        if (Days is not { Count: > 0 } days || pitch < 3 || column < 0 || row is < 0 or > 6 || index < 0 || index >= days.Count)
+        {
+            SetHovered(-1);
+            _tooltip.Hide();
+            return;
+        }
+        SetHovered(index);
+        var day = days[index];
+        _tooltip.Show(this, $"{day.Date:yyyy/MM/dd ddd}\n{(day.Sessions == 0 ? "无游玩记录" : $"{day.Sessions} 次 · {StatisticsViewModel.Duration(day.Minutes)}")}", position);
+    }
+
+    protected override void OnMouseLeave(MouseEventArgs e)
+    {
+        base.OnMouseLeave(e);
+        SetHovered(-1);
+        _tooltip.Hide();
+    }
+
+    protected override void OnPreviewMouseWheel(MouseWheelEventArgs e)
+    {
+        base.OnPreviewMouseWheel(e);
+        SetHovered(-1);
+        _tooltip.Hide();
+    }
+
+    private void SetHovered(int index)
+    {
+        if (_hovered == index) return;
+        _hovered = index;
+        InvalidateVisual();
     }
 }
 
