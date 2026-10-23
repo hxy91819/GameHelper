@@ -56,6 +56,7 @@ namespace GameHelper.Tests
                 StopCalls++;
                 Stopped.Add(gameName);
             }
+            public void ShiftActiveStarts(TimeSpan offset) { }
             public PlaySession? StopTracking(string gameName)
             {
                 StopCalls++;

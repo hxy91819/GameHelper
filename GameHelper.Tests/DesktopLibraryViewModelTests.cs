@@ -259,6 +259,33 @@ public sealed class DesktopLibraryViewModelTests
         Assert.Same(selected, model.Selected); Assert.Equal("Draft", selected.Name); Assert.True(selected.IsDirty);
     });
 
+    [Fact]
+    public Task RunningGameState_ShowsLiveSessionTimerAndClearsAfterStop() => OnSta(() =>
+    {
+        var clock = new FixedClock(new DateTimeOffset(2026, 10, 22, 20, 0, 0, TimeSpan.Zero));
+        var backend = new Backend { State = "运行中", StartedAt = clock.LocalStamp };
+        using var model = new LibraryViewModel(backend, null, null, clock);
+        model.RefreshAsync().GetAwaiter().GetResult();
+        var item = model.Selected!;
+        Assert.Equal("运行中", item.StateDisplay);
+        Assert.Null(item.RunningSessionLine);
+
+        clock.Advance(TimeSpan.FromSeconds(12));
+        model.OnClockTick();
+        Assert.Equal("运行中 · 00:00:12", item.StateDisplay);
+        Assert.Equal("本次已玩 00:00:12", item.RunningSessionLine);
+
+        clock.Advance(TimeSpan.FromSeconds(48));
+        model.OnClockTick();
+        Assert.Equal("运行中 · 00:01:00", item.StateDisplay);
+
+        // 停止后清空计时，徽章和详情回到普通状态文本。
+        backend.State = "未运行";
+        model.RefreshAsync().GetAwaiter().GetResult();
+        Assert.Equal("未运行", item.StateDisplay);
+        Assert.Null(item.RunningSessionLine);
+    });
+
     private static Task OnSta(Action action)
     {
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -276,6 +303,7 @@ public sealed class DesktopLibraryViewModelTests
     {
         public GameConfig Game { get; private set; } = new() { DataKey = "a", DisplayName = "A", Executable = @"C:\a.exe" };
         public string State { get; set; } = "未运行";
+        public DateTime? StartedAt { get; set; }
         public GameInstallationState Installation { get; set; } = GameInstallationState.Installed;
         public bool RejectSave { get; init; }
         public int Saves { get; private set; }
@@ -293,8 +321,19 @@ public sealed class DesktopLibraryViewModelTests
             return Task.FromResult(new GameLibraryResponse
             {
                 Success = true, MonitorRunning = true,
-                Games = [new() { Config = Game, Revision = GameConfigRevision.For(Game), State = State, Installation = new(Installation, "test") }]
+                Games = [new() { Config = Game, Revision = GameConfigRevision.For(Game), State = State, RunningStartedAt = StartedAt, Installation = new(Installation, "test") }]
             });
         }
+    }
+
+    private sealed class FixedClock : TimeProvider
+    {
+        private DateTimeOffset _now;
+        public FixedClock(DateTimeOffset now) => _now = now;
+        public DateTimeOffset LocalDateTime => _now.DateTime;
+        public DateTime LocalStamp => _now.DateTime;
+        public void Advance(TimeSpan duration) => _now += duration;
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+        public override DateTimeOffset GetUtcNow() => _now;
     }
 }

@@ -23,6 +23,7 @@ namespace GameHelper.Infrastructure.Providers
         private readonly ILogger<CsvBackedPlayTimeService>? _logger;
 
         private readonly Dictionary<string, DateTime> _activeSessions;
+        private readonly TimeProvider _timeProvider;
 
         public CsvBackedPlayTimeService(ILogger<CsvBackedPlayTimeService>? logger = null)
             : this(AppDataPath.GetGameHelperDirectory(), logger)
@@ -31,6 +32,12 @@ namespace GameHelper.Infrastructure.Providers
 
         // For tests: pass a directory
         public CsvBackedPlayTimeService(string configDirectory, ILogger<CsvBackedPlayTimeService>? logger = null)
+            : this(configDirectory, logger, TimeProvider.System)
+        {
+        }
+
+        // For tests: deterministic clock (start/stop/shift times must not depend on the wall clock)
+        public CsvBackedPlayTimeService(string configDirectory, ILogger<CsvBackedPlayTimeService>? logger, TimeProvider timeProvider)
         {
             if (string.IsNullOrWhiteSpace(configDirectory))
                 throw new ArgumentException("configDirectory required", nameof(configDirectory));
@@ -47,6 +54,7 @@ namespace GameHelper.Infrastructure.Providers
             _csvFilePath = Path.Combine(configDirectory, "playtime.csv");
             _jsonFilePath = Path.Combine(configDirectory, "playtime.json");
             _logger = logger;
+            _timeProvider = timeProvider;
 
             _activeSessions = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
 
@@ -69,7 +77,7 @@ namespace GameHelper.Infrastructure.Providers
             lock (_gate)
             {
                 if (_activeSessions.ContainsKey(gameName)) return; // already tracking
-                _activeSessions[gameName] = DateTime.Now;
+                _activeSessions[gameName] = LocalNow();
             }
         }
 
@@ -94,7 +102,7 @@ namespace GameHelper.Infrastructure.Providers
             {
                 if (!_activeSessions.TryGetValue(gameName, out var startTime)) return null; // not tracking
 
-                var endTime = DateTime.Now;
+                var endTime = LocalNow();
                 var duration = endTime - startTime;
                 if (duration < TimeSpan.Zero)
                 {
@@ -122,6 +130,21 @@ namespace GameHelper.Infrastructure.Providers
             return session;
         }
 
+        /// <inheritdoc />
+        public void ShiftActiveStarts(TimeSpan offset)
+        {
+            if (offset == TimeSpan.Zero || _activeSessions.Count == 0) return;
+
+            lock (_gate)
+            {
+                if (_activeSessions.Count == 0) return;
+                foreach (var gameName in _activeSessions.Keys.ToList())
+                {
+                    _activeSessions[gameName] += offset;
+                }
+            }
+        }
+
         /// <summary>
         /// Persists a completed row recovered from a prior run's in-flight snapshot. The
         /// true exit time of a game that died while GameHelper was down has already been
@@ -143,7 +166,9 @@ namespace GameHelper.Infrastructure.Providers
             AppendSessionToCsv(gameName, startTime, endTime, durationMinutes, deduplicate: true);
         }
 
-        private void AppendSessionToCsv(string gameName, DateTime startTime, DateTime endTime, long durationMinutes, bool deduplicate = false)
+        private DateTime LocalNow() => _timeProvider.GetLocalNow().DateTime;
+
+    private void AppendSessionToCsv(string gameName, DateTime startTime, DateTime endTime, long durationMinutes, bool deduplicate = false)
         {
             const int maxRetries = 3;
             const int retryDelayMs = 100;

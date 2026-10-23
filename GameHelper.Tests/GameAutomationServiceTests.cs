@@ -43,15 +43,33 @@ namespace GameHelper.Tests
         public int StopCalls { get; private set; }
         public List<string> Started { get; } = new();
         public List<string> Stopped { get; } = new();
+        public List<TimeSpan> ShiftedStarts { get; } = new();
         public void StartTracking(string gameName) { StartCalls++; Started.Add(gameName); }
         public void ResumeTracking(string gameName, DateTime startTime) { StartCalls++; Started.Add(gameName); }
         public void WriteRecoveredSession(string gameName, DateTime startTime, DateTime endTime) { StopCalls++; Stopped.Add(gameName); }
+        public void ShiftActiveStarts(TimeSpan offset) => ShiftedStarts.Add(offset);
         public PlaySession? StopTracking(string gameName)
         {
             StopCalls++;
             Stopped.Add(gameName);
             return new PlaySession(gameName, DateTime.MinValue, DateTime.MinValue, TimeSpan.Zero, 0);
         }
+    }
+
+    file sealed class FakePowerEvents : ISystemPowerEvents
+    {
+        public event EventHandler? Suspending;
+        public event EventHandler? Resumed;
+        public void RaiseSuspend() => Suspending?.Invoke(this, EventArgs.Empty);
+        public void RaiseResume() => Resumed?.Invoke(this, EventArgs.Empty);
+    }
+
+    file sealed class PowerClock : TimeProvider
+    {
+        private DateTimeOffset _utcNow;
+        public PowerClock(DateTimeOffset utcNow) => _utcNow = utcNow;
+        public void Advance(TimeSpan duration) => _utcNow += duration;
+        public override DateTimeOffset GetUtcNow() => _utcNow;
     }
 
     file sealed class FakeSpeedController : IGameSpeedController
@@ -101,6 +119,8 @@ namespace GameHelper.Tests
         public void ResumeTracking(string gameName, DateTime startTime) { }
 
         public void WriteRecoveredSession(string gameName, DateTime startTime, DateTime endTime) { }
+
+        public void ShiftActiveStarts(TimeSpan offset) { }
 
         public PlaySession? StopTracking(string gameName)
         {
@@ -971,6 +991,90 @@ namespace GameHelper.Tests
             Assert.DoesNotContain(
                 logger.Entries,
                 e => e.Message.Contains("attached Cheat Engine", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void SystemSuspendResume_ShiftsRunningSessionStartsAndExcludesPausedSpan()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new FakeConfig(Dict(("game.exe", true, false)));
+            var hdr = new FakeHdr();
+            var play = new FakePlayTime();
+            var power = new FakePowerEvents();
+            var clock = new PowerClock(new DateTimeOffset(2026, 10, 22, 20, 0, 0, TimeSpan.Zero));
+            var service = new GameAutomationService(
+                monitor, cfg, hdr, play, NullLogger<GameAutomationService>.Instance,
+                timeProvider: clock, powerEvents: power);
+            service.Start();
+
+            // 未休眠却收到唤醒（或事件迟到）时不凭空调整。
+            power.RaiseResume();
+            Assert.Empty(play.ShiftedStarts);
+
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 7));
+            var startedAt = service.GetRunningSessionStarts()["game.exe"];
+            Assert.NotNull(startedAt);
+
+            power.RaiseSuspend();
+            clock.Advance(TimeSpan.FromHours(2));
+            power.RaiseResume();
+
+            Assert.Equal(TimeSpan.FromHours(2), Assert.Single(play.ShiftedStarts));
+            Assert.NotNull(startedAt);
+            Assert.Equal(TimeSpan.FromHours(2), service.GetRunningSessionStarts()["game.exe"]!.Value - startedAt!.Value);
+
+            // 结束走正常会话流程；计时视图不再包含运行中的条目。
+            monitor.RaiseStop(new ProcessEventInfo("game.exe", null, 7));
+            Assert.Empty(service.GetRunningSessionStarts());
+        }
+
+        [Fact]
+        public void SystemResumeWithoutSuspendOrIdleMachine_DoesNotShift()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new FakeConfig(Dict(("game.exe", true, false)));
+            var hdr = new FakeHdr();
+            var play = new FakePlayTime();
+            var power = new FakePowerEvents();
+            var clock = new PowerClock(new DateTimeOffset(2026, 10, 22, 20, 0, 0, TimeSpan.Zero));
+            var service = new GameAutomationService(
+                monitor, cfg, hdr, play, NullLogger<GameAutomationService>.Instance,
+                timeProvider: clock, powerEvents: power);
+            service.Start();
+
+            // 没有活跃会话时，休眠/唤醒不需要调整任何东西。
+            power.RaiseSuspend();
+            clock.Advance(TimeSpan.FromHours(8));
+            power.RaiseResume();
+            Assert.Empty(play.ShiftedStarts);
+
+            // 会话启动后同样跳过：挂起时间戳只属于真正休眠过的那一轮。
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 7));
+            power.RaiseResume();
+            Assert.Empty(play.ShiftedStarts);
+        }
+
+        [Fact]
+        public void PowerEvents_AfterServiceStop_DoNotShiftSessions()
+        {
+            var monitor = new FakeMonitor();
+            var cfg = new FakeConfig(Dict(("game.exe", true, false)));
+            var hdr = new FakeHdr();
+            var play = new FakePlayTime();
+            var power = new FakePowerEvents();
+            var clock = new PowerClock(new DateTimeOffset(2026, 10, 22, 20, 0, 0, TimeSpan.Zero));
+            var service = new GameAutomationService(
+                monitor, cfg, hdr, play, NullLogger<GameAutomationService>.Instance,
+                timeProvider: clock, powerEvents: power);
+            service.Start();
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 7));
+            service.Stop();
+
+            power.RaiseSuspend();
+            clock.Advance(TimeSpan.FromHours(5));
+            power.RaiseResume();
+
+            Assert.Empty(play.ShiftedStarts);
         }
     }
 }
