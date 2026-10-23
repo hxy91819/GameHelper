@@ -109,6 +109,33 @@ public sealed class GameLaunchCoordinatorTests
         Assert.Empty(app.Service.GetGameStates());
     }
 
+    [Fact]
+    public void Launch_WhileOwnLaunchedGameRunning_Throws()
+    {
+        using var app = new Fixture();
+        app.Service.Launch("a"); app.Start("a", 101);
+        Assert.Throws<InvalidOperationException>(() => app.Service.Launch("a"));
+        Assert.Equal(1, app.Launcher.Starts);
+    }
+
+    [Fact]
+    public void Launch_WhileExternalGameRunning_TakesOverWithoutRelaunching()
+    {
+        using var app = new Fixture();
+        app.Start("a", 101);   // 外部启动：只计时，不触发自动化效果
+        Assert.Equal("运行中·外部", app.Service.GetGameStates()["a"]);
+        Assert.False(app.Hdr.IsEnabled);
+
+        app.Service.Launch("a");   // 接管：不重复拉起，补齐效果
+        Assert.Equal(0, app.Launcher.Starts);
+        Assert.Equal("运行中", app.Service.GetGameStates()["a"]);
+        Assert.True(app.Hdr.IsEnabled);
+
+        app.Playtime.Verify(playtime => playtime.StartTracking("a"), Times.Once);
+        app.Stop("a", 101);
+        Assert.False(app.Hdr.IsEnabled);   // 接管租约在退出时恢复
+    }
+
     private sealed class Fixture : IDisposable
     {
         public Mock<IProcessMonitor> Monitor { get; } = new();

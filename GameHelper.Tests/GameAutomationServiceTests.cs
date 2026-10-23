@@ -103,6 +103,13 @@ namespace GameHelper.Tests
         }
     }
 
+    file sealed class FakeLauncher : IGameLauncher
+    {
+        public int Starts { get; private set; }
+        public void Validate(GameLaunchOptions options) { }
+        public void Start(GameLaunchOptions options) { Starts++; }
+    }
+
     file sealed class FakePlayTimeWithDuration : IPlayTimeService
     {
         private readonly DateTime _startTime;
@@ -252,11 +259,12 @@ namespace GameHelper.Tests
             var hdr = new FakeHdr();
             var play = new FakePlayTime();
             var logger = NullLogger<GameAutomationService>.Instance;
-            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger, gameLauncher: new FakeLauncher());
 
             svc.Start();
+            svc.Launch("witcher3.exe");
 
-            // Case-insensitive start
+            // Case-insensitive start (own launch observed)
             monitor.RaiseStart(new ProcessEventInfo("WITCHER3.EXE", null));
             Assert.Equal(1, hdr.EnableCalls);
             Assert.True(hdr.IsEnabled);
@@ -288,15 +296,139 @@ namespace GameHelper.Tests
                 new FakeHdr(),
                 new FakePlayTime(),
                 NullLogger<GameAutomationService>.Instance,
-                speedController: speed);
+                speedController: speed,
+                gameLauncher: new FakeLauncher());
 
             service.Start();
+            service.Launch("game");
             monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 1234));
             monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 5678));
 
             var applied = Assert.Single(speed.Applied);
             Assert.Equal(1234, applied.ProcessId);
             Assert.Equal(2.5, applied.Speed);
+        }
+
+        [Fact]
+        public void EnumeratedPreexistingStart_KeepsAutomationForContinuity()
+        {
+            var monitor = new FakeMonitor();
+            var config = new CoreGameConfig
+            {
+                DataKey = "game",
+                Executable = "game.exe",
+                IsEnabled = true,
+                SpeedMultiplier = 1.5
+            };
+            var speed = new FakeSpeedController();
+            var play = new FakePlayTime();
+            var service = new GameAutomationService(
+                monitor,
+                new FakeConfig(new Dictionary<string, CoreGameConfig> { ["game"] = config }),
+                new FakeHdr(),
+                play,
+                NullLogger<GameAutomationService>.Instance,
+                speedController: speed);
+
+            service.Start();
+
+            // 无快照重启时监视器枚举到的既有进程：按库内启动对待（行为连续），补挂变速。
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 200, Preexisting: true));
+            var applied = Assert.Single(speed.Applied);
+            Assert.Equal(200, applied.ProcessId);
+            Assert.Equal(1.5, applied.Speed);
+            Assert.Equal(1, play.StartCalls);
+
+            // 该进程退出照常落库。
+            monitor.RaiseStop(new ProcessEventInfo("game.exe", null, 200));
+            Assert.Equal(1, play.StopCalls);
+        }
+
+        [Fact]
+        public void ExternalStart_TracksPlaytimeWithoutAutomation()
+        {
+            var monitor = new FakeMonitor();
+            var config = new CoreGameConfig
+            {
+                DataKey = "game.exe",
+                Executable = "game.exe",
+                IsEnabled = true,
+                HdrEnabled = true,
+                SpeedMultiplier = 2.0
+            };
+            var hdr = new FakeHdr();
+            var speed = new FakeSpeedController();
+            var play = new FakePlayTime();
+            var service = new GameAutomationService(
+                monitor,
+                new FakeConfig(new Dictionary<string, CoreGameConfig> { ["game.exe"] = config }),
+                hdr,
+                play,
+                NullLogger<GameAutomationService>.Instance,
+                speedController: speed);
+
+            service.Start();
+
+            // 外部启动（未经过 Launch）：只计时，不触发 HDR 与变速。
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 1234));
+            Assert.Equal("运行中·外部", service.GetGameStates()["game.exe"]);
+            Assert.Equal(0, hdr.EnableCalls);
+            Assert.False(hdr.IsEnabled);
+            Assert.Empty(speed.Applied);
+            Assert.Equal(1, play.StartCalls);
+
+            // 退出照常落库；调度器没有 HDR 所有权，不会误关。
+            monitor.RaiseStop(new ProcessEventInfo("game.exe", null, 1234));
+            Assert.Equal(1, play.StopCalls);
+            Assert.Equal(0, hdr.DisableCalls);
+        }
+
+        [Fact]
+        public void Launch_WhileExternalGameRunning_TakesOverWithoutRelaunching()
+        {
+            var monitor = new FakeMonitor();
+            var config = new CoreGameConfig
+            {
+                DataKey = "game.exe",
+                Executable = "game.exe",
+                IsEnabled = true,
+                HdrEnabled = true,
+                SpeedMultiplier = 2.0
+            };
+            var hdr = new FakeHdr();
+            var speed = new FakeSpeedController();
+            var launcher = new FakeLauncher();
+            var play = new FakePlayTime();
+            var service = new GameAutomationService(
+                monitor,
+                new FakeConfig(new Dictionary<string, CoreGameConfig> { ["game.exe"] = config }),
+                hdr,
+                play,
+                NullLogger<GameAutomationService>.Instance,
+                speedController: speed,
+                gameLauncher: launcher);
+
+            service.Start();
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 1234));   // 外部启动
+            Assert.Equal(0, hdr.EnableCalls);
+            Assert.Empty(speed.Applied);
+
+            service.Launch("game.exe");   // 接管：不重复拉起，补齐自动化效果
+            Assert.Equal(0, launcher.Starts);
+            Assert.Equal("运行中", service.GetGameStates()["game.exe"]);
+            Assert.Equal(1, hdr.EnableCalls);
+            var attach = Assert.Single(speed.Applied);
+            Assert.Equal(1234, attach.ProcessId);
+
+            monitor.RaiseStop(new ProcessEventInfo("game.exe", null, 1234));
+            Assert.Equal(1, play.StopCalls);
+            Assert.Equal(1, hdr.DisableCalls);   // 接管会话在退出时恢复 HDR
+
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 5678));   // 再次外部启动：无效果
+            Assert.Equal(1, hdr.EnableCalls);
+            Assert.Single(speed.Applied);
+            monitor.RaiseStop(new ProcessEventInfo("game.exe", null, 5678));
+            Assert.Equal(2, play.StopCalls);
         }
 
         [Fact]
@@ -307,9 +439,11 @@ namespace GameHelper.Tests
             var hdr = new FakeHdr();
             var play = new FakePlayTime();
             var logger = NullLogger<GameAutomationService>.Instance;
-            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger, gameLauncher: new FakeLauncher());
 
             svc.Start();
+            svc.Launch("a.exe");
+            svc.Launch("b.exe");
 
             monitor.RaiseStart(new ProcessEventInfo("a.exe", null));
             Assert.Equal(1, hdr.EnableCalls);
@@ -340,9 +474,10 @@ namespace GameHelper.Tests
             hdr.SetState(true); // simulate HDR already enabled before the game starts
             var play = new FakePlayTime();
             var logger = NullLogger<GameAutomationService>.Instance;
-            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger, gameLauncher: new FakeLauncher());
 
             svc.Start();
+            svc.Launch("sdr.exe");
 
             monitor.RaiseStart(new ProcessEventInfo("sdr.exe", null));
 
@@ -363,9 +498,10 @@ namespace GameHelper.Tests
             hdr.SetState(true); // user already enabled HDR before GameHelper observed the game
             var play = new FakePlayTime();
             var logger = NullLogger<GameAutomationService>.Instance;
-            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger, gameLauncher: new FakeLauncher());
 
             svc.Start();
+            svc.Launch("hdr.exe");
 
             monitor.RaiseStart(new ProcessEventInfo("hdr.exe", null));
             Assert.Equal(0, hdr.EnableCalls);
@@ -384,14 +520,19 @@ namespace GameHelper.Tests
             var hdr = new FakeHdr();
             var play = new FakePlayTime();
             var logger = NullLogger<GameAutomationService>.Instance;
-            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger, gameLauncher: new FakeLauncher());
 
             svc.Start();
 
+            svc.Launch("sdr.exe");
             monitor.RaiseStart(new ProcessEventInfo("sdr.exe", null));
             Assert.Equal(0, hdr.EnableCalls);
             Assert.False(hdr.IsEnabled);
 
+            // 库内启动在拉起进程前就确认 HDR（PrepareForLaunch 会先开启）。
+            svc.Launch("hdr.exe");
+            Assert.Equal(1, hdr.EnableCalls);
+            Assert.True(hdr.IsEnabled);
             monitor.RaiseStart(new ProcessEventInfo("hdr.exe", null));
             Assert.Equal(1, hdr.EnableCalls);
             Assert.True(hdr.IsEnabled);
@@ -433,9 +574,10 @@ namespace GameHelper.Tests
             var hdr = new FakeHdr();
             var play = new FakePlayTime();
             var logger = NullLogger<GameAutomationService>.Instance;
-            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger);
+            var svc = new GameAutomationService(monitor, cfg, hdr, play, logger, gameLauncher: new FakeLauncher());
 
             svc.Start();
+            svc.Launch("a.exe");
             monitor.RaiseStart(new ProcessEventInfo("a.exe", null));
             Assert.Equal(1, hdr.EnableCalls);
 
@@ -715,9 +857,11 @@ namespace GameHelper.Tests
                     NullLogger<GameAutomationService>.Instance,
                     speedController: speed,
                     speedGatePollInterval: TinyPollInterval,
-                    speedGateTimeout: TimeSpan.FromSeconds(30));
+                    speedGateTimeout: TimeSpan.FromSeconds(30),
+                    gameLauncher: new FakeLauncher());
 
                 service.Start();
+                service.Launch("gamex");
                 monitor.RaiseStart(new ProcessEventInfo("GameX.exe", exePath, 4321));
 
                 // The chainloader marker was not written yet: the attach must stay deferred.
@@ -760,9 +904,11 @@ namespace GameHelper.Tests
                     NullLogger<GameAutomationService>.Instance,
                     speedController: speed,
                     speedGatePollInterval: TinyPollInterval,
-                    speedGateTimeout: TimeSpan.FromMilliseconds(300));
+                    speedGateTimeout: TimeSpan.FromMilliseconds(300),
+                    gameLauncher: new FakeLauncher());
 
                 service.Start();
+                service.Launch("gamey");
                 monitor.RaiseStart(new ProcessEventInfo("GameY.exe", exePath, 4321));
 
                 // No marker is ever written; the timeout fallback must attach anyway.
@@ -800,9 +946,11 @@ namespace GameHelper.Tests
                     NullLogger<GameAutomationService>.Instance,
                     speedController: speed,
                     speedGatePollInterval: TinyPollInterval,
-                    speedGateTimeout: TimeSpan.FromSeconds(30));
+                    speedGateTimeout: TimeSpan.FromSeconds(30),
+                    gameLauncher: new FakeLauncher());
 
                 service.Start();
+                service.Launch("gamez");
                 monitor.RaiseStart(new ProcessEventInfo("GameZ.exe", exePath, 4321));
 
                 // No chainloader marker is written; an immediate attach must not wait for it.
@@ -840,9 +988,11 @@ namespace GameHelper.Tests
                     speedController: speed,
                     processIdentityProbe: new FakeIdentityProbe(_ => (false, null)),
                     speedGatePollInterval: TinyPollInterval,
-                    speedGateTimeout: TimeSpan.FromSeconds(30));
+                    speedGateTimeout: TimeSpan.FromSeconds(30),
+                    gameLauncher: new FakeLauncher());
 
                 service.Start();
+                service.Launch("gamedead");
                 monitor.RaiseStart(new ProcessEventInfo("GameDead.exe", exePath, 4321));
 
                 // The gate never attaches for a process that already vanished.
@@ -879,9 +1029,11 @@ namespace GameHelper.Tests
                     speedController: speed,
                     processIdentityProbe: new FakeIdentityProbe(_ => (true, @"C:\SomethingElse\NotTheGame.exe")),
                     speedGatePollInterval: TinyPollInterval,
-                    speedGateTimeout: TimeSpan.FromSeconds(30));
+                    speedGateTimeout: TimeSpan.FromSeconds(30),
+                    gameLauncher: new FakeLauncher());
 
                 service.Start();
+                service.Launch("gamereused");
                 monitor.RaiseStart(new ProcessEventInfo("GameReused.exe", exePath, 4321));
 
                 await Task.Delay(600);
@@ -916,9 +1068,11 @@ namespace GameHelper.Tests
                     NullLogger<GameAutomationService>.Instance,
                     speedController: speed,
                     speedGatePollInterval: TinyPollInterval,
-                    speedGateTimeout: TimeSpan.FromMilliseconds(500));
+                    speedGateTimeout: TimeSpan.FromMilliseconds(500),
+                    gameLauncher: new FakeLauncher());
 
                 service.Start();
+                service.Launch("gamestopped");
                 monitor.RaiseStart(new ProcessEventInfo("GameStopped.exe", exePath, 4321));
                 await Task.Delay(100);
                 monitor.RaiseStop(new ProcessEventInfo("GameStopped.exe", exePath, 4321));
@@ -952,9 +1106,11 @@ namespace GameHelper.Tests
                 new FakeHdr(),
                 new FakePlayTime(),
                 logger,
-                speedController: speed);
+                speedController: speed,
+                gameLauncher: new FakeLauncher());
 
             service.Start();
+            service.Launch("gamecorr");
             monitor.RaiseStart(new ProcessEventInfo("corr-game.exe", null, 999));
             monitor.RaiseStop(new ProcessEventInfo("corr-game.exe", null, 999));
 

@@ -77,6 +77,16 @@ public class InFlightSessionRecoveryTests
         }
     }
 
+    private sealed class RecoverySpeedController : IGameSpeedController
+    {
+        public List<(int ProcessId, double Speed)> Applied { get; } = new();
+        public bool ApplySpeed(int processId, double speedMultiplier)
+        {
+            Applied.Add((processId, speedMultiplier));
+            return true;
+        }
+    }
+
     private sealed class FakePlayTime : IPlayTimeService
     {
         public List<string> Started { get; } = new();
@@ -194,6 +204,149 @@ public class InFlightSessionRecoveryTests
         // The adopted session participates in normal stop matching afterwards.
         monitor.RaiseStopped(new ProcessEventInfo("game1.exe", null, 1111));
         Assert.Contains("g1", playTime.Stopped);
+    }
+
+    private static GameAutomationService CreateSpeedService(
+        FakeMonitor monitor,
+        FakePlayTime playTime,
+        FakeInFlightStore store,
+        IProcessIdentityProbe probe,
+        RecoverySpeedController speed) =>
+        new(
+            monitor,
+            CreateSpeedConfig().Object,
+            Mock.Of<IHdrController>(),
+            playTime,
+            NullLogger<GameAutomationService>.Instance,
+            speedController: speed,
+            inFlightSessionStore: store,
+            processIdentityProbe: probe);
+
+    private static Mock<IGameConfiguration> CreateSpeedConfig()
+    {
+        var config = new Mock<IGameConfiguration>();
+        config.Setup(configuration => configuration.Read()).Returns(new AppConfig
+        {
+            Games =
+            {
+                new GameConfig
+                {
+                    DataKey = "g1",
+                    Executable = "D:\\Games\\game1.exe",
+                    DisplayName = "Game 1",
+                    IsEnabled = true,
+                    SpeedMultiplier = 1.5
+                }
+            }
+        });
+        return config;
+    }
+
+    [Fact]
+    public void Recovery_OwnSession_ReAppliesSpeedAndKeepsFlag()
+    {
+        var store = new FakeInFlightStore
+        {
+            Snapshot = new InFlightSnapshot
+            {
+                SnapshotAt = SnapshotAt,
+                HdrEnabledByGameHelper = true,
+                Sessions =
+                {
+                    new InFlightSession
+                    {
+                        DataKey = "g1",
+                        ProcessId = 1111,
+                        NormalizedName = "game1.exe",
+                        NormalizedPath = "D:\\Games\\game1.exe",
+                        StartedAt = SessionStart,
+                        LaunchedByHelper = true
+                    }
+                }
+            }
+        };
+        var probe = new FakeProbe(new Dictionary<int, string?> { [1111] = "D:\\Games\\game1.exe" });
+        var speed = new RecoverySpeedController();
+        var playTime = new FakePlayTime();
+
+        CreateSpeedService(new FakeMonitor(), playTime, store, probe, speed).Start();
+
+        // 库内会话续算：时长接续，变速补挂，快照保持库内标记。
+        Assert.Single(playTime.Resumed);
+        var applied = Assert.Single(speed.Applied);
+        Assert.Equal(1111, applied.ProcessId);
+        Assert.Equal(1.5, applied.Speed);
+        Assert.True(Assert.Single(store.Saved[^1].Sessions).LaunchedByHelper);
+    }
+
+    [Fact]
+    public void Recovery_ExternalSession_SkipsSpeedAndEffects()
+    {
+        var store = new FakeInFlightStore
+        {
+            Snapshot = new InFlightSnapshot
+            {
+                SnapshotAt = SnapshotAt,
+                Sessions =
+                {
+                    new InFlightSession
+                    {
+                        DataKey = "g1",
+                        ProcessId = 1111,
+                        NormalizedName = "game1.exe",
+                        NormalizedPath = "D:\\Games\\game1.exe",
+                        StartedAt = SessionStart,
+                        LaunchedByHelper = false
+                    }
+                }
+            }
+        };
+        var probe = new FakeProbe(new Dictionary<int, string?> { [1111] = "D:\\Games\\game1.exe" });
+        var speed = new RecoverySpeedController();
+        var playTime = new FakePlayTime();
+
+        CreateSpeedService(new FakeMonitor(), playTime, store, probe, speed).Start();
+
+        // 时长照常续算，但外部会话不补变速，快照保持外部标记。
+        Assert.Single(playTime.Resumed);
+        Assert.Empty(speed.Applied);
+        Assert.False(Assert.Single(store.Saved[^1].Sessions).LaunchedByHelper);
+    }
+
+    [Fact]
+    public void Recovery_LegacySnapshot_StillReAppliesSpeedForContinuity()
+    {
+        var store = new FakeInFlightStore
+        {
+            Snapshot = new InFlightSnapshot
+            {
+                SnapshotAt = SnapshotAt,
+                HdrEnabledByGameHelper = true,
+                Sessions =
+                {
+                    new InFlightSession
+                    {
+                        DataKey = "g1",
+                        ProcessId = 1111,
+                        NormalizedName = "game1.exe",
+                        NormalizedPath = "D:\\Games\\game1.exe",
+                        StartedAt = SessionStart
+                    }
+                }
+            }
+        };
+        var probe = new FakeProbe(new Dictionary<int, string?> { [1111] = "D:\\Games\\game1.exe" });
+        var speed = new RecoverySpeedController();
+        var playTime = new FakePlayTime();
+
+        CreateSpeedService(new FakeMonitor(), playTime, store, probe, speed).Start();
+
+        // 旧版快照未写标记（升级前落盘），续算按库内启动对待以保持行为连续。
+        Assert.Single(playTime.Resumed);
+        var applied = Assert.Single(speed.Applied);
+        Assert.Equal(1111, applied.ProcessId);
+        Assert.Equal(1.5, applied.Speed);
+        Assert.True(Assert.Single(store.Saved[^1].Sessions).LaunchedByHelper);
     }
 
     [Fact]

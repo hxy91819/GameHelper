@@ -7,7 +7,8 @@ namespace GameHelper.Core.Models;
 /// <param name="ExecutableName">Process executable name (e.g., "game.exe").</param>
 /// <param name="ExecutablePath">Optional executable path hint from the event source.</param>
 /// <param name="ProcessId">Optional operating-system process identifier for lazy path resolution and stop correlation.</param>
-public readonly record struct ProcessEventInfo(string ExecutableName, string? ExecutablePath, int? ProcessId = null)
+/// <param name="Preexisting">监控器启动时枚举到的"已在运行"进程；自动化服务按库内启动对待以保持重启续算的行为连续。</param>
+public readonly record struct ProcessEventInfo(string ExecutableName, string? ExecutablePath, int? ProcessId = null, bool Preexisting = false)
 {
     /// <summary>
     /// Indicates whether the event includes a usable executable path.

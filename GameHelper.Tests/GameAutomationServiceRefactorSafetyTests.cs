@@ -115,13 +115,20 @@ namespace GameHelper.Tests
                 _paths.TryGetValue(processId, out var path) ? path : null;
         }
 
-        private static void CreateService(
+        private sealed class FakeLauncher : IGameLauncher
+        {
+            public void Validate(GameLaunchOptions options) { }
+            public void Start(GameLaunchOptions options) { }
+        }
+
+        private static GameAutomationService CreateService(
             IProcessMonitor monitor,
             IGameConfiguration cfg,
             IHdrController hdr,
             IPlayTimeService play,
             ILogger<GameAutomationService>? logger = null,
-            IProcessPathResolver? pathResolver = null)
+            IProcessPathResolver? pathResolver = null,
+            IGameLauncher? launcher = null)
         {
             var svc = new GameAutomationService(
                 monitor,
@@ -129,8 +136,10 @@ namespace GameHelper.Tests
                 hdr,
                 play,
                 logger ?? NullLogger<GameAutomationService>.Instance,
-                pathResolver);
+                pathResolver,
+                gameLauncher: launcher);
             svc.Start();
+            return svc;
         }
 
 
@@ -150,7 +159,8 @@ namespace GameHelper.Tests
             });
             var hdr = new FakeHdr();
             var play = new FakePlayTime();
-            CreateService(monitor, cfg, hdr, play);
+            var svc = CreateService(monitor, cfg, hdr, play, launcher: new FakeLauncher());
+            svc.Launch("multi");
 
             monitor.RaiseStart(new ProcessEventInfo("game.exe", @"C:\Games\game.exe"));
             monitor.RaiseStart(new ProcessEventInfo("game.exe", @"C:\Games\game.exe"));
@@ -444,7 +454,8 @@ namespace GameHelper.Tests
             });
             var hdr = new FakeHdr();
             var play = new FakePlayTime();
-            CreateService(monitor, cfg, hdr, play);
+            var svc = CreateService(monitor, cfg, hdr, play, launcher: new FakeLauncher());
+            svc.Launch("cross");
 
             monitor.RaiseStart(new ProcessEventInfo("game.exe", @"C:\Games\A\game.exe"));
             monitor.RaiseStart(new ProcessEventInfo("game.exe", @"C:\Games\A\bin\game.exe"));

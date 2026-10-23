@@ -62,6 +62,8 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     private bool? _lastMonitorModeDaylight;
     private readonly Dictionary<string, DateTime> _inFlightStarts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<int, DateTime> _inFlightProcessStarts = new();
+    /// <summary>活跃会话中的"库内启动"标记：由本方 <see cref="Launch"/> 发起且已被进程观察确认的 dataKey。</summary>
+    private readonly HashSet<string> _ownLaunchedDataKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<InFlightSession> _pendingRecoveredSessions = new();
     private readonly ILogger<GameAutomationService> _logger;
     private readonly object _stateLock = new();
@@ -131,6 +133,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             var configuration = LoadAndBuildIndexes();
             _sessionTracker.Clear();
             _suspendStartedAtUtc = null;
+            _ownLaunchedDataKeys.Clear();
             RecoverInFlightSessions();
             var recoveredHdrLease = _hdrScheduler.OwnsEnabledHdr;
             UpdateHdrState();
@@ -242,6 +245,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 _sessionTracker.Clear();
                 _pendingLaunches.Clear();
                 _launchFailures.Clear();
+                _ownLaunchedDataKeys.Clear();
                 try { UpdateHdrState(); }
                 catch (Exception ex) { _logger.LogWarning(ex, "Failed to restore HDR during shutdown"); }
                 _inFlightStarts.Clear();
@@ -301,7 +305,11 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 normalizedName,
                 normalizedPath,
                 processInfo.ProcessId);
-            _pendingLaunches.Remove(config.DataKey);
+            var consumedPending = _pendingLaunches.Remove(config.DataKey);
+            // 监控器启动时枚举到的既有进程（Preexisting）按库内启动对待：GameHelper
+            // 无快照重启时已在跑的游戏保持自动化效果，与旧版快照 null 标记的规则一致。
+            var isOwnLaunch = consumedPending || processInfo.Preexisting;
+            if (isOwnLaunch) _ownLaunchedDataKeys.Add(config.DataKey);
             _launchFailures.Remove(config.DataKey);
             DateTime? processStartedUtc = null;
             if (processInfo.ProcessId is int startedPid
@@ -312,9 +320,10 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             }
 
             _logger.LogInformation(
-                "Process start: DataKey={DataKey}, Via={Match}, Executable={Executable}, Path={Path}, PID={ProcessId}",
+                "Process start: DataKey={DataKey}, Via={Match}, Own={OwnLaunch}, Executable={Executable}, Path={Path}, PID={ProcessId}",
                 config.DataKey,
                 matchLabel,
+                isOwnLaunch,
                 normalizedName ?? processInfo.ExecutableName ?? "n/a",
                 normalizedPath ?? "n/a",
                 processInfo.ProcessId);
@@ -330,7 +339,11 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                     _logger.LogError(ex, "Failed to start tracking for {DataKey}", config.DataKey);
                 }
 
-                ApplyConfiguredSpeed(config, processInfo.ProcessId, normalizedPath ?? processInfo.ExecutablePath, processStartedUtc);
+                if (isOwnLaunch)
+                {
+                    // 外部启动的会话不自动挂变速；库内启动保持原有行为。
+                    ApplyConfiguredSpeed(config, processInfo.ProcessId, normalizedPath ?? processInfo.ExecutablePath, processStartedUtc);
+                }
 
                 // Persist the in-flight snapshot so a restart (deploy or crash) can
                 // resume this session instead of losing it.
@@ -523,6 +536,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             if (isLastForDataKey)
             {
                 _inFlightStarts.Remove(entry.DataKey);
+                _ownLaunchedDataKeys.Remove(entry.DataKey);
             }
             try { UpdateHdrState(); }
             finally { PersistInFlightSnapshot(); }
@@ -625,40 +639,69 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
     private void UpdateHdrState()
     {
-        _hdrScheduler.Update(_sessionTracker.GetActiveDataKeysSnapshot().Concat(_pendingLaunches.Keys), _configIndex.ByDataKey, _hdr, _logger);
+        // 自动化只认库内启动的会话：外部启动的 HDR 偏好不参与调度；
+        // pending 启动窗保留（点按钮到进程被观察之间需要提前开 HDR）。
+        var keys = _sessionTracker.GetActiveDataKeysSnapshot()
+            .Where(IsOwnLaunched)
+            .Concat(_pendingLaunches.Keys);
+        _hdrScheduler.Update(keys, _configIndex.ByDataKey, _hdr, _logger);
     }
+
+    private bool IsOwnLaunched(string dataKey) => _ownLaunchedDataKeys.Contains(dataKey);
 
     /// <inheritdoc />
     public void Launch(string dataKey)
     {
-        GameLaunchOptions options;
+        GameLaunchOptions? options = null;
+        bool tookOver;
         lock (_stateLock)
         {
             if (!_started || _gameLauncher is null) throw new InvalidOperationException("请先启动游戏监控。");
             if (!_configIndex.All.TryGetValue(dataKey, out var game)) throw new InvalidOperationException("游戏已移除。");
-            options = game.Launch ?? new GameLaunchOptions { Target = game.ExecutablePath ?? string.Empty };
-            _gameLauncher.Validate(options);
-            if (!game.IsEnabled)
+            if (_pendingLaunches.ContainsKey(dataKey))
+                throw new InvalidOperationException("该游戏正在启动，请稍候。");
+
+            if (_sessionTracker.GetActiveDataKeysSnapshot().Contains(dataKey, StringComparer.OrdinalIgnoreCase))
             {
-                _gameLauncher.Start(options);
-                return;
+                // 游戏（可能由外部启动）已在跑：本方启动标记内的会话拒绝重复启动；
+                // 外部启动的会话改为当场接管——不重复拉起，只补齐自动化效果。
+                if (_ownLaunchedDataKeys.Contains(dataKey))
+                    throw new InvalidOperationException("该游戏已经运行。");
+                TakeOverRunningGame(dataKey, game);
+                tookOver = true;
             }
-            if (_pendingLaunches.ContainsKey(dataKey) || _sessionTracker.GetActiveDataKeysSnapshot().Contains(dataKey, StringComparer.OrdinalIgnoreCase))
-                throw new InvalidOperationException("该游戏正在启动或已经运行。");
-            _pendingLaunches[dataKey] = _timeProvider.GetUtcNow().AddMinutes(2);
-            _launchFailures.Remove(dataKey);
-            try
+            else
             {
-                if (game.HdrEnabled) _hdrScheduler.PrepareForLaunch(_hdr);
-                PersistInFlightSnapshot();
+                tookOver = false;
+                options = game.Launch ?? new GameLaunchOptions { Target = game.ExecutablePath ?? string.Empty };
+                _gameLauncher.Validate(options);
+                if (!game.IsEnabled)
+                {
+                    _gameLauncher.Start(options);
+                    return;
+                }
+                _pendingLaunches[dataKey] = _timeProvider.GetUtcNow().AddMinutes(2);
+                _launchFailures.Remove(dataKey);
+                try
+                {
+                    if (game.HdrEnabled) _hdrScheduler.PrepareForLaunch(_hdr);
+                    PersistInFlightSnapshot();
+                }
+                catch
+                {
+                    _pendingLaunches.Remove(dataKey);
+                    UpdateHdrState();
+                    PersistInFlightSnapshot();
+                    throw;
+                }
             }
-            catch
-            {
-                _pendingLaunches.Remove(dataKey);
-                UpdateHdrState();
-                PersistInFlightSnapshot();
-                throw;
-            }
+        }
+
+        if (tookOver)
+        {
+            // 预设切换走 DDC/CI 总线 I/O；与 OnProcessStarted 一致，保持在状态锁外执行。
+            UpdateMonitorModeState(forced: true);
+            return;
         }
         try
         {
@@ -666,7 +709,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             {
                 if (!_started || !_pendingLaunches.ContainsKey(dataKey) || !_configIndex.ByDataKey.ContainsKey(dataKey))
                     throw new InvalidOperationException("启动已取消，或该游戏已经运行。");
-                _gameLauncher.Start(options);
+                _gameLauncher.Start(options!);   // 接管分支已在上方 return；走到这里 options 必已赋值
             }
         }
         catch
@@ -681,6 +724,40 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         }
     }
 
+    /// <summary>
+    /// 游戏已在外部运行时点击"启动"：不重复拉起，改为当场接管——把活跃会话标记为库内启动，
+    /// 并按现存 PID 补齐自动化效果（HDR 预备、变速补挂）。调用方持有状态锁；
+    /// 显示器预设刷新（DDC/CI I/O）由调用方在锁外触发。
+    /// </summary>
+    private void TakeOverRunningGame(string dataKey, GameConfig game)
+    {
+        var entry = _sessionTracker.GetActiveEntriesSnapshot().FirstOrDefault(candidate =>
+            string.Equals(candidate.DataKey, dataKey, StringComparison.OrdinalIgnoreCase));
+        _ownLaunchedDataKeys.Add(dataKey);
+        _launchFailures.Remove(dataKey);
+        _logger.LogInformation(
+            "接管外部启动会话: {DataKey} (PID {ProcessId})；后续按库内启动应用自动化效果。",
+            dataKey,
+            entry.ProcessId);
+        try
+        {
+            // 游戏已经在跑，HDR 预备失败不应让接管失败；记录后交由下次事件重试。
+            if (game.HdrEnabled) _hdrScheduler.PrepareForLaunch(_hdr);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "接管 {DataKey} 时准备 HDR 失败；预设将在下一次事件时重试。", dataKey);
+        }
+
+        if (entry.ProcessId is int processId)
+        {
+            DateTime? processStartedUtc = _inFlightProcessStarts.TryGetValue(processId, out var created) ? created : null;
+            ApplyConfiguredSpeed(game, processId, entry.NormalizedPath, processStartedUtc);
+        }
+        try { UpdateHdrState(); }
+        finally { PersistInFlightSnapshot(); }
+    }
+
     /// <inheritdoc />
     public IReadOnlyDictionary<string, string> GetGameStates()
     {
@@ -688,7 +765,10 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         {
             var states = new Dictionary<string, string>(_launchFailures, StringComparer.OrdinalIgnoreCase);
             foreach (var key in _pendingLaunches.Keys) states[key] = "启动中";
-            foreach (var key in _sessionTracker.GetActiveDataKeysSnapshot()) states[key] = "运行中";
+            foreach (var key in _sessionTracker.GetActiveDataKeysSnapshot())
+            {
+                states[key] = _ownLaunchedDataKeys.Contains(key) ? "运行中" : "运行中·外部";
+            }
             return states;
         }
     }
@@ -827,7 +907,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                     return;
                 }
 
-                anyGameActive = _sessionTracker.ActiveCount > 0;
+                anyGameActive = _sessionTracker.GetActiveDataKeysSnapshot().Any(IsOwnLaunched);
                 // 显示器从系统消失/回来会改变控制器可用性：这属于必须重新评估的变化
                 // （显示器离线期间档位可能停在被强制写入过的状态，回来需要对齐）。
                 // location=auto 且还没有坐标时，随 tick 自愈式重试坐标引导：
@@ -967,7 +1047,8 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 NormalizedName = entry.NormalizedName,
                 NormalizedPath = entry.NormalizedPath,
                 ProcessStartedAtUtc = entry.ProcessId is int pid && _inFlightProcessStarts.TryGetValue(pid, out var created) ? created : null,
-                StartedAt = _inFlightStarts.TryGetValue(entry.DataKey, out var startedAt) ? startedAt : snapshot.SnapshotAt
+                StartedAt = _inFlightStarts.TryGetValue(entry.DataKey, out var startedAt) ? startedAt : snapshot.SnapshotAt,
+                LaunchedByHelper = _ownLaunchedDataKeys.Contains(entry.DataKey)
             });
         }
         snapshot.Sessions.AddRange(_pendingRecoveredSessions);
@@ -1046,20 +1127,25 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             if (liveSessions.Count > 0)
             {
                 var startedAt = liveSessions[0].StartedAt;
+                // 库内启动标记在续算中保持连续：旧版快照（未写标记）按库内对待，
+                // 显式标记 false 的外部启动会话在重启后不补自动化效果（时长照常续算）。
+                var resumedIsOwn = liveSessions.Any(static session => session.LaunchedByHelper ?? true);
+                if (resumedIsOwn) _ownLaunchedDataKeys.Add(dataKey);
                 try
                 {
                     _playTime.ResumeTracking(dataKey, startedAt);
                     _inFlightStarts[dataKey] = startedAt;
                     resumedCount++;
                     _logger.LogInformation(
-                        "Resumed in-flight session for {DataKey}: start {StartTime:t}, {ProcessCount} live process(es).",
+                        "Resumed in-flight session for {DataKey}: start {StartTime:t}, {ProcessCount} live process(es), own={OwnLaunch}.",
                         dataKey,
                         startedAt,
-                        liveSessions.Count);
+                        liveSessions.Count,
+                        resumedIsOwn);
 
                     // 变速挂在被注入的游戏进程上：GameHelper 重启（部署/崩溃）后就没了，
                     // 只在 START 事件里应用会让"重启后仍在跑的这一局"永远没有倍速。
-                    ApplyRecoveredSpeed(liveSessions[0]);
+                    if (resumedIsOwn) ApplyRecoveredSpeed(liveSessions[0]);
                 }
                 catch (Exception ex)
                 {

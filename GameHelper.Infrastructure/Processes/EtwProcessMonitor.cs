@@ -89,7 +89,7 @@ public sealed class EtwProcessMonitor : IProcessMonitor
                     foreach (var existing in _runtime.CaptureExistingProcesses(CurrentPolicy))
                     {
                         if (existing.Info.ProcessId is int pid && !_observedProcesses.ContainsKey(pid))
-                            OnProcessStart(existing);
+                            OnProcessStart(existing, preexisting: true);
                     }
                 }
                 catch (Exception ex)
@@ -265,7 +265,7 @@ public sealed class EtwProcessMonitor : IProcessMonitor
         }
     }
 
-    private void OnProcessStart(EtwProcessEvent data)
+    private void OnProcessStart(EtwProcessEvent data, bool preexisting = false)
     {
         if (data.Info.ProcessId is not int pid) return;
         if (_observedProcesses.TryGetValue(pid, out var previous))
@@ -276,7 +276,7 @@ public sealed class EtwProcessMonitor : IProcessMonitor
         var acceptedInfo = AcceptStartInfo(data.Info, pid);
         if (acceptedInfo is null) return;
         _observedProcesses[pid] = data with { Info = acceptedInfo.Value };
-        ProcessStarted?.Invoke(acceptedInfo.Value);
+        ProcessStarted?.Invoke(acceptedInfo.Value with { Preexisting = preexisting });
     }
 
     private void OnProcessStop(EtwProcessEvent data)

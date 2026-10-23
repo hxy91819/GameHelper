@@ -28,6 +28,12 @@ public sealed class InFlightSession
     /// <summary>UTC process creation identity; absent in legacy snapshots.</summary>
     public DateTime? ProcessStartedAtUtc { get; set; }
 
+    /// <summary>
+    /// 库内启动标记：true=由启动按钮（Launch）发起的会话；false=外部启动的会话；
+    /// null=升级前旧版快照，续算时按库内启动对待以保持行为连续（仅影响自动化效果，不影响时长）。
+    /// </summary>
+    public bool? LaunchedByHelper { get; set; }
+
     /// <summary>Fixed end time for a completed session awaiting a successful history write.</summary>
     public DateTime? RecoveryEndAt { get; set; }
 }
