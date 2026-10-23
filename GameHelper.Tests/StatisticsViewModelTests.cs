@@ -1,3 +1,4 @@
+using System.Windows.Media;
 using System.Windows.Threading;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
@@ -70,6 +71,27 @@ public sealed class StatisticsViewModelTests
         pending.SetResult(Response(30, 999)); await request;
         Assert.False(model.HasHistory);
         Assert.False(model.RefreshCommand.CanExecute(null));
+    });
+
+    [Fact]
+    public Task PosterLookupFillsRowsFavouriteAndRefreshesInPlace() => OnSta(async () =>
+    {
+        var backend = new Backend((query, _) => Task.FromResult(Response(query.Days, 600) with
+        {
+            Statistics = Data(query.Days, 600) with { Recent = [new("a", "A", DateTime.UnixEpoch, DateTime.UnixEpoch, 20)] }
+        }));
+        ImageSource? artwork = new DrawingImage();
+        using var model = new StatisticsViewModel(backend, _ => artwork);
+        await model.EnsureLoadedAsync();
+        var row = Assert.IsType<StatisticsGameRow>(model.Games.Cast<object>().Single());
+        Assert.Same(artwork, row.Artwork);
+        Assert.Same(artwork, model.Recent.Single().Artwork);
+        Assert.Same(artwork, model.FavouriteArtwork);
+        Assert.True(model.HasFavourite);
+        artwork = null;
+        model.RefreshArtwork();
+        Assert.Null(row.Artwork);
+        Assert.Null(model.FavouriteArtwork);
     });
 
     private static GameLibraryResponse Response(int days, long minutes) => new() { Success = true, Statistics = Data(days, minutes) };

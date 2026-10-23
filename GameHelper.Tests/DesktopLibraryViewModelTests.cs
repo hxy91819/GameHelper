@@ -35,6 +35,37 @@ public sealed class DesktopLibraryViewModelTests
         finally { Directory.Delete(root, true); }
     });
 
+    [Fact]
+    public Task StatisticsArtwork_ReusesLoadedPosterByDataKey() => OnSta(() =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gh-stats-art", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var poster = Path.Combine(root, "poster.png");
+            var frame = System.Windows.Media.Imaging.BitmapSource.Create(200, 300, 96, 96,
+                System.Windows.Media.PixelFormats.Bgra32, null, new byte[200 * 300 * 4], 200 * 4);
+            var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(frame));
+            using (var stream = File.Create(poster)) encoder.Save(stream);
+            var config = Path.Combine(root, "config.yml");
+            using var http = new System.Net.Http.HttpClient(new OfflinePosterHandler());
+            var client = new GameHelper.Infrastructure.Artwork.SteamArtworkClient(http, Path.Combine(root, "cache"), GameHelper.Desktop.LocalGameArtwork.IsValidPoster);
+            var posters = new GameHelper.Desktop.SteamPosterLibrary(config, allowNetwork: false, client, _ => poster);
+            posters.Associate("a", 620);
+            using var model = new LibraryViewModel(new Backend(), config, posters);
+            model.RefreshAsync().GetAwaiter().GetResult();
+            var game = model.Games.Cast<LibraryGameItem>().Single();
+            game.ArtworkLoading.GetAwaiter().GetResult();
+            Assert.True(game.ArtworkIsCover);
+            model.Statistics.RefreshAsync().GetAwaiter().GetResult();
+            var row = Assert.IsType<StatisticsGameRow>(model.Statistics.Games.Cast<object>().Single());
+            Assert.Same(game.Artwork, row.Artwork);
+            Assert.Same(game.Artwork, model.Statistics.FavouriteArtwork);
+        }
+        finally { Directory.Delete(root, true); }
+    });
+
     private sealed class OfflinePosterHandler : System.Net.Http.HttpMessageHandler
     {
         protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
@@ -290,6 +321,16 @@ public sealed class DesktopLibraryViewModelTests
                 Game = request.Game!;
             }
             if (request.Operation == GameLibraryOperation.Launch) { Launches++; Assert.True(Game.HdrEnabled); }
+            if (request.Operation == GameLibraryOperation.Statistics)
+                return Task.FromResult(new GameLibraryResponse
+                {
+                    Success = true,
+                    Statistics = new PlaytimeDashboard
+                    {
+                        Today = new(2026, 4, 21), Start = new(2026, 4, 1), Days = 30, Minutes = 600, Sessions = 1, ActiveDays = 1, GamesPlayed = 1,
+                        Games = [new("a", "A", 600, 1, DateTime.UnixEpoch)]
+                    }
+                });
             return Task.FromResult(new GameLibraryResponse
             {
                 Success = true, MonitorRunning = true,

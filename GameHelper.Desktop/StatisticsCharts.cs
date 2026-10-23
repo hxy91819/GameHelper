@@ -258,8 +258,10 @@ public sealed class PlaytimeShareRing : FrameworkElement
         base.OnRender(dc);
         var share = double.IsFinite(Share) ? Math.Clamp(Share, 0, 1) : 0;
         var center = new Point(ActualWidth / 2, ActualHeight / 2);
-        var radius = Math.Max(1, Math.Min(ActualWidth, ActualHeight) / 2 - 7);
-        dc.DrawEllipse(null, new Pen(StatisticsDrawing.Brush("#303B52"), 7), center, radius, radius);
+        var extent = Math.Min(ActualWidth, ActualHeight);
+        var stroke = Math.Clamp(extent * .08, 4, 7);
+        var radius = Math.Max(1, extent / 2 - stroke);
+        dc.DrawEllipse(null, new Pen(StatisticsDrawing.Brush("#303B52"), stroke), center, radius, radius);
         if (share > 0)
         {
             var angle = Math.Min(.99999, share) * Math.PI * 2 - Math.PI / 2;
@@ -270,9 +272,10 @@ public sealed class PlaytimeShareRing : FrameworkElement
                 context.ArcTo(new Point(center.X + Math.Cos(angle) * radius, center.Y + Math.Sin(angle) * radius),
                     new Size(radius, radius), 0, share > .5, SweepDirection.Clockwise, true, false);
             }
-            dc.DrawGeometry(null, new Pen(StatisticsDrawing.Brush("#A9B4FF"), 7) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round }, geometry);
+            dc.DrawGeometry(null, new Pen(StatisticsDrawing.Brush("#A9B4FF"), stroke) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round }, geometry);
         }
-        var text = $"{share:P0}";
-        StatisticsDrawing.Text(this, dc, text, center.X - (text.Length * 5.5), center.Y - 13, 20, StatisticsDrawing.Brush("#EAF0FF"));
+        var text = new FormattedText($"{share:P0}", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"),
+            Math.Clamp(extent * .24, 11, 20), StatisticsDrawing.Brush("#EAF0FF"), VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        dc.DrawText(text, new Point(center.X - text.Width / 2, center.Y - text.Height / 2));
     }
 }

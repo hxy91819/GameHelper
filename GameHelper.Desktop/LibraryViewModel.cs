@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 
@@ -15,6 +16,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly List<AsyncCommand> _commands = [];
     private readonly ObservableCollection<LibraryGameItem> _games = [];
+    private readonly Dictionary<string, LibraryGameItem> _gameIndex = new(StringComparer.OrdinalIgnoreCase);
     private readonly LibraryDraftStore? _draftStore;
     private readonly SteamPosterLibrary _posters;
     private Dictionary<string, LibraryDraft> _restoredDrafts = new(StringComparer.OrdinalIgnoreCase);
@@ -34,7 +36,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     internal LibraryViewModel(IGameLibrary library, string? configPath, SteamPosterLibrary? posters)
     {
         _library = library;
-        Statistics = new StatisticsViewModel(library);
+        Statistics = new StatisticsViewModel(library, FindArtwork);
         _posters = posters ?? new SteamPosterLibrary(configPath, allowNetwork: configPath is not null);
         if (configPath is not null)
         {
@@ -199,6 +201,8 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             if (oldIndex >= 0) _games.Move(oldIndex, index); else _games.Insert(index, updated[index]);
         }
         while (_games.Count > updated.Count) _games.RemoveAt(_games.Count - 1);
+        _gameIndex.Clear();
+        foreach (var game in _games) _gameIndex[game.DataKey] = game;
         if (!Games.Cast<LibraryGameItem>().SequenceEqual(_games.Where(item => Matches(item)))) Games.Refresh();
         Changed(nameof(Count)); Changed(nameof(InstallationSummary));
         Selected = Games.Cast<LibraryGameItem>().FirstOrDefault(game => game.DataKey == key) ?? Games.Cast<LibraryGameItem>().FirstOrDefault();
@@ -283,11 +287,14 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private void OnItemChanged(object? sender, PropertyChangedEventArgs e)
     {
         RefreshCommands();
+        if (e.PropertyName is nameof(LibraryGameItem.Artwork) or nameof(LibraryGameItem.ArtworkIsCover)) Statistics.RefreshArtwork();
         if (e.PropertyName is nameof(LibraryGameItem.Name) or nameof(LibraryGameItem.Executable) or nameof(LibraryGameItem.Target)
             or nameof(LibraryGameItem.Arguments) or nameof(LibraryGameItem.Directory) or nameof(LibraryGameItem.Speed)
             or nameof(LibraryGameItem.Hdr) or nameof(LibraryGameItem.Enabled) or nameof(LibraryGameItem.UseSpeed) or nameof(LibraryGameItem.IsDirty)
             or nameof(LibraryGameItem.UseDs4Windows) or nameof(LibraryGameItem.Ds4WindowsPath)) PersistDrafts();
     }
+    private ImageSource? FindArtwork(string dataKey)
+        => _gameIndex.TryGetValue(dataKey, out var game) && game.ArtworkIsCover ? game.Artwork : null;
     private void PersistDrafts()
     {
         try { _draftStore?.Write(_games.Where(game => game.IsDirty).Select(game => game.ExportDraft())); }
