@@ -153,6 +153,22 @@ public sealed class GameLibraryTests
     }
 
     [Fact]
+    public void PipeClient_IdentityCheck_PassesForSameAccountServer()
+    {
+        var name = "GameHelper.Tests." + Guid.NewGuid().ToString("N");
+        using var server = new System.IO.Pipes.NamedPipeServerStream(name, System.IO.Pipes.PipeDirection.InOut,
+            1, System.IO.Pipes.PipeTransmissionMode.Byte, System.IO.Pipes.PipeOptions.Asynchronous);
+        using var client = new System.IO.Pipes.NamedPipeClientStream(".", name,
+            System.IO.Pipes.PipeDirection.InOut, System.IO.Pipes.PipeOptions.Asynchronous);
+        var accepted = server.WaitForConnectionAsync();
+        client.Connect(2000);
+        accepted.Wait(TimeSpan.FromSeconds(5));
+
+        // 测试进程即服务端：同账户同令牌家族，必须通过身份校验（取代 .NET 跨铸造方式的"所有者"校验）。
+        GameHelper.Infrastructure.Ipc.GameLibraryPipe.EnsurePipeOwnedByCurrentUser(client);
+    }
+
+    [Fact]
     public async Task List_ExposesRunningSessionStartForLiveTimer()
     {
         var source = new MemoryConfiguration(new AppConfig { Games = [new() { DataKey = "a", Executable = "a.exe" }] });
