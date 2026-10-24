@@ -10,8 +10,8 @@
   <ItemsPanelTemplate x:Key="CardsPanel"><WrapPanel /></ItemsPanelTemplate>
   <ItemsPanelTemplate x:Key="RowsPanel"><VirtualizingStackPanel /></ItemsPanelTemplate>
   <DataTemplate x:Key="CardTemplate">
-   <StackPanel Width="180" Margin="10">
-    <Border Height="270" CornerRadius="6" ClipToBounds="True">
+   <StackPanel Width="158" Margin="8">
+    <Border Height="237" CornerRadius="10" ClipToBounds="True">
      <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="{DynamicResource PosterGradientStart}" /><GradientStop Color="{DynamicResource PosterGradientEnd}" Offset="1" /></LinearGradientBrush></Border.Background>
      <Grid>
       <Image Source="{Binding Artwork}" Stretch="UniformToFill" Visibility="{Binding ArtworkIsCover, Converter={StaticResource BoolVisibility}}" />
@@ -39,16 +39,20 @@
   </DataTemplate>
  </Window.Resources>
  <Grid>
-  <Grid.ColumnDefinitions><ColumnDefinition Width="188" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+  <Grid.ColumnDefinitions><ColumnDefinition Width="208" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
   <Border Background="{DynamicResource Sidebar}" BorderBrush="{DynamicResource PanelBorder}" BorderThickness="0,0,1,0">
-   <Grid Margin="22,30">
+   <Grid Margin="18,26">
     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-    <StackPanel><Image Source="{StaticResource BrandMark}" Width="46" Height="46" HorizontalAlignment="Left" /><TextBlock Text="GameHelper" FontSize="20" FontWeight="SemiBold" Margin="0,16,0,0" /><TextBlock Text="P L A Y  /  C O L L E C T" FontSize="9" Foreground="{DynamicResource Muted}" Margin="0,8,0,0" /></StackPanel>
-    <StackPanel Grid.Row="1" Margin="0,38,0,0">
-     <Button x:Name="LibraryNav" Content="◈   游戏库" Click="OnLibrary" Background="{DynamicResource NavigationSelected}" FontWeight="SemiBold" />
+    <StackPanel Orientation="Horizontal"><Border Background="#FAF9FC" CornerRadius="8" Padding="3" Margin="0,0,10,0" VerticalAlignment="Top"><Image Source="{StaticResource BrandMark}" Width="30" Height="32" /></Border><StackPanel><TextBlock Text="GameHelper" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="YOUR PLAY, IN PLACE." FontSize="8" Foreground="{DynamicResource Muted}" Margin="0,6,0,0" /></StackPanel></StackPanel>
+    <StackPanel Grid.Row="1" Margin="0,34,0,0">
+     <Button x:Name="LibraryNav" Content="▦   游戏库" Click="OnLibrary" Background="{DynamicResource NavigationSelected}" FontWeight="SemiBold" />
      <Button x:Name="StatisticsNav" Content="◷   游玩档案" Click="OnStatistics" Background="Transparent" FontWeight="SemiBold" Margin="0,8,0,0" />
      <StackPanel x:Name="LibraryTools"><Button Content="＋  添加游戏" Click="OnAdd" IsEnabled="{Binding Ready}" Margin="0,18,0,8" /><Button Content="扫描目录" Click="OnScanDirectory" IsEnabled="{Binding Ready}" Margin="0,0,0,8" /><Button Content="扫描 Steam" Click="OnSteam" IsEnabled="{Binding Ready}" /></StackPanel>
     </StackPanel>
+    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,28,0,12"><StackPanel>
+     <TextBlock Text="游戏类型" FontSize="11" Foreground="{DynamicResource Muted}" Margin="12,0,0,10" />
+     <ItemsControl ItemsSource="{Binding GenreGroups}"><ItemsControl.ItemTemplate><DataTemplate><Button Click="OnGenre" Tag="{Binding Name}" Background="Transparent" BorderBrush="Transparent" Margin="0,2" HorizontalContentAlignment="Stretch" Padding="12,9"><Grid Width="142"><TextBlock Text="{Binding Name}" FontSize="12" /><TextBlock Text="{Binding Count}" FontSize="11" Foreground="{DynamicResource Muted}" HorizontalAlignment="Right" /></Grid></Button></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+    </StackPanel></ScrollViewer>
     <StackPanel Grid.Row="3"><Button x:Name="ThemeButton" Content="浅色主题" Click="OnTheme" Margin="0,0,0,10" AutomationProperties.Name="切换浅色或深色主题" /><Button x:Name="ReloadButton" Content="重新载入" Click="OnReload" IsEnabled="{Binding Ready}" ToolTip="放弃未保存设置并重新载入" /></StackPanel>
    </Grid>
   </Border>
@@ -56,17 +60,22 @@
    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
    <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="280" /></Grid.ColumnDefinitions>
-    <StackPanel><TextBlock Text="Y O U R  P E R S O N A L  C O L L E C T I O N" FontSize="10" Foreground="{DynamicResource Muted}" Margin="0,0,0,8" /><TextBlock Text="让热爱，有处珍藏。" FontSize="30" FontWeight="SemiBold" /><TextBlock Text="{Binding Count}" Foreground="{DynamicResource Muted}" Margin="0,8,0,0" /></StackPanel>
+    <StackPanel><TextBlock Text="Y O U R  P L A Y,  I N  P L A C E" FontSize="10" Foreground="{DynamicResource Muted}" Margin="0,0,0,8" /><TextBlock Text="{Binding CollectionTitle}" FontSize="30" FontWeight="SemiBold" /><TextBlock Text="{Binding CollectionCaption}" Foreground="{DynamicResource Muted}" Margin="0,8,0,0" /></StackPanel>
     <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="搜索游戏 · Ctrl+F" Foreground="{DynamicResource Muted}" FontSize="11" /><TextBox x:Name="SearchBox" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="搜索游戏" /></StackPanel>
    </Grid>
    <StackPanel Grid.Row="1" Margin="0,22,0,15">
+    <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource PanelBorder}" BorderThickness="1" CornerRadius="12" Padding="20,14" Margin="0,0,0,18" Visibility="{Binding HasContinueGame, Converter={StaticResource BoolVisibility}}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="84" /></Grid.ColumnDefinitions>
+     <StackPanel VerticalAlignment="Center"><TextBlock Text="C O N T I N U E  P L A Y I N G" FontSize="9" Foreground="{DynamicResource Muted}" /><TextBlock Text="{Binding ContinueGame.Name}" FontSize="23" FontWeight="SemiBold" Margin="0,9,0,7" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding ContinueGame.LastPlayedLabel}" FontSize="12" Foreground="{DynamicResource Muted}" /></StackPanel>
+     <Button Grid.Column="1" Content="继续旅程  →" Click="OnContinue" VerticalAlignment="Center" Margin="16,0,20,0" />
+     <local:GamePosterTile Grid.Column="2" Artwork="{Binding ContinueGame.Artwork}" Label="{Binding ContinueGame.Initial}" Width="68" Height="94" />
+    </Grid></Border>
     <DockPanel>
      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button x:Name="GridLayout" Background="{DynamicResource SelectedSurface}" Content="网格" Tag="grid" Click="OnLayout" Margin="0,0,8,0" /><Button x:Name="ListLayout" Content="列表" Tag="list" Click="OnLayout" /></StackPanel>
      <StackPanel Orientation="Horizontal"><Button x:Name="InstalledGroup" Content="本机已安装" Tag="installed" Click="OnInstallationGroup" Background="{DynamicResource SelectedSurface}" Margin="0,0,8,0" /><Button x:Name="MissingGroup" Content="本地未找到" Tag="missing" Click="OnInstallationGroup" Margin="0,0,8,0" /><Button x:Name="UnknownGroup" Content="待确认" Tag="unknown" Click="OnInstallationGroup" Margin="0,0,8,0" /><Button x:Name="AllGroup" Content="全部" Tag="all" Click="OnInstallationGroup" /></StackPanel>
     </DockPanel>
     <DockPanel Margin="0,10,0,0">
      <Button DockPanel.Dock="Right" Content="按名称补全海报" Click="OnMatchMissingPosters" IsEnabled="{Binding Ready}" />
-     <StackPanel Orientation="Horizontal"><Button x:Name="AllType" Background="{DynamicResource SelectedSurface}" Content="所有类型" Tag="all" Click="OnFilter" Margin="0,0,8,0" /><Button x:Name="HdrType" Content="HDR" Tag="hdr" Click="OnFilter" Margin="0,0,8,0" /><Button x:Name="SpeedType" Content="倍速" Tag="speed" Click="OnFilter" /><TextBlock Text="{Binding InstallationSummary}" FontSize="11" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="14,0,0,0" /></StackPanel>
+     <StackPanel Orientation="Horizontal"><Button x:Name="AllType" Background="{DynamicResource SelectedSurface}" Content="全部能力" Tag="all" Click="OnFilter" Margin="0,0,8,0" /><Button x:Name="HdrType" Content="HDR" Tag="hdr" Click="OnFilter" Margin="0,0,8,0" /><Button x:Name="SpeedType" Content="倍速" Tag="speed" Click="OnFilter" /><TextBlock Text="{Binding InstallationSummary}" FontSize="11" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" Margin="14,0,0,0" /></StackPanel>
     </DockPanel>
    </StackPanel>
    <Grid Grid.Row="2">
@@ -78,26 +87,27 @@
      <TextBlock Text="还没有找到游戏" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,12" />
      <TextBlock Text="试试其他名称或分组，也可以扫描目录、添加程序。" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" LineHeight="22" />
     </StackPanel>
-    <Border Grid.Column="1" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource PanelBorder}" BorderThickness="1" CornerRadius="8" Margin="18,0,0,0">
+    <Border Grid.Column="1" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource PanelBorder}" BorderThickness="1" CornerRadius="14" Margin="20,0,0,0">
      <Grid>
       <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
      <StackPanel VerticalAlignment="Center" Margin="28">
       <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding Selected}" Value="{x:Null}"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
-      <Image Source="{StaticResource BrandMark}" Width="48" Height="48" HorizontalAlignment="Left" Margin="0,0,0,20" />
+      <Border Background="#FAF9FC" CornerRadius="10" Padding="5" HorizontalAlignment="Left" Margin="0,0,0,20"><Image Source="{StaticResource BrandMark}" Width="42" Height="42" /></Border>
       <TextBlock Text="下一段旅程，由你选择。" FontSize="20" TextWrapping="Wrap" Margin="0,0,0,12" />
       <TextBlock Text="选择一款游戏，查看记录与启动设置。" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" LineHeight="22" />
      </StackPanel>
      <ScrollViewer x:Name="GameDetailsScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="20">
       <ScrollViewer.Style><Style TargetType="ScrollViewer"><Style.Triggers><DataTrigger Binding="{Binding Selected}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></ScrollViewer.Style>
       <StackPanel>
-       <TextBlock Text="S E L E C T E D  /  G A M E" FontSize="10" Foreground="{DynamicResource Muted}" Margin="0,0,0,16" />
+       <TextBlock Text="I N  Y O U R  C O L L E C T I O N" FontSize="10" Foreground="{DynamicResource Muted}" Margin="0,0,0,16" />
        <Border Height="126" CornerRadius="6" Background="{DynamicResource TooltipSurface}" ClipToBounds="True" Margin="0,0,0,18">
         <Grid><TextBlock Text="{Binding Selected.Initial}" FontSize="56" FontWeight="Light" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center" VerticalAlignment="Center" /><Image Source="{Binding Selected.Artwork}" Stretch="UniformToFill" Visibility="{Binding Selected.ArtworkIsCover, Converter={StaticResource BoolVisibility}}" /><Border><Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#0019211E" /><GradientStop Color="{DynamicResource SurfaceFade}" Offset="1" /></LinearGradientBrush></Border.Background></Border></Grid>
        </Border>
        <TextBlock Text="{Binding Selected.Name, TargetNullValue=请选择游戏, FallbackValue=请选择游戏}" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" />
-       <TextBlock Text="{Binding Selected.StateDisplay}" Foreground="{DynamicResource Accent}" Margin="0,10,0,4" /><TextBlock Text="{Binding Selected.Playtime}" Foreground="{DynamicResource Muted}" FontSize="12" />
+       <TextBlock Text="{Binding Selected.StateDisplay}" Foreground="{DynamicResource Accent}" Margin="0,10,0,4" /><TextBlock Text="{Binding Selected.Playtime}" Foreground="{DynamicResource Muted}" FontSize="12" /><TextBlock Text="{Binding Selected.LastPlayedLabel}" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,6,0,0" />
        <TextBlock Text="{Binding Selected.InstallationLabel}" ToolTip="{Binding Selected.InstallationDetail}" Foreground="{DynamicResource TextSecondary}" FontSize="12" Margin="0,8,0,0" />
        <TextBlock Text="{Binding Selected.PosterStatus}" Foreground="{DynamicResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0" />
+       <TextBlock Text="{Binding Selected.GenreLabel}" Foreground="{DynamicResource TextSecondary}" FontSize="12" Margin="0,12,0,0" TextWrapping="Wrap" /><Button Content="编辑游戏类型…" Click="OnEditGenres" IsEnabled="{Binding Ready}" Margin="0,8,0,0" />
        <Button Content="匹配 / 重试 Steam 海报…" Click="OnPoster" IsEnabled="{Binding Ready}" Margin="0,10,0,0" />
        <StackPanel DataContext="{Binding Selected}" IsEnabled="{Binding DataContext.Ready, RelativeSource={RelativeSource AncestorType=Window}}">
         <TextBlock Text="游戏名称" Foreground="{DynamicResource Muted}" FontSize="12" />

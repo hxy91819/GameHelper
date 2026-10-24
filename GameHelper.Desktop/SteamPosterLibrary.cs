@@ -35,6 +35,9 @@ internal sealed class SteamPosterLibrary
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { _links = []; }
     }
 
+    internal bool AllowNetwork => _allowNetwork;
+    internal uint? AssociatedAppId(string dataKey) => _links.TryGetValue(dataKey, out var linked) ? linked : null;
+
     public Task<IReadOnlyList<SteamArtworkGame>> SearchAsync(string query, CancellationToken cancellationToken) => _client.SearchAsync(query, cancellationToken);
     internal bool HasAssociation(string dataKey) => _links.ContainsKey(dataKey);
     internal async Task<bool> MatchNameAsync(string dataKey, string title, CancellationToken cancellationToken)

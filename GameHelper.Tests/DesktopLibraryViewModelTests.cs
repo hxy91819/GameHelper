@@ -9,6 +9,116 @@ namespace GameHelper.Tests;
 public sealed class DesktopLibraryViewModelTests
 {
     [Fact]
+    public Task SaveChangedSteamTarget_RefreshesAutomaticGenres() => OnDispatcher(async () =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gh-genre-identity-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            using var http = new System.Net.Http.HttpClient(new GenreIdentityHandler());
+            var config = Path.Combine(root, "config.yml");
+            var artwork = new GameHelper.Infrastructure.Artwork.SteamArtworkClient(http, Path.Combine(root, "posters"), _ => false);
+            var posters = new SteamPosterLibrary(config, true, artwork, _ => null);
+            var clock = new FixedClock(DateTimeOffset.UnixEpoch);
+            var genres = new GameHelper.Infrastructure.Artwork.SteamGenreClient(http, Path.Combine(root, "genres"), clock);
+            var backend = new Backend(); backend.Game.Launch = new GameLaunchOptions { Target = "steam://rungameid/123" };
+            using var model = new LibraryViewModel(backend, config, posters, genreClient: genres);
+            await model.RefreshAsync(); await model.Selected!.GenresLoading;
+            Assert.Equal("动作", model.Selected.GenreLabel);
+            clock.Advance(TimeSpan.FromSeconds(2));
+            model.Selected.Target = "steam://rungameid/456"; model.SaveCommand.Execute(null);
+            await model.Selected!.GenresLoading;
+            Assert.Equal("策略", model.Selected.GenreLabel);
+        }
+        finally { Directory.Delete(root, true); }
+    });
+
+    private sealed class GenreIdentityHandler : System.Net.Http.HttpMessageHandler
+    {
+        protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new System.Net.Http.HttpResponseMessage(request.RequestUri!.AbsolutePath.EndsWith("appdetails", StringComparison.Ordinal)
+                ? System.Net.HttpStatusCode.OK : System.Net.HttpStatusCode.NotFound)
+            { Content = new System.Net.Http.StringContent("""{"123":{"success":true,"data":{"genres":[{"description":"动作"}]}},"456":{"success":true,"data":{"genres":[{"description":"策略"}]}}}""") });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task SaveDuringGenreRequest_TransfersResultWithoutOverwritingManualChoice(bool manual) => OnDispatcher(async () =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gh-pending-genres-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            using var handler = new DeferredGenreHandler();
+            using var http = new System.Net.Http.HttpClient(handler);
+            var client = new GameHelper.Infrastructure.Artwork.SteamArtworkClient(http, Path.Combine(root, "posters"), _ => false);
+            var config = Path.Combine(root, "config.yml");
+            var posters = new SteamPosterLibrary(config, true, client, _ => null);
+            var genres = new GameHelper.Infrastructure.Artwork.SteamGenreClient(http, Path.Combine(root, "genres"));
+            var backend = new Backend(); backend.Game.Launch = new GameLaunchOptions { Target = "steam://rungameid/123" };
+            using var model = new LibraryViewModel(backend, config, posters, genreClient: genres);
+            await model.RefreshAsync(); await handler.Started.Task;
+            var original = model.Selected!;
+            original.Hdr = true; model.SaveCommand.Execute(null);
+            var replacement = model.Selected!;
+            Assert.NotSame(original, replacement);
+            if (manual) await model.SaveGenresAsync(replacement, ["策略"]);
+            handler.Response.SetResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            { Content = new System.Net.Http.StringContent("""{"123":{"success":true,"data":{"genres":[{"description":"动作"}]}}}""") });
+            await original.GenresLoading; await replacement.GenresLoading;
+            // Yield to the carried result when manual loading replaced the public task.
+            await System.Windows.Threading.Dispatcher.Yield();
+            Assert.Equal(manual ? "策略" : "动作", replacement.GenreLabel);
+            Assert.Equal(1, backend.Saves);
+        }
+        finally { Directory.Delete(root, true); }
+    });
+
+    private sealed class DeferredGenreHandler : System.Net.Http.HttpMessageHandler
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<System.Net.Http.HttpResponseMessage> Response { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("appdetails", StringComparison.Ordinal))
+            { Started.TrySetResult(); return Response.Task.WaitAsync(cancellationToken); }
+            return Task.FromResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.NotFound));
+        }
+    }
+
+    [Fact]
+    public Task LaunchAfterSavingFilteredGame_KeepsOriginalTargetAndKnownGenres() => OnSta(() =>
+    {
+        var backend = new Backend(); backend.Game.Launch = new GameLaunchOptions { Target = "launch.exe" };
+        using var model = new LibraryViewModel(backend);
+        model.RefreshAsync().GetAwaiter().GetResult();
+        model.Selected!.GenresLoading.GetAwaiter().GetResult();
+        model.Selected.SetGenres(["动作", "角色扮演"]);
+        model.SetGenre("角色扮演");
+        model.Selected!.Hdr = true;
+        model.LaunchCommand.Execute(null);
+        Assert.Equal(1, backend.Saves);
+        Assert.True(backend.Launches == 1, model.Status);
+        Assert.Equal("a", model.Selected!.DataKey);
+        Assert.Contains("角色扮演", model.Selected.Genres);
+    });
+
+    [Fact]
+    public Task GenreFilters_SupportMultipleMembershipAndKeepDrafts() => OnSta(() =>
+    {
+        using var model = new LibraryViewModel(new Backend());
+        model.RefreshAsync().GetAwaiter().GetResult();
+        var game = model.Selected!; game.GenresLoading.GetAwaiter().GetResult(); game.Name = "draft";
+        game.SetGenres(["动作", "角色扮演"]);
+        Assert.Equal(2, model.GenreGroups.Count);
+        model.SetGenre("角色扮演"); Assert.Same(game, model.Selected);
+        model.SetGenre("未分类"); Assert.True(model.Games.IsEmpty);
+        model.SetGenre(null); Assert.Same(game, model.Selected); Assert.True(game.IsDirty);
+        game.SetGenres([]); model.SetGenre("未分类"); Assert.Same(game, model.Selected);
+    });
+
+    [Fact]
     public Task PosterRefresh_WhenOfflineRetainsSteamClientCache() => OnSta(() =>
     {
         var root = Path.Combine(Path.GetTempPath(), "gh-poster-offline", Guid.NewGuid().ToString("N"));
@@ -332,6 +442,25 @@ public sealed class DesktopLibraryViewModelTests
         Assert.Equal("未运行", item.StateDisplay);
         Assert.Null(item.RunningSessionLine);
     });
+
+    private static Task OnDispatcher(Func<Task> test)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext(dispatcher));
+            dispatcher.BeginInvoke(new Action(async () =>
+            {
+                try { await test(); completion.SetResult(); }
+                catch (Exception ex) { completion.SetException(ex); }
+                finally { dispatcher.BeginInvokeShutdown(System.Windows.Threading.DispatcherPriority.Background); }
+            }));
+            System.Windows.Threading.Dispatcher.Run();
+        }) { IsBackground = true };
+        thread.SetApartmentState(ApartmentState.STA); thread.Start();
+        return completion.Task.WaitAsync(TimeSpan.FromSeconds(15));
+    }
 
     private static Task OnSta(Action action)
     {

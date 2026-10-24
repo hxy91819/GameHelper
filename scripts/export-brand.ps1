@@ -1,4 +1,4 @@
-# Regenerate PNG and multi-resolution ICO from the same vector used by WPF.
+﻿# Regenerate PNG and multi-resolution ICO from the same vector used by WPF.
 # Run with Windows PowerShell (STA): powershell -STA -File scripts/export-brand.ps1
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationCore, PresentationFramework, WindowsBase
@@ -8,9 +8,11 @@ $drawing = $dictionary['BrandMark'].Drawing
 function Render-Brand([int] $size) {
     $visual = New-Object Windows.Media.DrawingVisual
     $context = $visual.RenderOpen()
+    $scale = $size / 64
+    $context.PushTransform((New-Object Windows.Media.ScaleTransform $scale, $scale))
     $context.DrawDrawing($drawing)
+    $context.Pop()
     $context.Close()
-    $visual.Transform = New-Object Windows.Media.ScaleTransform ($size / 128), ($size / 128)
     $bitmap = New-Object Windows.Media.Imaging.RenderTargetBitmap $size, $size, 96, 96, ([Windows.Media.PixelFormats]::Pbgra32)
     $bitmap.Render($visual)
     $encoder = New-Object Windows.Media.Imaging.PngBitmapEncoder

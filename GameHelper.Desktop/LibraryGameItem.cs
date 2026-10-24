@@ -35,6 +35,7 @@ public sealed class LibraryGameItem : ObservableState
     public LibraryGameItem(LibraryGame row)
     {
         _baseline = row;
+        LastPlayedAt = row.LastPlayedAt;
         _installation = row.Installation;
         DataKey = row.Config.DataKey;
         Revision = row.Revision;
@@ -54,8 +55,22 @@ public sealed class LibraryGameItem : ObservableState
         _runningStartedAt = row.RunningStartedAt;
     }
 
+    private IReadOnlyList<string> _genres = [];
+    public IReadOnlyList<string> Genres => _genres;
+    public string GenreLabel => _genres.Count == 0 ? "未分类" : string.Join(" · ", _genres);
+    internal Task GenresLoading { get; set; } = Task.CompletedTask;
+    internal int GenreVersion { get; set; }
+    internal (string Executable, string Target)? GenreIdentity { get; set; }
+    internal void SetGenres(IReadOnlyList<string> genres)
+    {
+        if (_genres.SequenceEqual(genres, StringComparer.OrdinalIgnoreCase)) return;
+        _genres = genres.ToArray();
+        Changed(nameof(Genres)); Changed(nameof(GenreLabel));
+    }
     public string DataKey { get; }
     public string Revision { get; }
+    public DateTimeOffset? LastPlayedAt { get; private set; }
+    public string LastPlayedLabel => LastPlayedAt is { } date ? $"最近游玩 {date.LocalDateTime:MM/dd HH:mm}" : "尚无已完成记录";
     public string Name { get => _name; set { if (Set(ref _name, value)) Edited(); } }
     public string Executable { get => _executable; set { if (Set(ref _executable, value)) Edited(); } }
     public string Target { get => _target; set { if (Set(ref _target, value)) Edited(); } }
@@ -95,6 +110,7 @@ public sealed class LibraryGameItem : ObservableState
 
     public void RefreshRuntime(LibraryGame row)
     {
+        LastPlayedAt = row.LastPlayedAt; Changed(nameof(LastPlayedLabel));
         var startChanged = _runningStartedAt != row.RunningStartedAt;
         var stateChanged = _state != row.State;
         State = row.State;

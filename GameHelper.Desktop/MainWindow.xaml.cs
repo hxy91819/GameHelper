@@ -57,7 +57,27 @@ public partial class MainWindow : Window
         ReloadButton.ToolTip = statistics ? "重新读取历史游玩记录" : "放弃未保存设置并重新载入";
     }
     private async void OnStatistics(object sender, RoutedEventArgs e) { Navigate(true); await _model.Statistics.EnsureLoadedAsync(); }
-    private async void OnLibrary(object sender, RoutedEventArgs e) { Navigate(false); await _model.RefreshAsync(); }
+    private async void OnLibrary(object sender, RoutedEventArgs e) { _model.SetGenre(null); Navigate(false); await _model.RefreshAsync(); }
+    private void OnContinue(object sender, RoutedEventArgs e)
+    {
+        if (_model.ContinueGame is not { } game) return;
+        _model.Search = string.Empty; _model.SetFilter("all");
+        SelectButton(new[] { AllType, HdrType, SpeedType }, "all");
+        SetInstallationGroup("installed"); _model.Selected = game;
+        GameList.ScrollIntoView(game);
+        if (_model.LaunchCommand.CanExecute(null)) _model.LaunchCommand.Execute(null);
+    }
+    private void OnGenre(object sender, RoutedEventArgs e)
+    {
+        Navigate(false);
+        _model.SetGenre((string)((Button)sender).Tag);
+    }
+    private void OnEditGenres(object sender, RoutedEventArgs e)
+    {
+        if (_model.Selected is not { } game) return;
+        var dialog = new GenreEditorWindow(_model, game) { Owner = this };
+        dialog.ShowDialog();
+    }
     private void OnFilter(object sender, RoutedEventArgs e)
     {
         var filter = (string)((Button)sender).Tag;

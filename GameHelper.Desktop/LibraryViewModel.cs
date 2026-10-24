@@ -20,6 +20,16 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private readonly Dictionary<string, LibraryGameItem> _gameIndex = new(StringComparer.OrdinalIgnoreCase);
     private readonly LibraryDraftStore? _draftStore;
     private readonly SteamPosterLibrary _posters;
+    private readonly LibraryGenreStore _genreStore;
+    private readonly GameHelper.Infrastructure.Artwork.SteamGenreClient _genreClient;
+    private static readonly System.Net.Http.HttpClient GenreHttp = new(new System.Net.Http.SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(12) };
+    private readonly bool _allowGenreNetwork;
+    private string? _genre;
+    public ObservableCollection<GenreGroup> GenreGroups { get; } = [];
+    public LibraryGameItem? ContinueGame => _genre is null ? _games.Where(game => game.InstallationState == GameInstallationState.Installed && (game.IsRunning || game.LastPlayedAt is not null)).OrderByDescending(game => game.IsRunning).ThenByDescending(game => game.LastPlayedAt).FirstOrDefault() : null;
+    public bool HasContinueGame => ContinueGame is not null;
+    public string CollectionTitle => _genre ?? "我的游戏";
+    public string CollectionCaption => _genre is null ? "每一段冒险，都值得珍藏。" : "按游戏类型浏览 · 一款游戏可以属于多个类型";
     private Dictionary<string, LibraryDraft> _restoredDrafts = new(StringComparer.OrdinalIgnoreCase);
     private LibraryGameItem? _selected;
     private bool _busy;
@@ -34,14 +44,17 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private readonly DispatcherTimer? _elapsedTimer;
     private readonly TimeProvider _timeProvider;
 
-    public LibraryViewModel(IGameLibrary library, string? configPath = null) : this(library, configPath, null) { }
+    public LibraryViewModel(IGameLibrary library, string? configPath = null, string? metadataConfigPath = null) : this(library, configPath, null, metadataConfigPath: metadataConfigPath) { }
 
-    internal LibraryViewModel(IGameLibrary library, string? configPath, SteamPosterLibrary? posters, TimeProvider? timeProvider = null)
+    internal LibraryViewModel(IGameLibrary library, string? configPath, SteamPosterLibrary? posters, TimeProvider? timeProvider = null, string? metadataConfigPath = null, GameHelper.Infrastructure.Artwork.SteamGenreClient? genreClient = null)
     {
         _library = library;
+        _genreStore = new LibraryGenreStore(configPath ?? metadataConfigPath);
+        _allowGenreNetwork = configPath is not null && (posters?.AllowNetwork ?? true);
+        _genreClient = genreClient ?? new(GenreHttp, Path.Combine(GameHelper.Core.Utilities.AppDataPath.GetGameHelperDirectory(), "cache", "steam-genres"));
         _timeProvider = timeProvider ?? TimeProvider.System;
         Statistics = new StatisticsViewModel(library, FindArtwork);
-        _posters = posters ?? new SteamPosterLibrary(configPath, allowNetwork: configPath is not null);
+        _posters = posters ?? new SteamPosterLibrary(configPath ?? metadataConfigPath, allowNetwork: configPath is not null);
         if (configPath is not null)
         {
             _draftStore = new LibraryDraftStore(configPath);
@@ -55,8 +68,10 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         SaveCommand = Command(() => RunAsync(SaveSelectedAsync), () => Ready && Selected?.IsDirty == true);
         LaunchCommand = Command(() => RunAsync(async () =>
         {
+            var targetKey = Selected?.DataKey;
+            if (targetKey is null) return;
             if (Selected?.IsDirty == true) await SaveSelectedAsync();
-            if (Selected is not null) await SendAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Launch, DataKey = Selected.DataKey });
+            await SendAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Launch, DataKey = targetKey });
         }), () => Ready && Selected is not null && !string.IsNullOrWhiteSpace(Selected.Target) && !Selected.IsRunning && Selected.State != "启动中");
         // 秒级计时时钟只在 UI 线程泵下跳；测试线程可直接调 OnClockTick 驱动。
         _elapsedTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -96,6 +111,45 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             : ex.Message;
     }
 
+    public void SetGenre(string? genre) { _genre = genre; Changed(nameof(CollectionTitle)); Changed(nameof(CollectionCaption)); Changed(nameof(ContinueGame)); Changed(nameof(HasContinueGame)); Filter(); }
+    private void RebuildGenres()
+    {
+        var groups = _games.SelectMany(game => game.Genres.Count == 0 ? new[] { "未分类" } : game.Genres)
+            .GroupBy(genre => genre, StringComparer.OrdinalIgnoreCase).OrderBy(group => group.Key == "未分类").ThenBy(group => group.Key)
+            .Select(group => new GenreGroup(group.Key, group.Count())).ToList();
+        if (!GenreGroups.SequenceEqual(groups)) { GenreGroups.Clear(); foreach (var group in groups) GenreGroups.Add(group); }
+    }
+    internal async Task LoadGenresAsync(LibraryGameItem game)
+    {
+        var version = ++game.GenreVersion;
+        game.GenreIdentity = (game.Executable, game.Target);
+        if (_genreStore.TryRead(game.DataKey, out var manual)) { game.SetGenres(manual); return; }
+        try
+        {
+            var key = game.DataKey; var executable = game.Executable; var target = game.Target;
+            var linked = _posters.AssociatedAppId(key);
+            var id = linked ?? await Task.Run(() => GameHelper.Infrastructure.Artwork.SteamArtworkIdentity.Resolve(executable, target), _lifetime.Token);
+            var genres = id is { } appId ? await _genreClient.GetAsync(appId, _allowGenreNetwork, _lifetime.Token) : [];
+            if (_lifetime.IsCancellationRequested || version != game.GenreVersion) return;
+            game.SetGenres(_genreStore.TryRead(key, out manual) ? manual : genres);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Status = "类型暂不可用，将继续使用本地分类。"; }
+    }
+    private async Task CarryGenresAsync(LibraryGameItem previous, LibraryGameItem current)
+    {
+        var version = current.GenreVersion;
+        await previous.GenresLoading;
+        if (!_lifetime.IsCancellationRequested && current.GenreVersion == version) current.SetGenres(previous.Genres);
+    }
+    internal Task SaveGenresAsync(LibraryGameItem game, string[]? genres)
+    {
+        _genreStore.Save(game.DataKey, genres);
+        // Reset is immediate; network work belongs to the window lifetime, not the editor dialog.
+        if (genres is null) game.SetGenres([]);
+        game.GenresLoading = LoadGenresAsync(game);
+        return Task.CompletedTask;
+    }
     public void SetFilter(string filter) { _filter = filter; Filter(); }
     public void SetInstallationGroup(string group) { _group = group; Changed(nameof(InstallationGroup)); Filter(); }
 
@@ -110,6 +164,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         var game = (LibraryGameItem)value;
         return (_group == "all" || (_group == "installed" && game.InstallationState == GameInstallationState.Installed)
                 || (_group == "missing" && game.InstallationState == GameInstallationState.Missing) || (_group == "unknown" && game.InstallationState == GameInstallationState.Unknown))
+            && (_genre is null || (_genre == "未分类" ? game.Genres.Count == 0 : game.Genres.Contains(_genre, StringComparer.OrdinalIgnoreCase)))
             && (_filter != "hdr" || game.Hdr) && (_filter != "speed" || game.UseSpeed)
             && (game.Name.Contains(Search.Trim(), StringComparison.OrdinalIgnoreCase) || game.Executable.Contains(Search.Trim(), StringComparison.OrdinalIgnoreCase));
     }
@@ -164,8 +219,6 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         }, _lifetime.Token);
         if (!response.Success) throw new InvalidOperationException(response.Error);
         // Replace only the saved draft; other games may have unsaved changes.
-        var old = _games.FirstOrDefault(game => game.DataKey == key);
-        if (old is not null) _games.Remove(old);
         Apply(response, false, key);
     }
 
@@ -196,7 +249,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
                 item.PropertyChanged += OnItemChanged;
                 item.ArtworkLoading = item.LoadArtworkAsync(_posters, _lifetime.Token);
             }
-            else if (!discardDrafts && old.TryGetValue(row.Config.DataKey, out var draft) && (draft.IsDirty || draft.Revision == row.Revision))
+            else if (!discardDrafts && !string.Equals(selectedKey, row.Config.DataKey, StringComparison.OrdinalIgnoreCase) && old.TryGetValue(row.Config.DataKey, out var draft) && (draft.IsDirty || draft.Revision == row.Revision))
             {
                 item = draft;
                 item.RefreshRuntime(row);
@@ -204,9 +257,14 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             else
             {
                 item = new LibraryGameItem(row);
+                if (old.TryGetValue(row.Config.DataKey, out var previous) && previous.GenreIdentity == (item.Executable, item.Target))
+                { item.SetGenres(previous.Genres); item.GenreIdentity = previous.GenreIdentity; }
                 item.PropertyChanged += OnItemChanged;
                 item.ArtworkLoading = item.LoadArtworkAsync(_posters, _lifetime.Token);
             }
+            if (discardDrafts || !old.TryGetValue(row.Config.DataKey, out var existing) || existing.GenreIdentity != (item.Executable, item.Target))
+                item.GenresLoading = LoadGenresAsync(item);
+            else if (!ReferenceEquals(existing, item)) item.GenresLoading = CarryGenresAsync(existing, item);
             updated.Add(item);
         }
         for (var index = 0; index < updated.Count; index++)
@@ -219,6 +277,8 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         _gameIndex.Clear();
         foreach (var game in _games) _gameIndex[game.DataKey] = game;
         if (!Games.Cast<LibraryGameItem>().SequenceEqual(_games.Where(item => Matches(item)))) Games.Refresh();
+        RebuildGenres();
+        Changed(nameof(ContinueGame)); Changed(nameof(HasContinueGame));
         Changed(nameof(Count)); Changed(nameof(InstallationSummary));
         Selected = Games.Cast<LibraryGameItem>().FirstOrDefault(game => game.DataKey == key) ?? Games.Cast<LibraryGameItem>().FirstOrDefault();
         if (discardDrafts) _restoredDrafts.Clear();
@@ -288,6 +348,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         // A short-lived dialog only cancels its wait. Shared downloads belong to this library window.
         game.ArtworkLoading = game.LoadArtworkAsync(_posters, _lifetime.Token);
         await game.ArtworkLoading.WaitAsync(cancellationToken);
+        game.GenresLoading = LoadGenresAsync(game);
         return true;
     }
     internal Task<System.Windows.Media.ImageSource?> PreviewPosterAsync(uint appId, CancellationToken cancellationToken)
@@ -298,10 +359,12 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     {
         _posters.Associate(game.DataKey, appId);
         await game.LoadArtworkAsync(_posters, _lifetime.Token, refresh);
+        game.GenresLoading = LoadGenresAsync(game);
     }
     private void OnItemChanged(object? sender, PropertyChangedEventArgs e)
     {
         RefreshCommands();
+        if (e.PropertyName == nameof(LibraryGameItem.Genres)) { RebuildGenres(); Filter(); }
         if (e.PropertyName is nameof(LibraryGameItem.Artwork) or nameof(LibraryGameItem.ArtworkIsCover)) Statistics.RefreshArtwork();
         if (e.PropertyName is nameof(LibraryGameItem.Name) or nameof(LibraryGameItem.Executable) or nameof(LibraryGameItem.Target)
             or nameof(LibraryGameItem.Arguments) or nameof(LibraryGameItem.Directory) or nameof(LibraryGameItem.Speed)

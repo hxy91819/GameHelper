@@ -11,6 +11,8 @@ GameHelper 是一个面向 Windows 玩家的游戏启动器与桌面助手。WPF
 
 每次功能或修复交付都会更新本机发布目录并在后台重启监控，检查运行权限、ETW 和游戏库通信。WPF 是日常入口，Console 交互界面保留作手动诊断。部署步骤见[验证与部署工作流](docs/guides/verify-and-deploy-workflow.md)。
 
+游戏库采用简洁工作台布局和 G / 播放标记，保留明暗主题、实时计时及原有启动设置。侧栏支持 Steam 游戏类型多重归属、未分类和手动修正（自动更新不覆盖）；游玩档案提供总览、趋势、六列排行、日历与游戏／日期游玩节奏汇总，不再显示逐次流水。详见[游戏库](docs/guides/game-library.md)与[游玩档案](docs/guides/playtime-dashboard.md)。
+
 ## 快速开始
 
 ### 环境要求
