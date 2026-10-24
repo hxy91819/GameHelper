@@ -3,6 +3,22 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationCore, PresentationFramework, WindowsBase
 $assets = Join-Path $PSScriptRoot '..\GameHelper.Desktop\Assets'
+# The checked-in SVG is copied verbatim from the approved Studio prototype.
+[xml]$svgSource = [IO.File]::ReadAllText((Join-Path $assets 'gamehelper-logo.svg'))
+$paths = $svgSource.DocumentElement.SelectNodes("*[local-name()='path']")
+if ($svgSource.DocumentElement.GetAttribute('viewBox') -ne '0 0 64 64' -or $paths.Count -ne 2) { throw 'Unexpected brand SVG geometry.' }
+$glyph = $paths[0].GetAttribute('d')
+$play = $paths[1].GetAttribute('d')
+$brandXaml = @"
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <Geometry x:Key="BrandGlyph">$glyph</Geometry><Geometry x:Key="BrandPlay">$play</Geometry>
+ <DrawingImage x:Key="BrandMark"><DrawingImage.Drawing><DrawingGroup>
+ <GeometryDrawing Brush="Transparent" Geometry="M0,0 H64 V64 H0 Z" />
+ <GeometryDrawing Brush="#202020" Geometry="{StaticResource BrandGlyph}" />
+ <GeometryDrawing Brush="#AC94D7" Geometry="{StaticResource BrandPlay}" />
+ </DrawingGroup></DrawingImage.Drawing></DrawingImage></ResourceDictionary>
+"@
+[IO.File]::WriteAllText((Join-Path $assets 'Brand.xaml'), $brandXaml, (New-Object Text.UTF8Encoding $false))
 $dictionary = [Windows.Markup.XamlReader]::Load([Xml.XmlReader]::Create((Join-Path $assets 'Brand.xaml')))
 $drawing = $dictionary['BrandMark'].Drawing
 function Render-Brand([int] $size) {
