@@ -8,4 +8,6 @@ public interface IGameLauncher
     /// <summary>Checks that the entry can be started, before any HDR changes.</summary>
     void Validate(GameLaunchOptions options);
     void Start(GameLaunchOptions options);
+    /// <summary>Starts or reuses a companion without validating or starting the game's launch entry.</summary>
+    void EnsureCompanionRunning(string executablePath);
 }

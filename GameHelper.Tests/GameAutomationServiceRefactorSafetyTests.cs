@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using GameHelper.Core.Abstractions;
@@ -117,6 +117,7 @@ namespace GameHelper.Tests
 
         private sealed class FakeLauncher : IGameLauncher
         {
+            public void EnsureCompanionRunning(string path) { }
             public void Validate(GameLaunchOptions options) { }
             public void Start(GameLaunchOptions options) { }
         }

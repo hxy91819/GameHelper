@@ -36,6 +36,9 @@ public sealed class WindowsGameLauncherTests
             var path = Path.Combine(root, "DS4Windows.exe"); File.WriteAllBytes(path, [1]);
             var calls = new List<string>();
             var launcher = new WindowsGameLauncher(value => { Assert.Equal(path, value); calls.Add("DS4"); }, _ => calls.Add("game"));
+            launcher.EnsureCompanionRunning(path);
+            Assert.Equal(new[] { "DS4" }, calls);
+            calls.Clear();
             launcher.Start(new() { Target = "steam://rungameid/620" }); Assert.Equal(new[] { "game" }, calls);
             calls.Clear(); launcher.Start(new() { Target = "steam://rungameid/620", Ds4WindowsPath = path });
             Assert.Equal(new[] { "DS4", "game" }, calls);
@@ -43,6 +46,7 @@ public sealed class WindowsGameLauncherTests
             var failing = new WindowsGameLauncher(_ => throw new IOException("cannot start DS4"), _ => calls.Add("game"));
             Assert.Throws<IOException>(() => failing.Start(new() { Target = "steam://rungameid/620", Ds4WindowsPath = path })); Assert.Empty(calls);
             File.Delete(path);
+            Assert.Throws<ArgumentException>(() => launcher.EnsureCompanionRunning(path));
             Assert.Throws<ArgumentException>(() => launcher.Validate(new() { Target = "steam://rungameid/620", Ds4WindowsPath = path }));
         }
         finally { Directory.Delete(root, true); }

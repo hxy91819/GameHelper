@@ -30,7 +30,7 @@ public sealed class InFlightSession
 
     /// <summary>
     /// 库内启动标记：true=由启动按钮（Launch）发起的会话；false=外部启动的会话；
-    /// null=升级前旧版快照，续算时按库内启动对待以保持行为连续（仅影响自动化效果，不影响时长）。
+    /// null=升级前旧版快照，续算时按库内启动对待以保持行为连续（仅影响 HDR 资格，不影响计时、倍速或配套软件）。
     /// </summary>
     public bool? LaunchedByHelper { get; set; }
 

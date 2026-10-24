@@ -57,7 +57,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         {
             if (Selected?.IsDirty == true) await SaveSelectedAsync();
             if (Selected is not null) await SendAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Launch, DataKey = Selected.DataKey });
-        }), () => Ready && Selected is not null && !string.IsNullOrWhiteSpace(Selected.Target) && Selected.State is not ("运行中" or "启动中"));
+        }), () => Ready && Selected is not null && !string.IsNullOrWhiteSpace(Selected.Target) && !Selected.IsRunning && Selected.State != "启动中");
         // 秒级计时时钟只在 UI 线程泵下跳；测试线程可直接调 OnClockTick 驱动。
         _elapsedTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _elapsedTimer.Tick += (_, _) => OnClockTick();

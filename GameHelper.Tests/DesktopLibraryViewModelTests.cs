@@ -309,6 +309,7 @@ public sealed class DesktopLibraryViewModelTests
         model.RefreshAsync().GetAwaiter().GetResult();
         Assert.Same(item, model.Selected);
         Assert.True(item.IsRunning);
+        Assert.False(model.LaunchCommand.CanExecute(null));
         Assert.Contains(nameof(LibraryGameItem.IsRunning), changed);
         Assert.Equal(state, item.StateDisplay);
         Assert.Null(item.RunningSessionLine);

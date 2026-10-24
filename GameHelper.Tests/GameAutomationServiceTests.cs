@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -106,6 +106,9 @@ namespace GameHelper.Tests
     file sealed class FakeLauncher : IGameLauncher
     {
         public int Starts { get; private set; }
+        public List<string> Companions { get; } = [];
+        public Action? OnCompanion { get; set; }
+        public void EnsureCompanionRunning(string path) { Companions.Add(path); OnCompanion?.Invoke(); }
         public void Validate(GameLaunchOptions options) { }
         public void Start(GameLaunchOptions options) { Starts++; }
     }
@@ -185,7 +188,8 @@ namespace GameHelper.Tests
             IsEnabled = game.IsEnabled,
             HdrEnabled = game.HdrEnabled,
             SpeedMultiplier = game.SpeedMultiplier,
-            SpeedAttach = game.SpeedAttach
+            SpeedAttach = game.SpeedAttach,
+            Launch = game.Launch
         };
     }
 
@@ -333,7 +337,7 @@ namespace GameHelper.Tests
 
             service.Start();
 
-            // 无快照重启时监视器枚举到的既有进程：按库内启动对待（行为连续），补挂变速。
+            // 枚举既有进程照常补挂变速，保持外部来源。
             monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 200, Preexisting: true));
             var applied = Assert.Single(speed.Applied);
             Assert.Equal(200, applied.ProcessId);
@@ -345,91 +349,43 @@ namespace GameHelper.Tests
             Assert.Equal(1, play.StopCalls);
         }
 
-        [Fact]
-        public void ExternalStart_TracksPlaytimeWithoutAutomation()
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        public void ExternalStart_AppliesSpeedAndCompanionWithoutHdrOrRelaunch(bool preexisting, bool companionFails)
         {
             var monitor = new FakeMonitor();
             var config = new CoreGameConfig
             {
-                DataKey = "game.exe",
-                Executable = "game.exe",
-                IsEnabled = true,
-                HdrEnabled = true,
-                SpeedMultiplier = 2.0
-            };
-            var hdr = new FakeHdr();
-            var speed = new FakeSpeedController();
-            var play = new FakePlayTime();
-            var service = new GameAutomationService(
-                monitor,
-                new FakeConfig(new Dictionary<string, CoreGameConfig> { ["game.exe"] = config }),
-                hdr,
-                play,
-                NullLogger<GameAutomationService>.Instance,
-                speedController: speed);
-
-            service.Start();
-
-            // 外部启动（未经过 Launch）：只计时，不触发 HDR 与变速。
-            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 1234));
-            Assert.Equal("运行中·外部", service.GetGameStates()["game.exe"]);
-            Assert.Equal(0, hdr.EnableCalls);
-            Assert.False(hdr.IsEnabled);
-            Assert.Empty(speed.Applied);
-            Assert.Equal(1, play.StartCalls);
-
-            // 退出照常落库；调度器没有 HDR 所有权，不会误关。
-            monitor.RaiseStop(new ProcessEventInfo("game.exe", null, 1234));
-            Assert.Equal(1, play.StopCalls);
-            Assert.Equal(0, hdr.DisableCalls);
-        }
-
-        [Fact]
-        public void Launch_WhileExternalGameRunning_TakesOverWithoutRelaunching()
-        {
-            var monitor = new FakeMonitor();
-            var config = new CoreGameConfig
-            {
-                DataKey = "game.exe",
-                Executable = "game.exe",
-                IsEnabled = true,
-                HdrEnabled = true,
-                SpeedMultiplier = 2.0
+                DataKey = "game.exe", Executable = "game.exe", IsEnabled = true,
+                HdrEnabled = true, SpeedMultiplier = 2.0,
+                Launch = new() { Target = @"C:\MissingGame.exe", Ds4WindowsPath = @"C:\DS4Windows.exe" }
             };
             var hdr = new FakeHdr();
             var speed = new FakeSpeedController();
             var launcher = new FakeLauncher();
+            if (companionFails) launcher.OnCompanion = () => throw new IOException("companion failed");
             var play = new FakePlayTime();
-            var service = new GameAutomationService(
-                monitor,
+            var service = new GameAutomationService(monitor,
                 new FakeConfig(new Dictionary<string, CoreGameConfig> { ["game.exe"] = config }),
-                hdr,
-                play,
-                NullLogger<GameAutomationService>.Instance,
-                speedController: speed,
-                gameLauncher: launcher);
-
+                hdr, play, NullLogger<GameAutomationService>.Instance, speedController: speed, gameLauncher: launcher);
             service.Start();
-            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 1234));   // 外部启动
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 1234, Preexisting: preexisting));
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 1235, Preexisting: preexisting));
+            Assert.Equal("运行中·外部", service.GetGameStates()["game.exe"]);
             Assert.Equal(0, hdr.EnableCalls);
-            Assert.Empty(speed.Applied);
-
-            service.Launch("game.exe");   // 接管：不重复拉起，补齐自动化效果
+            Assert.Equal(1234, Assert.Single(speed.Applied).ProcessId);
+            Assert.Equal(config.Launch.Ds4WindowsPath, Assert.Single(launcher.Companions));
+            Assert.Equal(1, play.StartCalls);
+            Assert.Throws<InvalidOperationException>(() => service.Launch("game.exe"));
             Assert.Equal(0, launcher.Starts);
-            Assert.Equal("运行中", service.GetGameStates()["game.exe"]);
-            Assert.Equal(1, hdr.EnableCalls);
-            var attach = Assert.Single(speed.Applied);
-            Assert.Equal(1234, attach.ProcessId);
-
+            Assert.Equal(0, hdr.EnableCalls);
             monitor.RaiseStop(new ProcessEventInfo("game.exe", null, 1234));
+            monitor.RaiseStop(new ProcessEventInfo("game.exe", null, 1235));
             Assert.Equal(1, play.StopCalls);
-            Assert.Equal(1, hdr.DisableCalls);   // 接管会话在退出时恢复 HDR
-
-            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 5678));   // 再次外部启动：无效果
-            Assert.Equal(1, hdr.EnableCalls);
-            Assert.Single(speed.Applied);
-            monitor.RaiseStop(new ProcessEventInfo("game.exe", null, 5678));
-            Assert.Equal(2, play.StopCalls);
+            Assert.Equal(0, hdr.DisableCalls);
+            service.Stop();
         }
 
         [Fact]
@@ -1269,7 +1225,7 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void MonitorModeAutomation_ExternalHdrFlaggedSession_AlsoPausesPresets()
+        public void MonitorModeAutomation_ExternalHdrFlaggedSession_FallsBackToGamePreset()
         {
             var monitor = new FakeMonitor();
             var hdr = new FakeHdr();
@@ -1284,8 +1240,10 @@ namespace GameHelper.Tests
             service.Start();
             Assert.Single(controller.Modes);
 
-            // 外部启动的 HDR 勾选游戏：虽然本方不代开 HDR，预设切换仍按下（口径只看游戏勾选）。
+            // 外部启动不会切换 HDR，即使勾选 HDR 也降级为游戏预设。
             monitor.RaiseStart(new ProcessEventInfo("hdrgame.exe", null, 78));
+            Assert.Equal(MonitorMode.Game, controller.Modes[^1]);
+            Assert.Equal(0, hdr.EnableCalls);
             var writesDuringPause = controller.Recipes.Count;
             clock.Advance(TimeSpan.FromSeconds(11));
             Assert.Equal(writesDuringPause, controller.Recipes.Count);

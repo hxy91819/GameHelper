@@ -279,8 +279,10 @@ public class InFlightSessionRecoveryTests
         Assert.True(Assert.Single(store.Saved[^1].Sessions).LaunchedByHelper);
     }
 
-    [Fact]
-    public void Recovery_ExternalSession_SkipsSpeedAndEffects()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Recovery_ExternalSession_RespectsAutomationSettingAndKeepsExternalFlag(bool enabled)
     {
         var store = new FakeInFlightStore
         {
@@ -305,12 +307,27 @@ public class InFlightSessionRecoveryTests
         var speed = new RecoverySpeedController();
         var playTime = new FakePlayTime();
 
-        CreateSpeedService(new FakeMonitor(), playTime, store, probe, speed).Start();
+        var config = CreateSpeedConfig();
+        var game = config.Object.Read().Games.Single();
+        game.IsEnabled = enabled;
+        game.HdrEnabled = true;
+        game.Launch = new() { Target = @"C:\MissingGame.exe", Ds4WindowsPath = @"C:\DS4Windows.exe" };
+        var launcher = new Mock<IGameLauncher>();
+        var hdr = new Mock<IHdrController>();
+        var service = new GameAutomationService(new FakeMonitor(), config.Object, hdr.Object, playTime,
+            NullLogger<GameAutomationService>.Instance, speedController: speed, inFlightSessionStore: store,
+            processIdentityProbe: probe, gameLauncher: launcher.Object);
+        service.Start();
 
-        // 时长照常续算，但外部会话不补变速，快照保持外部标记。
+        // 外部会话续算并补挂变速，快照保持外部标记，不取得 HDR 资格。
         Assert.Single(playTime.Resumed);
-        Assert.Empty(speed.Applied);
+        if (enabled) Assert.Equal(1111, Assert.Single(speed.Applied).ProcessId);
+        else Assert.Empty(speed.Applied);
         Assert.False(Assert.Single(store.Saved[^1].Sessions).LaunchedByHelper);
+        launcher.Verify(value => value.EnsureCompanionRunning(game.Launch.Ds4WindowsPath), Times.Exactly(enabled ? 1 : 0));
+        launcher.Verify(value => value.Start(It.IsAny<GameLaunchOptions>()), Times.Never);
+        hdr.Verify(value => value.Enable(), Times.Never);
+        service.Stop();
     }
 
     [Fact]

@@ -119,21 +119,15 @@ public sealed class GameLaunchCoordinatorTests
     }
 
     [Fact]
-    public void Launch_WhileExternalGameRunning_TakesOverWithoutRelaunching()
+    public void Launch_WhileExternalGameRunning_RejectsLateHdrAndRelaunch()
     {
         using var app = new Fixture();
-        app.Start("a", 101);   // 外部启动：只计时，不触发自动化效果
+        app.Start("a", 101);
+        Assert.Throws<InvalidOperationException>(() => app.Service.Launch("a"));
+        Assert.Equal(0, app.Launcher.Starts);
         Assert.Equal("运行中·外部", app.Service.GetGameStates()["a"]);
         Assert.False(app.Hdr.IsEnabled);
-
-        app.Service.Launch("a");   // 接管：不重复拉起，补齐效果
-        Assert.Equal(0, app.Launcher.Starts);
-        Assert.Equal("运行中", app.Service.GetGameStates()["a"]);
-        Assert.True(app.Hdr.IsEnabled);
-
         app.Playtime.Verify(playtime => playtime.StartTracking("a"), Times.Once);
-        app.Stop("a", 101);
-        Assert.False(app.Hdr.IsEnabled);   // 接管租约在退出时恢复
     }
 
     private sealed class Fixture : IDisposable
@@ -177,7 +171,8 @@ public sealed class GameLaunchCoordinatorTests
     {
         public int Starts { get; private set; }
         public Action? OnStart { get; set; }
-        public void Validate(GameLaunchOptions options) { }
+        public void EnsureCompanionRunning(string path) { }
+            public void Validate(GameLaunchOptions options) { }
         public void Start(GameLaunchOptions options) { Starts++; OnStart?.Invoke(); }
     }
     private sealed class Store : IInFlightSessionStore

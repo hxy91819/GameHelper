@@ -16,8 +16,15 @@ public sealed class WindowsGameLauncher : IGameLauncher
     public void Start(GameLaunchOptions options)
     {
         Validate(options);
-        if (options.Ds4WindowsPath is { } companion) _ensureCompanion(companion);
+        if (options.Ds4WindowsPath is { } companion) EnsureCompanionRunning(companion);
         _startEntry(options);
+    }
+
+    public void EnsureCompanionRunning(string executablePath)
+    {
+        if (!File.Exists(executablePath))
+            throw new ArgumentException("DS4Windows 程序不存在，请重新选择路径，或关闭启动前运行选项。");
+        _ensureCompanion(executablePath);
     }
 
     private static void StartEntry(GameLaunchOptions options)
