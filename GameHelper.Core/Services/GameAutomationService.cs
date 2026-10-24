@@ -60,6 +60,8 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     private ITimer? _monitorModeTimer;
     private bool? _lastMonitorModeAnyGameActive;
     private bool? _lastMonitorModeDaylight;
+    /// <summary>显示器预设自动化的暂停转换门（HDR 场景只在状态翻转时记一条日志）。</summary>
+    private bool _lastMonitorModeHdrPause;
     private readonly Dictionary<string, DateTime> _inFlightStarts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<int, DateTime> _inFlightProcessStarts = new();
     /// <summary>活跃会话中的"库内启动"标记：由本方 <see cref="Launch"/> 发起且已被进程观察确认的 dataKey。</summary>
@@ -214,6 +216,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                     _lastMonitorModeAnyGameActive = null;
                     _lastMonitorModeDaylight = null;
                     _lastMonitorModeControllerAvailable = null;
+                    _lastMonitorModeHdrPause = false;
                 }
 
                 try { _breakReminder?.Stop(); }
@@ -899,6 +902,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
             MonitorModePlan? plan;
             var anyGameActive = false;
+            var hdrGameKeys = new List<string>();
             lock (_stateLock)
             {
                 plan = _monitorModePlan;
@@ -907,7 +911,12 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                     return;
                 }
 
-                anyGameActive = _sessionTracker.GetActiveDataKeysSnapshot().Any(IsOwnLaunched);
+                var activeKeys = _sessionTracker.GetActiveDataKeysSnapshot();
+                anyGameActive = activeKeys.Any(IsOwnLaunched);
+                // 显示器预设与 HDR 自动化互斥：只要勾选了"启动前开启 HDR"的游戏在跑
+                // （无论库内还是外部启动的会话），预设切换就整体让位，避免 DDC 档位叠加在 HDR 画面模式上。
+                hdrGameKeys.AddRange(activeKeys.Where(key =>
+                    _configIndex.ByDataKey.TryGetValue(key, out var config) && config.HdrEnabled));
                 // 显示器从系统消失/回来会改变控制器可用性：这属于必须重新评估的变化
                 // （显示器离线期间档位可能停在被强制写入过的状态，回来需要对齐）。
                 // location=auto 且还没有坐标时，随 tick 自愈式重试坐标引导：
@@ -940,17 +949,32 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
             try
             {
-                // Query before even probing DDC availability: HDR presets belong to the OS.
-                // Invalidate the gate so returning to SDR re-evaluates unchanged game/daylight state.
-                if (!_hdr.TryGetEnabled(out var hdrEnabled) || hdrEnabled)
+                // HDR 期间预设让位（HDR 属于系统层画面模式）：勾选 HDR 自动化的游戏在跑，或系统 HDR
+                // 已开启/无法确认时，都不做任何 DDC/CI 探测与写档。
+                // 暂停路径让变更门失效，HDR 退出后无需新事件即可重评档位。
+                var hdrPresetPause = hdrGameKeys.Count > 0 || !_hdr.TryGetEnabled(out var hdrEnabled) || hdrEnabled;
+                if (hdrPresetPause)
                 {
                     lock (_stateLock)
                     {
                         _lastMonitorModeDaylight = null;
                         _lastMonitorModeControllerAvailable = null;
                     }
-                    _logger.LogDebug("HDR is enabled or its state is unknown; skipping monitor preset automation.");
+                    if (!_lastMonitorModeHdrPause)
+                    {
+                        _lastMonitorModeHdrPause = true;
+                        _logger.LogInformation(
+                            "显示器预设自动化暂停：{Reason}。",
+                            hdrGameKeys.Count > 0
+                                ? $"HDR 自动化游戏活跃（{string.Join("、", hdrGameKeys)}）"
+                                : "系统 HDR 已开启或状态未知");
+                    }
                     return;
+                }
+                if (_lastMonitorModeHdrPause)
+                {
+                    _lastMonitorModeHdrPause = false;
+                    _logger.LogInformation("显示器预设自动化恢复：HDR 自动化游戏已退出，系统 HDR 未开启。");
                 }
                 // Availability probing can perform DDC I/O; never hold the session state lock.
                 var controllerAvailable = controller.IsAvailable;

@@ -164,8 +164,8 @@ namespace GameHelper.Tests
 
     file static class TestConfigDocument
     {
-        public static AppConfig From(IReadOnlyDictionary<string, CoreGameConfig> configs) =>
-            new() { Games = configs.Values.Select(CloneGame).ToList() };
+        public static AppConfig From(IReadOnlyDictionary<string, CoreGameConfig> configs, MonitorModeSettings? monitorMode = null) =>
+            new() { Games = configs.Values.Select(CloneGame).ToList(), MonitorMode = monitorMode };
 
         public static AppConfig Clone(AppConfig source) => new()
         {
@@ -173,6 +173,7 @@ namespace GameHelper.Tests
             ProcessMonitorType = source.ProcessMonitorType,
             AutoStartInteractiveMonitor = source.AutoStartInteractiveMonitor,
             LaunchOnSystemStartup = source.LaunchOnSystemStartup,
+            MonitorMode = source.MonitorMode,
             CheatEngine = source.CheatEngine
         };
 
@@ -193,9 +194,9 @@ namespace GameHelper.Tests
         private readonly object _sync = new();
         private AppConfig _config;
 
-        public FakeConfig(IReadOnlyDictionary<string, CoreGameConfig> configs)
+        public FakeConfig(IReadOnlyDictionary<string, CoreGameConfig> configs, MonitorModeSettings? monitorMode = null)
         {
-            _config = TestConfigDocument.From(configs);
+            _config = TestConfigDocument.From(configs, monitorMode);
         }
 
         public AppConfig Read()
@@ -1231,6 +1232,107 @@ namespace GameHelper.Tests
             power.RaiseResume();
 
             Assert.Empty(play.ShiftedStarts);
+        }
+
+        [Fact]
+        public void MonitorModeAutomation_PausesDuringHdrAutomationGameRun_AndResumesAfterExit()
+        {
+            var monitor = new FakeMonitor();
+            var hdr = new FakeHdr();
+            var play = new FakePlayTime();
+            var clock = new PowerClock(new DateTimeOffset(2026, 10, 23, 12, 0, 0, TimeSpan.FromHours(8)));
+            var presets = AlwaysDaylightPresets();
+            var config = new FakeConfig(Dict(("hdrgame", true, true)), presets);
+            var controller = new RecordingMonitorModeController();
+            var launcher = new FakeLauncher();
+            var service = new GameAutomationService(
+                monitor, config, hdr, play, NullLogger<GameAutomationService>.Instance,
+                monitorModeController: controller, timeProvider: clock, gameLauncher: launcher);
+            service.Start();
+
+            // 启动评估：白天无游戏 → 护眼档位应用一次。
+            Assert.Single(controller.Modes);
+            Assert.Equal(MonitorMode.Comfort, controller.Modes[^1]);
+
+            // 库内启动勾选 HDR 的游戏：先确认开启 HDR，预设自动化随之暂停（期间零 DDC I/O）。
+            service.Launch("hdrgame");
+            monitor.RaiseStart(new ProcessEventInfo("hdrgame.exe", null, 77));
+            var writesDuringPause = controller.Recipes.Count;
+            clock.Advance(TimeSpan.FromSeconds(11));
+            Assert.Equal(writesDuringPause, controller.Recipes.Count);
+
+            // 游戏退出且 HDR 恢复关闭：预设自动化恢复并按白天无游戏的口径切回护眼。
+            monitor.RaiseStop(new ProcessEventInfo("hdrgame.exe", null, 77));
+            Assert.Equal(writesDuringPause + 1, controller.Recipes.Count);
+            Assert.Equal(MonitorMode.Comfort, controller.Modes[^1]);
+            Assert.False(hdr.IsEnabled);
+        }
+
+        [Fact]
+        public void MonitorModeAutomation_ExternalHdrFlaggedSession_AlsoPausesPresets()
+        {
+            var monitor = new FakeMonitor();
+            var hdr = new FakeHdr();
+            var play = new FakePlayTime();
+            var clock = new PowerClock(new DateTimeOffset(2026, 10, 23, 12, 0, 0, TimeSpan.FromHours(8)));
+            var presets = AlwaysDaylightPresets();
+            var config = new FakeConfig(Dict(("hdrgame", true, true)), presets);
+            var controller = new RecordingMonitorModeController();
+            var service = new GameAutomationService(
+                monitor, config, hdr, play, NullLogger<GameAutomationService>.Instance,
+                monitorModeController: controller, timeProvider: clock);
+            service.Start();
+            Assert.Single(controller.Modes);
+
+            // 外部启动的 HDR 勾选游戏：虽然本方不代开 HDR，预设切换仍按下（口径只看游戏勾选）。
+            monitor.RaiseStart(new ProcessEventInfo("hdrgame.exe", null, 78));
+            var writesDuringPause = controller.Recipes.Count;
+            clock.Advance(TimeSpan.FromSeconds(11));
+            Assert.Equal(writesDuringPause, controller.Recipes.Count);
+
+            monitor.RaiseStop(new ProcessEventInfo("hdrgame.exe", null, 78));
+            Assert.Equal(writesDuringPause + 1, controller.Recipes.Count);
+            Assert.Equal(MonitorMode.Comfort, controller.Modes[^1]);
+        }
+
+        private static MonitorModeSettings AlwaysDaylightPresets() => new()
+        {
+            Enabled = true,
+            DaylightStart = "00:00",
+            DaylightEnd = "23:59",
+            GamePresets =
+            [
+                new() { Code = "DC", Value = "0x05" },
+                new() { Code = "E2", Value = "0x04" },
+                new() { Code = "F0", Value = "0x00" }
+            ],
+            ComfortPresets =
+            [
+                new() { Code = "DC", Value = "0x00" },
+                new() { Code = "E2", Value = "0x1D" },
+                new() { Code = "F0", Value = "0x0C" }
+            ]
+        };
+    }
+
+    file sealed class RecordingMonitorModeController : IMonitorModeController
+    {
+        public List<IReadOnlyList<MonitorModeWrite>> Recipes { get; } = new();
+        public List<MonitorMode> Modes { get; } = new();
+        public int ReadCount { get; private set; }
+        public bool IsAvailable => true;
+
+        public IReadOnlyDictionary<byte, uint>? TryReadState(IReadOnlyList<MonitorModeWrite> probeCodes)
+        {
+            ReadCount++;
+            return null;
+        }
+
+        public void Apply(IReadOnlyList<MonitorModeWrite> writes)
+        {
+            Recipes.Add(writes);
+            var e2 = writes.FirstOrDefault(write => write.Code == 0xE2);
+            Modes.Add(e2.Value == 0x04 ? MonitorMode.Game : MonitorMode.Comfort);
         }
     }
 }
