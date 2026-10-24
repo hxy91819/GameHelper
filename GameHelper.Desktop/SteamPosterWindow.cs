@@ -23,8 +23,8 @@ internal sealed class SteamPosterWindow : Window
         Title = "匹配 Steam 海报";
         Width = 680; Height = 620; MinWidth = 520; MinHeight = 440;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(20, 26, 24));
-        Foreground = new SolidColorBrush(Color.FromRgb(240, 242, 235));
+        Background = ThemeBrushes.Get("Sidebar");
+        Foreground = ThemeBrushes.Get("TextPrimary");
         FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI"); FontSize = 14;
         var root = new DockPanel { Margin = new Thickness(24) };
         var header = new StackPanel();
@@ -50,7 +50,7 @@ internal sealed class SteamPosterWindow : Window
         };
         actions.Children.Add(automatic); actions.Children.Add(_select);
         DockPanel.SetDock(actions, Dock.Bottom); root.Children.Add(actions);
-        _results = new DarkListBox { DisplayMemberPath = nameof(SteamArtworkGame.Name), Background = Brushes.Transparent, Foreground = Brushes.White, BorderThickness = new Thickness(0) };
+        _results = new DarkListBox { DisplayMemberPath = nameof(SteamArtworkGame.Name), Background = Brushes.Transparent, Foreground = ThemeBrushes.Get("TextPrimary"), BorderThickness = new Thickness(0) };
         _results.SelectionChanged += (_, _) => RefreshChoice();
         _id.TextChanged += (_, _) => RefreshChoice();
         root.Children.Add(_results); Content = root;

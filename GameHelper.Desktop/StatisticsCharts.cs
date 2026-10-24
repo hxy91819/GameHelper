@@ -11,8 +11,8 @@ namespace GameHelper.Desktop;
 
 internal static class StatisticsDrawing
 {
-    public static readonly Brush Muted = Brush("#A4B2A9");
-    public static Brush Brush(string color) { var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(color)!; brush.Freeze(); return brush; }
+    public static Brush Muted => Brush("Muted");
+    public static Brush Brush(string key) => ThemeBrushes.Get(key);
     public static void Text(FrameworkElement owner, DrawingContext dc, string text, double x, double y, double size, Brush brush)
         => dc.DrawText(new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
             new Typeface("Segoe UI"), size, brush, VisualTreeHelper.GetDpi(owner).PixelsPerDip), new Point(x, y));
@@ -29,11 +29,11 @@ internal sealed class ChartTooltip
 
     public ChartTooltip()
     {
-        _text = new TextBlock { Foreground = Brushes.White, FontSize = 12 };
+        _text = new TextBlock { Foreground = ThemeBrushes.Get("TextPrimary"), FontSize = 12 };
         _bubble = new Border
         {
-            Background = StatisticsDrawing.Brush("#25352B"),
-            BorderBrush = StatisticsDrawing.Brush("#56745F"),
+            Background = StatisticsDrawing.Brush("TooltipSurface"),
+            BorderBrush = StatisticsDrawing.Brush("StrongBorder"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(12, 8, 12, 8),
@@ -46,6 +46,9 @@ internal sealed class ChartTooltip
 
     public void Show(FrameworkElement owner, string text, Point position)
     {
+        _text.Foreground = ThemeBrushes.Get("TextPrimary");
+        _bubble.Background = ThemeBrushes.Get("TooltipSurface");
+        _bubble.BorderBrush = ThemeBrushes.Get("StrongBorder");
         _text.Text = text;
         _popup.PlacementTarget = owner;
         _bubble.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -113,16 +116,16 @@ public sealed class PlaytimeTrendChart : FrameworkElement
         for (var level = 0; level <= 3; level++)
         {
             var y = plotHeight * level / 3;
-            dc.DrawLine(new Pen(StatisticsDrawing.Brush("#2B3930"), 1), new Point(Left, y), new Point(ActualWidth, y));
+            dc.DrawLine(new Pen(StatisticsDrawing.Brush("ChartGrid"), 1), new Point(Left, y), new Point(ActualWidth, y));
             StatisticsDrawing.Text(this, dc, $"{ceiling / 60 * (3 - level) / 3:0.#}h", 0, Math.Max(0, y - 8), 10, StatisticsDrawing.Muted);
         }
         var pitch = (ActualWidth - Left) / points.Count;
         var width = Math.Max(2, Math.Min(25, pitch * .65));
-        var gradient = new LinearGradientBrush(Color.FromRgb(184, 232, 206), Color.FromRgb(71, 123, 91), 90);
+        var gradient = new LinearGradientBrush(ThemeBrushes.Color("Accent"), ThemeBrushes.Color("ChartBarEnd"), 90);
         for (var index = 0; index < points.Count; index++)
         {
             var height = points[index].Minutes / ceiling * plotHeight;
-            if (height > 0) dc.DrawRoundedRectangle(index == points.Count - 1 ? StatisticsDrawing.Brush("#7EDDB5") : gradient, null,
+            if (height > 0) dc.DrawRoundedRectangle(index == points.Count - 1 ? StatisticsDrawing.Brush("ChartRecent") : gradient, null,
                 new Rect(Left + index * pitch + (pitch - width) / 2, plotHeight - height, width, height), 3, 3);
             var step = Math.Max(1, (int)Math.Ceiling(points.Count / 7d));
             if (index % step == 0 || index == points.Count - 1)
@@ -198,12 +201,12 @@ public sealed class PlaytimeCalendar : FrameworkElement
             var row = index % 7;
             if (row == 0 && day.Date.Month != lastMonth)
             { StatisticsDrawing.Text(this, dc, day.Date.ToString("M月"), 30 + column * Pitch, 0, 10, StatisticsDrawing.Muted); lastMonth = day.Date.Month; }
-            var color = day.Sessions == 0 ? "#26332B" : day.Minutes < 30 ? "#285B55" : day.Minutes < 90 ? "#388875" : day.Minutes < 180 ? "#53B594" : "#91E5BC";
+            var color = day.Sessions == 0 ? "CalendarZero" : day.Minutes < 30 ? "CalendarOne" : day.Minutes < 90 ? "CalendarTwo" : day.Minutes < 180 ? "CalendarThree" : "CalendarFour";
             dc.DrawRoundedRectangle(StatisticsDrawing.Brush(color), null,
                 new Rect(30 + column * Pitch, 23 + row * Pitch, Pitch - 3, Pitch - 3), 2, 2);
         }
         if (_hovered >= 0 && _hovered < days.Count)
-            dc.DrawRoundedRectangle(null, new Pen(StatisticsDrawing.Brush("#D9FFF1"), 1.5),
+            dc.DrawRoundedRectangle(null, new Pen(StatisticsDrawing.Brush("CalendarFocus"), 1.5),
                 new Rect(30 + _hovered / 7 * Pitch - 1, 23 + _hovered % 7 * Pitch - 1, Pitch - 1, Pitch - 1), 3, 3);
     }
 
@@ -261,7 +264,7 @@ public sealed class PlaytimeShareRing : FrameworkElement
         var extent = Math.Min(ActualWidth, ActualHeight);
         var stroke = Math.Clamp(extent * .08, 4, 7);
         var radius = Math.Max(1, extent / 2 - stroke);
-        dc.DrawEllipse(null, new Pen(StatisticsDrawing.Brush("#304036"), stroke), center, radius, radius);
+        dc.DrawEllipse(null, new Pen(StatisticsDrawing.Brush("RingTrack"), stroke), center, radius, radius);
         if (share > 0)
         {
             var angle = Math.Min(.99999, share) * Math.PI * 2 - Math.PI / 2;
@@ -272,10 +275,10 @@ public sealed class PlaytimeShareRing : FrameworkElement
                 context.ArcTo(new Point(center.X + Math.Cos(angle) * radius, center.Y + Math.Sin(angle) * radius),
                     new Size(radius, radius), 0, share > .5, SweepDirection.Clockwise, true, false);
             }
-            dc.DrawGeometry(null, new Pen(StatisticsDrawing.Brush("#B8E8CE"), stroke) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round }, geometry);
+            dc.DrawGeometry(null, new Pen(StatisticsDrawing.Brush("Accent"), stroke) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round }, geometry);
         }
         var text = new FormattedText($"{share:P0}", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"),
-            Math.Clamp(extent * .24, 11, 20), StatisticsDrawing.Brush("#F0F2EB"), VisualTreeHelper.GetDpi(this).PixelsPerDip);
+            Math.Clamp(extent * .24, 11, 20), StatisticsDrawing.Brush("TextPrimary"), VisualTreeHelper.GetDpi(this).PixelsPerDip);
         dc.DrawText(text, new Point(center.X - text.Width / 2, center.Y - text.Height / 2));
     }
 }

@@ -16,7 +16,7 @@ internal sealed class MissingPostersWindow : Window
     private readonly ListBox _results = new DarkListBox();
     private readonly TextBox _query = new() { MaxLength = 120 };
     private readonly Image _preview = new() { Width = 150, Height = 225, Stretch = Stretch.UniformToFill };
-    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 12), Foreground = Brushes.Honeydew };
+    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 12), Foreground = ThemeBrushes.Get("Muted") };
     private readonly TextBlock _identity = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap };
     private readonly CheckBox _include = new() { Content = "包括本地未找到 / 待确认游戏", Margin = new Thickness(0, 10, 0, 10) };
     private readonly Button _search = new() { Content = "按名称搜索", Margin = new Thickness(10, 0, 0, 0) };
@@ -34,8 +34,8 @@ internal sealed class MissingPostersWindow : Window
         Title = "海报补全 · 名称定向搜索";
         Width = 1000; Height = 720; MinWidth = 800; MinHeight = 560;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(20, 26, 24));
-        Foreground = new SolidColorBrush(Color.FromRgb(240, 242, 235));
+        Background = ThemeBrushes.Get("Sidebar");
+        Foreground = ThemeBrushes.Get("TextPrimary");
         FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI"); FontSize = 14;
         var root = new DockPanel { Margin = new Thickness(24) };
         var heading = new StackPanel();
@@ -48,7 +48,7 @@ internal sealed class MissingPostersWindow : Window
         footer.Children.Add(new TextBlock { Text = "关闭窗口可取消；已完成的关联会保留。", FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
         DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
         var columns = new Grid(); columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(260) }); columns.ColumnDefinitions.Add(new ColumnDefinition());
-        _games.Background = Brushes.Transparent; _games.Foreground = Brushes.White; _games.BorderThickness = new Thickness(0);
+        _games.Background = Brushes.Transparent; _games.Foreground = ThemeBrushes.Get("TextPrimary"); _games.BorderThickness = new Thickness(0);
         _games.ItemTemplate = TitleTemplate(); ScrollViewer.SetHorizontalScrollBarVisibility(_games, ScrollBarVisibility.Disabled);
         columns.Children.Add(_games);
         var detail = new DockPanel { Margin = new Thickness(22, 0, 0, 0) }; Grid.SetColumn(detail, 1); columns.Children.Add(detail);
@@ -57,7 +57,7 @@ internal sealed class MissingPostersWindow : Window
         DockPanel.SetDock(_status, Dock.Top); detail.Children.Add(_status);
         var preview = new StackPanel { Width = 165, Margin = new Thickness(14, 0, 0, 0) };
         preview.Children.Add(_preview); preview.Children.Add(_identity); DockPanel.SetDock(preview, Dock.Right); detail.Children.Add(preview);
-        _results.Background = Brushes.Transparent; _results.Foreground = Brushes.White; _results.BorderThickness = new Thickness(0); detail.Children.Add(_results);
+        _results.Background = Brushes.Transparent; _results.Foreground = ThemeBrushes.Get("TextPrimary"); _results.BorderThickness = new Thickness(0); detail.Children.Add(_results);
         _results.ItemTemplate = TitleTemplate(); ScrollViewer.SetHorizontalScrollBarVisibility(_results, ScrollBarVisibility.Disabled);
         root.Children.Add(columns); Content = root;
         _search.Click += async (_, _) => await SearchAsync();

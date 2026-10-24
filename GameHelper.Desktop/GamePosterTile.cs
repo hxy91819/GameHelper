@@ -23,7 +23,7 @@ public sealed class GamePosterTile : FrameworkElement
         if (width < 2 || height < 2) return;
         var radius = Math.Min(6, Math.Min(width, height) * .16);
         var bounds = new Rect(0, 0, width, height);
-        dc.DrawRoundedRectangle(StatisticsDrawing.Brush("#223146"), null, bounds, radius, radius);
+        dc.DrawRoundedRectangle(StatisticsDrawing.Brush("PosterTile"), null, bounds, radius, radius);
         if (Artwork is { Width: > 0, Height: > 0 } artwork)
         {
             var scale = Math.Max(width / artwork.Width, height / artwork.Height);
@@ -35,11 +35,11 @@ public sealed class GamePosterTile : FrameworkElement
         else if (!string.IsNullOrWhiteSpace(Label))
         {
             var text = new FormattedText(Label, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
-                new Typeface("Segoe UI"), Math.Round(Math.Min(width, height) * .42), StatisticsDrawing.Brush("#8FA6C6"),
+                new Typeface("Segoe UI"), Math.Round(Math.Min(width, height) * .42), StatisticsDrawing.Brush("PosterLetter"),
                 VisualTreeHelper.GetDpi(this).PixelsPerDip);
             dc.DrawText(text, new Point((width - text.Width) / 2, (height - text.Height) / 2));
         }
-        dc.DrawRoundedRectangle(null, new Pen(StatisticsDrawing.Brush("#3A4C66"), 1),
+        dc.DrawRoundedRectangle(null, new Pen(StatisticsDrawing.Brush("PosterBorder"), 1),
             new Rect(.5, .5, width - 1, height - 1), Math.Max(0, radius - .5), Math.Max(0, radius - .5));
     }
 }

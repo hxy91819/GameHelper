@@ -9,6 +9,7 @@ namespace GameHelper.Desktop;
 
 public partial class App : Application
 {
+    internal DesktopTheme? Theme { get; private set; }
     private Mutex? _instance;
     private EventWaitHandle? _activate;
     private RegisteredWaitHandle? _activationWait;
@@ -42,6 +43,8 @@ public partial class App : Application
                 Shutdown(response.Success ? 0 : 1);
                 return;
             }
+            Theme = new DesktopTheme(Resources, new ThemePreferenceStore(config));
+            Theme.Load();
             if (snapshot is null && !ClaimInstance(config, activate: !restore)) { Shutdown(0); return; }
             var model = new LibraryViewModel(new GameLibraryPipe(config), snapshot is null ? config : null);
             var window = new MainWindow(model);

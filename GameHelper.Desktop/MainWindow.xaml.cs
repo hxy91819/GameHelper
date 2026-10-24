@@ -22,12 +22,23 @@ public partial class MainWindow : Window
         _model = model;
         InitializeComponent();
         DataContext = model;
+        UpdateThemeButton();
         StatisticsPage.DataContext = model.Statistics;
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _refreshTimer.Tick += OnTick;
         _refreshTimer.Start();
         PreviewKeyDown += OnKeyboard;
         Closed += (_, _) => { _refreshTimer.Stop(); _refreshTimer.Tick -= OnTick; _model.Dispose(); };
+    }
+
+    private void UpdateThemeButton() => ThemeButton.Content = (Application.Current as App)?.Theme?.IsLight == true ? "深色主题" : "浅色主题";
+
+    private void OnTheme(object sender, RoutedEventArgs e)
+    {
+        if ((Application.Current as App)?.Theme is not { } theme) return;
+        try { theme.Set(!theme.IsLight, persist: true); UpdateThemeButton(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { _model.Status = "主题偏好未能保存，请检查数据目录是否可写后重试。"; }
     }
 
     private async void OnTick(object? sender, EventArgs e) { if (!_showStatistics) await _model.RefreshAsync(); }
@@ -38,8 +49,10 @@ public partial class MainWindow : Window
         StatisticsPage.Visibility = statistics ? Visibility.Visible : Visibility.Collapsed;
         LibraryPage.Visibility = statistics ? Visibility.Collapsed : Visibility.Visible;
         LibraryTools.Visibility = statistics ? Visibility.Collapsed : Visibility.Visible;
-        LibraryNav.Background = statistics ? Brushes.Transparent : (Brush)new BrushConverter().ConvertFromString("#2A4033")!;
-        StatisticsNav.Background = statistics ? (Brush)new BrushConverter().ConvertFromString("#2A4033")! : Brushes.Transparent;
+        if (statistics) LibraryNav.Background = Brushes.Transparent;
+        else LibraryNav.SetResourceReference(Control.BackgroundProperty, "NavigationSelected");
+        if (statistics) StatisticsNav.SetResourceReference(Control.BackgroundProperty, "NavigationSelected");
+        else StatisticsNav.Background = Brushes.Transparent;
         ReloadButton.Content = statistics ? "刷新统计" : "重新载入";
         ReloadButton.ToolTip = statistics ? "重新读取历史游玩记录" : "放弃未保存设置并重新载入";
     }
@@ -55,7 +68,7 @@ public partial class MainWindow : Window
     private void SelectButton(IEnumerable<Button> buttons, string selected)
     {
         foreach (var button in buttons)
-            button.Background = (Brush)FindResource((string)button.Tag == selected ? "SelectedSurface" : "ControlSurface");
+            button.SetResourceReference(Control.BackgroundProperty, (string)button.Tag == selected ? "SelectedSurface" : "ControlSurface");
     }
     private void OnInstallationGroup(object sender, RoutedEventArgs e) => SetInstallationGroup((string)((Button)sender).Tag);
     private void SetInstallationGroup(string group)
@@ -151,6 +164,31 @@ public partial class MainWindow : Window
     /// <summary>Read-only rendering probe against an explicitly selected running host.</summary>
     public async Task CaptureAsync(string directory)
     {
+        var width = Width; var height = Height;
+        var theme = (Application.Current as App)?.Theme;
+        var originalLight = theme?.IsLight == true;
+        try
+        {
+            await CaptureThemeAsync(directory);
+            if (theme is not null)
+            {
+                theme.Set(!originalLight, persist: false);
+                Width = width; Height = height;
+                Navigate(false); SetInstallationGroup("installed"); SetLayout("grid");
+                UpdateThemeButton();
+                await CaptureThemeAsync(Path.Combine(directory, originalLight ? "dark" : "light"));
+            }
+        }
+        finally
+        {
+            theme?.Set(originalLight, persist: false);
+            UpdateThemeButton();
+        }
+        Capture(Path.Combine(directory, "theme-restored.png"));
+    }
+
+    private async Task CaptureThemeAsync(string directory)
+    {
         var originalWidth = Width;
         var originalHeight = Height;
         _refreshTimer.Stop();
@@ -190,6 +228,7 @@ public partial class MainWindow : Window
             finally { dialog.Close(); }
         }
         Navigate(true);
+        await _model.Statistics.SetRangeAsync(30);
         await _model.Statistics.RefreshAsync();
         if (!_model.Statistics.HasLoaded) throw new InvalidOperationException(_model.Statistics.Status);
         await Task.Delay(200);

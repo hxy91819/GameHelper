@@ -385,3 +385,6 @@ FodyWeavers.xsd
 
 # Ad-hoc research notes (not part of the product docs)
 docs/todo/
+# Per-configuration local appearance preferences
+*.desktop-theme.json
+*.desktop-theme.json.*.tmp

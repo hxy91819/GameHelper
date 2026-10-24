@@ -15,8 +15,8 @@ internal sealed class SteamImportWindow : Window
         Title = "导入 Steam 游戏";
         Width = 640; Height = 620; MinWidth = 500; MinHeight = 400;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(20, 26, 24));
-        Foreground = new SolidColorBrush(Color.FromRgb(240, 242, 235));
+        Background = ThemeBrushes.Get("Sidebar");
+        Foreground = ThemeBrushes.Get("TextPrimary");
         FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI");
         FontSize = 14;
         var root = new DockPanel { Margin = new Thickness(24) };
