@@ -23,7 +23,8 @@ internal sealed class SteamPosterWindow : Window
         Title = "匹配 Steam 海报";
         Width = 680; Height = 620; MinWidth = 520; MinHeight = 440;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(23, 30, 43));
+        Background = new SolidColorBrush(Color.FromRgb(20, 26, 24));
+        Foreground = new SolidColorBrush(Color.FromRgb(240, 242, 235));
         FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI"); FontSize = 14;
         var root = new DockPanel { Margin = new Thickness(24) };
         var header = new StackPanel();

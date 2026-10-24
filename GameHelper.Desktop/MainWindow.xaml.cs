@@ -38,24 +38,35 @@ public partial class MainWindow : Window
         StatisticsPage.Visibility = statistics ? Visibility.Visible : Visibility.Collapsed;
         LibraryPage.Visibility = statistics ? Visibility.Collapsed : Visibility.Visible;
         LibraryTools.Visibility = statistics ? Visibility.Collapsed : Visibility.Visible;
-        LibraryNav.Background = statistics ? Brushes.Transparent : (Brush)new BrushConverter().ConvertFromString("#2B3E60")!;
-        StatisticsNav.Background = statistics ? (Brush)new BrushConverter().ConvertFromString("#2B3E60")! : Brushes.Transparent;
+        LibraryNav.Background = statistics ? Brushes.Transparent : (Brush)new BrushConverter().ConvertFromString("#2A4033")!;
+        StatisticsNav.Background = statistics ? (Brush)new BrushConverter().ConvertFromString("#2A4033")! : Brushes.Transparent;
         ReloadButton.Content = statistics ? "刷新统计" : "重新载入";
         ReloadButton.ToolTip = statistics ? "重新读取历史游玩记录" : "放弃未保存设置并重新载入";
     }
     private async void OnStatistics(object sender, RoutedEventArgs e) { Navigate(true); await _model.Statistics.EnsureLoadedAsync(); }
     private async void OnLibrary(object sender, RoutedEventArgs e) { Navigate(false); await _model.RefreshAsync(); }
-    private void OnFilter(object sender, RoutedEventArgs e) => _model.SetFilter((string)((Button)sender).Tag);
+    private void OnFilter(object sender, RoutedEventArgs e)
+    {
+        var filter = (string)((Button)sender).Tag;
+        _model.SetFilter(filter);
+        SelectButton(new[] { AllType, HdrType, SpeedType }, filter);
+    }
+
+    private void SelectButton(IEnumerable<Button> buttons, string selected)
+    {
+        foreach (var button in buttons)
+            button.Background = (Brush)FindResource((string)button.Tag == selected ? "SelectedSurface" : "ControlSurface");
+    }
     private void OnInstallationGroup(object sender, RoutedEventArgs e) => SetInstallationGroup((string)((Button)sender).Tag);
     private void SetInstallationGroup(string group)
     {
         _model.SetInstallationGroup(group);
-        foreach (var button in new[] { InstalledGroup, MissingGroup, UnknownGroup, AllGroup })
-            button.Background = (Brush)new BrushConverter().ConvertFromString((string)button.Tag == group ? "#425B92" : "#253248")!;
+        SelectButton(new[] { InstalledGroup, MissingGroup, UnknownGroup, AllGroup }, group);
     }
     private void OnLayout(object sender, RoutedEventArgs e) => SetLayout((string)((Button)sender).Tag);
     private void SetLayout(string layout)
     {
+        SelectButton(new[] { GridLayout, ListLayout }, layout);
         GameList.ItemTemplate = (DataTemplate)Resources[layout == "grid" ? "CardTemplate" : "RowTemplate"];
         GameList.ItemsPanel = (ItemsPanelTemplate)Resources[layout == "grid" ? "CardsPanel" : "RowsPanel"];
     }
@@ -165,6 +176,7 @@ public partial class MainWindow : Window
         Width = MinWidth; Height = MinHeight;
         await Task.Delay(100);
         Capture(Path.Combine(directory, "small-window.png"));
+        SetLayout("grid"); await Task.Delay(100); Capture(Path.Combine(directory, "small-grid.png"));
         Width = originalWidth; Height = originalHeight;
         SetInstallationGroup("missing"); await Task.Delay(100); Capture(Path.Combine(directory, "missing-games.png"));
         SetInstallationGroup("unknown"); await Task.Delay(100); Capture(Path.Combine(directory, "unknown-games.png"));

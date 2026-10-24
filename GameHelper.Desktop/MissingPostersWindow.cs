@@ -16,7 +16,7 @@ internal sealed class MissingPostersWindow : Window
     private readonly ListBox _results = new DarkListBox();
     private readonly TextBox _query = new() { MaxLength = 120 };
     private readonly Image _preview = new() { Width = 150, Height = 225, Stretch = Stretch.UniformToFill };
-    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 12), Foreground = Brushes.LightSteelBlue };
+    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 12), Foreground = Brushes.Honeydew };
     private readonly TextBlock _identity = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap };
     private readonly CheckBox _include = new() { Content = "包括本地未找到 / 待确认游戏", Margin = new Thickness(0, 10, 0, 10) };
     private readonly Button _search = new() { Content = "按名称搜索", Margin = new Thickness(10, 0, 0, 0) };
@@ -34,7 +34,8 @@ internal sealed class MissingPostersWindow : Window
         Title = "海报补全 · 名称定向搜索";
         Width = 1000; Height = 720; MinWidth = 800; MinHeight = 560;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(23, 30, 43));
+        Background = new SolidColorBrush(Color.FromRgb(20, 26, 24));
+        Foreground = new SolidColorBrush(Color.FromRgb(240, 242, 235));
         FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI"); FontSize = 14;
         var root = new DockPanel { Margin = new Thickness(24) };
         var heading = new StackPanel();

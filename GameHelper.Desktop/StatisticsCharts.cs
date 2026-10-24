@@ -11,7 +11,7 @@ namespace GameHelper.Desktop;
 
 internal static class StatisticsDrawing
 {
-    public static readonly Brush Muted = Brush("#8F9EB5");
+    public static readonly Brush Muted = Brush("#A4B2A9");
     public static Brush Brush(string color) { var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(color)!; brush.Freeze(); return brush; }
     public static void Text(FrameworkElement owner, DrawingContext dc, string text, double x, double y, double size, Brush brush)
         => dc.DrawText(new FormattedText(text, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
@@ -32,8 +32,8 @@ internal sealed class ChartTooltip
         _text = new TextBlock { Foreground = Brushes.White, FontSize = 12 };
         _bubble = new Border
         {
-            Background = StatisticsDrawing.Brush("#29364C"),
-            BorderBrush = StatisticsDrawing.Brush("#526783"),
+            Background = StatisticsDrawing.Brush("#25352B"),
+            BorderBrush = StatisticsDrawing.Brush("#56745F"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(12, 8, 12, 8),
@@ -113,12 +113,12 @@ public sealed class PlaytimeTrendChart : FrameworkElement
         for (var level = 0; level <= 3; level++)
         {
             var y = plotHeight * level / 3;
-            dc.DrawLine(new Pen(StatisticsDrawing.Brush("#2B3548"), 1), new Point(Left, y), new Point(ActualWidth, y));
+            dc.DrawLine(new Pen(StatisticsDrawing.Brush("#2B3930"), 1), new Point(Left, y), new Point(ActualWidth, y));
             StatisticsDrawing.Text(this, dc, $"{ceiling / 60 * (3 - level) / 3:0.#}h", 0, Math.Max(0, y - 8), 10, StatisticsDrawing.Muted);
         }
         var pitch = (ActualWidth - Left) / points.Count;
         var width = Math.Max(2, Math.Min(25, pitch * .65));
-        var gradient = new LinearGradientBrush(Color.FromRgb(159, 177, 255), Color.FromRgb(92, 111, 213), 90);
+        var gradient = new LinearGradientBrush(Color.FromRgb(184, 232, 206), Color.FromRgb(71, 123, 91), 90);
         for (var index = 0; index < points.Count; index++)
         {
             var height = points[index].Minutes / ceiling * plotHeight;
@@ -198,7 +198,7 @@ public sealed class PlaytimeCalendar : FrameworkElement
             var row = index % 7;
             if (row == 0 && day.Date.Month != lastMonth)
             { StatisticsDrawing.Text(this, dc, day.Date.ToString("M月"), 30 + column * Pitch, 0, 10, StatisticsDrawing.Muted); lastMonth = day.Date.Month; }
-            var color = day.Sessions == 0 ? "#263143" : day.Minutes < 30 ? "#285B55" : day.Minutes < 90 ? "#388875" : day.Minutes < 180 ? "#53B594" : "#91E5BC";
+            var color = day.Sessions == 0 ? "#26332B" : day.Minutes < 30 ? "#285B55" : day.Minutes < 90 ? "#388875" : day.Minutes < 180 ? "#53B594" : "#91E5BC";
             dc.DrawRoundedRectangle(StatisticsDrawing.Brush(color), null,
                 new Rect(30 + column * Pitch, 23 + row * Pitch, Pitch - 3, Pitch - 3), 2, 2);
         }
@@ -261,7 +261,7 @@ public sealed class PlaytimeShareRing : FrameworkElement
         var extent = Math.Min(ActualWidth, ActualHeight);
         var stroke = Math.Clamp(extent * .08, 4, 7);
         var radius = Math.Max(1, extent / 2 - stroke);
-        dc.DrawEllipse(null, new Pen(StatisticsDrawing.Brush("#303B52"), stroke), center, radius, radius);
+        dc.DrawEllipse(null, new Pen(StatisticsDrawing.Brush("#304036"), stroke), center, radius, radius);
         if (share > 0)
         {
             var angle = Math.Min(.99999, share) * Math.PI * 2 - Math.PI / 2;
@@ -272,10 +272,10 @@ public sealed class PlaytimeShareRing : FrameworkElement
                 context.ArcTo(new Point(center.X + Math.Cos(angle) * radius, center.Y + Math.Sin(angle) * radius),
                     new Size(radius, radius), 0, share > .5, SweepDirection.Clockwise, true, false);
             }
-            dc.DrawGeometry(null, new Pen(StatisticsDrawing.Brush("#A9B4FF"), stroke) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round }, geometry);
+            dc.DrawGeometry(null, new Pen(StatisticsDrawing.Brush("#B8E8CE"), stroke) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round }, geometry);
         }
         var text = new FormattedText($"{share:P0}", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"),
-            Math.Clamp(extent * .24, 11, 20), StatisticsDrawing.Brush("#EAF0FF"), VisualTreeHelper.GetDpi(this).PixelsPerDip);
+            Math.Clamp(extent * .24, 11, 20), StatisticsDrawing.Brush("#F0F2EB"), VisualTreeHelper.GetDpi(this).PixelsPerDip);
         dc.DrawText(text, new Point(center.X - text.Width / 2, center.Y - text.Height / 2));
     }
 }

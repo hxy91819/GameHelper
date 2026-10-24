@@ -1,0 +1,13 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <!-- Open G orbit + playhead: collection, continuity and launch in one silhouette. -->
+ <DrawingImage x:Key="BrandMark">
+  <DrawingImage.Drawing>
+   <DrawingGroup>
+    <GeometryDrawing Brush="#121918" Geometry="M0,0 H128 V128 H0 Z" />
+    <GeometryDrawing Brush="#B8E8CE" Geometry="M98,31 A47,47 0 1 0 108,76 L108,58 L65,58 L65,72 L92,72 A30,30 0 1 1 87,42 Z" />
+    <GeometryDrawing Brush="#F3F2EB" Geometry="M57,43 L80,56 L57,56 Z" />
+   </DrawingGroup>
+  </DrawingImage.Drawing>
+ </DrawingImage>
+</ResourceDictionary>
