@@ -113,20 +113,20 @@ public sealed class PlaytimeTrendChart : FrameworkElement
         var plotHeight = ActualHeight - 27;
         var max = Math.Max(60, points.Max(point => point.Minutes));
         var ceiling = Math.Ceiling(max / 60d) * 60;
-        for (var level = 0; level <= 3; level++)
+        for (var level = 0; level <= 2; level++)
         {
-            var y = plotHeight * level / 3;
+            var y = plotHeight * level / 2;
             dc.DrawLine(new Pen(StatisticsDrawing.Brush("ChartGrid"), 1), new Point(Left, y), new Point(ActualWidth, y));
-            StatisticsDrawing.Text(this, dc, $"{ceiling / 60 * (3 - level) / 3:0.#}h", 0, Math.Max(0, y - 8), 10, StatisticsDrawing.Muted);
+            StatisticsDrawing.Text(this, dc, $"{ceiling / 60 * (2 - level) / 2:0.#}h", 0, Math.Max(0, y - 8), 10, StatisticsDrawing.Muted);
         }
         var pitch = (ActualWidth - Left) / points.Count;
         var width = Math.Max(2, Math.Min(25, pitch * .65));
-        var gradient = new LinearGradientBrush(ThemeBrushes.Color("Accent"), ThemeBrushes.Color("ChartBarEnd"), 90);
+        var gradient = StatisticsDrawing.Brush("ChartBarEnd");
         for (var index = 0; index < points.Count; index++)
         {
             var height = points[index].Minutes / ceiling * plotHeight;
             if (height > 0) dc.DrawRoundedRectangle(index == points.Count - 1 ? StatisticsDrawing.Brush("ChartRecent") : gradient, null,
-                new Rect(Left + index * pitch + (pitch - width) / 2, plotHeight - height, width, height), 3, 3);
+                new Rect(Left + index * pitch + (pitch - width) / 2, plotHeight - height, width, height), 4, 4);
             var step = Math.Max(1, (int)Math.Ceiling(points.Count / 7d));
             if (index % step == 0 || index == points.Count - 1)
                 StatisticsDrawing.Text(this, dc, points[index].Label, Math.Min(ActualWidth - 32, Left + index * pitch), plotHeight + 9, 10, StatisticsDrawing.Muted);
@@ -193,7 +193,8 @@ public sealed class PlaytimeCalendar : FrameworkElement
         calendar._tooltip.Hide();
     }
 
-    private double Pitch => Math.Min(19, (ActualWidth - 34) / 53);
+    private double Pitch => 17;
+    private int Leading => Days is { Count: > 0 } days ? ((int)days[0].Date.DayOfWeek + 6) % 7 : 0;
 
     protected override void OnRender(DrawingContext dc)
     {
@@ -206,17 +207,17 @@ public sealed class PlaytimeCalendar : FrameworkElement
         for (var index = 0; index < days.Count; index++)
         {
             var day = days[index];
-            var column = index / 7;
-            var row = index % 7;
+            var column = (index + Leading) / 7;
+            var row = (index + Leading) % 7;
             if (row == 0 && day.Date.Month != lastMonth)
             { StatisticsDrawing.Text(this, dc, day.Date.ToString("M月"), 30 + column * Pitch, 0, 10, StatisticsDrawing.Muted); lastMonth = day.Date.Month; }
             var color = day.Sessions == 0 ? "CalendarZero" : day.Minutes < 30 ? "CalendarOne" : day.Minutes < 90 ? "CalendarTwo" : day.Minutes < 180 ? "CalendarThree" : "CalendarFour";
             dc.DrawRoundedRectangle(StatisticsDrawing.Brush(color), day.Date == SelectedDate ? new Pen(StatisticsDrawing.Brush("CalendarFocus"), 2) : null,
-                new Rect(30 + column * Pitch, 23 + row * Pitch, Pitch - 3, Pitch - 3), 2, 2);
+                new Rect(30 + column * Pitch, 23 + row * Pitch, Pitch - 4, Pitch - 4), 2, 2);
         }
         if (_hovered >= 0 && _hovered < days.Count)
             dc.DrawRoundedRectangle(null, new Pen(StatisticsDrawing.Brush("CalendarFocus"), 1.5),
-                new Rect(30 + _hovered / 7 * Pitch - 1, 23 + _hovered % 7 * Pitch - 1, Pitch - 1, Pitch - 1), 3, 3);
+                new Rect(30 + (_hovered + Leading) / 7 * Pitch - 1, 23 + (_hovered + Leading) % 7 * Pitch - 1, Pitch - 1, Pitch - 1), 3, 3);
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
@@ -226,7 +227,7 @@ public sealed class PlaytimeCalendar : FrameworkElement
         var position = e.GetPosition(this);
         var column = (int)Math.Floor((position.X - 30) / pitch);
         var row = (int)Math.Floor((position.Y - 23) / pitch);
-        var index = column * 7 + row;
+        var index = column * 7 + row - Leading;
         if (Days is not { Count: > 0 } days || pitch < 3 || column < 0 || row is < 0 or > 6 || index < 0 || index >= days.Count)
         {
             SetHovered(-1);

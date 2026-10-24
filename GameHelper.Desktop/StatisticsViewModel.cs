@@ -132,13 +132,17 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
     public string ActiveDays => _data.ActiveDays.ToString("N0", CultureInfo.CurrentCulture);
     public string GamesPlayed => _data.GamesPlayed.ToString("N0", CultureInfo.CurrentCulture);
     public string Average => _data.Sessions == 0 ? "暂无单次记录" : $"平均单次 {Duration(_data.Minutes / _data.Sessions)}";
-    public string DateRange => _loaded ? $"{_data.Start:yyyy.MM.dd} — {_data.Today:yyyy.MM.dd}" : "正在读取历史记录…";
+    public string DateRange => _loaded ? $"{_data.Start:yyyy-MM-dd} — {_data.Today:yyyy-MM-dd} · {(_days == 0 ? "全部历史" : $"最近 {_days} 天")}" : "正在读取历史记录…";
     public string Change => _days == 0 ? string.Empty : _data.PreviousMinutes == 0
         ? (_data.Minutes > 0 ? "前一周期没有记录" : "本期暂无游玩记录")
         : $"较前 {_days} 天 {(_data.Minutes >= _data.PreviousMinutes ? "↑" : "↓")} {Math.Abs(_data.Minutes / (double)_data.PreviousMinutes - 1):P0}";
-    public string TrendCaption => _days == 0 ? "最近 12 个月" : string.Empty;
+    public string TrendCaption => _days == 0 ? "最近 12 个月" : "每日时长 · 小时";
     public IReadOnlyList<DashboardBucket> Trend => _data.Trend;
-    public IReadOnlyList<DashboardDay> Calendar => _data.Calendar;
+    public IReadOnlyList<DashboardDay> Calendar => _days == 0 ? _data.Calendar : _data.Calendar.Where(day => day.Date >= _data.Start).ToList();
+    public double CalendarWidth => 34 + Math.Ceiling((Calendar.Count + (Calendar.Count == 0 ? 0 : ((int)Calendar[0].Date.DayOfWeek + 6) % 7)) / 7d) * 17;
+    public double RankingHeight => Math.Clamp(_data.Games.Count * 57 + 34, 120, 650);
+    public string FavouriteShareLabel => $"占本期 {FavouriteShare:P1}";
+    public double FavouriteBarWidth => FavouriteShare * 180;
     public string FavouriteName => _data.Games.FirstOrDefault()?.Name ?? "暂无记录";
     public string FavouriteInitial => _data.Games.FirstOrDefault() is { } game && !string.IsNullOrEmpty(game.Name)
         ? StringInfo.GetNextTextElement(game.Name) : "?";
@@ -149,6 +153,8 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
     public string Longest => _data.Sessions == 0 ? "暂无记录" : Duration(_data.LongestSessionMinutes);
     public IReadOnlyList<StatisticsSessionRow> Recent => _recent;
     public string RecentTitle => _sessionName ?? "游玩节奏";
+    public string FocusClearLabel => _sessionKey is null && _focusDate is null ? "全部游戏" : "清除筛选";
+    public string RangeSummary => _days == 0 ? "全部历史" : $"统计范围 {_days} 天";
     public string FocusCaption => (_focusDate is { } date ? $"{date:yyyy/MM/dd} · 当日汇总" : "当前时段 · 汇总") + " · 按结束日";
     public string FocusHours => (_data.Rhythm.Minutes / 60d).ToString("N1", CultureInfo.CurrentCulture);
     public string FocusActiveDays => $"{_data.Rhythm.ActiveDays} 天";
@@ -222,7 +228,7 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
             _recent = _data.Recent.Select(row => new StatisticsSessionRow(row.DataKey, row.Name, row.Start, row.End, row.Minutes, ArtworkFor(row.DataKey))).ToList();
             _favouriteArtwork = ArtworkFor(_data.Games.FirstOrDefault()?.DataKey);
             Status = PolicyNote;
-            foreach (var property in new[] { nameof(HasHistory), nameof(TotalHours), nameof(SessionCount), nameof(ActiveDays), nameof(GamesPlayed), nameof(Average),
+            foreach (var property in new[] { nameof(FocusClearLabel), nameof(RangeSummary), nameof(CalendarWidth), nameof(RankingHeight), nameof(FavouriteShareLabel), nameof(FavouriteBarWidth), nameof(HasHistory), nameof(TotalHours), nameof(SessionCount), nameof(ActiveDays), nameof(GamesPlayed), nameof(Average),
                 nameof(DateRange), nameof(Change), nameof(TrendCaption), nameof(Trend), nameof(Calendar), nameof(FavouriteName), nameof(FavouriteInitial),
                 nameof(FavouriteArtwork), nameof(HasFavourite), nameof(FavouriteTime), nameof(FavouriteShare), nameof(Longest), nameof(Recent), nameof(RecentTitle),
                 nameof(PageLabel), nameof(RankingCaption), nameof(FocusCaption), nameof(FocusHours), nameof(FocusActiveDays), nameof(FocusAverage), nameof(FocusSessions), nameof(FocusLongest), nameof(Weekdays), nameof(FocusDate) }) Changed(property);
@@ -250,7 +256,8 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
         _commands.Add(command); return command;
     }
     private void UpdateCommands() { foreach (var command in _commands) command.Refresh(); }
-    public static string Duration(long minutes) => minutes == 0 ? "不足 1 分钟" : minutes < 60 ? $"{minutes} 分钟" : $"{minutes / 60d:0.#} 小时";
+    public static string Duration(long minutes) => minutes == 0 ? "不足 1 分钟" : minutes < 60 ? $"{minutes} 分钟"
+        : minutes % 60 == 0 ? $"{minutes / 60} 小时" : $"{minutes / 60} 小时 {minutes % 60} 分";
     public void Dispose()
     {
         if (_disposed) return;

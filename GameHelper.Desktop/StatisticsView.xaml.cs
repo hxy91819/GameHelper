@@ -28,8 +28,16 @@ public partial class StatisticsView : UserControl
 
     internal async Task ScrollToCalendarAsync()
     {
-        PageScroll.ScrollToBottom();
+        CalendarPanel.BringIntoView();
         await Task.Delay(150);
     }
-    internal void ScrollToTop() => PageScroll.ScrollToTop();
+    internal void ScrollToTop()
+    {
+        DependencyObject? parent = this;
+        while (parent is not null)
+        {
+            if (parent is ScrollViewer scroll && scroll != PageScroll) { scroll.ScrollToTop(); return; }
+            parent = System.Windows.Media.VisualTreeHelper.GetParent(parent);
+        }
+    }
 }

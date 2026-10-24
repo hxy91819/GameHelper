@@ -73,6 +73,8 @@ dotnet build GameHelper.sln
 dotnet test GameHelper.sln
 ```
 
+桌面视觉遵循 [A / Studio 视觉契约](./studio-visual-contract.md)，品牌 SVG 是所有图标的唯一几何源；横图、手动分类和窗口草稿继续留在桌面侧，不进入监控链路。
+
 ## Supporting Standards
 
 - [Coding Standards](./coding-standards.md)
