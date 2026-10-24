@@ -49,7 +49,7 @@
      <Button x:Name="StatisticsNav" Content="◷   游玩档案" Click="OnStatistics" Background="Transparent" FontWeight="SemiBold" Margin="0,8,0,0" />
      <StackPanel x:Name="LibraryTools"><Button Content="＋  添加游戏" Click="OnAdd" IsEnabled="{Binding Ready}" Margin="0,18,0,8" /><Button Content="扫描目录" Click="OnScanDirectory" IsEnabled="{Binding Ready}" Margin="0,0,0,8" /><Button Content="扫描 Steam" Click="OnSteam" IsEnabled="{Binding Ready}" /></StackPanel>
     </StackPanel>
-    <StackPanel Grid.Row="3"><Button x:Name="ReloadButton" Content="重新载入" Click="OnReload" IsEnabled="{Binding Ready}" ToolTip="放弃未保存设置并重新载入" /><TextBlock Text="本地配置 · Windows" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,14,0,0" /></StackPanel>
+    <StackPanel Grid.Row="3"><Button x:Name="ReloadButton" Content="重新载入" Click="OnReload" IsEnabled="{Binding Ready}" ToolTip="放弃未保存设置并重新载入" /></StackPanel>
    </Grid>
   </Border>
   <Grid x:Name="LibraryPage" Grid.Column="1" Margin="32,30,28,18">
@@ -57,7 +57,7 @@
    <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="280" /></Grid.ColumnDefinitions>
     <StackPanel><TextBlock Text="Y O U R  P E R S O N A L  C O L L E C T I O N" FontSize="10" Foreground="{StaticResource Muted}" Margin="0,0,0,8" /><TextBlock Text="让热爱，有处珍藏。" FontSize="30" FontWeight="SemiBold" /><TextBlock Text="{Binding Count}" Foreground="{StaticResource Muted}" Margin="0,8,0,0" /></StackPanel>
-    <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="搜索游戏 · Ctrl+F" Foreground="{StaticResource Muted}" FontSize="11" /><TextBox x:Name="SearchBox" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" ToolTip="搜索游戏名称或程序（Ctrl+F）" AutomationProperties.Name="搜索游戏" /></StackPanel>
+    <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="搜索游戏 · Ctrl+F" Foreground="{StaticResource Muted}" FontSize="11" /><TextBox x:Name="SearchBox" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="搜索游戏" /></StackPanel>
    </Grid>
    <StackPanel Grid.Row="1" Margin="0,22,0,15">
     <DockPanel>
@@ -108,11 +108,11 @@
         <TextBlock Text="启动入口" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,18,0,0" />
         <TextBox Text="{Binding Target, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" ToolTip="游戏 exe、快捷方式完整路径，或 steam://rungameid/数字" AutomationProperties.Name="启动入口" />
         <Button Content="选择程序或快捷方式…" Click="OnChooseEntry" />
-        <CheckBox IsChecked="{Binding UseDs4Windows}" ToolTip="仅在从本游戏库启动时生效；已运行则复用，退出游戏后保持运行。"><TextBlock Text="启动前运行 DS4Windows（PS 手柄）" TextWrapping="Wrap" /></CheckBox>
+        <CheckBox IsChecked="{Binding UseDs4Windows}"><TextBlock Text="启动前运行 DS4Windows（PS 手柄）" TextWrapping="Wrap" /></CheckBox>
         <StackPanel Visibility="{Binding UseDs4Windows, Converter={StaticResource BoolVisibility}}">
          <TextBox Text="{Binding Ds4WindowsPath, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" AutomationProperties.Name="DS4Windows 程序路径" />
          <Button Content="选择 DS4Windows 程序…" Click="OnChooseDs4Windows" />
-         <TextBlock Text="先启动手柄兼容程序，再启动游戏。游戏退出后保持运行。" FontSize="11" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,8,0,0" />
+         <TextBlock Text="先启动手柄兼容程序，再启动游戏；仅从游戏库启动时生效，退出游戏后保持运行。" FontSize="11" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,8,0,0" />
         </StackPanel>
         <Expander Header="启动参数与进程匹配" Foreground="#C5CEC7" Margin="0,8,0,16">
          <StackPanel Margin="0,10,0,0">

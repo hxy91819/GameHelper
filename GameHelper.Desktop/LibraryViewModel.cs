@@ -47,7 +47,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             _draftStore = new LibraryDraftStore(configPath);
             try { _restoredDrafts = _draftStore.Read().ToDictionary(draft => draft.Baseline.Config.DataKey, StringComparer.OrdinalIgnoreCase); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
-            { _status = "未能读取上次的界面草稿：" + ex.Message; }
+            { _status = "上次未保存的修改未能读取，已忽略。"; }
         }
         Games = CollectionViewSource.GetDefaultView(_games);
         Games.Filter = Matches;
@@ -92,7 +92,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private void Report(Exception ex)
     {
         Status = ex is IOException or TimeoutException or OperationCanceledException
-            ? "未能完成与监控进程的通信。请刷新确认状态；启动或保存操作不会自动重试。"
+            ? "未能完成与监控进程的通信。请确认监控在运行后重试。"
             : ex.Message;
     }
 

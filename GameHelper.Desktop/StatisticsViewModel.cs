@@ -211,7 +211,7 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
                 nameof(PageLabel), nameof(RankingCaption) }) Changed(property);
         }
         catch (OperationCanceledException) when (pending.IsCancellationRequested || _disposed) { }
-        catch (Exception ex)
+        catch (Exception)
         {
             if (_pending == pending && !_disposed)
             {
@@ -220,7 +220,7 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
                 _sessionName = _data.Games.FirstOrDefault(game => game.DataKey.Equals(_sessionKey, StringComparison.OrdinalIgnoreCase))?.Name;
                 _offset = _data.Offset;
                 Changed(nameof(Days));
-                Status = "统计暂不可用，请刷新重试：" + ex.Message;
+                Status = "统计暂不可用，请刷新重试。";
             }
         }
         finally { if (_pending == pending && !_disposed) IsBusy = false; }

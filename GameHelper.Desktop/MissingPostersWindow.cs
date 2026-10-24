@@ -40,7 +40,7 @@ internal sealed class MissingPostersWindow : Window
         var root = new DockPanel { Margin = new Thickness(24) };
         var heading = new StackPanel();
         heading.Children.Add(new TextBlock { Text = "让游戏库有封面", FontSize = 26, FontWeight = FontWeights.SemiBold });
-        heading.Children.Add(new TextBlock { Text = "中英文名称综合匹配，优先原版游戏；明确的最佳结果可自动保存，接近或不确定的结果由你选择。已有海报关联不会被自动覆盖。", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) });
+        heading.Children.Add(new TextBlock { Text = "中英文名称综合匹配，优先原版游戏；已有海报关联不会被自动覆盖。", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) });
         heading.Children.Add(_include); heading.Children.Add(_autoApply); DockPanel.SetDock(heading, Dock.Top); root.Children.Add(heading);
         var footer = new DockPanel { Margin = new Thickness(0, 18, 0, 0) };
         DockPanel.SetDock(_apply, Dock.Right); footer.Children.Add(_apply);
@@ -103,7 +103,7 @@ internal sealed class MissingPostersWindow : Window
         if (_working || _closed) return;
         var request = ++_request;
         Busy(true); _preview.Source = null; _identity.Text = ""; _results.ItemsSource = null;
-        _status.Text = "正在按名称定向搜索 Steam…";
+        _status.Text = "正在按名称搜索 Steam…";
         try
         {
             var found = await _model.SearchPostersAsync(_query.Text, _token);

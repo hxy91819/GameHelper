@@ -55,7 +55,8 @@ public sealed class StatisticsViewModelTests
         await model.SetRangeAsync(7);
         Assert.Equal(30, model.Days);
         Assert.Equal("3.0", model.TotalHours);
-        Assert.Contains("read failed", model.Status);
+        // 失败提示只给动作指引，不透出底层错误细节（spec-leak review 口径）。
+        Assert.Equal("统计暂不可用，请刷新重试。", model.Status);
         await model.SetRangeAsync(7);
         Assert.Equal(7, model.Days);
         Assert.DoesNotContain("read failed", model.Status);
