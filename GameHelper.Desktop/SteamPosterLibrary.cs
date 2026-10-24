@@ -93,6 +93,16 @@ internal sealed class SteamPosterLibrary
         return new GameArtwork(fallback, false, $"Steam {id} 海报暂不可用，可重新匹配后重试");
     }
 
+    internal async Task<ImageSource?> LoadBannerAsync(string dataKey, string executable, string target, CancellationToken cancellationToken, bool header = false, bool refresh = false)
+    {
+        var linked = AssociatedAppId(dataKey);
+        var id = linked ?? await Task.Run(() => SteamArtworkIdentity.Resolve(executable, target), cancellationToken);
+        if (id is null) return null;
+        var path = await Task.Run(() => (header ? _client.GetCachedHeader(id.Value) : _client.GetCachedCapsule(id.Value)), cancellationToken);
+        if ((path is null || refresh) && _allowNetwork) path = header ? await _client.GetHeaderAsync(id.Value, cancellationToken, refresh) : await _client.GetCapsuleAsync(id.Value, cancellationToken, refresh);
+        return path is null ? null : await Task.Run(() => LocalGameArtwork.LoadBanner(path), cancellationToken);
+    }
+
     private static string? LocalPoster(uint appId)
     {
         var steam = Environment.GetEnvironmentVariable("GAMEHELPER_STEAM_ROOT")

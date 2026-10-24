@@ -59,6 +59,7 @@ public partial class App : Application
                 await RuntimeConnection.EnsureAsync(config);
                 if (window.IsVisible) await model.RefreshAsync();
             }
+            if (model.Connected) await model.LoadWeeklyAsync();
             if (snapshot is not null)
             {
                 if (!model.Connected) throw new InvalidOperationException(model.Status);

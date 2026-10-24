@@ -1,18 +1,18 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
- <SolidColorBrush x:Key="Page" Color="#151419" />
- <SolidColorBrush x:Key="Sidebar" Color="#19181E" />
- <SolidColorBrush x:Key="Surface" Color="#1E1D24" />
+ <SolidColorBrush x:Key="Page" Color="#141416" />
+ <SolidColorBrush x:Key="Sidebar" Color="#1C1C20" />
+ <SolidColorBrush x:Key="Surface" Color="#141416" />
  <SolidColorBrush x:Key="Input" Color="#19181F" />
- <SolidColorBrush x:Key="ControlSurface" Color="#24222C" />
- <SolidColorBrush x:Key="Border" Color="#37333F" />
- <SolidColorBrush x:Key="PanelBorder" Color="#302D38" />
+ <SolidColorBrush x:Key="ControlSurface" Color="#141416" />
+ <SolidColorBrush x:Key="Border" Color="#2D2C32" />
+ <SolidColorBrush x:Key="PanelBorder" Color="#2D2C32" />
  <SolidColorBrush x:Key="StrongBorder" Color="#73657E" />
- <SolidColorBrush x:Key="TextPrimary" Color="#F2EFF7" />
- <SolidColorBrush x:Key="Muted" Color="#AAA2B4" />
+ <SolidColorBrush x:Key="TextPrimary" Color="#EFEDF4" />
+ <SolidColorBrush x:Key="Muted" Color="#9A98A2" />
  <SolidColorBrush x:Key="Accent" Color="#BAA2DC" />
  <SolidColorBrush x:Key="AccentText" Color="#20182D" />
- <SolidColorBrush x:Key="SelectedSurface" Color="#3D314F" />
- <SolidColorBrush x:Key="NavigationSelected" Color="#2C2638" />
+ <SolidColorBrush x:Key="SelectedSurface" Color="#1C1C20" />
+ <SolidColorBrush x:Key="NavigationSelected" Color="#141416" />
  <SolidColorBrush x:Key="Selection" Color="#32293F" />
  <SolidColorBrush x:Key="Hover" Color="#28222F" />
  <SolidColorBrush x:Key="Focus" Color="#D4BDF0" />
@@ -25,13 +25,13 @@
  <SolidColorBrush x:Key="Danger" Color="#493039" />
  <SolidColorBrush x:Key="TooltipSurface" Color="#2B2535" />
  <SolidColorBrush x:Key="ChartGrid" Color="#35303F" />
- <SolidColorBrush x:Key="ChartRecent" Color="#C8AFE7" />
- <SolidColorBrush x:Key="ChartBarEnd" Color="#79608E" />
- <SolidColorBrush x:Key="CalendarZero" Color="#302A39" />
- <SolidColorBrush x:Key="CalendarOne" Color="#4B3C5D" />
- <SolidColorBrush x:Key="CalendarTwo" Color="#715489" />
- <SolidColorBrush x:Key="CalendarThree" Color="#9876B6" />
- <SolidColorBrush x:Key="CalendarFour" Color="#C1A2DB" />
+ <SolidColorBrush x:Key="ChartRecent" Color="#A994C8" />
+ <SolidColorBrush x:Key="ChartBarEnd" Color="#A994C8" />
+ <SolidColorBrush x:Key="CalendarZero" Color="#1C1C20" />
+ <SolidColorBrush x:Key="CalendarOne" Color="#DED4EC" />
+ <SolidColorBrush x:Key="CalendarTwo" Color="#BEA9D5" />
+ <SolidColorBrush x:Key="CalendarThree" Color="#9A7BB8" />
+ <SolidColorBrush x:Key="CalendarFour" Color="#73528F" />
  <SolidColorBrush x:Key="CalendarFocus" Color="#EDDAFF" />
  <SolidColorBrush x:Key="RingTrack" Color="#3D334A" />
  <SolidColorBrush x:Key="TableHover" Color="#32293E" />

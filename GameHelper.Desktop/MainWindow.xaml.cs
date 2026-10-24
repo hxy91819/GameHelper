@@ -16,13 +16,47 @@ public partial class MainWindow : Window
     private readonly LibraryViewModel _model;
     private readonly DispatcherTimer _refreshTimer;
     private bool _showStatistics;
+    private string _layout = "grid";
+
+    public static readonly DependencyProperty CardColumnsProperty = DependencyProperty.Register(nameof(CardColumns), typeof(int), typeof(MainWindow), new PropertyMetadata(4));
+    public int CardColumns { get => (int)GetValue(CardColumnsProperty); set => SetValue(CardColumnsProperty, value); }
+    public static readonly DependencyProperty CardPosterHeightProperty = DependencyProperty.Register(nameof(CardPosterHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(190d));
+    public double CardPosterHeight { get => (double)GetValue(CardPosterHeightProperty); set => SetValue(CardPosterHeightProperty, value); }
+    public static readonly DependencyProperty CardSelectionHeightProperty = DependencyProperty.Register(nameof(CardSelectionHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(198d));
+    public double CardSelectionHeight { get => (double)GetValue(CardSelectionHeightProperty); set => SetValue(CardSelectionHeightProperty, value); }
+    public static readonly DependencyProperty HeroHeightProperty = DependencyProperty.Register(nameof(HeroHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(243d));
+    public double HeroHeight { get => (double)GetValue(HeroHeightProperty); set => SetValue(HeroHeightProperty, value); }
+    public static readonly DependencyProperty SidebarWidthProperty = DependencyProperty.Register(nameof(SidebarWidth), typeof(GridLength), typeof(MainWindow), new PropertyMetadata(new GridLength(210)));
+    public GridLength SidebarWidth { get => (GridLength)GetValue(SidebarWidthProperty); set => SetValue(SidebarWidthProperty, value); }
+    public static readonly DependencyProperty DetailWidthProperty = DependencyProperty.Register(nameof(DetailWidth), typeof(GridLength), typeof(MainWindow), new PropertyMetadata(new GridLength(252)));
+    public GridLength DetailWidth { get => (GridLength)GetValue(DetailWidthProperty); set => SetValue(DetailWidthProperty, value); }
+    public static readonly DependencyProperty ContentInsetsProperty = DependencyProperty.Register(nameof(ContentInsets), typeof(Thickness), typeof(MainWindow), new PropertyMetadata(new Thickness(36, 32, 36, 32)));
+    public Thickness ContentInsets { get => (Thickness)GetValue(ContentInsetsProperty); set => SetValue(ContentInsetsProperty, value); }
+    public static readonly DependencyProperty SidebarInsetsProperty = DependencyProperty.Register(nameof(SidebarInsets), typeof(Thickness), typeof(MainWindow), new PropertyMetadata(new Thickness(20, 30, 20, 30)));
+    public Thickness SidebarInsets { get => (Thickness)GetValue(SidebarInsetsProperty); set => SetValue(SidebarInsetsProperty, value); }
+    public static readonly DependencyProperty BrandFontSizeProperty = DependencyProperty.Register(nameof(BrandFontSize), typeof(double), typeof(MainWindow), new PropertyMetadata(19d));
+    public double BrandFontSize { get => (double)GetValue(BrandFontSizeProperty); set => SetValue(BrandFontSizeProperty, value); }
+    public static readonly DependencyProperty SplitGapProperty = DependencyProperty.Register(nameof(SplitGap), typeof(GridLength), typeof(MainWindow), new PropertyMetadata(new GridLength(27)));
+    public GridLength SplitGap { get => (GridLength)GetValue(SplitGapProperty); set => SetValue(SplitGapProperty, value); }
+    private void UpdateStudioGeometry()
+    {
+        var narrow = ActualWidth <= 1100;
+        CardColumns = narrow ? 3 : 4; CardPosterHeight = narrow ? 180 : ActualWidth >= 1450 ? 250 : 190;
+        CardSelectionHeight = CardPosterHeight + 8; HeroHeight = ActualWidth >= 1450 ? 295 : 243;
+        SidebarInsets = narrow ? new Thickness(13, 26, 13, 26) : new Thickness(20, 30, 20, 30);
+        BrandFontSize = narrow ? 16 : 19; SplitGap = new GridLength(narrow ? 20 : 27);
+        SidebarWidth = new GridLength(narrow ? 175 : 210); DetailWidth = new GridLength(narrow ? 220 : 252);
+        ContentInsets = narrow ? new Thickness(23, 26, 23, 26) : new Thickness(36, 32, 36, 32);
+    }
 
     public MainWindow(LibraryViewModel model)
     {
         _model = model;
         InitializeComponent();
+        SizeChanged += (_, _) => UpdateStudioGeometry();
         DataContext = model;
         UpdateThemeButton();
+        SetInstallationGroup(_model.InstallationGroup);
         StatisticsPage.DataContext = model.Statistics;
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _refreshTimer.Tick += OnTick;
@@ -48,7 +82,7 @@ public partial class MainWindow : Window
         Title = statistics ? "GameHelper · 游玩档案" : "GameHelper · 游戏库";
         StatisticsPage.Visibility = statistics ? Visibility.Visible : Visibility.Collapsed;
         LibraryPage.Visibility = statistics ? Visibility.Collapsed : Visibility.Visible;
-        LibraryTools.Visibility = statistics ? Visibility.Collapsed : Visibility.Visible;
+        WorkspaceScroll.ScrollToTop();
         if (statistics) LibraryNav.Background = Brushes.Transparent;
         else LibraryNav.SetResourceReference(Control.BackgroundProperty, "NavigationSelected");
         if (statistics) StatisticsNav.SetResourceReference(Control.BackgroundProperty, "NavigationSelected");
@@ -57,7 +91,28 @@ public partial class MainWindow : Window
         ReloadButton.ToolTip = statistics ? "重新读取历史游玩记录" : "放弃未保存设置并重新载入";
     }
     private async void OnStatistics(object sender, RoutedEventArgs e) { Navigate(true); await _model.Statistics.EnsureLoadedAsync(); }
-    private async void OnLibrary(object sender, RoutedEventArgs e) { _model.SetGenre(null); Navigate(false); await _model.RefreshAsync(); }
+    private async void OnLibrary(object sender, RoutedEventArgs e) { _model.SetGenre(null); Navigate(false); await _model.RefreshAsync(); await _model.LoadWeeklyAsync(); }
+    private async void OnRefreshLibrary(object sender, RoutedEventArgs e) { await _model.RefreshAsync(); await _model.LoadWeeklyAsync(); }
+    private void OnSettings(object sender, RoutedEventArgs e) { if (_model.Selected is not null) SettingsPanel.Visibility = Visibility.Visible; }
+    private void OnCloseSettings(object sender, RoutedEventArgs e) => SettingsPanel.Visibility = Visibility.Collapsed;
+    private void OnContinueDetails(object sender, RoutedEventArgs e)
+    {
+        if (_model.ContinueGame is not { } game) return;
+        _model.Search = string.Empty; _model.SetFilter("all"); SetInstallationGroup("installed"); _model.Selected = game;
+    }
+    private void ShowMenu(object sender, params (string Label, RoutedEventHandler Action)[] entries)
+    {
+        var menu = new ContextMenu { PlacementTarget = (UIElement)sender };
+        menu.SetResourceReference(BackgroundProperty, "Surface"); menu.SetResourceReference(ForegroundProperty, "TextPrimary");
+        foreach (var entry in entries) { var item = new MenuItem { Header = entry.Label }; item.Click += entry.Action; menu.Items.Add(item); }
+        menu.IsOpen = true;
+    }
+    private void OnAddMenu(object sender, RoutedEventArgs e) => ShowMenu(sender, ("添加程序…", OnAdd), ("扫描目录…", OnScanDirectory), ("扫描 Steam…", OnSteam));
+    private void OnManage(object sender, RoutedEventArgs e) => ShowMenu(sender, ("添加程序…", OnAdd), ("扫描目录…", OnScanDirectory), ("扫描 Steam…", OnSteam), ("按名称补全海报…", OnMatchMissingPosters), ("所选游戏设置…", OnSettings));
+    private void OnFiltersMenu(object sender, RoutedEventArgs e) => ShowMenu(sender,
+        ("本地未找到", (_, _) => SetInstallationGroup("missing")), ("安装状态待确认", (_, _) => SetInstallationGroup("unknown")),
+        ("倍速游戏", (_, _) => _model.SetFilter("speed")), ("清除能力筛选", (_, _) => _model.SetFilter("all")));
+
     private void OnContinue(object sender, RoutedEventArgs e)
     {
         if (_model.ContinueGame is not { } game) return;
@@ -96,9 +151,11 @@ public partial class MainWindow : Window
         _model.SetInstallationGroup(group);
         SelectButton(new[] { InstalledGroup, MissingGroup, UnknownGroup, AllGroup }, group);
     }
+    private void OnToggleLayout(object sender, RoutedEventArgs e) => SetLayout(_layout == "grid" ? "list" : "grid");
     private void OnLayout(object sender, RoutedEventArgs e) => SetLayout((string)((Button)sender).Tag);
     private void SetLayout(string layout)
     {
+        _layout = layout;
         SelectButton(new[] { GridLayout, ListLayout }, layout);
         GameList.ItemTemplate = (DataTemplate)Resources[layout == "grid" ? "CardTemplate" : "RowTemplate"];
         GameList.ItemsPanel = (ItemsPanelTemplate)Resources[layout == "grid" ? "CardsPanel" : "RowsPanel"];
@@ -212,12 +269,14 @@ public partial class MainWindow : Window
         var originalWidth = Width;
         var originalHeight = Height;
         _refreshTimer.Stop();
+        await _model.LoadWeeklyAsync();
         await _model.WaitForArtworkAsync().WaitAsync(TimeSpan.FromSeconds(25));
         Directory.CreateDirectory(directory);
         Capture(Path.Combine(directory, "installed-default.png"));
-        GameDetailsScroll.ScrollToVerticalOffset(350); await Task.Delay(100);
+        CaptureGeometry(Path.Combine(directory, "geometry-library.json"));
+        SettingsPanel.Visibility = Visibility.Visible; GameDetailsScroll.ScrollToVerticalOffset(350); await Task.Delay(100);
         Capture(Path.Combine(directory, "launch-options.png"));
-        GameDetailsScroll.ScrollToHome();
+        GameDetailsScroll.ScrollToHome(); SettingsPanel.Visibility = Visibility.Collapsed;
         SetInstallationGroup("all");
         foreach (var layout in new[] { "grid", "list" })
         {
@@ -264,6 +323,17 @@ public partial class MainWindow : Window
         await Task.Delay(150);
         Capture(Path.Combine(directory, "statistics-small.png"));
         await File.WriteAllTextAsync(Path.Combine(directory, "verification.txt"), $"PASS: connected to host; grid/list render; empty search; minimum window size; statistics/trend/calendar/tables render. Posters: {_model.PosterCount}. No settings changed or games launched.");
+    }
+
+    private void CaptureGeometry(string path)
+    {
+        var controls = new FrameworkElement[] { LibraryNav, StatisticsNav, LibraryPage, HeroPanel, DetailCard, SearchBox, GameList, StatisticsPage };
+        var geometry = controls.Where(control => control.IsVisible).Select(control =>
+        {
+            var position = control.TranslatePoint(new Point(), this);
+            return new { control.Name, X = position.X, Y = position.Y, Width = control.ActualWidth, Height = control.ActualHeight };
+        });
+        File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(new { Width = ActualWidth, Height = ActualHeight, Controls = geometry }));
     }
 
     private void Capture(string path)

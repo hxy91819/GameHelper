@@ -15,9 +15,15 @@ internal static class LocalGameArtwork
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or System.IO.FileFormatException or COMException) { return null; }
     }
 
+    public static BitmapSource? LoadBanner(string path)
+    {
+        try { return DecodePoster(File.ReadAllBytes(path), 1280); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or System.IO.FileFormatException or COMException) { return null; }
+    }
+
     public static bool IsValidPoster(byte[] bytes) => DecodePoster(bytes) is not null;
 
-    private static BitmapSource? DecodePoster(byte[] bytes)
+    private static BitmapSource? DecodePoster(byte[] bytes, int decodeWidth = 320)
     {
         if (bytes.Length < 32 || bytes.Length > 5 * 1024 * 1024) return null;
         try
@@ -30,7 +36,7 @@ internal static class LocalGameArtwork
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
-            bitmap.DecodePixelWidth = 320;
+            bitmap.DecodePixelWidth = decodeWidth;
             bitmap.StreamSource = stream;
             bitmap.EndInit();
             bitmap.Freeze();

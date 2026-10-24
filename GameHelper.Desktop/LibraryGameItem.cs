@@ -25,6 +25,8 @@ public sealed class LibraryGameItem : ObservableState
     private DateTime? _runningStartedAt;
     private string? _runningElapsed;
     private ImageSource? _artwork;
+    private ImageSource? _bannerArtwork;
+    private ImageSource? _detailArtwork;
     private bool _artworkIsCover;
     private string _posterStatus = "正在读取海报…";
     private int _artworkVersion;
@@ -94,6 +96,14 @@ public sealed class LibraryGameItem : ObservableState
     public bool ArtworkIsCover { get => _artworkIsCover; private set { if (Set(ref _artworkIsCover, value)) Changed(nameof(ArtworkIsIcon)); } }
     public bool ArtworkIsIcon => !ArtworkIsCover;
     public string PosterStatus { get => _posterStatus; private set => Set(ref _posterStatus, value); }
+    public ImageSource? CoverArtwork => ArtworkIsCover ? Artwork : null;
+    public ImageSource? BannerArtwork => _bannerArtwork;
+    public ImageSource? DetailArtwork => _detailArtwork;
+    public string CardBadge => IsRunning ? StateDisplay : Hdr ? "HDR" : InstallationState == GameInstallationState.Installed ? "已安装" : InstallationLabel;
+    public string CardSummary => $"{_minutes / 60d:0.#} 小时 · {InstallationLabel}";
+    public string HoursValue => $"{_minutes / 60d:0.#}";
+    public string TotalHours => $"{_minutes / 60d:0.#} 小时";
+    public string LastPlayedShort => LastPlayedAt is { } date ? date.LocalDateTime.ToString("MM/dd") : "尚未游玩";
     public string Playtime => $"历史时长 {_minutes / 60d:0.#} 小时";
     public string Summary => !Enabled ? "自动化已暂停" : string.Join(" · ", new[] { Hdr ? "HDR" : "SDR", UseSpeed ? $"{Speed}×" : null }.Where(value => value is not null));
     public string Initial => string.IsNullOrEmpty(Name) ? "G" : StringInfo.GetNextTextElement(Name);
@@ -105,12 +115,12 @@ public sealed class LibraryGameItem : ObservableState
     {
         IsDirty = true;
         Changed(nameof(Summary));
-        Changed(nameof(Initial));
+        Changed(nameof(Initial)); Changed(nameof(CardBadge));
     }
 
     public void RefreshRuntime(LibraryGame row)
     {
-        LastPlayedAt = row.LastPlayedAt; Changed(nameof(LastPlayedLabel));
+        LastPlayedAt = row.LastPlayedAt; Changed(nameof(LastPlayedLabel)); Changed(nameof(LastPlayedShort)); Changed(nameof(CardBadge)); Changed(nameof(CardSummary)); Changed(nameof(TotalHours)); Changed(nameof(HoursValue));
         var startChanged = _runningStartedAt != row.RunningStartedAt;
         var stateChanged = _state != row.State;
         State = row.State;
@@ -119,7 +129,7 @@ public sealed class LibraryGameItem : ObservableState
         if (startChanged || !IsRunning) _runningElapsed = null;
         if (startChanged || stateChanged)
         {
-            Changed(nameof(StateDisplay));
+            Changed(nameof(StateDisplay)); Changed(nameof(CardBadge));
             Changed(nameof(RunningSessionLine));
         }
         if (_installation != row.Installation)
@@ -127,7 +137,7 @@ public sealed class LibraryGameItem : ObservableState
             _installation = row.Installation;
             Changed(nameof(InstallationState)); Changed(nameof(InstallationLabel)); Changed(nameof(InstallationDetail));
         }
-        if (_minutes != row.TotalMinutes) { _minutes = row.TotalMinutes; Changed(nameof(Playtime)); }
+        if (_minutes != row.TotalMinutes) { _minutes = row.TotalMinutes; Changed(nameof(Playtime)); Changed(nameof(CardSummary)); Changed(nameof(TotalHours)); Changed(nameof(HoursValue)); }
     }
 
     /// <summary>每秒推进运行中游戏的"本局已玩"计时（由 <see cref="LibraryViewModel"/> 的时钟驱动）。</summary>
@@ -138,7 +148,7 @@ public sealed class LibraryGameItem : ObservableState
             if (_runningElapsed is not null)
             {
                 _runningElapsed = null;
-                Changed(nameof(StateDisplay));
+                Changed(nameof(StateDisplay)); Changed(nameof(CardBadge));
                 Changed(nameof(RunningSessionLine));
             }
             return;
@@ -151,7 +161,7 @@ public sealed class LibraryGameItem : ObservableState
         if (text != _runningElapsed)
         {
             _runningElapsed = text;
-            Changed(nameof(StateDisplay));
+            Changed(nameof(StateDisplay)); Changed(nameof(CardBadge));
             Changed(nameof(RunningSessionLine));
         }
     }
@@ -164,8 +174,12 @@ public sealed class LibraryGameItem : ObservableState
             var artwork = await posters.LoadAsync(DataKey, Executable, Target, cancellationToken, refresh);
             if (cancellationToken.IsCancellationRequested || version != _artworkVersion) return;
             Artwork = artwork.Image;
-            ArtworkIsCover = artwork.IsCover;
+            ArtworkIsCover = artwork.IsCover; Changed(nameof(CoverArtwork));
             PosterStatus = artwork.Description;
+            var banners = await Task.WhenAll(posters.LoadBannerAsync(DataKey, Executable, Target, cancellationToken, refresh: refresh),
+                posters.LoadBannerAsync(DataKey, Executable, Target, cancellationToken, header: true, refresh: refresh));
+            if (!cancellationToken.IsCancellationRequested && version == _artworkVersion)
+            { _bannerArtwork = banners[0]; _detailArtwork = banners[1] ?? banners[0]; Changed(nameof(BannerArtwork)); Changed(nameof(DetailArtwork)); }
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or System.Text.Json.JsonException)

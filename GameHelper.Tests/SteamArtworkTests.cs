@@ -11,6 +11,30 @@ public sealed class SteamArtworkTests
     private static readonly byte[] Poster = [255, 216, 12, 34, 255, 217];
 
     [Fact]
+    public async Task LandscapeCaches_AreSeparateAndExplicitRefreshRecoversFromFailure()
+    {
+        using var root = new TemporaryDirectory();
+        var offline = true;
+        using var handler = new Handler(request => offline ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+            : request.RequestUri!.Host == "api.steampowered.com" ? Metadata() : Image(Poster));
+        using var http = new HttpClient(handler);
+        var client = new SteamArtworkClient(http, root.Path, bytes => bytes.SequenceEqual(Poster));
+        Assert.Null(await client.GetCapsuleAsync(620, CancellationToken.None));
+        Assert.Null(await client.GetHeaderAsync(620, CancellationToken.None));
+        offline = false;
+        Assert.Null(await client.GetHeaderAsync(620, CancellationToken.None));
+        var capsule = await client.GetCapsuleAsync(620, CancellationToken.None, refresh: true);
+        var header = await client.GetHeaderAsync(620, CancellationToken.None, refresh: true);
+        Assert.EndsWith("620.capsule.jpg", capsule);
+        Assert.EndsWith("620.header.jpg", header);
+        Assert.NotEqual(capsule, header);
+        Assert.Contains(handler.Uris, uri => uri.AbsolutePath.EndsWith("capsule_616x353.jpg", StringComparison.Ordinal));
+        Assert.Contains(handler.Uris, uri => uri.AbsolutePath.EndsWith("header.jpg", StringComparison.Ordinal));
+        Assert.Equal(header, client.GetCachedHeader(620));
+        Assert.Empty(Directory.GetFiles(root.Path, "*.tmp"));
+    }
+
+    [Fact]
     public void NameMatching_RequiresUniqueExactTitleAndKeepsEditionNumbersSignificant()
     {
         Assert.Equal(620u, SteamArtworkNameMatcher.ExactMatch("Portal 2™", [new(620, "PORTAL: 2"), new(621, "Portal 2 Deluxe Edition")])?.AppId);

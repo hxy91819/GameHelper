@@ -28,6 +28,10 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public ObservableCollection<GenreGroup> GenreGroups { get; } = [];
     public LibraryGameItem? ContinueGame => _genre is null ? _games.Where(game => game.InstallationState == GameInstallationState.Installed && (game.IsRunning || game.LastPlayedAt is not null)).OrderByDescending(game => game.IsRunning).ThenByDescending(game => game.LastPlayedAt).FirstOrDefault() : null;
     public bool HasContinueGame => ContinueGame is not null;
+    public IReadOnlyList<DashboardBucket> WeeklyTrend { get; private set; } = [];
+    private string _weeklyHours = "0.0";
+    public string WeeklyHours { get => _weeklyHours; private set => Set(ref _weeklyHours, value); }
+    public string CatalogCount => _games.Count.ToString("00");
     public string CollectionTitle => _genre ?? "我的游戏";
     public string CollectionCaption => _genre is null ? "每一段冒险，都值得珍藏。" : "按游戏类型浏览 · 一款游戏可以属于多个类型";
     private Dictionary<string, LibraryDraft> _restoredDrafts = new(StringComparer.OrdinalIgnoreCase);
@@ -89,7 +93,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public bool Ready => Connected && !IsBusy;
     public string Status { get => _status; set => Set(ref _status, value); }
     public string ConfigPath { get => _configPath; private set => Set(ref _configPath, value); }
-    public string Count => $"{Games.Cast<object>().Count()} / {_games.Count} 款游戏 · 最近活动优先";
+    public string Count => $"{Games.Cast<object>().Count()} 款收藏";
     public string InstallationSummary => $"本机 {_games.Count(game => game.InstallationState == GameInstallationState.Installed)} · 未找到 {_games.Count(game => game.InstallationState == GameInstallationState.Missing)} · 待确认 {_games.Count(game => game.InstallationState == GameInstallationState.Unknown)}";
     public string InstallationGroup => _group;
     public string Search { get => _search; set { if (Set(ref _search, value)) Filter(); } }
@@ -112,11 +116,13 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     }
 
     public void SetGenre(string? genre) { _genre = genre; Changed(nameof(CollectionTitle)); Changed(nameof(CollectionCaption)); Changed(nameof(ContinueGame)); Changed(nameof(HasContinueGame)); Filter(); }
+    private static int GenreOrder(string genre) => genre switch
+    { "动作" => 0, "冒险" => 1, "角色扮演" => 2, "策略" => 3, "模拟" => 4, "独立" => 5, "未分类" => int.MaxValue, _ => 6 };
     private void RebuildGenres()
     {
         var groups = _games.SelectMany(game => game.Genres.Count == 0 ? new[] { "未分类" } : game.Genres)
-            .GroupBy(genre => genre, StringComparer.OrdinalIgnoreCase).OrderBy(group => group.Key == "未分类").ThenBy(group => group.Key)
-            .Select(group => new GenreGroup(group.Key, group.Count())).ToList();
+            .Append("未分类").GroupBy(genre => genre, StringComparer.OrdinalIgnoreCase).OrderBy(group => GenreOrder(group.Key)).ThenBy(group => group.Key)
+            .Select(group => new GenreGroup(group.Key, group.Count() - (group.Key == "未分类" ? 1 : 0))).ToList();
         if (!GenreGroups.SequenceEqual(groups)) { GenreGroups.Clear(); foreach (var group in groups) GenreGroups.Add(group); }
     }
     internal async Task LoadGenresAsync(LibraryGameItem game)
@@ -277,7 +283,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         _gameIndex.Clear();
         foreach (var game in _games) _gameIndex[game.DataKey] = game;
         if (!Games.Cast<LibraryGameItem>().SequenceEqual(_games.Where(item => Matches(item)))) Games.Refresh();
-        RebuildGenres();
+        RebuildGenres(); Changed(nameof(CatalogCount));
         Changed(nameof(ContinueGame)); Changed(nameof(HasContinueGame));
         Changed(nameof(Count)); Changed(nameof(InstallationSummary));
         Selected = Games.Cast<LibraryGameItem>().FirstOrDefault(game => game.DataKey == key) ?? Games.Cast<LibraryGameItem>().FirstOrDefault();
@@ -292,6 +298,27 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     {
         var played = game.LastPlayedAt ?? DateTimeOffset.MinValue;
         return game.Config.AddedAt is { } added && added > played ? added : played;
+    }
+
+    internal async Task LoadWeeklyAsync()
+    {
+        try
+        {
+            var response = await _library.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Statistics,
+                Statistics = new(7, IncludeRecent: false) }, _lifetime.Token);
+            if (!_lifetime.IsCancellationRequested && response.Success && response.Statistics is { } data)
+                {
+                    var monday = data.Today.AddDays(-(((int)data.Today.DayOfWeek + 6) % 7));
+                    WeeklyTrend = Enumerable.Range(0, 7).Select(index =>
+                    {
+                        var date = monday.AddDays(index);
+                        return new DashboardBucket(date.ToString("MM/dd"), date, date, data.Trend.FirstOrDefault(bucket => bucket.Start == date)?.Minutes ?? 0);
+                    }).ToList();
+                    WeeklyHours = (WeeklyTrend.Sum(bucket => bucket.Minutes) / 60d).ToString("0.0"); Changed(nameof(WeeklyTrend));
+                }
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is IOException or TimeoutException or InvalidOperationException) { }
     }
 
     public async Task AddAsync(string executable)

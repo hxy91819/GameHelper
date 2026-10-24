@@ -111,7 +111,7 @@ public sealed class DesktopLibraryViewModelTests
         model.RefreshAsync().GetAwaiter().GetResult();
         var game = model.Selected!; game.GenresLoading.GetAwaiter().GetResult(); game.Name = "draft";
         game.SetGenres(["动作", "角色扮演"]);
-        Assert.Equal(2, model.GenreGroups.Count);
+        Assert.Equal(3, model.GenreGroups.Count);
         model.SetGenre("角色扮演"); Assert.Same(game, model.Selected);
         model.SetGenre("未分类"); Assert.True(model.Games.IsEmpty);
         model.SetGenre(null); Assert.Same(game, model.Selected); Assert.True(game.IsDirty);

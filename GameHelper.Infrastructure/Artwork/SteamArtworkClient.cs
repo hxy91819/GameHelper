@@ -12,6 +12,8 @@ public sealed class SteamArtworkClient(HttpClient http, string cacheDirectory,
     private const int ImageLimit = 5 * 1024 * 1024;
     private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
     private readonly Dictionary<uint, Task<string?>> _requests = [];
+    private readonly Dictionary<uint, Task<string?>> _capsules = [];
+    private readonly Dictionary<uint, Task<string?>> _headers = [];
     private readonly object _requestGate = new();
     private readonly SemaphoreSlim _downloads = new(2);
 
@@ -31,6 +33,48 @@ public sealed class SteamArtworkClient(HttpClient http, string cacheDirectory,
             {
                 task = Task.Run(() => DownloadAsync(appId, lifetime, refresh), CancellationToken.None);
                 _requests.Add(appId, task);
+            }
+            return task;
+        }
+    }
+
+    /// <summary>Reads the landscape store capsule used by the library hero and detail banner.</summary>
+    public string? GetCachedCapsule(uint appId)
+    {
+        var path = Path.Combine(cacheDirectory, appId + ".capsule.jpg");
+        return ValidCache(path) ? path : null;
+    }
+
+    public Task<string?> GetCapsuleAsync(uint appId, CancellationToken lifetime, bool refresh = false)
+    {
+        if (appId == 0) return Task.FromResult<string?>(null);
+        lock (_requestGate)
+        {
+            if (refresh) _capsules.Remove(appId);
+            if (!_capsules.TryGetValue(appId, out var task))
+            {
+                task = Task.Run(() => DownloadAsync(appId, lifetime, refresh, wide: true), CancellationToken.None);
+                _capsules.Add(appId, task);
+            }
+            return task;
+        }
+    }
+
+    public string? GetCachedHeader(uint appId)
+    {
+        var path = Path.Combine(cacheDirectory, appId + ".header.jpg");
+        return ValidCache(path) ? path : null;
+    }
+    public Task<string?> GetHeaderAsync(uint appId, CancellationToken lifetime, bool refresh = false)
+    {
+        if (appId == 0) return Task.FromResult<string?>(null);
+        lock (_requestGate)
+        {
+            if (refresh) _headers.Remove(appId);
+            if (!_headers.TryGetValue(appId, out var task))
+            {
+                task = Task.Run(() => DownloadAsync(appId, lifetime, refresh, wide: true, header: true), CancellationToken.None);
+                _headers.Add(appId, task);
             }
             return task;
         }
@@ -84,10 +128,11 @@ public sealed class SteamArtworkClient(HttpClient http, string cacheDirectory,
         return found.Values.OrderByDescending(item => SteamArtworkNameMatcher.Score(query, item)).Take(20).ToList();
     }
 
-    private async Task<string?> DownloadAsync(uint appId, CancellationToken lifetime, bool refresh)
+    private async Task<string?> DownloadAsync(uint appId, CancellationToken lifetime, bool refresh, bool wide = false, bool header = false)
     {
-        var path = Path.Combine(cacheDirectory, appId + ".jpg");
-        var failed = Path.Combine(cacheDirectory, appId + ".retry");
+        var suffix = header ? ".header" : wide ? ".capsule" : string.Empty;
+        var path = Path.Combine(cacheDirectory, appId + suffix + ".jpg");
+        var failed = Path.Combine(cacheDirectory, appId + suffix + ".retry");
         await _downloads.WaitAsync(lifetime).ConfigureAwait(false);
         try
         {
@@ -116,15 +161,19 @@ public sealed class SteamArtworkClient(HttpClient http, string cacheDirectory,
                         if (item.ValueKind != JsonValueKind.Object || !item.TryGetProperty("appid", out var id)
                             || id.ValueKind != JsonValueKind.Number || !id.TryGetUInt32(out var number) || number != appId
                             || !item.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Object) continue;
-                        foreach (var key in new[] { "library_capsule_2x", "library_capsule" })
+                        foreach (var key in header ? new[] { "header" } : wide ? new[] { "main_capsule" } : new[] { "library_capsule_2x", "library_capsule" })
                             if (TryAssetUrl(appId, assets, key) is { } url) urls.Add(url);
                     }
                 }
             }
             catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidDataException) { }
             // Public metadata and older library art do not always become available together.
-            urls.Add($"https://shared.steamstatic.com/store_item_assets/steam/apps/{appId}/library_600x900_2x.jpg");
-            urls.Add($"https://shared.steamstatic.com/store_item_assets/steam/apps/{appId}/library_600x900.jpg");
+            if (wide) urls.Add($"https://shared.steamstatic.com/store_item_assets/steam/apps/{appId}/{(header ? "header.jpg" : "capsule_616x353.jpg")}");
+            else
+            {
+                urls.Add($"https://shared.steamstatic.com/store_item_assets/steam/apps/{appId}/library_600x900_2x.jpg");
+                urls.Add($"https://shared.steamstatic.com/store_item_assets/steam/apps/{appId}/library_600x900.jpg");
+            }
             foreach (var url in urls.Distinct(StringComparer.Ordinal))
             {
                 try
