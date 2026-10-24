@@ -25,7 +25,7 @@ public sealed class StatisticsViewModelTests
     });
 
     [Fact]
-    public Task SessionDrilldownAndPagination_AreReadOnlyAndKeepOverview() => OnSta(async () =>
+    public Task SummaryDrilldownAndDateSelection_AreReadOnlyAndKeepOverview() => OnSta(async () =>
     {
         var backend = new Backend((query, _) => Task.FromResult(Response(query.Days, 600) with
         { Statistics = Data(query.Days, 600) with { Offset = query.Offset, RecentTotal = 65, Recent = [new("a", "A", DateTime.UnixEpoch, DateTime.UnixEpoch, 20)] } }));
@@ -37,13 +37,16 @@ public sealed class StatisticsViewModelTests
         await model.SelectGameAsync(game);
         Assert.Equal("a", backend.Requests[^1].SessionGameKey);
         Assert.Equal("10.0", model.TotalHours);
-        model.NextCommand.Execute(null);
-        Assert.Equal(30, backend.Requests[^1].Offset);
-        Assert.Contains("31", model.PageLabel);
+        Assert.False(backend.Requests[^1].IncludeRecent);
+        await model.SelectDateAsync(new DateOnly(2026, 4, 20));
+        Assert.Equal(new DateOnly(2026, 4, 20), backend.Requests[^1].FocusDate);
+        Assert.Equal("a", backend.Requests[^1].SessionGameKey);
+        Assert.Equal("10.0", model.TotalHours);
         await model.SelectGameAsync(null);
         Assert.Null(backend.Requests[^1].SessionGameKey);
         Assert.Equal(0, backend.Requests[^1].Offset);
-        Assert.Equal("逐次游玩记录", model.RecentTitle);
+        Assert.Equal("游玩节奏", model.RecentTitle);
+        Assert.Null(model.FocusDate);
     });
 
     [Fact]

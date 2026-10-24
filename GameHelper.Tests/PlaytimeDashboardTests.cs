@@ -95,6 +95,27 @@ public sealed class PlaytimeDashboardTests
         Assert.Equal(2, data.Recent[0].End.Hour);
     }
 
+    [Fact]
+    public void Focus_UsesEndDateAndGameWithoutChangingOverviewOrSendingSessions()
+    {
+        var end = Today.Date.AddDays(-1).AddMinutes(10);
+        var records = new[] { Record("a", new PlaySession("a", end.AddMinutes(-90), end, TimeSpan.FromMinutes(90), 85),
+            Session("a", Today.AddMinutes(-1), 0)), Record("b", Session("b", end, 30)) };
+        var result = PlaytimeDashboardBuilder.Build(records, Configs, new(7, "A", FocusDate: DateOnly.FromDateTime(end), IncludeRecent: false), Clock);
+        Assert.Equal(115, result.Minutes);
+        Assert.Equal(3, result.Sessions);
+        Assert.Equal(85, result.Rhythm.Minutes);
+        Assert.Equal(1, result.Rhythm.ActiveDays);
+        Assert.Equal(1, result.Rhythm.Sessions);
+        Assert.Equal(85, result.Rhythm.LongestSessionMinutes);
+        Assert.Equal(85, result.Rhythm.WeekdayMinutes[((int)end.DayOfWeek + 6) % 7]);
+        Assert.Empty(result.Recent);
+        var zero = PlaytimeDashboardBuilder.Build(records, Configs, new(7, "a", FocusDate: DateOnly.FromDateTime(Today), IncludeRecent: false), Clock);
+        Assert.Equal(1, zero.Rhythm.ActiveDays);
+        Assert.Equal(1, zero.Rhythm.Sessions);
+        Assert.Equal(0, zero.Rhythm.Minutes);
+    }
+
     [Theory]
     [InlineData(-1)]
     [InlineData(14)]

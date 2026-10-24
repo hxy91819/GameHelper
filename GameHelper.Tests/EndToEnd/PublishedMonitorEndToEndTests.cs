@@ -112,7 +112,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
     }
 
     [WindowsOnlyFact]
-    public async Task Statistics_PublishedRuntimeRendersDashboardAndPaginatesWithoutChangingHistory()
+    public async Task Statistics_PublishedRuntimeRendersDashboardAndSummarizesWithoutChangingHistory()
     {
         if (!TryGuard(out var exePath)) return;
         using var sandbox = CreateSandbox();
@@ -144,12 +144,14 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             Assert.Equal(totalMinutes, data.Minutes);
             Assert.Equal(46, data.Sessions);
             Assert.Equal(5, data.GamesPlayed);
-            Assert.Equal(30, data.Recent.Count);
             Assert.Contains(data.Games, game => game.Name == "Hades II");
             Assert.Contains(data.Games, game => game.DataKey == "removed-game");
-            var next = await client.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Statistics, Statistics = new(0, Offset: 30) });
-            Assert.Equal(16, next.Statistics!.Recent.Count);
-            Assert.Equal(totalMinutes, next.Statistics.Minutes);
+            var focus = await client.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Statistics,
+                Statistics = new(0, "stats-0", FocusDate: DateOnly.FromDateTime(anchor), IncludeRecent: false) });
+            Assert.Equal(25, focus.Statistics!.Rhythm.Minutes);
+            Assert.Equal(1, focus.Statistics.Rhythm.Sessions);
+            Assert.Empty(focus.Statistics.Recent);
+            Assert.Equal(totalMinutes, focus.Statistics.Minutes);
             var desktop = Path.Combine(Path.GetDirectoryName(exePath)!, "desktop", "GameHelper.Desktop.exe");
             var screenshots = Environment.GetEnvironmentVariable("GAMEHELPER_TEST_STATISTICS_SCREENSHOTS") ?? Path.Combine(sandbox.RootDir, "statistics-ui");
             var start = new ProcessStartInfo(desktop) { UseShellExecute = false, CreateNoWindow = true };
@@ -166,7 +168,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             Assert.True(File.Exists(Path.Combine(screenshots, "statistics-calendar.png")));
             Assert.True(File.Exists(Path.Combine(screenshots, "statistics-small.png")));
             Assert.Equal(original, await File.ReadAllBytesAsync(sandbox.CsvPath));
-            output.WriteLine("Read-only statistics IPC, persisted totals, unknown-game retention, pagination and native WPF dashboard verified: " + screenshots);
+            output.WriteLine("Read-only statistics IPC, persisted totals, unknown-game retention, focused summary and native WPF dashboard verified: " + screenshots);
         }
         finally { StopAppAndSweepSessions(app); }
     }

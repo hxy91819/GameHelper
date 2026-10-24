@@ -47,13 +47,19 @@ public static class PlaytimeDashboardBuilder
         var games = period.GroupBy(session => session.DataKey, StringComparer.OrdinalIgnoreCase)
             .Select(group => new DashboardGame(group.Key, group.First().Name, group.Sum(session => session.Minutes), group.Count(), group.Max(session => session.End)))
             .OrderByDescending(game => game.Minutes).ThenBy(game => game.Name, StringComparer.OrdinalIgnoreCase).ToList();
-        var recent = period.Where(session => query.SessionGameKey is null || session.DataKey.Equals(query.SessionGameKey, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(session => session.End).ThenByDescending(session => session.Start).ThenBy(session => session.DataKey, StringComparer.OrdinalIgnoreCase).ToList();
+        var focus = period.Where(session => query.SessionGameKey is null || session.DataKey.Equals(query.SessionGameKey, StringComparison.OrdinalIgnoreCase))
+            .Where(session => query.FocusDate is null || DateOnly.FromDateTime(session.End) == query.FocusDate).ToList();
+        var weekdays = new long[7];
+        foreach (var session in focus) weekdays[((int)session.End.DayOfWeek + 6) % 7] += session.Minutes;
+        var rhythm = new DashboardRhythm(focus.Sum(session => session.Minutes), focus.Count,
+            focus.Select(session => session.End.Date).Distinct().Count(), focus.Select(session => session.Minutes).DefaultIfEmpty(0).Max(), weekdays);
+        var recent = query.IncludeRecent ? focus.OrderByDescending(session => session.End).ThenByDescending(session => session.Start)
+            .ThenBy(session => session.DataKey, StringComparer.OrdinalIgnoreCase).ToList() : [];
         const int pageSize = 30;
         var offset = recent.Count == 0 ? 0 : Math.Clamp(query.Offset, 0, ((recent.Count - 1) / pageSize) * pageSize);
         return new PlaytimeDashboard
         {
-            Today = today, Start = start, Days = query.Days, Minutes = period.Sum(session => session.Minutes), PreviousMinutes = previous,
+            Rhythm = rhythm, Today = today, Start = start, Days = query.Days, Minutes = period.Sum(session => session.Minutes), PreviousMinutes = previous,
             Sessions = period.Count, ActiveDays = period.Select(session => session.End.Date).Distinct().Count(), GamesPlayed = games.Count,
             LongestSessionMinutes = period.Select(session => session.Minutes).DefaultIfEmpty(0).Max(),
             Trend = chart, Calendar = calendar, Games = games.Take(1000).ToList(),

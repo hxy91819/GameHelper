@@ -168,6 +168,15 @@ public sealed class PlaytimeCalendar : FrameworkElement
     public static readonly DependencyProperty DaysProperty = DependencyProperty.Register(nameof(Days), typeof(IReadOnlyList<DashboardDay>),
         typeof(PlaytimeCalendar), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnDaysChanged));
     public IReadOnlyList<DashboardDay>? Days { get => (IReadOnlyList<DashboardDay>?)GetValue(DaysProperty); set => SetValue(DaysProperty, value); }
+    public event EventHandler<DateOnly>? DaySelected;
+    public static readonly DependencyProperty SelectedDateProperty = DependencyProperty.Register(nameof(SelectedDate), typeof(DateOnly?), typeof(PlaytimeCalendar),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+    public DateOnly? SelectedDate { get => (DateOnly?)GetValue(SelectedDateProperty); set => SetValue(SelectedDateProperty, value); }
+    protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonUp(e);
+        if (Days is { } days && _hovered >= 0 && _hovered < days.Count) DaySelected?.Invoke(this, days[_hovered].Date);
+    }
     private readonly ChartTooltip _tooltip = new();
     private int _hovered = -1;
 
@@ -202,7 +211,7 @@ public sealed class PlaytimeCalendar : FrameworkElement
             if (row == 0 && day.Date.Month != lastMonth)
             { StatisticsDrawing.Text(this, dc, day.Date.ToString("M月"), 30 + column * Pitch, 0, 10, StatisticsDrawing.Muted); lastMonth = day.Date.Month; }
             var color = day.Sessions == 0 ? "CalendarZero" : day.Minutes < 30 ? "CalendarOne" : day.Minutes < 90 ? "CalendarTwo" : day.Minutes < 180 ? "CalendarThree" : "CalendarFour";
-            dc.DrawRoundedRectangle(StatisticsDrawing.Brush(color), null,
+            dc.DrawRoundedRectangle(StatisticsDrawing.Brush(color), day.Date == SelectedDate ? new Pen(StatisticsDrawing.Brush("CalendarFocus"), 2) : null,
                 new Rect(30 + column * Pitch, 23 + row * Pitch, Pitch - 3, Pitch - 3), 2, 2);
         }
         if (_hovered >= 0 && _hovered < days.Count)

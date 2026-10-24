@@ -21,6 +21,11 @@ public partial class StatisticsView : UserControl
         await model.SelectGameAsync(game);
     }
 
+    private async void OnDaySelected(object? sender, DateOnly date)
+    {
+        if (DataContext is StatisticsViewModel model) await model.SelectDateAsync(date);
+    }
+
     internal async Task ScrollToCalendarAsync()
     {
         PageScroll.ScrollToBottom();

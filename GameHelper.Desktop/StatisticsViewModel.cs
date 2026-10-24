@@ -87,6 +87,7 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
     private string? _sessionKey;
     private string? _sessionName;
     private int _offset;
+    private DateOnly? _focusDate;
     private string _search = string.Empty;
     private string _status = PolicyNote;
     private bool _busy;
@@ -108,7 +109,7 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
         AllCommand = Command(() => SetRangeAsync(0), () => true);
         PreviousCommand = Command(() => PageAsync(-1), () => !IsBusy && _data.Offset > 0);
         NextCommand = Command(() => PageAsync(1), () => !IsBusy && _data.Offset + _data.PageSize < _data.RecentTotal);
-        ClearGameCommand = Command(() => SelectGameAsync(null), () => !IsBusy && _sessionKey is not null);
+        ClearGameCommand = Command(() => SelectGameAsync(null), () => !IsBusy && (_sessionKey is not null || _focusDate is not null));
     }
 
     public ICollectionView Games { get; }
@@ -147,22 +148,38 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
     public double FavouriteShare => _data.Minutes == 0 ? 0 : (_data.Games.FirstOrDefault()?.Minutes ?? 0) / (double)_data.Minutes;
     public string Longest => _data.Sessions == 0 ? "暂无记录" : Duration(_data.LongestSessionMinutes);
     public IReadOnlyList<StatisticsSessionRow> Recent => _recent;
-    public string RecentTitle => _sessionName is null ? "逐次游玩记录" : $"记录 · {_sessionName}";
+    public string RecentTitle => _sessionName ?? "游玩节奏";
+    public string FocusCaption => (_focusDate is { } date ? $"{date:yyyy/MM/dd} · 当日汇总" : "当前时段 · 汇总") + " · 按结束日";
+    public string FocusHours => (_data.Rhythm.Minutes / 60d).ToString("N1", CultureInfo.CurrentCulture);
+    public string FocusActiveDays => $"{_data.Rhythm.ActiveDays} 天";
+    public string FocusAverage => _data.Rhythm.ActiveDays == 0 ? "暂无记录" : Duration(_data.Rhythm.Minutes / _data.Rhythm.ActiveDays);
+    public string FocusSessions => $"{_data.Rhythm.Sessions} 次";
+    public string FocusLongest => _data.Rhythm.Sessions == 0 ? "暂无记录" : Duration(_data.Rhythm.LongestSessionMinutes);
+    public DateOnly? FocusDate => _focusDate;
+    public IReadOnlyList<WeekdayRow> Weekdays => _data.Rhythm.WeekdayMinutes.Select((minutes, index) => new WeekdayRow(
+        "周" + "一二三四五六日"[index], Duration(minutes), minutes / (double)Math.Max(1, _data.Rhythm.WeekdayMinutes.Max()) * 100)).ToList();
     public string PageLabel => _data.RecentTotal == 0 ? "暂无记录" : $"{_data.Offset + 1}–{_data.Offset + _data.Recent.Count} / {_data.RecentTotal}";
     public string RankingCaption
     {
         get
         {
             if (_data.Games.Count == 0) return string.Empty;
-            return _data.GamesPlayed > _data.Games.Count ? $"显示前 {_data.Games.Count} 款 · 点击游戏查看记录" : "点击游戏查看记录";
+            return _data.GamesPlayed > _data.Games.Count ? $"显示前 {_data.Games.Count} 款 · 点击游戏查看汇总" : "点击游戏查看汇总";
         }
     }
 
     public Task EnsureLoadedAsync() => _loaded ? Task.CompletedTask : RefreshAsync();
-    public Task SetRangeAsync(int days) { _days = days; _offset = 0; Changed(nameof(Days)); return RefreshAsync(); }
+    public Task SetRangeAsync(int days) { _days = days; _offset = 0; _focusDate = null; Changed(nameof(Days)); return RefreshAsync(); }
     public Task SelectGameAsync(StatisticsGameRow? game)
     {
-        _sessionKey = game?.DataKey; _sessionName = game?.Name; _offset = 0;
+        if (game is null) { _sessionKey = null; _sessionName = null; _focusDate = null; }
+        else { _sessionKey = _sessionKey == game.DataKey ? null : game.DataKey; _sessionName = _sessionKey is null ? null : game.Name; }
+        _offset = 0;
+        return RefreshAsync();
+    }
+    public Task SelectDateAsync(DateOnly date)
+    {
+        _focusDate = _focusDate == date ? null : date;
         return RefreshAsync();
     }
     private Task PageAsync(int direction) { _offset = Math.Max(0, _data.Offset + direction * _data.PageSize); return RefreshAsync(); }
@@ -191,11 +208,11 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
         try
         {
             var response = await _library.ExecuteAsync(new GameLibraryRequest
-            { Operation = GameLibraryOperation.Statistics, Statistics = new PlaytimeDashboardQuery(_days, _sessionKey, _offset) }, pending.Token);
+            { Operation = GameLibraryOperation.Statistics, Statistics = new PlaytimeDashboardQuery(_days, _sessionKey, _offset, _focusDate, IncludeRecent: false) }, pending.Token);
             if (pending.IsCancellationRequested || _pending != pending || _disposed) return;
             if (!response.Success || response.Statistics is null) throw new InvalidOperationException(response.Error ?? "无法读取历史统计。");
             _data = response.Statistics;
-            _appliedQuery = new PlaytimeDashboardQuery(_days, _sessionKey, _data.Offset);
+            _appliedQuery = new PlaytimeDashboardQuery(_days, _sessionKey, _data.Offset, _focusDate, IncludeRecent: false);
             _offset = _data.Offset;
             _loaded = true;
             _games.Clear();
@@ -208,7 +225,7 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
             foreach (var property in new[] { nameof(HasHistory), nameof(TotalHours), nameof(SessionCount), nameof(ActiveDays), nameof(GamesPlayed), nameof(Average),
                 nameof(DateRange), nameof(Change), nameof(TrendCaption), nameof(Trend), nameof(Calendar), nameof(FavouriteName), nameof(FavouriteInitial),
                 nameof(FavouriteArtwork), nameof(HasFavourite), nameof(FavouriteTime), nameof(FavouriteShare), nameof(Longest), nameof(Recent), nameof(RecentTitle),
-                nameof(PageLabel), nameof(RankingCaption) }) Changed(property);
+                nameof(PageLabel), nameof(RankingCaption), nameof(FocusCaption), nameof(FocusHours), nameof(FocusActiveDays), nameof(FocusAverage), nameof(FocusSessions), nameof(FocusLongest), nameof(Weekdays), nameof(FocusDate) }) Changed(property);
         }
         catch (OperationCanceledException) when (pending.IsCancellationRequested || _disposed) { }
         catch (Exception)
@@ -217,6 +234,7 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
             {
                 _days = _appliedQuery.Days;
                 _sessionKey = _appliedQuery.SessionGameKey;
+                _focusDate = _appliedQuery.FocusDate;
                 _sessionName = _data.Games.FirstOrDefault(game => game.DataKey.Equals(_sessionKey, StringComparison.OrdinalIgnoreCase))?.Name;
                 _offset = _data.Offset;
                 Changed(nameof(Days));
@@ -241,3 +259,5 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
         _lifetime.Cancel(); _lifetime.Dispose();
     }
 }
+
+public sealed record WeekdayRow(string Day, string Time, double Width);
