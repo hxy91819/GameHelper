@@ -284,7 +284,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         lock (_stateLock)
         {
             var normalizedName = PathNormalizer.NormalizeName(processInfo.ExecutableName);
-            var config = MatchProcessStart(processInfo, normalizedName, out var normalizedPath, out var matchLabel);
+            var config = _processMatcher.Match(processInfo, normalizedName, out var normalizedPath, out var matchLabel);
 
             if (config is null)
             {
@@ -606,13 +606,6 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 executableName ?? "n/a");
         }
     }
-
-    private GameConfig? MatchProcessStart(
-        ProcessEventInfo processInfo,
-        string? normalizedName,
-        out string? normalizedPath,
-        out string matchLabel) =>
-        _processMatcher.Match(processInfo, normalizedName, out normalizedPath, out matchLabel);
 
     private AppConfig LoadAndBuildIndexes()
     {

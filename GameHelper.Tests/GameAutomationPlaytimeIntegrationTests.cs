@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Services;
@@ -76,14 +75,12 @@ namespace GameHelper.Tests
         }
 
         private readonly string _dir;
-        private readonly string _jsonFile;
         private readonly string _csvFile;
 
         public GameAutomationPlaytimeIntegrationTests()
         {
             _dir = Path.Combine(Path.GetTempPath(), "GameHelperTests_Playtime_IT_", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_dir);
-            _jsonFile = Path.Combine(_dir, "playtime.json");
             _csvFile = Path.Combine(_dir, "playtime.csv");
         }
 
@@ -96,7 +93,7 @@ namespace GameHelper.Tests
             {
                 ["demo.exe"] = new GameConfig { DataKey = "demo.exe", Executable = "demo.exe", IsEnabled = true, HdrEnabled = true }
             });
-            var play = new FileBackedPlayTimeService(_dir);
+            var play = new CsvBackedPlayTimeService(_dir);
             var svc = new GameAutomationService(monitor, cfg, hdr, play, NullLogger<GameAutomationService>.Instance);
 
             svc.Start();
@@ -104,12 +101,9 @@ namespace GameHelper.Tests
             monitor.RaiseStop(new ProcessEventInfo("demo.exe", null));
             svc.Stop();
 
-            Assert.True(File.Exists(_jsonFile));
-            using var doc = JsonDocument.Parse(File.ReadAllText(_jsonFile));
-            var games = doc.RootElement.GetProperty("games");
-            var entry = games.EnumerateArray().FirstOrDefault(e => string.Equals(e.GetProperty("GameName").GetString(), "demo.exe", StringComparison.OrdinalIgnoreCase));
-            Assert.NotEqual(JsonValueKind.Undefined, entry.ValueKind);
-            Assert.Equal(1, entry.GetProperty("Sessions").GetArrayLength());
+            Assert.True(File.Exists(_csvFile));
+            var sessionLine = Assert.Single(File.ReadAllLines(_csvFile).Skip(1));
+            Assert.StartsWith("demo.exe,", sessionLine, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -121,7 +115,7 @@ namespace GameHelper.Tests
             {
                 ["flush.exe"] = new GameConfig { DataKey = "flush.exe", Executable = "flush.exe", IsEnabled = true, HdrEnabled = true }
             });
-            var play = new FileBackedPlayTimeService(_dir);
+            var play = new CsvBackedPlayTimeService(_dir);
             var svc = new GameAutomationService(monitor, cfg, hdr, play, NullLogger<GameAutomationService>.Instance);
 
             svc.Start();
@@ -129,12 +123,9 @@ namespace GameHelper.Tests
             // Do NOT raise stop; rely on GameAutomationService.Stop() to flush
             svc.Stop();
 
-            Assert.True(File.Exists(_jsonFile));
-            using var doc = JsonDocument.Parse(File.ReadAllText(_jsonFile));
-            var games = doc.RootElement.GetProperty("games");
-            var entry = games.EnumerateArray().FirstOrDefault(e => string.Equals(e.GetProperty("GameName").GetString(), "flush.exe", StringComparison.OrdinalIgnoreCase));
-            Assert.NotEqual(JsonValueKind.Undefined, entry.ValueKind);
-            Assert.Equal(1, entry.GetProperty("Sessions").GetArrayLength());
+            Assert.True(File.Exists(_csvFile));
+            var sessionLine = Assert.Single(File.ReadAllLines(_csvFile).Skip(1));
+            Assert.StartsWith("flush.exe,", sessionLine, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]

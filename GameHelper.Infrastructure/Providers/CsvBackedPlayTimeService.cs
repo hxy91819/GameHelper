@@ -133,11 +133,10 @@ namespace GameHelper.Infrastructure.Providers
         /// <inheritdoc />
         public void ShiftActiveStarts(TimeSpan offset)
         {
-            if (offset == TimeSpan.Zero || _activeSessions.Count == 0) return;
+            if (offset == TimeSpan.Zero) return;
 
             lock (_gate)
             {
-                if (_activeSessions.Count == 0) return;
                 foreach (var gameName in _activeSessions.Keys.ToList())
                 {
                     _activeSessions[gameName] += offset;

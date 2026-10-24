@@ -183,7 +183,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         var old = _games.ToDictionary(game => game.DataKey, StringComparer.OrdinalIgnoreCase);
         var updated = new List<LibraryGameItem>();
         foreach (var row in response.Games.Select((game, index) => (Game: game, Index: index))
-            .OrderByDescending(item => item.Game.State == "运行中")
+            .OrderByDescending(item => LibraryGameItem.IsRunningState(item.Game.State))
             .ThenByDescending(item => Activity(item.Game))
             .ThenByDescending(item => item.Game.LastPlayedAt)
             .ThenByDescending(item => item.Index).Select(item => item.Game))

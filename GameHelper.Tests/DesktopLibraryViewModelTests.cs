@@ -273,13 +273,15 @@ public sealed class DesktopLibraryViewModelTests
         Assert.False(buttonEnabled); model.RefreshAsync().GetAwaiter().GetResult(); Assert.True(buttonEnabled);
     });
 
-    [Fact]
-    public Task RecentActivity_OrdersRunningThenNewestPlayedOrAddedAndRetainsDraftOnMove() => OnSta(() =>
+    [Theory]
+    [InlineData("运行中")]
+    [InlineData("运行中·外部")]
+    public Task RecentActivity_OrdersRunningThenNewestPlayedOrAddedAndRetainsDraftOnMove(string state) => OnSta(() =>
     {
         var now = new DateTimeOffset(2026, 1, 10, 12, 0, 0, TimeSpan.Zero);
         LibraryGame Row(string key, DateTimeOffset? added = null, DateTimeOffset? played = null, string state = "未运行") => new()
         { Config = new() { DataKey = key, Executable = key + ".exe", DisplayName = key, AddedAt = added }, LastPlayedAt = played, State = state, Installation = new(GameInstallationState.Installed, "test") };
-        var rows = new List<LibraryGame> { Row("played", played: now.AddHours(-1)), Row("added", added: now), Row("running", state: "运行中"), Row("legacy1"), Row("legacy2") };
+        var rows = new List<LibraryGame> { Row("played", played: now.AddHours(-1)), Row("added", added: now), Row("running", state: state), Row("legacy1"), Row("legacy2") };
         var backend = new Moq.Mock<IGameLibrary>();
         backend.Setup(item => item.ExecuteAsync(Moq.It.IsAny<GameLibraryRequest>(), Moq.It.IsAny<CancellationToken>())).ReturnsAsync(() => new GameLibraryResponse { Success = true, Games = rows });
         using var model = new LibraryViewModel(backend.Object); model.RefreshAsync().GetAwaiter().GetResult();
@@ -290,29 +292,42 @@ public sealed class DesktopLibraryViewModelTests
         Assert.Same(selected, model.Selected); Assert.Equal("Draft", selected.Name); Assert.True(selected.IsDirty);
     });
 
-    [Fact]
-    public Task RunningGameState_ShowsLiveSessionTimerAndClearsAfterStop() => OnSta(() =>
+    [Theory]
+    [InlineData("运行中")]
+    [InlineData("运行中·外部")]
+    public Task RunningGameState_ShowsLiveSessionTimerAndClearsAfterStop(string state) => OnSta(() =>
     {
         var clock = new FixedClock(new DateTimeOffset(2026, 10, 22, 20, 0, 0, TimeSpan.Zero));
-        var backend = new Backend { State = "运行中", StartedAt = clock.LocalStamp };
+        var backend = new Backend();
         using var model = new LibraryViewModel(backend, null, null, clock);
         model.RefreshAsync().GetAwaiter().GetResult();
         var item = model.Selected!;
-        Assert.Equal("运行中", item.StateDisplay);
+        var changed = new List<string?>();
+        item.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+        backend.State = state;
+        backend.StartedAt = clock.LocalStamp;
+        model.RefreshAsync().GetAwaiter().GetResult();
+        Assert.Same(item, model.Selected);
+        Assert.True(item.IsRunning);
+        Assert.Contains(nameof(LibraryGameItem.IsRunning), changed);
+        Assert.Equal(state, item.StateDisplay);
         Assert.Null(item.RunningSessionLine);
 
         clock.Advance(TimeSpan.FromSeconds(12));
         model.OnClockTick();
-        Assert.Equal("运行中 · 00:00:12", item.StateDisplay);
+        Assert.Equal($"{state} · 00:00:12", item.StateDisplay);
         Assert.Equal("本次已玩 00:00:12", item.RunningSessionLine);
 
         clock.Advance(TimeSpan.FromSeconds(48));
         model.OnClockTick();
-        Assert.Equal("运行中 · 00:01:00", item.StateDisplay);
+        Assert.Equal($"{state} · 00:01:00", item.StateDisplay);
 
         // 停止后清空计时，徽章和详情回到普通状态文本。
+        changed.Clear();
         backend.State = "未运行";
         model.RefreshAsync().GetAwaiter().GetResult();
+        Assert.False(item.IsRunning);
+        Assert.Contains(nameof(LibraryGameItem.IsRunning), changed);
         Assert.Equal("未运行", item.StateDisplay);
         Assert.Null(item.RunningSessionLine);
     });

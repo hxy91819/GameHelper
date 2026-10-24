@@ -69,7 +69,8 @@ public sealed class LibraryGameItem : ObservableState
     public string Ds4WindowsPath { get => _ds4WindowsPath; set { if (Set(ref _ds4WindowsPath, value)) Edited(); } }
     public bool IsDirty { get => _dirty; private set => Set(ref _dirty, value); }
     public string State { get => _state; private set => Set(ref _state, value); }
-    public bool IsRunning => _state == "运行中";
+    public bool IsRunning => IsRunningState(_state);
+    internal static bool IsRunningState(string state) => state is "运行中" or "运行中·外部";
     /// <summary>状态徽章文本：运行中卡片附加本局实时计时的 mm:ss，其他状态原样。</summary>
     public string StateDisplay => IsRunning && _runningElapsed is not null ? $"{_state} · {_runningElapsed}" : _state;
     /// <summary>运行中卡片的会话计时行；停止运行后为 null。</summary>
@@ -97,6 +98,7 @@ public sealed class LibraryGameItem : ObservableState
         var startChanged = _runningStartedAt != row.RunningStartedAt;
         var stateChanged = _state != row.State;
         State = row.State;
+        if (stateChanged) Changed(nameof(IsRunning));
         _runningStartedAt = row.RunningStartedAt;
         if (startChanged || !IsRunning) _runningElapsed = null;
         if (startChanged || stateChanged)
@@ -115,7 +117,7 @@ public sealed class LibraryGameItem : ObservableState
     /// <summary>每秒推进运行中游戏的"本局已玩"计时（由 <see cref="LibraryViewModel"/> 的时钟驱动）。</summary>
     internal void OnSecondTick(DateTime now)
     {
-        if (_state != "运行中")
+        if (!IsRunning)
         {
             if (_runningElapsed is not null)
             {
