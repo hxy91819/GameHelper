@@ -100,7 +100,7 @@ public sealed class LibraryGameItem : ObservableState
     public ImageSource? BannerArtwork => _bannerArtwork;
     public ImageSource? DetailArtwork => _detailArtwork;
     public string CardBadge => IsRunning ? StateDisplay : Hdr ? "HDR" : InstallationState == GameInstallationState.Installed ? "已安装" : InstallationLabel;
-    public string CardSummary => $"{_minutes / 60d:0.#} 小时 · {InstallationLabel}";
+    public string CardSummary => $"{_minutes / 60d:0.#} 小时";
     public string HoursValue => $"{_minutes / 60d:0.#}";
     public string TotalHours => $"{_minutes / 60d:0.#} 小时";
     public string LastPlayedShort => LastPlayedAt is { } date ? date.LocalDateTime.ToString("MM/dd") : "尚未游玩";
