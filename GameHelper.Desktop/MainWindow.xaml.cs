@@ -94,7 +94,7 @@ public partial class MainWindow : Window
         ReloadButton.ToolTip = statistics ? "重新读取历史游玩记录" : "放弃未保存设置并重新载入";
     }
     private async void OnStatistics(object sender, RoutedEventArgs e) { Navigate(true); await _model.Statistics.EnsureLoadedAsync(); }
-    private async void OnLibrary(object sender, RoutedEventArgs e) { _model.SetGenre(null); Navigate(false); await _model.RefreshAsync(); await _model.LoadWeeklyAsync(); }
+    private async void OnLibrary(object sender, RoutedEventArgs e) { _model.SetGenre(null); SetInstallationGroup("installed"); Navigate(false); await _model.RefreshAsync(); await _model.LoadWeeklyAsync(); }
     private async void OnRefreshLibrary(object sender, RoutedEventArgs e) { await _model.RefreshAsync(); await _model.LoadWeeklyAsync(); }
     private void OnSettings(object sender, RoutedEventArgs e) { if (_model.Selected is not null) SettingsPanel.Visibility = Visibility.Visible; }
     private void OnCloseSettings(object sender, RoutedEventArgs e) => SettingsPanel.Visibility = Visibility.Collapsed;
@@ -129,6 +129,7 @@ public partial class MainWindow : Window
     {
         Navigate(false);
         _model.SetGenre((string)((Button)sender).Tag);
+        SetInstallationGroup("installed");
     }
     private void OnEditGenres(object sender, RoutedEventArgs e)
     {
