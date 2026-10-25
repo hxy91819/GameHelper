@@ -138,7 +138,7 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
         : $"较前 {_days} 天 {(_data.Minutes >= _data.PreviousMinutes ? "↑" : "↓")} {Math.Abs(_data.Minutes / (double)_data.PreviousMinutes - 1):P0}";
     public string TrendCaption => _days == 0 ? "最近 12 个月" : "每日时长 · 小时";
     public IReadOnlyList<DashboardBucket> Trend => _data.Trend;
-    public IReadOnlyList<DashboardDay> Calendar => _days == 0 ? _data.Calendar : _data.Calendar.Where(day => day.Date >= _data.Start).ToList();
+    public IReadOnlyList<DashboardDay> Calendar => _data.Calendar;
     public double CalendarWidth => 34 + Math.Ceiling((Calendar.Count + (Calendar.Count == 0 ? 0 : ((int)Calendar[0].Date.DayOfWeek + 6) % 7)) / 7d) * 17;
     public double RankingHeight => Math.Clamp(_data.Games.Count * 57 + 34, 120, 650);
     public string FavouriteShareLabel => $"占本期 {FavouriteShare:P1}";

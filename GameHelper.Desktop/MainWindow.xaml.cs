@@ -20,9 +20,9 @@ public partial class MainWindow : Window
 
     public static readonly DependencyProperty CardColumnsProperty = DependencyProperty.Register(nameof(CardColumns), typeof(int), typeof(MainWindow), new PropertyMetadata(4));
     public int CardColumns { get => (int)GetValue(CardColumnsProperty); set => SetValue(CardColumnsProperty, value); }
-    public static readonly DependencyProperty CardPosterHeightProperty = DependencyProperty.Register(nameof(CardPosterHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(190d));
+    public static readonly DependencyProperty CardPosterHeightProperty = DependencyProperty.Register(nameof(CardPosterHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(246d));
     public double CardPosterHeight { get => (double)GetValue(CardPosterHeightProperty); set => SetValue(CardPosterHeightProperty, value); }
-    public static readonly DependencyProperty CardSelectionHeightProperty = DependencyProperty.Register(nameof(CardSelectionHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(198d));
+    public static readonly DependencyProperty CardSelectionHeightProperty = DependencyProperty.Register(nameof(CardSelectionHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(254d));
     public double CardSelectionHeight { get => (double)GetValue(CardSelectionHeightProperty); set => SetValue(CardSelectionHeightProperty, value); }
     public static readonly DependencyProperty HeroHeightProperty = DependencyProperty.Register(nameof(HeroHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(243d));
     public double HeroHeight { get => (double)GetValue(HeroHeightProperty); set => SetValue(HeroHeightProperty, value); }
@@ -41,13 +41,16 @@ public partial class MainWindow : Window
     private void UpdateStudioGeometry()
     {
         var narrow = ActualWidth <= 1100;
-        CardColumns = narrow ? 3 : 4; CardPosterHeight = narrow ? 180 : ActualWidth >= 1450 ? 250 : 190;
+        CardColumns = narrow ? 3 : 4;
+        CardPosterHeight = Math.Max(0, GameList.ActualWidth / CardColumns - 16) * 1.5;
         CardSelectionHeight = CardPosterHeight + 8; HeroHeight = ActualWidth >= 1450 ? 295 : 243;
         SidebarInsets = narrow ? new Thickness(13, 26, 13, 26) : new Thickness(20, 30, 20, 30);
         BrandFontSize = narrow ? 16 : 19; SplitGap = new GridLength(narrow ? 20 : 27);
         SidebarWidth = new GridLength(narrow ? 175 : 210); DetailWidth = new GridLength(narrow ? 220 : 252);
         ContentInsets = narrow ? new Thickness(23, 26, 23, 26) : new Thickness(36, 32, 36, 32);
     }
+
+    private void OnGameListSizeChanged(object sender, SizeChangedEventArgs e) => UpdateStudioGeometry();
 
     public MainWindow(LibraryViewModel model)
     {
@@ -274,6 +277,7 @@ public partial class MainWindow : Window
         Directory.CreateDirectory(directory);
         Capture(Path.Combine(directory, "installed-default.png"));
         CaptureGeometry(Path.Combine(directory, "geometry-library.json"));
+        await VerifyPageWheelAsync(GameList, Path.Combine(directory, "posters-scroll.png"));
         SettingsPanel.Visibility = Visibility.Visible; GameDetailsScroll.ScrollToVerticalOffset(350); await Task.Delay(100);
         Capture(Path.Combine(directory, "launch-options.png"));
         GameDetailsScroll.ScrollToHome(); SettingsPanel.Visibility = Visibility.Collapsed;
@@ -312,6 +316,7 @@ public partial class MainWindow : Window
         if (!_model.Statistics.HasLoaded) throw new InvalidOperationException(_model.Statistics.Status);
         await Task.Delay(200);
         Capture(Path.Combine(directory, "statistics.png"));
+        await VerifyPageWheelAsync((FrameworkElement)StatisticsPage.FindName("RankingTable"), Path.Combine(directory, "statistics-scroll.png"));
         await _model.Statistics.SetRangeAsync(0);
         if (_model.Statistics.Days != 0) throw new InvalidOperationException(_model.Statistics.Status);
         await Task.Delay(150);
@@ -323,6 +328,21 @@ public partial class MainWindow : Window
         await Task.Delay(150);
         Capture(Path.Combine(directory, "statistics-small.png"));
         await File.WriteAllTextAsync(Path.Combine(directory, "verification.txt"), $"PASS: connected to host; grid/list render; empty search; minimum window size; statistics/trend/calendar/tables render. Posters: {_model.PosterCount}. No settings changed or games launched.");
+    }
+
+    private async Task VerifyPageWheelAsync(FrameworkElement target, string screenshot)
+    {
+        WorkspaceScroll.ScrollToTop();
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
+        var wheel = new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, -960)
+        { RoutedEvent = Mouse.PreviewMouseWheelEvent };
+        target.RaiseEvent(wheel);
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
+        if (!wheel.Handled || WorkspaceScroll.VerticalOffset <= 0)
+            throw new InvalidOperationException("内层控件上的滚轮未滚动整页。");
+        Capture(screenshot);
+        WorkspaceScroll.ScrollToTop();
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
     }
 
     private void CaptureGeometry(string path)

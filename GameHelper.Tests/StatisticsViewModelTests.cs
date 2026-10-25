@@ -98,6 +98,24 @@ public sealed class StatisticsViewModelTests
         Assert.Null(model.FavouriteArtwork);
     });
 
+    [Fact]
+    public Task CalendarKeepsWholeYearAcrossRangeChanges() => OnSta(async () =>
+    {
+        var today = new DateOnly(2026, 4, 21);
+        var days = Enumerable.Range(0, 365).Select(index => new DashboardDay(today.AddDays(index - 364), index, 1)).ToArray();
+        var backend = new Backend((query, _) => Task.FromResult(Response(query.Days, 60) with
+        { Statistics = Data(query.Days, 60) with { Calendar = days, Start = today.AddDays(1 - Math.Max(1, query.Days)) } }));
+        using var model = new StatisticsViewModel(backend);
+        await model.RefreshAsync();
+        Assert.Equal(days, model.Calendar);
+        var width = model.CalendarWidth;
+        await model.SetRangeAsync(7);
+        Assert.Equal(days, model.Calendar);
+        Assert.Equal(width, model.CalendarWidth);
+        await model.SetRangeAsync(0);
+        Assert.Equal(days, model.Calendar);
+    });
+
     private static GameLibraryResponse Response(int days, long minutes) => new() { Success = true, Statistics = Data(days, minutes) };
     private static PlaytimeDashboard Data(int days, long minutes) => new()
     {

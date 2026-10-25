@@ -47,7 +47,8 @@ public static class PlaytimeDashboardBuilder
         var games = period.GroupBy(session => session.DataKey, StringComparer.OrdinalIgnoreCase)
             .Select(group => new DashboardGame(group.Key, group.First().Name, group.Sum(session => session.Minutes), group.Count(), group.Max(session => session.End)))
             .OrderByDescending(game => game.Minutes).ThenBy(game => game.Name, StringComparer.OrdinalIgnoreCase).ToList();
-        var focus = period.Where(session => query.SessionGameKey is null || session.DataKey.Equals(query.SessionGameKey, StringComparison.OrdinalIgnoreCase))
+        // A calendar date is global and may precede the selected summary period.
+        var focus = (query.FocusDate is null ? period : history).Where(session => query.SessionGameKey is null || session.DataKey.Equals(query.SessionGameKey, StringComparison.OrdinalIgnoreCase))
             .Where(session => query.FocusDate is null || DateOnly.FromDateTime(session.End) == query.FocusDate).ToList();
         var weekdays = new long[7];
         foreach (var session in focus) weekdays[((int)session.End.DayOfWeek + 6) % 7] += session.Minutes;

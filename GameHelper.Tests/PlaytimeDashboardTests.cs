@@ -116,6 +116,20 @@ public sealed class PlaytimeDashboardTests
         Assert.Equal(0, zero.Rhythm.Minutes);
     }
 
+    [Fact]
+    public void CalendarDateOutsideSummaryRangeStillHasDailyRhythm()
+    {
+        var old = Today.AddDays(-100);
+        var records = new[] { Record("a", Session("a", old, 85), Session("a", Today.AddDays(-1), 20)) };
+        var result = PlaytimeDashboardBuilder.Build(records, Configs,
+            new(7, FocusDate: DateOnly.FromDateTime(old), IncludeRecent: false), Clock);
+        Assert.Equal(20, result.Minutes);
+        Assert.Equal(85, result.Rhythm.Minutes);
+        Assert.Equal(1, result.Rhythm.Sessions);
+        Assert.Equal(85, result.Calendar.Single(day => day.Date == DateOnly.FromDateTime(old)).Minutes);
+        Assert.Empty(result.Recent);
+    }
+
     [Theory]
     [InlineData(-1)]
     [InlineData(14)]
