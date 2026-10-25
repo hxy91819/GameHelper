@@ -171,6 +171,7 @@ public sealed class GameLaunchCoordinatorTests
     {
         public int Starts { get; private set; }
         public Action? OnStart { get; set; }
+        public void StopCompanion() { }
         public void EnsureCompanionRunning(string path) { }
             public void Validate(GameLaunchOptions options) { }
         public void Start(GameLaunchOptions options) { Starts++; OnStart?.Invoke(); }

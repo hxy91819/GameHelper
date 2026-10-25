@@ -10,4 +10,6 @@ public interface IGameLauncher
     void Start(GameLaunchOptions options);
     /// <summary>Starts or reuses a companion without validating or starting the game's launch entry.</summary>
     void EnsureCompanionRunning(string executablePath);
+    /// <summary>Stops running DS4Windows instances for a game with controller support disabled.</summary>
+    void StopCompanion();
 }

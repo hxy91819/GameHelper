@@ -6,7 +6,7 @@ public sealed record GameLaunchOptions
     public string Target { get; init; } = string.Empty;
     public string? Arguments { get; init; }
     public string? WorkingDirectory { get; init; }
-    /// <summary>Optional DS4Windows executable to ensure running before starting the game; null disables it.</summary>
+    /// <summary>Optional DS4Windows executable to ensure running before starting the game; null closes running DS4Windows instances before the game starts.</summary>
     // Preserve pre-existing revision tokens and saved UI drafts when this optional feature is disabled.
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? Ds4WindowsPath { get; init; }

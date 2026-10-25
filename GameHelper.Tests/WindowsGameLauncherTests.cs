@@ -27,7 +27,7 @@ public sealed class WindowsGameLauncherTests
     }
 
     [Fact]
-    public void Companion_IsOptInSupportsSteamAndRunsBeforeGame()
+    public void Companion_AppliesEnabledAndDisabledStateBeforeGame()
     {
         var root = Path.Combine(Path.GetTempPath(), "gh-companion", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -35,21 +35,56 @@ public sealed class WindowsGameLauncherTests
         {
             var path = Path.Combine(root, "DS4Windows.exe"); File.WriteAllBytes(path, [1]);
             var calls = new List<string>();
-            var launcher = new WindowsGameLauncher(value => { Assert.Equal(path, value); calls.Add("DS4"); }, _ => calls.Add("game"));
+            var launcher = new WindowsGameLauncher(value => { Assert.Equal(path, value); calls.Add("DS4"); }, _ => calls.Add("game"), () => calls.Add("stop DS4"));
             launcher.EnsureCompanionRunning(path);
             Assert.Equal(new[] { "DS4" }, calls);
             calls.Clear();
-            launcher.Start(new() { Target = "steam://rungameid/620" }); Assert.Equal(new[] { "game" }, calls);
+            launcher.Start(new() { Target = "steam://rungameid/620" }); Assert.Equal(new[] { "stop DS4", "game" }, calls);
             calls.Clear(); launcher.Start(new() { Target = "steam://rungameid/620", Ds4WindowsPath = path });
             Assert.Equal(new[] { "DS4", "game" }, calls);
             calls.Clear();
-            var failing = new WindowsGameLauncher(_ => throw new IOException("cannot start DS4"), _ => calls.Add("game"));
+            var failing = new WindowsGameLauncher(_ => throw new IOException("cannot start DS4"), _ => calls.Add("game"), () => calls.Add("stop DS4"));
             Assert.Throws<IOException>(() => failing.Start(new() { Target = "steam://rungameid/620", Ds4WindowsPath = path })); Assert.Empty(calls);
             File.Delete(path);
             Assert.Throws<ArgumentException>(() => launcher.EnsureCompanionRunning(path));
             Assert.Throws<ArgumentException>(() => launcher.Validate(new() { Target = "steam://rungameid/620", Ds4WindowsPath = path }));
         }
         finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void Companion_StopFailurePreventsGameLaunchAndInvalidEntryDoesNotStopCompanion()
+    {
+        var started = false; var stops = 0;
+        var launcher = new WindowsGameLauncher(_ => { }, _ => started = true,
+            () => { stops++; throw new IOException("stop failed"); });
+        Assert.Throws<IOException>(() => launcher.Start(new() { Target = "steam://rungameid/620" }));
+        Assert.False(started); Assert.Equal(1, stops);
+        Assert.Throws<ArgumentException>(() => launcher.Start(new() { Target = @"C:\MissingGame.exe" }));
+        Assert.Equal(1, stops);
+    }
+
+    [Theory]
+    [InlineData(@"C:\Sandbox\DS4Windows.exe", true)]
+    [InlineData(@"C:\SandboxOther\DS4Windows.exe", false)]
+    [InlineData(@"C:\Tools\DS4Windows.exe", false)]
+    public void SandboxStopScopeExcludesUserProcesses(string path, bool expected) =>
+        Assert.Equal(expected, Ds4WindowsProcess.IsInsideSandbox(path, @"C:\Sandbox"));
+
+    [WindowsOnlyFact]
+    public async Task Companion_StopClosesAnOwnedBackgroundProcessAndToleratesAlreadyExited()
+    {
+        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("powershell.exe")
+        { Arguments = "-NoProfile -NonInteractive -Command Start-Sleep -Seconds 60", UseShellExecute = false,
+            CreateNoWindow = true, WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden })!;
+        try
+        {
+            Ds4WindowsProcess.StopProcess(process);
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(process.HasExited);
+            Ds4WindowsProcess.StopProcess(process);
+        }
+        finally { if (!process.HasExited) process.Kill(); }
     }
 
     [Fact]

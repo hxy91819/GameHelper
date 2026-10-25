@@ -3,7 +3,7 @@ using System.Diagnostics;
 
 namespace GameHelper.Infrastructure.Processes;
 
-/// <summary>Starts the configured controller companion once, reusing only an exact executable-path match.</summary>
+/// <summary>Applies the controller companion state, reusing exact executable paths and stopping DS4Windows when disabled.</summary>
 internal static class Ds4WindowsProcess
 {
     private static readonly object Gate = new();
@@ -26,6 +26,62 @@ internal static class Ds4WindowsProcess
             }
             catch (InvalidOperationException) when (process.HasExited && IsRunning(executable)) { }
         }
+    }
+
+    internal static void StopRunning()
+    {
+        lock (Gate)
+        {
+            using var current = Process.GetCurrentProcess();
+            var sessionId = current.SessionId;
+            var candidates = Process.GetProcessesByName("DS4Windows");
+            var failures = new List<Exception>();
+            try
+            {
+                foreach (var process in candidates)
+                {
+                    try
+                    {
+                        // Elevated monitoring must not stop another Windows login session's companion.
+                        if (process.HasExited || process.SessionId != sessionId) continue;
+                        var sandbox = Environment.GetEnvironmentVariable(GameHelper.Core.Utilities.AppDataPath.DataDirectoryEnvironmentVariable);
+                        if (!string.IsNullOrWhiteSpace(sandbox))
+                        {
+                            // A sandbox must never close the user's real controller companion.
+                            string? path;
+                            try { path = process.MainModule?.FileName; }
+                            catch (Exception ex) when (ex is Win32Exception or InvalidOperationException) { continue; }
+                            if (!IsInsideSandbox(path, sandbox)) continue;
+                        }
+                        StopProcess(process);
+                    }
+                    catch (InvalidOperationException) when (process.HasExited) { }
+                    catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or TimeoutException)
+                    { failures.Add(ex); }
+                }
+            }
+            finally { foreach (var process in candidates) process.Dispose(); }
+            if (failures.Count > 0) throw new InvalidOperationException(
+                "未能关闭 DS4Windows，请检查进程权限或手动退出后重试。", new AggregateException(failures));
+        }
+    }
+
+    internal static bool IsInsideSandbox(string? path, string sandbox) => path is not null
+        && Path.GetFullPath(path).StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(sandbox))
+            + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+
+    internal static void StopProcess(Process process)
+    {
+        try
+        {
+            if (process.HasExited) return;
+            if (process.CloseMainWindow() && process.WaitForExit(1500)) return;
+            if (process.HasExited) return;
+            process.Kill();
+            if (!process.WaitForExit(3000)) throw new TimeoutException("DS4Windows 未能及时退出。");
+        }
+        catch (InvalidOperationException) when (process.HasExited) { }
+        catch (Win32Exception) when (process.HasExited) { }
     }
 
     internal static ProcessStartInfo CreateStartInfo(string executable) => new(executable)

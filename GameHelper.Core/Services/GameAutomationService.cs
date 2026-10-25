@@ -185,7 +185,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         {
             UpdateMonitorModeState(forced: true);
         }
-        foreach (var game in recoveredGames) EnsureConfiguredCompanion(game);
+        foreach (var game in recoveredGames) ApplyConfiguredCompanion(game);
     }
 
     public void ReloadConfig()
@@ -366,16 +366,20 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
         // Preset switching performs DDC/CI bus I/O; keep it outside the state lock.
         UpdateMonitorModeState(forced: true);
-        if (externalGame is not null) EnsureConfiguredCompanion(externalGame);
+        if (externalGame is not null) ApplyConfiguredCompanion(externalGame);
     }
 
-    private void EnsureConfiguredCompanion(GameConfig game)
+    private void ApplyConfiguredCompanion(GameConfig game)
     {
-        if (_gameLauncher is null || game.Launch?.Ds4WindowsPath is not { } path) return;
-        try { _gameLauncher.EnsureCompanionRunning(path); }
+        if (_gameLauncher is null) return;
+        try
+        {
+            if (game.Launch?.Ds4WindowsPath is { } path) _gameLauncher.EnsureCompanionRunning(path);
+            else _gameLauncher.StopCompanion();
+        }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to start the configured companion for {DataKey}; playtime and other automation continue.", game.DataKey);
+            _logger.LogWarning(ex, "Failed to apply the configured companion state for {DataKey}; playtime and other automation continue.", game.DataKey);
         }
     }
 

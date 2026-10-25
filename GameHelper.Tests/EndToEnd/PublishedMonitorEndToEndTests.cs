@@ -34,14 +34,14 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
     private static readonly TimeSpan PersistTimeout = TimeSpan.FromSeconds(75);
 
     [WindowsOnlyFact]
-    public async Task ControllerCompanion_PublishedLaunchStartsHelperFirstAndReusesItAcrossGames()
+    public async Task ControllerCompanion_PublishedLaunchStartsReusesAndStopsHelperWhenDisabled()
     {
         if (!TryGuard(out var exePath)) return;
         using var sandbox = CreateSandbox();
         var compiler = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe");
         Assert.True(File.Exists(compiler), "Windows .NET Framework compiler required for an isolated GUI probe.");
         var code = Path.Combine(sandbox.RootDir, "probe.cs");
-        var companion = Path.Combine(sandbox.RootDir, "gh-controller-" + Guid.NewGuid().ToString("N") + ".exe");
+        var companion = Path.Combine(sandbox.RootDir, "DS4Windows.exe");
         var game = Path.Combine(sandbox.RootDir, "gh-controlled-game.exe");
         var marker = Path.Combine(sandbox.RootDir, "markers"); Directory.CreateDirectory(marker);
         await File.WriteAllTextAsync(code, """
@@ -54,7 +54,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
               [STAThread] static void Main() {
                 var marker = Environment.GetEnvironmentVariable("GH_TEST_COMPANION_MARKER");
                 var name = Path.GetFileNameWithoutExtension(Application.ExecutablePath);
-                if (name == "gh-controlled-game" && Directory.GetFiles(marker, "gh-controller-*.txt").Length != 1) return;
+                if (name == "gh-controlled-game" && !File.Exists(Path.Combine(marker, "DS4Windows.txt"))) return;
                 File.WriteAllText(Path.Combine(marker, name + ".txt"), Process.GetCurrentProcess().Id.ToString());
                 Application.Run(new QuietForm { Opacity = 0, ShowInTaskbar = false, WindowState = FormWindowState.Minimized });
               }
@@ -76,7 +76,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             var first = await client.ExecuteAsync(request); Assert.True(first.Success, first.Error);
             var gameMarker = Path.Combine(marker, "gh-controlled-game.txt");
             await WaitUntilAsync(() => int.TryParse(ReadTextFile(gameMarker), out _), ReadyTimeout, "companion started before game");
-            var companionMarker = Directory.GetFiles(marker, "gh-controller-*.txt").Single();
+            var companionMarker = Directory.GetFiles(marker, "DS4Windows.txt").Single();
             var companionId = int.Parse(File.ReadAllText(companionMarker), CultureInfo.InvariantCulture);
             using (var child = Process.GetProcessById(int.Parse(File.ReadAllText(gameMarker), CultureInfo.InvariantCulture)))
             { child.Kill(); await child.WaitForExitAsync(); }
@@ -93,7 +93,19 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(35));
             try { await ui.WaitForExitAsync(deadline.Token); } finally { if (!ui.HasExited) ui.Kill(); }
             Assert.Equal(0, ui.ExitCode); Assert.True(File.Exists(Path.Combine(screenshots, "launch-options.png")));
-            output.WriteLine("Isolated GUI companion started before the game, reused across launches, and remains running; native option screenshot: " + screenshots);
+            using (var child = Process.GetProcessById(int.Parse(File.ReadAllText(gameMarker), CultureInfo.InvariantCulture)))
+            { child.Kill(); await child.WaitForExitAsync(); }
+            File.Delete(gameMarker);
+            var current = Assert.Single((await client.ExecuteAsync(new() { Operation = GameLibraryOperation.List })).Games);
+            current.Config.Launch = current.Config.Launch! with { Ds4WindowsPath = null };
+            var saved = await client.ExecuteAsync(new() { Operation = GameLibraryOperation.Save,
+                DataKey = current.Config.DataKey, ExpectedRevision = current.Revision,
+                Game = current.Config });
+            Assert.True(saved.Success, saved.Error);
+            var disabled = await client.ExecuteAsync(request); Assert.True(disabled.Success, disabled.Error);
+            await WaitUntilAsync(() => int.TryParse(ReadTextFile(gameMarker), out _), ReadyTimeout, "game launch with controller disabled");
+            Assert.True(running.HasExited);
+            output.WriteLine("Sandbox GUI companion starts, is reused, then closes before launching with controller disabled; screenshot: " + screenshots);
         }
         finally
         {

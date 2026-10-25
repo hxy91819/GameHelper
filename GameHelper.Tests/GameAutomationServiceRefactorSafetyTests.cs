@@ -117,6 +117,7 @@ namespace GameHelper.Tests
 
         private sealed class FakeLauncher : IGameLauncher
         {
+            public void StopCompanion() { }
             public void EnsureCompanionRunning(string path) { }
             public void Validate(GameLaunchOptions options) { }
             public void Start(GameLaunchOptions options) { }

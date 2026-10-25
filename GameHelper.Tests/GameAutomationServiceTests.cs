@@ -108,6 +108,8 @@ namespace GameHelper.Tests
         public int Starts { get; private set; }
         public List<string> Companions { get; } = [];
         public Action? OnCompanion { get; set; }
+        public int CompanionStops { get; private set; }
+        public void StopCompanion() { CompanionStops++; OnCompanion?.Invoke(); }
         public void EnsureCompanionRunning(string path) { Companions.Add(path); OnCompanion?.Invoke(); }
         public void Validate(GameLaunchOptions options) { }
         public void Start(GameLaunchOptions options) { Starts++; }
@@ -385,6 +387,27 @@ namespace GameHelper.Tests
             monitor.RaiseStop(new ProcessEventInfo("game.exe", null, 1235));
             Assert.Equal(1, play.StopCalls);
             Assert.Equal(0, hdr.DisableCalls);
+            service.Stop();
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void ExternalStart_WithControllerDisabledStopsCompanionAndKeepsTracking(bool stopFails)
+        {
+            var monitor = new FakeMonitor();
+            var launcher = new FakeLauncher();
+            if (stopFails) launcher.OnCompanion = () => throw new IOException("stop failed");
+            var play = new FakePlayTime();
+            var service = new GameAutomationService(monitor, new FakeConfig(Dict(("a.exe", true, false))),
+                new FakeHdr(), play, NullLogger<GameAutomationService>.Instance, gameLauncher: launcher);
+            service.Start();
+            monitor.RaiseStart(new ProcessEventInfo("a.exe", null, 1234));
+            monitor.RaiseStart(new ProcessEventInfo("a.exe", null, 1235));
+            Assert.Equal(1, launcher.CompanionStops);
+            Assert.Empty(launcher.Companions);
+            Assert.Equal(1, play.StartCalls);
+            Assert.Equal(0, launcher.Starts);
             service.Stop();
         }
 

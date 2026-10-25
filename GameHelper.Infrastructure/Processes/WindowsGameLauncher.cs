@@ -9,16 +9,20 @@ public sealed class WindowsGameLauncher : IGameLauncher
 {
     private readonly Action<string> _ensureCompanion;
     private readonly Action<GameLaunchOptions> _startEntry;
-    public WindowsGameLauncher() : this(Ds4WindowsProcess.EnsureRunning, StartEntry) { }
-    internal WindowsGameLauncher(Action<string> ensureCompanion, Action<GameLaunchOptions> startEntry)
-    { _ensureCompanion = ensureCompanion; _startEntry = startEntry; }
+    private readonly Action _stopCompanion;
+    public WindowsGameLauncher() : this(Ds4WindowsProcess.EnsureRunning, StartEntry, Ds4WindowsProcess.StopRunning) { }
+    internal WindowsGameLauncher(Action<string> ensureCompanion, Action<GameLaunchOptions> startEntry, Action stopCompanion)
+    { _ensureCompanion = ensureCompanion; _startEntry = startEntry; _stopCompanion = stopCompanion; }
 
     public void Start(GameLaunchOptions options)
     {
         Validate(options);
         if (options.Ds4WindowsPath is { } companion) EnsureCompanionRunning(companion);
+        else StopCompanion();
         _startEntry(options);
     }
+
+    public void StopCompanion() => _stopCompanion();
 
     public void EnsureCompanionRunning(string executablePath)
     {
