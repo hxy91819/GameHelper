@@ -47,6 +47,10 @@ namespace GameHelper.Core.Models
         /// </summary>
         public double? SpeedMultiplier { get; set; }
 
+        /// <summary>Optional in-game CE speed presets and primary/original toggle shortcuts.</summary>
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        public List<SpeedHotkey>? SpeedHotkeys { get; set; }
+
         /// <summary>
         /// Optional policy controlling when the speed controller attaches Cheat Engine after the game starts.
         /// <c>auto</c> (default) defers the attach while a mod loader (BepInEx/MelonLoader) is detected beside the

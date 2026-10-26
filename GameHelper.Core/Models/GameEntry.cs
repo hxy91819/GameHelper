@@ -18,6 +18,10 @@ public sealed record GameEntry
 
     public double? SpeedMultiplier { get; init; }
 
+    /// <summary>Optional in-game CE speed presets and primary/original toggle shortcuts.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<SpeedHotkey>? SpeedHotkeys { get; init; }
+
     public string? SpeedAttach { get; init; }
 
     public GameLaunchOptions? Launch { get; init; }

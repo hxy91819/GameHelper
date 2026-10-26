@@ -121,7 +121,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         _speedAttachGate = new SpeedAttachScheduler(
             _timeProvider,
             _logger,
-            request => ApplyAndRecordSpeed(request.DataKey, request.ProcessId, request.Speed),
+            request => ApplyAndRecordSpeed(request.DataKey, request.ProcessId, request.Speed, request.Hotkeys),
             _processIdentityProbe,
             speedGatePollInterval,
             speedGateTimeout);
@@ -415,7 +415,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                     config.DataKey);
             }
 
-            ApplyAndRecordSpeed(config.DataKey, processId.Value, config.SpeedMultiplier.Value);
+            ApplyAndRecordSpeed(config.DataKey, processId.Value, config.SpeedMultiplier.Value, config.SpeedHotkeys);
             return;
         }
 
@@ -425,7 +425,8 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             config.SpeedMultiplier.Value,
             loaderInfo.LogPath,
             processStartedUtc,
-            gamePath));
+            gamePath,
+            config.SpeedHotkeys?.ToArray()));
     }
 
     /// <summary>
@@ -462,11 +463,14 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     /// Performs the actual attach and records it for exit-correlation when the controller really
     /// launched Cheat Engine. Runs both on the immediate path and from the deferred gate callback.
     /// </summary>
-    private void ApplyAndRecordSpeed(string dataKey, int processId, double speed)
+    private void ApplyAndRecordSpeed(string dataKey, int processId, double speed, IReadOnlyList<SpeedHotkey>? hotkeys)
     {
         try
         {
-            if (_speedController!.ApplySpeed(processId, speed))
+            var attached = hotkeys is { Count: > 0 }
+                ? _speedController!.ApplySpeed(processId, speed, hotkeys)
+                : _speedController!.ApplySpeed(processId, speed);
+            if (attached)
             {
                 var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
                 _recentSpeedAttacks[processId] = new SpeedAttachRecord(dataKey, nowUtc);

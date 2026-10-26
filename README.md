@@ -182,6 +182,7 @@ games:
 - `enabled`：是否参与监控、时长统计和自动化。
 - `hdr`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
 - `speed`：可选的游戏倍速，必须大于 `0`；省略时不修改速度。GameHelper 为每次附加动态生成独立的临时 CE 表，同一 PID 的多次请求互不覆盖，无需维护 `.CT`。
+- `speedHotkeys`：可选的游戏内多档快捷键列表；每项 `hotkey: Ctrl+F1` 搭配 `speed: 2` 直达档位、`speed: 1` 一键原速，省略该项 `speed` 在主倍速与原速间切换。WPF 游戏设置可逐行编辑（例如 `Ctrl+F1=2`、`Ctrl+F2=1`、`Ctrl+F3=toggle`），草稿保留未完成文本；保存后下次游戏启动生效。
 - 游戏退出后，为它启动的 CE 倍速实例会自动关闭；手动打开的其他 CE 不受影响。手动把该实例切换到其他进程时，取消自动关闭。
 - `speedAttach`：可选的 CE 附加时序策略，`auto`（默认）在检测到 BepInEx/MelonLoader 时推迟附加到 loader 启动完成之后（90 秒超时兜底），`immediate` 恢复一启动就附加的旧行为。
 - `cheatEngine.executable`：Cheat Engine 可执行文件的绝对路径；只在至少一款游戏配置了 `speed` 时使用。

@@ -54,6 +54,7 @@ public sealed class GameCatalogSpeedAttachTests
                 IsEnabled = game.IsEnabled,
                 HdrEnabled = game.HdrEnabled,
                 SpeedMultiplier = game.SpeedMultiplier,
+                SpeedHotkeys = game.SpeedHotkeys,
                 SpeedAttach = game.SpeedAttach
             }).ToList() };
             change(copy);

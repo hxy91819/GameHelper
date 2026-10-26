@@ -14,6 +14,10 @@ public sealed record GameCatalogUpdateRequest
 
     public double? SpeedMultiplier { get; init; }
 
+    public List<SpeedHotkey>? SpeedHotkeys { get; init; }
+
+    public bool ClearSpeedHotkeys { get; init; }
+
     public bool ClearSpeedMultiplier { get; init; }
 
     public GameLaunchOptions? Launch { get; init; }

@@ -237,7 +237,7 @@ public sealed class CheatEngineSpeedControllerTests : IDisposable
         Assert.Contains("local targetPid = 4321", lua);
         Assert.Contains("local targetSpeed = 2.5", lua);
         Assert.Contains("openProcess(targetPid)", lua);
-        Assert.Contains("speedhack_setSpeed(targetSpeed)", lua);
+        Assert.Contains("applySpeed(targetSpeed)", lua);
     }
 
     [Fact]

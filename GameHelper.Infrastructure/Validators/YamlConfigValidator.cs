@@ -203,7 +203,8 @@ namespace GameHelper.Infrastructure.Validators
                         if (!game.Children.TryGetValue(new YamlScalarNode(field.Name), out var node)) continue;
                         if (field.Type == FieldType.Object)
                         {
-                            ValidateLaunch(node, idx, result);
+                            if (field.Name == "speedHotkeys") ValidateSpeedHotkeys(node, idx, result);
+                            else ValidateLaunch(node, idx, result);
                             continue;
                         }
                         if (node is not YamlScalarNode scalar)
@@ -293,6 +294,45 @@ namespace GameHelper.Infrastructure.Validators
                     scalar.Style == ScalarStyle.Plain && (scalar.Value == "~" || scalar.Value.Equals("null", StringComparison.OrdinalIgnoreCase))))
                     result.Errors.Add($"hdr.{name} must be a list of non-empty display names or device paths.");
             }
+        }
+
+        private static void ValidateSpeedHotkeys(YamlNode node, int index, ValidationResult result)
+        {
+            var prefix = $"games[{index}] speedHotkeys";
+            if (node is not YamlSequenceNode sequence)
+            {
+                result.Errors.Add($"{prefix} must be a sequence.");
+                return;
+            }
+            var bindings = new List<GameHelper.Core.Models.SpeedHotkey>();
+            foreach (var item in sequence)
+            {
+                if (item is not YamlMappingNode mapping
+                    || !mapping.Children.TryGetValue(new YamlScalarNode("hotkey"), out var keyNode)
+                    || keyNode is not YamlScalarNode key)
+                {
+                    result.Errors.Add($"{prefix} entries require a hotkey string.");
+                    continue;
+                }
+                foreach (var field in mapping.Children.Keys.Where(field => field.ToString() is not ("hotkey" or "speed")))
+                    result.Errors.Add($"{prefix} unknown field '{field}'.");
+                double? speed = null;
+                if (mapping.Children.TryGetValue(new YamlScalarNode("speed"), out var speedNode))
+                {
+                    if (speedNode is not YamlScalarNode scalar
+                        || !double.TryParse(scalar.Value, System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+                        || !double.IsFinite(parsed) || parsed <= 0)
+                    {
+                        result.Errors.Add($"{prefix} speed must be a number greater than zero (omit it for toggle).");
+                        continue;
+                    }
+                    speed = parsed;
+                }
+                bindings.Add(new() { Hotkey = key.Value ?? string.Empty, Speed = speed });
+            }
+            try { GameHelper.Core.Models.SpeedHotkey.Validate(bindings); }
+            catch (ArgumentException ex) { result.Errors.Add($"{prefix}: {ex.Message}"); }
         }
 
         private static void ValidateBreakReminder(YamlMappingNode root, ValidationResult result)

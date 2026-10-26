@@ -133,10 +133,12 @@ public sealed class GameCatalogService : IGameCatalogService
                     ? null
                     : request.SpeedMultiplier ?? existing.SpeedMultiplier,
                 SpeedAttach = existing.SpeedAttach,
+                SpeedHotkeys = request.ClearSpeedHotkeys ? null : request.SpeedHotkeys ?? existing.SpeedHotkeys,
                 Launch = request.ClearLaunch ? null : request.Launch ?? existing.Launch,
                 AddedAt = existing.AddedAt
             };
 
+            SpeedHotkey.Validate(updated.SpeedHotkeys);
             configs[updated.DataKey] = updated;
             config.Games = configs.Values.ToList();
             result = ToEntry(updated);
@@ -186,6 +188,7 @@ public sealed class GameCatalogService : IGameCatalogService
             HdrEnabled = request.HdrEnabled ?? existing?.HdrEnabled ?? false,
             SpeedMultiplier = request.SpeedMultiplier ?? existing?.SpeedMultiplier,
             SpeedAttach = existing?.SpeedAttach,
+            SpeedHotkeys = existing?.SpeedHotkeys,
             Launch = request.Launch ?? existing?.Launch,
             AddedAt = existing is null ? now : existing.AddedAt
         };
@@ -256,6 +259,7 @@ public sealed class GameCatalogService : IGameCatalogService
         HdrEnabled = config.HdrEnabled,
         SpeedMultiplier = config.SpeedMultiplier,
         SpeedAttach = config.SpeedAttach,
+        SpeedHotkeys = config.SpeedHotkeys,
         Launch = config.Launch
     };
 
@@ -275,6 +279,7 @@ public sealed class GameCatalogService : IGameCatalogService
                 HdrEnabled = config.HdrEnabled,
                 SpeedMultiplier = config.SpeedMultiplier,
                 SpeedAttach = config.SpeedAttach,
+                SpeedHotkeys = config.SpeedHotkeys,
                 Launch = config.Launch,
                 AddedAt = config.AddedAt
             };

@@ -15,6 +15,7 @@ games:
     enabled: bool
     hdr: bool
     speed: number
+    speedHotkeys: object
     speedAttach: string
     launch: object
     addedAt: string

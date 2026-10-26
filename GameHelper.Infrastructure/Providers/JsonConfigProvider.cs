@@ -238,6 +238,7 @@ namespace GameHelper.Infrastructure.Providers
             public double? SpeedMultiplier { get; set; }
 
             public string? SpeedAttach { get; set; }
+            public List<SpeedHotkey>? SpeedHotkeys { get; set; }
             public GameLaunchOptions? Launch { get; set; }
             public DateTimeOffset? AddedAt { get; set; }
 
@@ -250,6 +251,7 @@ namespace GameHelper.Infrastructure.Providers
                 HdrEnabled = HdrEnabled,
                 SpeedMultiplier = SpeedMultiplier,
                 SpeedAttach = SpeedAttach,
+                SpeedHotkeys = SpeedHotkeys,
                 Launch = Launch,
                 AddedAt = AddedAt
             };
