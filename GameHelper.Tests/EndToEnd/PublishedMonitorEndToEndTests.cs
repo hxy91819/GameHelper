@@ -225,7 +225,11 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             var client = new GameLibraryPipe(sandbox.ConfigPath);
             var original = File.ReadAllText(sandbox.ConfigPath);
             var scan = await client.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.DiscoverDirectory, Directory = libraryRoot });
-            Assert.True(scan.Success, scan.Error); var candidate = Assert.Single(scan.LocalScan!.Candidates);
+            Assert.True(scan.Success, scan.Error);
+            var candidate = Assert.Single(scan.LocalScan!.Candidates.Where(item => !item.IsAuxiliary));
+            var auxiliary = Assert.Single(scan.LocalScan.Candidates.Where(item => item.IsAuxiliary));
+            Assert.False(auxiliary.Recommended); Assert.Contains("辅助", auxiliary.Evidence);
+            Assert.False(string.IsNullOrWhiteSpace(candidate.Evidence));
             Assert.Equal(executable, candidate.ExecutablePath); Assert.False(candidate.AlreadyAdded);
             Assert.Equal(original, File.ReadAllText(sandbox.ConfigPath));
             var imported = await client.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.ImportDirectory, LocalGames = [candidate] });
@@ -250,6 +254,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             try { await ui.WaitForExitAsync(timeout.Token); } finally { if (!ui.HasExited) ui.Kill(); }
             Assert.Equal(0, ui.ExitCode);
             Assert.True(File.Exists(Path.Combine(screenshots, "directory-scan.png")));
+            Assert.True(File.Exists(Path.Combine(screenshots, "directory-scan-auxiliary.png")));
             Assert.True(File.Exists(Path.Combine(screenshots, "installed-default.png")));
             Assert.Equal(afterImport, File.ReadAllText(sandbox.ConfigPath));
             File.Delete(executable);

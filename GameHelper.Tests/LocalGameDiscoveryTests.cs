@@ -19,13 +19,86 @@ public sealed class LocalGameDiscoveryTests
         var existing = new[] { new GameConfig { DataKey = "old", Executable = second, HdrEnabled = true, SpeedMultiplier = 2 } };
         var scan = await Discovery().ScanAsync(root.Path, existing, CancellationToken.None);
         Assert.False(scan.Truncated);
-        Assert.Equal(4, scan.Candidates.Count);
+        Assert.Equal(4, scan.Candidates.Count(item => !item.IsAuxiliary));
+        Assert.All(scan.Candidates.Where(item => item.IsAuxiliary), item => Assert.False(item.Recommended));
         Assert.Contains(scan.Candidates, item => item.ExecutablePath == crashGame);
         Assert.True(scan.Candidates.Single(item => item.ExecutablePath == shipping).Recommended);
         Assert.False(scan.Candidates.Single(item => item.ExecutablePath == game).Recommended);
         Assert.True(scan.Candidates.Single(item => item.ExecutablePath == second).AlreadyAdded);
         Assert.Equal("Adventure", scan.Candidates.Single(item => item.ExecutablePath == shipping).Name);
         Assert.True(existing[0].HdrEnabled); Assert.Equal(2, existing[0].SpeedMultiplier);
+    }
+
+    [Fact]
+    public async Task Scan_PrefersGameEvidenceOverLargerUtilitiesAndRetainsAuxiliaryChoices()
+    {
+        using var root = new Folder();
+        var main = root.File("Brotato/Brotato.exe", 10);
+        root.File("Brotato/Brotato.pck");
+        var workshop = root.File("Brotato/GodotWorkshopUtility.exe", 1000);
+        var crc = root.File("Silksong/RapidCRC.exe", 1000);
+        var crashpad = root.File("Silksong/crashpad_handler.exe", 1000);
+        var silk = root.File("Silksong/Silksong.exe", 10);
+        root.File("Silksong/UnityPlayer.dll"); Directory.CreateDirectory(Path.Combine(root.Path, "Silksong/Silksong_Data"));
+        var installer = root.File("Other/_Redist/dxwebsetup.exe", 1000);
+        var scan = await Discovery().ScanAsync(root.Path, [], CancellationToken.None);
+        Assert.True(scan.Candidates.Single(item => item.ExecutablePath == main).Recommended);
+        Assert.Contains(".pck", scan.Candidates.Single(item => item.ExecutablePath == main).Evidence);
+        Assert.True(scan.Candidates.Single(item => item.ExecutablePath == silk).Recommended);
+        Assert.Contains("Unity", scan.Candidates.Single(item => item.ExecutablePath == silk).Evidence);
+        foreach (var path in new[] { workshop, crc, installer, crashpad })
+        {
+            var item = scan.Candidates.Single(item => item.ExecutablePath == path);
+            Assert.True(item.IsAuxiliary); Assert.False(item.Recommended);
+        }
+    }
+
+    [Fact]
+    public async Task Scan_SingleGameRootKeepsLauncherAndBinariesInOneGroup()
+    {
+        using var root = new Folder();
+        root.File("Launcher.exe", 1000);
+        var main = root.File("Binaries/Win64/Game-Win64-Shipping.exe", 10);
+        var scan = await Discovery().ScanAsync(root.Path, [], CancellationToken.None);
+        Assert.Single(scan.Candidates.Select(item => item.Folder).Distinct());
+        Assert.Equal(main, Assert.Single(scan.Candidates.Where(item => item.Recommended)).ExecutablePath);
+    }
+
+    [Fact]
+    public async Task Scan_GodotRootWithDifferentDirectoryNameStillKeepsSubprogramsTogether()
+    {
+        using var root = new Folder();
+        var main = root.File("Brotato.exe"); root.File("Brotato.pck"); root.File("tools/extra.exe", 1000);
+        var scan = await Discovery().ScanAsync(root.Path, [], CancellationToken.None);
+        Assert.Single(scan.Candidates.Select(item => item.Folder).Distinct());
+        Assert.Equal(main, Assert.Single(scan.Candidates.Where(item => item.Recommended)).ExecutablePath);
+    }
+
+    [Fact]
+    public async Task Scan_SizeAloneAndTiedGameEvidenceDoNotEstablishRecommendation()
+    {
+        using var root = new Folder();
+        root.File("Unknown/Small.exe", 10); root.File("Unknown/Large.exe", 1000);
+        root.File("Bundle/First.exe"); root.File("Bundle/First.pck");
+        root.File("Bundle/Second.exe", 1000); root.File("Bundle/Second.pck");
+        var scan = await Discovery().ScanAsync(root.Path, [], CancellationToken.None);
+        Assert.DoesNotContain(scan.Candidates, item => item.Recommended);
+        Assert.All(scan.Candidates.Where(item => item.Folder == "Bundle"), item => Assert.Contains("多个", item.Evidence));
+    }
+
+    [Fact]
+    public async Task Scan_RenpyLauncherIsPreferredAndKnownUnityAssetsDoNotConsumeDepthBudget()
+    {
+        using var root = new Folder();
+        var renpy = root.File("Story/Story.exe");
+        Directory.CreateDirectory(Path.Combine(root.Path, "Story/renpy")); Directory.CreateDirectory(Path.Combine(root.Path, "Story/game"));
+        root.File("Story/lib/windows-x86_64/pythonw.exe", 1000);
+        root.File("Unity/Unity.exe"); root.File("Unity/UnityPlayer.dll");
+        root.File("Unity/Unity_Data/" + string.Join('/', Enumerable.Repeat("assets", 10)) + "/helper.exe");
+        var scan = await Discovery().ScanAsync(root.Path, [], CancellationToken.None);
+        Assert.False(scan.Truncated);
+        Assert.True(scan.Candidates.Single(item => item.ExecutablePath == renpy).Recommended);
+        Assert.DoesNotContain(scan.Candidates, item => item.ExecutablePath.EndsWith("helper.exe"));
     }
 
     [Fact]

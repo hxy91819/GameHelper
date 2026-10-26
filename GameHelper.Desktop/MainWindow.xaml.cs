@@ -326,7 +326,14 @@ public partial class MainWindow : Window
             var scan = await _model.DiscoverDirectoryAsync(scanDirectory) ?? throw new InvalidOperationException(_model.Status);
             var dialog = new DirectoryImportWindow(scan) { Owner = this, ShowActivated = false, ShowInTaskbar = false };
             WindowSnapshot.PrepareOffscreen(dialog);
-            try { dialog.Show(); await Task.Delay(150); WindowSnapshot.Save(dialog, Path.Combine(directory, "directory-scan.png")); }
+            try
+            {
+                dialog.Show(); await Task.Delay(150);
+                if (dialog.SelectedGames.Count != 0) throw new InvalidOperationException("扫描结果不应默认勾选任何程序。");
+                WindowSnapshot.Save(dialog, Path.Combine(directory, "directory-scan.png"));
+                dialog.ShowAuxiliaryCandidates(); await Task.Delay(150);
+                WindowSnapshot.Save(dialog, Path.Combine(directory, "directory-scan-auxiliary.png"));
+            }
             finally { dialog.Close(); }
         }
         Navigate(true);
