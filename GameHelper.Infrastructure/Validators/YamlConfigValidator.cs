@@ -28,6 +28,29 @@ namespace GameHelper.Infrastructure.Validators
                 if (root.Children.TryGetValue(new YamlScalarNode(name), out var value) &&
                     (value is not YamlScalarNode scalar || !bool.TryParse(scalar.Value, out _)))
                     result.Errors.Add($"{name} must be a boolean.");
+            // The provider persists the monitor type as the top-level `monitor` key.
+            if (root.Children.TryGetValue(new YamlScalarNode("monitor"), out var monitorNode))
+            {
+                if (monitorNode is not YamlScalarNode monitorScalar ||
+                    !Enum.TryParse<ProcessMonitorType>(monitorScalar.Value, ignoreCase: true, out var monitorType) ||
+                    !Enum.IsDefined(monitorType))
+                    result.Errors.Add("monitor must be ETW or WMI.");
+            }
+            // Startup booleans live under the persisted `startup` mapping.
+            if (root.Children.TryGetValue(new YamlScalarNode("startup"), out var startupNode))
+            {
+                if (startupNode is not YamlMappingNode startup)
+                {
+                    result.Errors.Add("startup must be a mapping (object).");
+                }
+                else
+                {
+                    foreach (var name in new[] { "autoStartMonitor", "launchOnStartup" })
+                        if (startup.Children.TryGetValue(new YamlScalarNode(name), out var value) &&
+                            (value is not YamlScalarNode scalar || !bool.TryParse(scalar.Value, out _)))
+                            result.Errors.Add($"startup.{name} must be a boolean.");
+                }
+            }
             try
             {
                 // Reuse the same domain validation as SettingsService; the persisted sync key is `sync`.

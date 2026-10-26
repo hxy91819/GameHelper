@@ -27,6 +27,30 @@ public class YamlConfigValidatorTests : IDisposable
         Assert.Equal(valid, YamlConfigValidator.Validate(_configPath).IsValid);
     }
 
+    [Theory]
+    [InlineData("monitor: Invalid", "monitor must be ETW or WMI.")]
+    [InlineData("startup: { launchOnStartup: maybe }", "startup.launchOnStartup must be a boolean.")]
+    [InlineData("startup: { autoStartMonitor: [true] }", "startup.autoStartMonitor must be a boolean.")]
+    [InlineData("startup: true", "startup must be a mapping (object).")]
+    public void Validate_PersistedGlobalKeys_RejectInvalidValues(string yaml, string expectedError)
+    {
+        File.WriteAllText(_configPath, yaml);
+        var result = YamlConfigValidator.Validate(_configPath);
+        Assert.False(result.IsValid);
+        Assert.Contains(expectedError, result.Errors);
+    }
+
+    [Theory]
+    [InlineData("monitor: ETW")]
+    [InlineData("monitor: WMI")]
+    [InlineData("startup: { autoStartMonitor: true, launchOnStartup: false }")]
+    [InlineData("monitor: WMI\nstartup: { autoStartMonitor: false, launchOnStartup: true }")]
+    public void Validate_PersistedGlobalKeys_AcceptsValidValues(string yaml)
+    {
+        File.WriteAllText(_configPath, yaml);
+        Assert.True(YamlConfigValidator.Validate(_configPath).IsValid);
+    }
+
     [Fact]
     public void Validate_WhenYamlContainsUnquotedColon_ReturnsActionableError()
     {
