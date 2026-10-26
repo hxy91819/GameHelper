@@ -17,6 +17,7 @@ public sealed class BreakReminderAutomationTests
         var reminders = new Mock<IBreakReminderService>();
         var playtime = new Mock<IPlayTimeService>(MockBehavior.Strict);
         var hdr = new Mock<IHdrController>(MockBehavior.Strict);
+        hdr.Setup(controller => controller.Configure(It.IsAny<HdrSettings?>()));
         var speed = new Mock<IGameSpeedController>(MockBehavior.Strict);
         var automation = new GameAutomationService(new Mock<IProcessMonitor>().Object, provider.Object,
             hdr.Object, playtime.Object, NullLogger<GameAutomationService>.Instance,
@@ -29,6 +30,7 @@ public sealed class BreakReminderAutomationTests
         reminders.Verify(service => service.ReloadConfig(configuration), Times.Once);
         reminders.Verify(service => service.Stop(), Times.Once);
         playtime.VerifyNoOtherCalls();
+        hdr.Verify(controller => controller.Configure(It.IsAny<HdrSettings?>()), Times.Exactly(2));
         hdr.VerifyNoOtherCalls();
         speed.VerifyNoOtherCalls();
     }
