@@ -52,11 +52,28 @@ public partial class MainWindow : Window
 
     private void OnGameListSizeChanged(object sender, SizeChangedEventArgs e) => UpdateStudioGeometry();
 
+    private void OnWorkspaceScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (ReferenceEquals(e.OriginalSource, WorkspaceScroll)) UpdateStickyDetails();
+    }
+    private void OnStickyViewportChanged(object sender, SizeChangedEventArgs e) => UpdateStickyDetails();
+    private void UpdateStickyDetails()
+    {
+        if (StickyDetails is null || DetailHost is null || DetailOffset is null || WorkspaceScroll is null
+            || !DetailHost.IsVisible || WorkspaceScroll.ViewportHeight <= 0) return;
+        // Measure the unshifted anchor so repeated scroll/layout events cannot accumulate translation.
+        var anchorTop = DetailHost.TranslatePoint(new Point(), WorkspaceScroll).Y;
+        var top = Math.Max(16, anchorTop);
+        DetailOffset.Y = Math.Max(0, 16 - anchorTop);
+        StickyDetails.MaxHeight = Math.Max(80, WorkspaceScroll.ViewportHeight - top - 16);
+    }
+
     public MainWindow(LibraryViewModel model)
     {
         _model = model;
         InitializeComponent();
         SizeChanged += (_, _) => UpdateStudioGeometry();
+        Loaded += (_, _) => UpdateStickyDetails();
         DataContext = model;
         UpdateThemeButton();
         SetInstallationGroup(_model.InstallationGroup);
@@ -86,6 +103,7 @@ public partial class MainWindow : Window
         StatisticsPage.Visibility = statistics ? Visibility.Visible : Visibility.Collapsed;
         LibraryPage.Visibility = statistics ? Visibility.Collapsed : Visibility.Visible;
         WorkspaceScroll.ScrollToTop();
+        if (!statistics) Dispatcher.BeginInvoke(new Action(UpdateStickyDetails), DispatcherPriority.Loaded);
         if (statistics) LibraryNav.Background = Brushes.Transparent;
         else LibraryNav.SetResourceReference(Control.BackgroundProperty, "NavigationSelected");
         if (statistics) StatisticsNav.SetResourceReference(Control.BackgroundProperty, "NavigationSelected");
@@ -328,6 +346,10 @@ public partial class MainWindow : Window
         Width = MinWidth; Height = MinHeight;
         await Task.Delay(150);
         Capture(Path.Combine(directory, "statistics-small.png"));
+        Navigate(false);
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
+        if (Math.Abs(DetailOffset.Y) > .5) throw new InvalidOperationException("返回游戏库后详情吸顶位置未重置。");
+        Capture(Path.Combine(directory, "library-return.png"));
         await File.WriteAllTextAsync(Path.Combine(directory, "verification.txt"), $"PASS: connected to host; grid/list render; empty search; minimum window size; statistics/trend/calendar/tables render. Posters: {_model.PosterCount}. No settings changed or games launched.");
     }
 
@@ -341,7 +363,22 @@ public partial class MainWindow : Window
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
         if (!wheel.Handled || WorkspaceScroll.VerticalOffset <= 0)
             throw new InvalidOperationException("内层控件上的滚轮未滚动整页。");
+        if (!_showStatistics)
+        {
+            var top = StickyDetails.TranslatePoint(new Point(), WorkspaceScroll).Y;
+            if (top < 15.5 || top + StickyDetails.ActualHeight > WorkspaceScroll.ViewportHeight - 15.5)
+                throw new InvalidOperationException("右侧详情未保持在可见视口内。");
+        }
         Capture(screenshot);
+        if (!_showStatistics)
+        {
+            WorkspaceScroll.ScrollToBottom();
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
+            var top = StickyDetails.TranslatePoint(new Point(), WorkspaceScroll).Y;
+            if (top < 15.5 || top + StickyDetails.ActualHeight > WorkspaceScroll.ViewportHeight - 15.5)
+                throw new InvalidOperationException("海报列表底部的详情未保持可见。");
+            Capture(Path.Combine(Path.GetDirectoryName(screenshot)!, "posters-bottom.png"));
+        }
         WorkspaceScroll.ScrollToTop();
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
     }

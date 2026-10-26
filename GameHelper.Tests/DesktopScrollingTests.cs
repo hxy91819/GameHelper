@@ -27,6 +27,24 @@ public sealed class DesktopScrollingTests
         Assert.Equal(0, nested.VerticalOffset);
     });
 
+    [Fact]
+    public Task IndependentDetailsScrollLocallyThenForwardAtBoundary() => OnSta(() =>
+    {
+        var target = new Border { Height = 900 };
+        var details = new ScrollViewer { Height = 200, Content = target };
+        PageWheelScroll.SetIndependent(details, true);
+        var page = new ScrollViewer { Content = new StackPanel { Children = { details, new Border { Height = 900 } } } };
+        PageWheelScroll.SetEnabled(page, true);
+        page.Measure(new Size(400, 300)); page.Arrange(new Rect(0, 0, 400, 300)); page.UpdateLayout();
+        void Wheel() { target.RaiseEvent(new MouseWheelEventArgs(Mouse.PrimaryDevice, 0, -120)
+            { RoutedEvent = Mouse.PreviewMouseWheelEvent }); page.UpdateLayout(); }
+        Wheel();
+        Assert.True(details.VerticalOffset > 0); Assert.Equal(0, page.VerticalOffset);
+        details.ScrollToBottom(); page.UpdateLayout();
+        Wheel();
+        Assert.True(page.VerticalOffset > 0);
+    });
+
     private static Task OnSta(Action test)
     {
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
