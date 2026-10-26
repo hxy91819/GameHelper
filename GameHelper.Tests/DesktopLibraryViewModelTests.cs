@@ -299,6 +299,70 @@ public sealed class DesktopLibraryViewModelTests
         Assert.Equal(0, backend.Launches);
         Assert.True(model.Selected.IsDirty);
         Assert.Contains("conflict", model.Status);
+        Assert.Equal(model.Status, model.ActionError);
+        Assert.True(model.HasActionError);
+    });
+
+    [Fact]
+    public Task ReloadConflictingGamePreservesOtherDraftsAndAllowsLaunch() => OnSta(() =>
+    {
+        var current = new GameConfig { DataKey = "a", Executable = @"C:\a.exe", DisplayName = "A", Launch = new() { Target = "steam://rungameid/620" } };
+        var other = new GameConfig { DataKey = "b", Executable = @"C:\b.exe", DisplayName = "B" };
+        var launches = 0;
+        var backend = new Moq.Mock<IGameLibrary>();
+        backend.Setup(value => value.ExecuteAsync(Moq.It.IsAny<GameLibraryRequest>(), Moq.It.IsAny<CancellationToken>()))
+            .Returns<GameLibraryRequest, CancellationToken>((request, _) =>
+            {
+                if (request.Operation == GameLibraryOperation.Save)
+                {
+                    if (request.ExpectedRevision != GameConfigRevision.For(current))
+                        return Task.FromResult(new GameLibraryResponse { Error = "conflict" });
+                    current = request.Game!;
+                }
+                if (request.Operation == GameLibraryOperation.Launch) { launches++; Assert.Equal(1.5, current.SpeedMultiplier); }
+                return Task.FromResult(new GameLibraryResponse { Success = true, MonitorRunning = true,
+                    Games = new[] { current, other }.Select(game => new LibraryGame { Config = game,
+                        Revision = GameConfigRevision.For(game), Installation = new(GameInstallationState.Installed, "test") }).ToList() });
+            });
+        using var model = new LibraryViewModel(backend.Object);
+        model.RefreshAsync().GetAwaiter().GetResult();
+        var otherDraft = model.Games.Cast<LibraryGameItem>().Single(game => game.DataKey == "b");
+        otherDraft.Name = "keep my draft";
+        model.Selected = model.Games.Cast<LibraryGameItem>().Single(game => game.DataKey == "a");
+        model.Selected.UseSpeed = true; model.Selected.Speed = "2";
+        current.SpeedMultiplier = 1.5;
+        model.LaunchCommand.Execute(null);
+        Assert.Equal(0, launches); Assert.True(model.HasActionError); Assert.True(model.Selected.IsDirty);
+        model.ReloadSelectedCommand.Execute(null);
+        Assert.False(model.HasActionError); Assert.False(model.Selected!.IsDirty);
+        Assert.Equal("a", model.Selected.DataKey); Assert.Equal("1.5", model.Selected.Speed);
+        Assert.Same(otherDraft, model.Games.Cast<LibraryGameItem>().Single(game => game.DataKey == "b"));
+        Assert.Equal("keep my draft", otherDraft.Name); Assert.True(otherDraft.IsDirty);
+        model.LaunchCommand.Execute(null); Assert.Equal(1, launches);
+    });
+
+    [Fact]
+    public Task DelayedSaveErrorNeverOffersToDiscardAnotherGamesDraft() => OnDispatcher(async () =>
+    {
+        var failedSave = new TaskCompletionSource<GameLibraryResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var rows = new[] { "a", "b" }.Select(key => new LibraryGame { Config = new GameConfig { DataKey = key,
+            Executable = @"C:\" + key + ".exe", DisplayName = key },
+            Installation = new(GameInstallationState.Installed, "test") }).ToArray();
+        var backend = new Moq.Mock<IGameLibrary>();
+        backend.Setup(value => value.ExecuteAsync(Moq.It.IsAny<GameLibraryRequest>(), Moq.It.IsAny<CancellationToken>()))
+            .Returns<GameLibraryRequest, CancellationToken>((request, _) => request.Operation == GameLibraryOperation.Save
+                ? failedSave.Task : Task.FromResult(new GameLibraryResponse { Success = true, Games = rows }));
+        using var model = new LibraryViewModel(backend.Object);
+        await model.RefreshAsync();
+        model.Selected = model.Games.Cast<LibraryGameItem>().Single(game => game.DataKey == "a");
+        model.Selected.Name = "A draft"; model.LaunchCommand.Execute(null);
+        Assert.True(model.IsBusy);
+        var b = model.Games.Cast<LibraryGameItem>().Single(game => game.DataKey == "b");
+        model.Selected = b; b.Name = "B draft";
+        failedSave.SetResult(new GameLibraryResponse { Error = "conflict" });
+        await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ContextIdle);
+        Assert.False(model.IsBusy); Assert.Same(b, model.Selected);
+        Assert.False(model.HasActionError); Assert.Equal("B draft", b.Name); Assert.True(b.IsDirty);
     });
 
     [Fact]

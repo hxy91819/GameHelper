@@ -40,6 +40,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private bool _refreshing;
     private long _generation;
     private bool _connected;
+    private string _actionError = string.Empty;
     private string _status = "正在连接游戏监控…";
     private string _search = string.Empty;
     private string _filter = "all";
@@ -69,6 +70,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         Games = CollectionViewSource.GetDefaultView(_games);
         Games.Filter = Matches;
         RefreshCommand = Command(() => RefreshAsync(), () => !IsBusy);
+        ReloadSelectedCommand = Command(() => RunAsync(ReloadSelectedAsync), () => Ready && Selected is not null);
         SaveCommand = Command(() => RunAsync(SaveSelectedAsync), () => Ready && Selected?.IsDirty == true);
         LaunchCommand = Command(() => RunAsync(async () =>
         {
@@ -87,6 +89,9 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public StatisticsViewModel Statistics { get; }
     public ICommand RefreshCommand { get; }
     public ICommand SaveCommand { get; }
+    public ICommand ReloadSelectedCommand { get; }
+    public string ActionError { get => _actionError; private set { if (Set(ref _actionError, value)) Changed(nameof(HasActionError)); } }
+    public bool HasActionError => !string.IsNullOrEmpty(ActionError);
     public ICommand LaunchCommand { get; }
     public bool IsBusy { get => _busy; private set { if (Set(ref _busy, value)) { Changed(nameof(Ready)); RefreshCommands(); } } }
     public bool Connected { get => _connected; private set { if (Set(ref _connected, value)) { Changed(nameof(Ready)); RefreshCommands(); } } }
@@ -97,7 +102,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public string InstallationSummary => $"本机 {_games.Count(game => game.InstallationState == GameInstallationState.Installed)} · 未找到 {_games.Count(game => game.InstallationState == GameInstallationState.Missing)} · 待确认 {_games.Count(game => game.InstallationState == GameInstallationState.Unknown)}";
     public string InstallationGroup => _group;
     public string Search { get => _search; set { if (Set(ref _search, value)) Filter(); } }
-    public LibraryGameItem? Selected { get => _selected; set { Set(ref _selected, value); RefreshCommands(); } }
+    public LibraryGameItem? Selected { get => _selected; set { if (Set(ref _selected, value)) ActionError = string.Empty; RefreshCommands(); } }
     public bool HasUnsavedChanges => _games.Any(game => game.IsDirty);
 
     private AsyncCommand Command(Func<Task> action, Func<bool> canExecute)
@@ -206,12 +211,29 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private async Task RunAsync(Func<Task> action)
     {
         if (IsBusy) return;
+        var actionKey = Selected?.DataKey;
         _generation++;
+        ActionError = string.Empty;
         IsBusy = true;
         try { await action(); }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (Exception ex) { Report(ex); }
+        catch (Exception ex)
+        {
+            Report(ex);
+            if (string.Equals(actionKey, Selected?.DataKey, StringComparison.OrdinalIgnoreCase)) ActionError = Status;
+        }
         finally { IsBusy = false; }
+    }
+
+    private async Task ReloadSelectedAsync()
+    {
+        if (Selected is null) return;
+        var key = Selected.DataKey;
+        var response = await _library.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.List }, _lifetime.Token);
+        if (!response.Success) throw new InvalidOperationException(response.Error);
+        _restoredDrafts.Remove(key);
+        // Reload only the selected entry; never discard another game's pending settings.
+        Apply(response, false, key);
     }
 
     private async Task SaveSelectedAsync()
