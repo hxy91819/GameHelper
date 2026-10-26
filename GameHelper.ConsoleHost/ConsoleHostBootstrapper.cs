@@ -1,4 +1,7 @@
 using System;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using GameHelper.ConsoleHost.Interactive;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
@@ -165,6 +168,29 @@ public static class ConsoleHostBootstrapper
         services.AddSingleton<FileDropIpcServer>();
         services.AddSingleton<IFileDropIpcServer>(sp => sp.GetRequiredService<FileDropIpcServer>());
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<FileDropIpcServer>());
+
+        if (OperatingSystem.IsWindows() && SystemTrayLogic.ShouldStart(parsedArgs.Background,
+            Environment.GetEnvironmentVariable("GAMEHELPER_DATA_DIR")))
+        {
+            services.AddSingleton<ISystemTrayService>(sp => new WindowsSystemTrayService(
+                () =>
+                {
+                    var monitor = sp.GetRequiredService<IMonitorControlService>();
+                    var sessions = sp.GetRequiredService<IGameLaunchCoordinator>().GetRunningSessionStarts();
+                    var names = sp.GetRequiredService<IGameConfiguration>().Read().Games
+                        .ToDictionary(game => game.DataKey, game => string.IsNullOrWhiteSpace(game.DisplayName) ? game.DataKey : game.DisplayName);
+                    return SystemTrayLogic.Summary(monitor.IsRunning, sessions, names,
+                        sp.GetRequiredService<TimeProvider>().GetLocalNow().DateTime);
+                },
+                () =>
+                {
+                    var config = sp.GetRequiredService<IConfigPathProvider>().ConfigPath;
+                    using var process = Process.Start(SystemTrayLogic.LibraryStartInfo(AppContext.BaseDirectory, config, File.Exists));
+                },
+                // StopApplication invokes cancellation callbacks synchronously; keep shutdown off the native thread.
+                () => System.Threading.ThreadPool.QueueUserWorkItem(_ => sp.GetRequiredService<IHostApplicationLifetime>().StopApplication()),
+                sp.GetRequiredService<IBreakReminderService>(), sp.GetRequiredService<ILogger<WindowsSystemTrayService>>()));
+        }
 
         services.AddHostedService<Worker>();
     }

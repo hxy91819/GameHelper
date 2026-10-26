@@ -204,6 +204,95 @@ public sealed class BreakReminderServiceTests
         Assert.True(test.Service.IsRunning);
     }
 
+    [Fact]
+    public void Snooze_DefersNextReminderAndThenResumesRepeatInterval()
+    {
+        using var test = new Harness();
+        test.Clock.AdvanceSeconds(2400);
+        test.Service.Snooze(TimeSpan.FromMinutes(15));
+        test.Clock.AdvanceSeconds(899);
+        Assert.Single(test.Notifier.Messages);
+        test.Clock.AdvanceSeconds(1);
+        Assert.Equal(new[] { 40d, 55d }, test.Notifier.Messages.Select(message => message.Playtime.TotalMinutes));
+        test.Clock.AdvanceSeconds(600);
+        Assert.Equal(65, test.Notifier.Messages[^1].Playtime.TotalMinutes);
+        Assert.True(test.Service.IsRunning);
+    }
+
+    [Fact]
+    public void Snooze_DoesNotAdvanceExistingDeadline_AndOnlyCountsForegroundPlay()
+    {
+        using var test = new Harness();
+        test.Service.Snooze(TimeSpan.FromMinutes(15));
+        test.Clock.AdvanceSeconds(2399);
+        Assert.Empty(test.Notifier.Messages);
+        test.Service.Snooze(TimeSpan.FromMinutes(15));
+        test.SetActivity(ForegroundActivity.Away);
+        test.Clock.AdvanceSeconds(120);
+        test.SetActivity(Harness.Game);
+        test.Clock.AdvanceSeconds(899);
+        Assert.Empty(test.Notifier.Messages);
+        test.Clock.AdvanceSeconds(1);
+        Assert.Single(test.Notifier.Messages);
+    }
+
+    [Fact]
+    public void ResetCycle_ClearsSnoozeAndRestartsFullCycleWithoutRestartingService()
+    {
+        using var test = new Harness();
+        test.Clock.AdvanceSeconds(2400);
+        test.Service.Snooze(TimeSpan.FromHours(2));
+        var clears = test.Notifier.Clears;
+        test.Service.ResetCycle();
+        Assert.Equal(clears + 1, test.Notifier.Clears);
+        Assert.True(test.Service.IsRunning);
+        Assert.Single(test.Clock.Timers);
+        test.Clock.AdvanceSeconds(2399);
+        Assert.Single(test.Notifier.Messages);
+        test.Clock.AdvanceSeconds(1);
+        Assert.Equal(40, test.Notifier.Messages[^1].Playtime.TotalMinutes);
+        Assert.Equal(2, test.Notifier.Messages.Count);
+    }
+
+    [Fact]
+    public void CompletedBreak_ClearsSnoozedDeadline()
+    {
+        using var test = new Harness();
+        test.Clock.AdvanceSeconds(2400);
+        test.Service.Snooze(TimeSpan.FromHours(2));
+        test.SetActivity(ForegroundActivity.Away);
+        test.Clock.AdvanceSeconds(300);
+        test.SetActivity(Harness.Game);
+        test.Clock.AdvanceSeconds(2400);
+        Assert.Equal(new[] { 40d, 40d }, test.Notifier.Messages.Select(message => message.Playtime.TotalMinutes));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Snooze_RejectsNonPositiveDuration(int minutes)
+    {
+        using var test = new Harness();
+        Assert.Throws<ArgumentOutOfRangeException>(() => test.Service.Snooze(TimeSpan.FromMinutes(minutes)));
+    }
+
+    [Fact]
+    public void StoppedAndDisposed_ActionsDoNotCreateTimerOrCarryStateIntoRestart()
+    {
+        using var test = new Harness();
+        test.Service.Stop();
+        test.Service.Snooze(TimeSpan.FromHours(2));
+        test.Service.ResetCycle();
+        Assert.False(test.Service.IsRunning);
+        test.Service.Start(test.Configuration);
+        test.Clock.AdvanceSeconds(2400);
+        Assert.Single(test.Notifier.Messages);
+        test.Service.Dispose();
+        test.Service.Snooze(TimeSpan.FromMinutes(15));
+        test.Service.ResetCycle();
+        Assert.False(test.Service.IsRunning);
+    }
+
     private sealed class Harness : IDisposable
     {
         public static ForegroundActivity Game { get; } = new(true, new ProcessEventInfo("game.exe", null, 1), 100);
@@ -257,7 +346,8 @@ public sealed class BreakReminderServiceTests
             if (Throws) throw new InvalidOperationException("notification failed");
             Messages.Add((playtime, breakMinutes, sound));
         }
-        public void Clear() { }
+        public int Clears { get; private set; }
+        public void Clear() => Clears++;
         public void Dispose() { }
     }
 

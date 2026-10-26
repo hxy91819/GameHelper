@@ -33,6 +33,7 @@ public sealed class ConsoleHostBootstrapperTests : IDisposable
             MonitorDryRun = true
         });
 
+        Assert.DoesNotContain(services, descriptor => descriptor.ServiceType == typeof(ISystemTrayService));
         AssertRegistered<IGameConfiguration>(services);
         AssertRegistered<IConfigPathProvider>(services);
         AssertRegistered<IProcessMonitor>(services);
@@ -67,6 +68,15 @@ public sealed class ConsoleHostBootstrapperTests : IDisposable
 
         Assert.Equal(_configPath, pathProvider.ConfigPath);
         Assert.IsType<NoOpProcessMonitor>(monitor);
+    }
+
+    [Fact]
+    public void BackgroundTrayRegistrationFollowsPlatformAndSandboxPolicy()
+    {
+        var services = new ServiceCollection();
+        ConsoleHostBootstrapper.ConfigureServices(services, new ParsedArguments { Background = true });
+        var expected = OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GAMEHELPER_DATA_DIR"));
+        Assert.Equal(expected, services.Any(descriptor => descriptor.ServiceType == typeof(ISystemTrayService)));
     }
 
     public void Dispose()

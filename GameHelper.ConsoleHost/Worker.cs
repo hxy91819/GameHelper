@@ -11,27 +11,36 @@ namespace GameHelper.ConsoleHost
         private readonly ILogger<Worker> _logger;
         private readonly IMonitorControlService _monitorControlService;
 
+        private readonly ISystemTrayService? _tray;
+
         public Worker(
             ILogger<Worker> logger,
-            IMonitorControlService monitorControlService)
+            IMonitorControlService monitorControlService,
+            ISystemTrayService? tray = null)
         {
             _logger = logger;
             _monitorControlService = monitorControlService;
+            _tray = tray;
         }
 
-        protected override Task ExecuteAsync(CancellationToken stoppingToken)
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("GameHelper ConsoleHost started");
-
-            _monitorControlService.Start();
-
-            stoppingToken.Register(() =>
+            try
             {
-                _monitorControlService.Stop();
-                _logger.LogInformation("GameHelper ConsoleHost stopping");
-            });
-
-            return Task.Delay(Timeout.Infinite, stoppingToken);
+                _monitorControlService.Start();
+                _tray?.Start();
+                await Task.Delay(Timeout.Infinite, stoppingToken);
+            }
+            finally
+            {
+                try { _tray?.Stop(); }
+                finally
+                {
+                    _monitorControlService.Stop();
+                    _logger.LogInformation("GameHelper ConsoleHost stopping");
+                }
+            }
         }
     }
 }
