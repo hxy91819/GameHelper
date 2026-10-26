@@ -112,11 +112,10 @@ namespace GameHelper.Infrastructure.Controllers
                 if (!RefreshState()) return HdrAutomationAvailability.Unknown;
                 if (_displays.Any(d => d.Supported && !d.ForceDisabled && Allows(d)))
                     return HdrAutomationAvailability.Available;
-                // Unsupported/force-disabled allowed hardware is not a deliberate policy skip.
-                if (_settings.HasDisplayRules() && _displays.Count > 0 &&
-                    (_displays.All(d => !Allows(d)) ||
-                     _displays.Any(d => d.Supported && !d.ForceDisabled && !Allows(d)) &&
-                     !_displays.Any(d => d.Supported && Allows(d))))
+                // Only a fully excluded online display set is a deliberate policy skip. An allowed
+                // display that is online but hardware-unsupported/force-disabled is Unavailable,
+                // even when an excluded HDR display is connected at the same time.
+                if (_settings.HasDisplayRules() && _displays.Count > 0 && _displays.All(d => !Allows(d)))
                     return HdrAutomationAvailability.ExcludedByPolicy;
                 return HdrAutomationAvailability.Unavailable;
             }

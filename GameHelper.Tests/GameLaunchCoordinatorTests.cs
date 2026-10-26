@@ -1,6 +1,7 @@
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Services;
+using GameHelper.Infrastructure.Controllers;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
@@ -158,26 +159,50 @@ public sealed class GameLaunchCoordinatorTests
         app.Playtime.Verify(playtime => playtime.StartTracking("a"), Times.Once);
     }
 
+    [Fact]
+    public void MixedDisplays_ExcludedHdrDesktopAndAllowedSdrTelevision_RejectsLaunch()
+    {
+        var controller = new WindowsHdrController(NullLogger<WindowsHdrController>.Instance,
+            () => new[]
+            {
+                new WindowsHdrController.DisplayAdvancedColorInfo("desk", true, false, false, "desk-path"),
+                new WindowsHdrController.DisplayAdvancedColorInfo("TV", false, false, false, "tv-path")
+            });
+        controller.Configure(new HdrSettings { AllowedDisplays = ["tv-path"] });
+        Assert.Equal(HdrAutomationAvailability.Unavailable, controller.GetAutomationAvailability());
+
+        using var app = new Fixture(hdrController: controller,
+            hdrSettings: new HdrSettings { AllowedDisplays = ["tv-path"] });
+        Assert.Throws<InvalidOperationException>(() => app.Service.Launch("a"));
+        Assert.Equal(0, app.Launcher.Starts);
+        Assert.False(controller.IsEnabled);
+        Assert.False(app.Store.Snapshot!.HdrEnabledByGameHelper);
+    }
+
     private sealed class Fixture : IDisposable
     {
         public Mock<IProcessMonitor> Monitor { get; } = new();
         public Mock<IPlayTimeService> Playtime { get; } = new();
         public Hdr Hdr { get; }
+        public IHdrController HdrController { get; }
         public Launcher Launcher { get; } = new();
         public Store Store { get; }
         public Clock Clock { get; }
         public GameAutomationService Service { get; }
-        public Fixture(bool initialHdr = false, bool disabled = false, Hdr? sharedHdr = null, Store? sharedStore = null, Clock? clock = null)
+        public Fixture(bool initialHdr = false, bool disabled = false, Hdr? sharedHdr = null, Store? sharedStore = null,
+            Clock? clock = null, IHdrController? hdrController = null, HdrSettings? hdrSettings = null)
         {
             Hdr = sharedHdr ?? new Hdr { IsEnabled = initialHdr };
+            HdrController = hdrController ?? Hdr;
             Store = sharedStore ?? new Store(); Clock = clock ?? new Clock();
             var configuration = new Mock<IGameConfiguration>();
             configuration.Setup(source => source.Read()).Returns(new AppConfig
             {
+                Hdr = hdrSettings,
                 Games = [new() { DataKey = "a", Executable = "a.exe", HdrEnabled = true, IsEnabled = !disabled, Launch = new() { Target = @"C:\Games\a.exe" } },
                     new() { DataKey = "b", Executable = "b.exe", HdrEnabled = true, Launch = new() { Target = @"C:\Games\b.exe" } }]
             });
-            Service = new GameAutomationService(Monitor.Object, configuration.Object, Hdr, Playtime.Object,
+            Service = new GameAutomationService(Monitor.Object, configuration.Object, HdrController, Playtime.Object,
                 NullLogger<GameAutomationService>.Instance, inFlightSessionStore: Store, timeProvider: Clock, gameLauncher: Launcher);
             Service.Start();
         }

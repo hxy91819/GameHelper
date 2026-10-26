@@ -72,6 +72,21 @@ public sealed class WindowsHdrControllerTests
     }
 
     [Fact]
+    public void Availability_ExcludedHdrDesktopAndAllowedSdrTelevision_ReportsUnavailable()
+    {
+        // The allowed television is online but cannot do HDR; the excluded desktop is HDR-capable.
+        // This is missing hardware, not a policy-only skip.
+        var controller = new WindowsHdrController(NullLogger<WindowsHdrController>.Instance,
+            () => new[]
+            {
+                new WindowsHdrController.DisplayAdvancedColorInfo("desk", true, false, false, "desk-path"),
+                new WindowsHdrController.DisplayAdvancedColorInfo("TV", false, false, false, "tv-path")
+            });
+        controller.Configure(new HdrSettings { AllowedDisplays = ["tv-path"] });
+        Assert.Equal(HdrAutomationAvailability.Unavailable, controller.GetAutomationAvailability());
+    }
+
+    [Fact]
     public void Enable_TelevisionAndExcludedDesktop_OnlyWritesTelevisionAndRestoresAfterRuleReload()
     {
         var displays = new[]
