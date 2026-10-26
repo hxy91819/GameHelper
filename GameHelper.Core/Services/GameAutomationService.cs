@@ -624,6 +624,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     private AppConfig LoadAndBuildIndexes()
     {
         var configuration = _gameConfiguration.Read();
+        _hdr.Configure(configuration.Hdr);
         _monitorModeSettings = configuration.MonitorMode;
         _monitorModePlan = MonitorModePlan.TryCreate(configuration.MonitorMode, _logger, ResolveMonitorModeCoordinates);
         var configs = (configuration.Games ?? new List<GameConfig>())
@@ -682,7 +683,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             _launchFailures.Remove(dataKey);
             try
             {
-                if (game.HdrEnabled) _hdrScheduler.PrepareForLaunch(_hdr);
+                if (game.HdrEnabled) _hdrScheduler.PrepareForLaunch(_hdr, _logger);
                 PersistInFlightSnapshot();
             }
             catch
@@ -856,8 +857,10 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             MonitorModePlan? plan;
             var anyGameActive = false;
             var hdrGameKeys = new List<string>();
+            var ownsHdr = false;
             lock (_stateLock)
             {
+                ownsHdr = _hdrScheduler.OwnsEnabledHdr;
                 plan = _monitorModePlan;
                 if (!_started || plan is null)
                 {
@@ -866,8 +869,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
                 var activeKeys = _sessionTracker.GetActiveDataKeysSnapshot();
                 anyGameActive = activeKeys.Count > 0;
-                // 显示器预设与 HDR 自动化互斥：只要勾选了"启动前开启 HDR"的游戏在跑
-                // 且为库内启动，预设切换就整体让位；外部启动降级为游戏预设。
+                // 库内 HDR 游戏默认暂停 DDC；仅规则排除、无租约且确认 SDR 时降级。
                 hdrGameKeys.AddRange(activeKeys.Where(key =>
                     IsOwnLaunched(key) && _configIndex.ByDataKey.TryGetValue(key, out var config) && config.HdrEnabled));
                 // 显示器从系统消失/回来会改变控制器可用性：这属于必须重新评估的变化
@@ -902,10 +904,13 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
             try
             {
-                // HDR 期间预设让位（HDR 属于系统层画面模式）：勾选 HDR 自动化的游戏在跑，或系统 HDR
-                // 已开启/无法确认时，都不做任何 DDC/CI 探测与写档。
+                // 规则排除且无租约的库内游戏可降级为 SDR 预设；
+                // 系统 HDR 已开启或无法确认时，始终不做 DDC/CI 探测与写档。
                 // 暂停路径让变更门失效，HDR 退出后无需新事件即可重评档位。
-                var hdrPresetPause = hdrGameKeys.Count > 0 || !_hdr.TryGetEnabled(out var hdrEnabled) || hdrEnabled;
+                var hdrKnown = _hdr.TryGetEnabled(out var hdrEnabled);
+                var excludedWithoutLease = hdrGameKeys.Count > 0 && !ownsHdr && hdrKnown && !hdrEnabled &&
+                    _hdr.GetAutomationAvailability() == HdrAutomationAvailability.ExcludedByPolicy;
+                var hdrPresetPause = !hdrKnown || hdrEnabled || (hdrGameKeys.Count > 0 && !excludedWithoutLease);
                 if (hdrPresetPause)
                 {
                     lock (_stateLock)
@@ -927,7 +932,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 if (_lastMonitorModeHdrPause)
                 {
                     _lastMonitorModeHdrPause = false;
-                    _logger.LogInformation("显示器预设自动化恢复：HDR 自动化游戏已退出，系统 HDR 未开启。");
+                    _logger.LogInformation("显示器预设自动化恢复：系统确认 SDR，且没有需要让位的 HDR 自动化。");
                 }
                 // Availability probing can perform DDC I/O; never hold the session state lock.
                 var controllerAvailable = controller.IsAvailable;

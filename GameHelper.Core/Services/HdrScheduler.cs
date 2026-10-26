@@ -16,10 +16,18 @@ internal sealed class HdrScheduler
     public void AdoptOwnership(bool owned) => _enabledByScheduler = owned;
 
     /// <summary>Confirms HDR before the game can initialize its display pipeline.</summary>
-    public void PrepareForLaunch(IHdrController hdr)
+    public void PrepareForLaunch(IHdrController hdr, ILogger logger)
     {
         if (!hdr.TryGetEnabled(out var enabled)) throw new InvalidOperationException("无法确认 HDR 状态，游戏尚未启动。");
         if (enabled) return;
+        var availability = hdr.GetAutomationAvailability();
+        if (availability == HdrAutomationAvailability.ExcludedByPolicy)
+        {
+            logger.LogInformation("当前活跃显示器被 HDR 规则排除，跳过 HDR；使用 SDR 显示器预设自动化。");
+            return;
+        }
+        if (availability != HdrAutomationAvailability.Available)
+            throw new InvalidOperationException("无法确认允许且支持 HDR 的活跃显示器，游戏尚未启动。");
         // Ownership begins before the attempt, so partial failures can still be restored.
         _enabledByScheduler = true;
         hdr.Enable();
@@ -42,7 +50,7 @@ internal sealed class HdrScheduler
         if (shouldEnableHdr)
         {
             if (!hdr.TryGetEnabled(out var enabled)) return;
-            if (!enabled)
+            if (!enabled && hdr.GetAutomationAvailability() == HdrAutomationAvailability.Available)
             {
                 logger.LogInformation("Enabling HDR (active HDR-enabled game)");
                 _enabledByScheduler = true;

@@ -1,15 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using GameHelper.Core.Abstractions;
+using GameHelper.Core.Models;
 using Microsoft.Extensions.Logging;
 
 namespace GameHelper.Infrastructure.Controllers
 {
     /// <summary>
-    /// Windows-specific HDR controller that detects monitor support and toggles HDR via the Win+Alt+B shortcut.
+    /// Windows HDR control: selected DisplayConfig targets when configured, otherwise the Win+Alt+B shortcut.
     /// </summary>
     public sealed class WindowsHdrController : IHdrController
     {
@@ -34,6 +36,13 @@ namespace GameHelper.Infrastructure.Controllers
         private readonly object _sync = new();
         private readonly Func<IReadOnlyList<DisplayAdvancedColorInfo>> _queryDisplays;
 
+        private readonly bool _useNativeQueries;
+        private readonly Action<DisplayAdvancedColorInfo, bool> _setDisplayState;
+        private readonly Action _pollDelay;
+        private HdrSettings _settings = new();
+        private IReadOnlyList<DisplayAdvancedColorInfo> _displays = Array.Empty<DisplayAdvancedColorInfo>();
+        private readonly HashSet<string> _enabledDisplayPaths = new(StringComparer.OrdinalIgnoreCase);
+
         private bool _isHdrSupported;
         private bool _isHdrEnabled;
         private bool _isHdrForceDisabled;
@@ -49,12 +58,16 @@ namespace GameHelper.Infrastructure.Controllers
         }
 
         internal WindowsHdrController(ILogger<WindowsHdrController> logger,
-            Func<IReadOnlyList<DisplayAdvancedColorInfo>>? queryDisplays)
+            Func<IReadOnlyList<DisplayAdvancedColorInfo>>? queryDisplays,
+            Action<DisplayAdvancedColorInfo, bool>? setDisplayState = null, Action? pollDelay = null)
         {
             _logger = logger;
+            _useNativeQueries = queryDisplays is null;
             _queryDisplays = queryDisplays ?? EnumerateDisplays;
+            _setDisplayState = setDisplayState ?? SetDisplayState;
+            _pollDelay = pollDelay ?? (() => Thread.Sleep(StatePollingDelayMs));
 
-            if (!OperatingSystem.IsWindows())
+            if (_useNativeQueries && !OperatingSystem.IsWindows())
             {
                 _logger.LogInformation("HDR controller disabled: non-Windows platform detected.");
                 return;
@@ -64,7 +77,7 @@ namespace GameHelper.Infrastructure.Controllers
         }
 
         /// <inheritdoc />
-        public bool IsEnabled { get { lock (_sync) return _isHdrSupported && _isHdrEnabled; } }
+        public bool IsEnabled { get { lock (_sync) return _isHdrEnabled; } }
 
         /// <inheritdoc />
         public bool TryGetEnabled(out bool enabled)
@@ -72,10 +85,56 @@ namespace GameHelper.Infrastructure.Controllers
             lock (_sync)
             {
                 var known = RefreshState();
-                enabled = _isHdrSupported && _isHdrEnabled;
+                enabled = _isHdrEnabled;
                 return known;
             }
         }
+
+        /// <inheritdoc />
+        public void Configure(HdrSettings? settings)
+        {
+            settings?.Validate();
+            lock (_sync)
+            {
+                _settings = new HdrSettings
+                {
+                    AllowedDisplays = settings?.AllowedDisplays.ToList() ?? new(),
+                    DisabledDisplays = settings?.DisabledDisplays.ToList() ?? new()
+                };
+            }
+        }
+
+        /// <inheritdoc />
+        public HdrAutomationAvailability GetAutomationAvailability()
+        {
+            lock (_sync)
+            {
+                if (!RefreshState()) return HdrAutomationAvailability.Unknown;
+                if (_displays.Any(d => d.Supported && !d.ForceDisabled && Allows(d)))
+                    return HdrAutomationAvailability.Available;
+                // Unsupported/force-disabled allowed hardware is not a deliberate policy skip.
+                if (_settings.HasDisplayRules() && _displays.Count > 0 &&
+                    (_displays.All(d => !Allows(d)) ||
+                     _displays.Any(d => d.Supported && !d.ForceDisabled && !Allows(d)) &&
+                     !_displays.Any(d => d.Supported && Allows(d))))
+                    return HdrAutomationAvailability.ExcludedByPolicy;
+                return HdrAutomationAvailability.Unavailable;
+            }
+        }
+
+        /// <inheritdoc />
+        public bool TryGetDisplays(out IReadOnlyList<HdrDisplayInfo> displays)
+        {
+            lock (_sync)
+            {
+                if (!RefreshState()) { displays = Array.Empty<HdrDisplayInfo>(); return false; }
+                displays = _displays.Select(d => new HdrDisplayInfo(d.Name, d.DevicePath,
+                    d.Supported, d.Enabled, d.ForceDisabled, Allows(d))).ToArray();
+                return true;
+            }
+        }
+
+        private bool Allows(DisplayAdvancedColorInfo display) => _settings.Allows(display.Name, display.DevicePath);
 
         /// <inheritdoc />
         public void Enable() => Toggle(desiredState: true, reason: "HDR requested by active game(s)");
@@ -85,7 +144,7 @@ namespace GameHelper.Infrastructure.Controllers
 
         private void Toggle(bool desiredState, string reason)
         {
-            if (!OperatingSystem.IsWindows())
+            if (_useNativeQueries && !OperatingSystem.IsWindows())
             {
                 return;
             }
@@ -93,6 +152,12 @@ namespace GameHelper.Infrastructure.Controllers
             lock (_sync)
             {
                 if (!RefreshState()) return;
+
+                if (_settings.HasDisplayRules() || _enabledDisplayPaths.Count > 0)
+                {
+                    SetSelectedDisplays(desiredState);
+                    return;
+                }
 
                 if (_isHdrForceDisabled)
                 {
@@ -125,6 +190,54 @@ namespace GameHelper.Infrastructure.Controllers
                     _logger.LogWarning("HDR state did not transition to {DesiredState} after shortcut invocation.", desiredState ? "enabled" : "disabled");
                 }
             }
+        }
+
+        private void SetSelectedDisplays(bool desiredState)
+        {
+            // After a runtime restart only the aggregate scheduler lease survives. Restore
+            // enabled targets in that case, preserving the existing system-wide lease semantics.
+            var targets = _displays.Where(d => d.Supported && !d.ForceDisabled &&
+                (desiredState ? Allows(d) : ShouldRestore(d))).ToArray();
+            foreach (var display in targets.Where(d => d.Enabled != desiredState))
+            {
+                // Record before writing so a partial failure remains eligible for rollback,
+                // even if a subsequent config reload excludes this target.
+                if (desiredState) _enabledDisplayPaths.Add(display.DevicePath);
+                _logger.LogInformation("Setting HDR on display '{Display}' to {Enabled}.", display.Name, desiredState);
+                _setDisplayState(display, desiredState);
+            }
+            if (targets.Length == 0) return;
+            for (var attempt = 0; attempt < MaxStatePollingAttempts; attempt++)
+            {
+                _pollDelay();
+                if (!RefreshState()) continue;
+                if (targets.All(target => _displays.Any(d => d.DevicePath == target.DevicePath && d.Enabled == desiredState)))
+                {
+                    if (!desiredState) _enabledDisplayPaths.Clear();
+                    return;
+                }
+            }
+            throw new InvalidOperationException("未能确认所选显示器的 HDR 状态。");
+        }
+
+        private bool ShouldRestore(DisplayAdvancedColorInfo display) => _enabledDisplayPaths.Count > 0
+            ? _enabledDisplayPaths.Contains(display.DevicePath) : display.Enabled;
+
+        private static void SetDisplayState(DisplayAdvancedColorInfo display, bool enabled)
+        {
+            var request = new DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE
+            {
+                header = new DISPLAYCONFIG_DEVICE_INFO_HEADER
+                {
+                    type = DISPLAYCONFIG_DEVICE_INFO_TYPE.DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE,
+                    size = (uint)Marshal.SizeOf<DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE>(),
+                    adapterId = new LUID { LowPart = display.AdapterLow, HighPart = display.AdapterHigh },
+                    id = display.TargetId
+                },
+                value = enabled ? 1u : 0u
+            };
+            var status = DisplayConfigSetDeviceInfo(ref request);
+            if (status != ErrorSuccess) throw new Win32Exception(status, "Cannot set HDR for the selected display.");
         }
 
         private void LogUnsupportedOnce()
@@ -183,7 +296,7 @@ namespace GameHelper.Infrastructure.Controllers
 
         private bool RefreshState()
         {
-            if (!OperatingSystem.IsWindows())
+            if (_useNativeQueries && !OperatingSystem.IsWindows())
             {
                 _isHdrSupported = false;
                 _isHdrEnabled = false;
@@ -194,34 +307,12 @@ namespace GameHelper.Infrastructure.Controllers
             try
             {
                 var displays = _queryDisplays();
-                var supported = false;
-                var enabled = false;
-                var forceDisabled = false;
-
-                foreach (var info in displays)
-                {
-                    if (!info.Supported)
-                    {
-                        continue;
-                    }
-
-                    if (info.ForceDisabled)
-                    {
-                        forceDisabled = true;
-                        continue;
-                    }
-
-                    supported = true;
-                    if (info.Enabled)
-                    {
-                        enabled = true;
-                        break;
-                    }
-                }
-
-                _isHdrSupported = supported;
-                _isHdrEnabled = supported && enabled;
-                _isHdrForceDisabled = forceDisabled && !supported;
+                _displays = displays;
+                _isHdrSupported = displays.Any(d => d.Supported && !d.ForceDisabled);
+                // Observe ALL active displays, including excluded and force-disabled ones.
+                _isHdrEnabled = displays.Any(d => d.Enabled);
+                if (!_isHdrEnabled) _enabledDisplayPaths.Clear();
+                _isHdrForceDisabled = displays.Any(d => d.ForceDisabled) && !_isHdrSupported;
 
                 if (ShouldLogSummary())
                 {
@@ -292,16 +383,19 @@ namespace GameHelper.Infrastructure.Controllers
                 };
 
                 status = DisplayConfigGetDeviceInfo(ref targetName);
-
-                var name = status == ErrorSuccess
-                    ? GetDisplayName(targetName)
-                    : $"Display {i + 1}";
+                if (status != ErrorSuccess && _settings.HasDisplayRules())
+                    throw new Win32Exception((int)status, "Cannot identify an active display for HDR selection.");
+                var name = status == ErrorSuccess ? GetDisplayName(targetName) : $"Display {i + 1}";
 
                 result.Add(new DisplayAdvancedColorInfo(
                     name,
                     info.AdvancedColorSupported,
                     info.AdvancedColorEnabled,
-                    info.AdvancedColorForceDisabled));
+                    info.AdvancedColorForceDisabled,
+                    targetName.monitorDevicePath ?? string.Empty,
+                    paths[i].targetInfo.adapterId.LowPart,
+                    paths[i].targetInfo.adapterId.HighPart,
+                    paths[i].targetInfo.id));
             }
 
             return result;
@@ -478,6 +572,9 @@ namespace GameHelper.Infrastructure.Controllers
         [DllImport("user32.dll")]
         private static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_TARGET_DEVICE_NAME requestPacket);
 
+        [DllImport("user32.dll")]
+        private static extern int DisplayConfigSetDeviceInfo(ref DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE requestPacket);
+
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
@@ -596,6 +693,13 @@ namespace GameHelper.Infrastructure.Controllers
         }
 
         [StructLayout(LayoutKind.Sequential)]
+        private struct DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public uint value;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
         private struct INPUT
         {
             public uint type;
@@ -618,7 +722,8 @@ namespace GameHelper.Infrastructure.Controllers
             public UIntPtr dwExtraInfo;
         }
 
-        internal readonly record struct DisplayAdvancedColorInfo(string Name, bool Supported, bool Enabled, bool ForceDisabled);
+        internal readonly record struct DisplayAdvancedColorInfo(string Name, bool Supported, bool Enabled, bool ForceDisabled,
+            string DevicePath = "", uint AdapterLow = 0, int AdapterHigh = 0, uint TargetId = 0);
 
         #endregion
     }

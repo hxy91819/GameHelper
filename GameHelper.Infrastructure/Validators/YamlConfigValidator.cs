@@ -100,6 +100,7 @@ namespace GameHelper.Infrastructure.Validators
                     return result;
                 }
 
+                ValidateHdr(root, result);
                 ValidateBreakReminder(root, result);
                 if (!root.Children.TryGetValue(new YamlScalarNode("games"), out var gamesNode))
                 {
@@ -218,6 +219,29 @@ namespace GameHelper.Infrastructure.Validators
                 result.Errors.Add($"Exception: {ex.Message}");
                 result.IsValid = false;
                 return result;
+            }
+        }
+
+        private static void ValidateHdr(YamlMappingNode root, ValidationResult result)
+        {
+            if (!root.Children.TryGetValue(new YamlScalarNode("hdr"), out var section)) return;
+            if (section is not YamlMappingNode mapping)
+            {
+                result.Errors.Add("'hdr' must be a mapping (object).");
+                return;
+            }
+            foreach (var entry in mapping.Children)
+            {
+                var name = (entry.Key as YamlScalarNode)?.Value ?? string.Empty;
+                if (name is not ("allowedDisplays" or "disabledDisplays"))
+                {
+                    result.Warnings.Add($"hdr unknown field: '{name}'");
+                    continue;
+                }
+                if (entry.Value is not YamlSequenceNode list || list.Children.Any(item =>
+                    item is not YamlScalarNode scalar || string.IsNullOrWhiteSpace(scalar.Value) ||
+                    scalar.Style == ScalarStyle.Plain && (scalar.Value == "~" || scalar.Value.Equals("null", StringComparison.OrdinalIgnoreCase))))
+                    result.Errors.Add($"hdr.{name} must be a list of non-empty display names or device paths.");
             }
         }
 

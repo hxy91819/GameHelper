@@ -123,7 +123,7 @@ dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release
 
 在监控运行期间直接编辑 `%AppData%\GameHelper\config.yml`（文本编辑器保存即可），约 0.5 秒内自动生效，无需重启 GameHelper：
 
-- 新增 / 修改 / 删除游戏条目、`enabled`、`hdr`、`speed`、`speedAttach`、`breakReminder`、`monitorMode` 规则都会自动重载；游戏匹配与变速对之后新启动的进程生效，显示器规则立即重新评估。
+- 新增 / 修改 / 删除游戏条目、`enabled`、`hdr`、`speed`、`speedAttach`、`breakReminder`、`monitorMode` 与全局 `hdr` 显示器规则都会自动重载；游戏匹配与变速对之后新启动的进程生效，显示器规则立即重新评估。
 - 拖拽添加与 CLI 目录命令修改配置依旧立即重载，与文件监听路径互不冲突。
 - 以下项仍需重启进程才会生效：`monitor`（监控器类型，启动时创建）、`sync` 后台推送参数（循环启动时读取）。
 - 编辑器保存时文件会短暂处于“被替换/缺失”状态，监听器会跳过该窗口，不会把空配置读进运行中的服务；删除 `config.yml` 也不会清空当前监控状态。
@@ -140,7 +140,13 @@ dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release
 
 U2720QM 默认护眼配方改为单笔 `F0=0x0C`，固件联动完成 `DC=00 / E2=1D / F0=0C`，从游戏模式直接进入护眼；自定义配方仍按原顺序写入。`SetVCPFeature` 每次只写一个码，没有多码原子事务。
 
-每 10 秒查询 Windows 当前 HDR 状态：HDR 开启或状态无法确认时，暂停 DDC 探测与读写；确认关闭后自动恢复当前游戏/日照规则，也能识别手动切换 HDR。与 HDR 也互斥：库内启动且勾选了"启动前开启 HDR"的游戏在跑期间，预设自动切换整体暂停，该会话退出后恢复；外部启动按游戏模式规则处理，不因 HDR 勾选而暂停。SDR 下继续检查显示器连接，连接提示仅在启动、断开或恢复时输出。
+每 10 秒查询 Windows 当前 HDR 状态：HDR 开启或状态无法确认时，暂停 DDC 探测与读写；确认关闭后自动恢复当前游戏/日照规则，也能识别手动切换 HDR。与 HDR 也互斥：库内启动且勾选了"启动前开启 HDR"的游戏默认暂停预设切换；若显示器被全局 HDR 规则排除、没有 HDR 租约且确认系统 SDR，则降级使用 DDC 游戏预设（仍遵循日照规则）；外部启动按游戏模式规则处理，不因 HDR 勾选而暂停。SDR 下继续检查显示器连接，连接提示仅在启动、断开或恢复时输出。
+
+### 按显示器选择自动 HDR
+
+在 `config.yml` 配置全局 `hdr: { disabledDisplays: ["DELL U2720QM"] }` 可排除桌面显示器；或用 `hdr: { allowedDisplays: ["Living Room TV"] }` 仅允许电视。两列表可同时配置，排除优先；按完整显示器名或设备路径匹配，忽略大小写，不支持通配符。未配置或两列表均空时保持原行为，配置可热重载。
+
+仅连接被排除的显示器时，库内启动勾选 HDR 的游戏会跳过 HDR，并在确认 SDR 且无 HDR 租约时降级应用 DDC 游戏预设；接允许且支持 HDR 的电视时正常开启 HDR 并暂停 DDC。查询失败、允许设备不可用且非规则排除，或开启未确认时仍拒绝启动。规则不会关闭用户原本开启的 HDR。完整示例见[游戏库指南](docs/guides/game-library.md#hdr-和启动失败)。
 
 ### 更新重启不断计时（会话跨重启续算）
 

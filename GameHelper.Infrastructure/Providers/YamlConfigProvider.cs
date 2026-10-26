@@ -117,6 +117,7 @@ namespace GameHelper.Infrastructure.Providers
 
         private AppConfig Normalize(AppConfig appConfig, bool forSave = false)
         {
+            appConfig.Hdr?.Validate();
             if (forSave) appConfig.BreakReminder?.Validate();
             if (forSave) appConfig.MonitorMode?.Validate();
             var normalizedGames = new List<GameConfig>();
@@ -196,6 +197,7 @@ namespace GameHelper.Infrastructure.Providers
                 CheatEngine = ToCheatEngineSettings(storedConfig.CheatEngine),
                 BreakReminder = storedConfig.BreakReminder,
                 MonitorMode = storedConfig.MonitorMode,
+                Hdr = storedConfig.Hdr,
                 SyncSettings = ToSyncSettings(storedConfig.Sync),
                 Games = storedConfig.Games?
                     .Select(ToGameConfig)
@@ -263,6 +265,7 @@ namespace GameHelper.Infrastructure.Providers
             CheatEngine = ToStoredCheatEngine(appConfig.CheatEngine),
             BreakReminder = appConfig.BreakReminder,
             MonitorMode = appConfig.MonitorMode,
+            Hdr = appConfig.Hdr,
             Sync = ToStoredSync(appConfig.SyncSettings),
             Games = appConfig.Games
                 .Select(ToStoredGameConfig)
@@ -323,6 +326,8 @@ namespace GameHelper.Infrastructure.Providers
             public BreakReminderSettings? BreakReminder { get; set; }
 
             public MonitorModeSettings? MonitorMode { get; set; }
+
+            public HdrSettings? Hdr { get; set; }
 
             public StoredSyncConfig? Sync { get; set; }
 

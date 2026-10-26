@@ -43,6 +43,9 @@ namespace GameHelper.Core.Models
         /// </summary>
         public MonitorModeSettings? MonitorMode { get; set; }
 
+        /// <summary>Optional per-display HDR automation selection.</summary>
+        public HdrSettings? Hdr { get; set; }
+
         /// <summary>
         /// 统计自动推送配置；null 表示未配置（config.yml 无 sync 段）。
         /// </summary>

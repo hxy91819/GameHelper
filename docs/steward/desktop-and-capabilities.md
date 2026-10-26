@@ -4,18 +4,19 @@
 
 ## 路线
 
-- [ ] 阶段 1：游玩档案手帐化与 GitHub SVG 玩家卡片交互原型试验（最近线程 thr_hnjudfj36y）
-- [ ] 阶段 2：CE 游戏内热键多档变速与一键原速切换（最近线程 thr_aqkyyrhcqu）
-- [ ] 阶段 3：按显示器指定 HDR 策略（显示器跳过 HDR 自动降级 DDC 游戏模式，接电视自动启用 HDR）
-- [ ] 阶段 4：WPF 桌面端闭环（全局设置页含显示器 HDR 选择、原生系统托盘、DDC 配方录制向导，最近线程 thr_3n9b78c3qq）
+- [x] 阶段 1：游玩档案手帐化与 GitHub SVG 玩家卡片交互原型试验（最近线程 thr_hnjudfj36y）
+- [x] 阶段 2：CE 游戏内热键多档变速与一键原速切换（分支 feat/ce-speed-hotkeys，最近线程 thr_aqkyyrhcqu）
+- [x] 阶段 3：按显示器指定 HDR 策略与 DDC 降级（分支 feat/per-display-hdr，最近线程 thr_6ipq7bi95p）
+- [ ] 阶段 4：WPF 桌面端闭环（全局设置页含显示器 HDR 选择、原生系统托盘、DDC 配方录制向导） ← 进行中
 - [ ] 阶段 5：按阶段 1 试验反馈落地选中的游玩档案手帐能力与 GitHub 同步 SVG 卡片
-- [ ] 阶段 6：Windows 实机验证与一键部署收口（`scripts/verify-on-machine.ps1 -SkipVerify -Restart`）
+- [ ] 阶段 6：独立代码审查、Windows 实机验证与一键部署收口（`scripts/verify-on-machine.ps1 -SkipVerify -Restart`）
 
 ## 关键决策
 
 - 2026-10-26 演进主线定为“桌面端闭环 + CE 多档热键变速 + 按显示器 HDR + 游玩手帐试验”，不做单机存档位置猜测。原因：用户确认优先级并指出存档路径难以自动识别。影响：全部阶段。
 - 2026-10-26 游玩档案手帐化与 GitHub SVG 卡片先做单页交互原型试验，用户看效果拍板后再改正式代码。原因：用户希望先看试验效果。影响：阶段 1、阶段 5。
 - 2026-10-26 HDR 自动化支持按显示器指定：当前仅连接被排除/未允许的显示器时，库内启动勾选 HDR 的游戏自动跳过 HDR（不报错阻断）并降级应用 DDC 游戏预设；接电视等允许显示器时正常开启 HDR。原因：用户显示器 HDR 效果差，仅在接电视时需开启 HDR。影响：阶段 3、阶段 4。
+- 2026-10-26 系统托盘在 `ConsoleHost` 后台监控内以原生 Win32 `Shell_NotifyIconW` STA 消息泵实现，双击/菜单拉起 `GameHelper.Desktop`。原因：保持 `ADR-0002` 与 `verify-on-machine.ps1` 的 Desktop 引导即退及窗口恢复契约。影响：阶段 4。
 
 ## 用户待办
 

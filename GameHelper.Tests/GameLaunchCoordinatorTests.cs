@@ -8,6 +8,34 @@ namespace GameHelper.Tests;
 
 public sealed class GameLaunchCoordinatorTests
 {
+    [Theory]
+    [InlineData(HdrAutomationAvailability.Unknown)]
+    [InlineData(HdrAutomationAvailability.Unavailable)]
+    public void HdrDisplayAvailabilityNotConfirmed_NeverCreatesGameOrLease(HdrAutomationAvailability availability)
+    {
+        using var app = new Fixture();
+        app.Hdr.Availability = availability;
+        Assert.Throws<InvalidOperationException>(() => app.Service.Launch("a"));
+        Assert.Equal(0, app.Launcher.Starts);
+        Assert.False(app.Hdr.IsEnabled);
+        Assert.False(app.Store.Snapshot!.HdrEnabledByGameHelper);
+    }
+
+    [Fact]
+    public void HdrDisplayPolicySkipped_ExpiryAndRestart_DoNotAcquireLease()
+    {
+        using var first = new Fixture();
+        first.Hdr.Availability = HdrAutomationAvailability.ExcludedByPolicy;
+        first.Service.Launch("a");
+        Assert.Equal(1, first.Launcher.Starts);
+        Assert.False(first.Store.Snapshot!.HdrEnabledByGameHelper);
+        using var second = new Fixture(sharedHdr: first.Hdr, sharedStore: first.Store);
+        Assert.False(second.Hdr.IsEnabled);
+        second.Clock.Advance(TimeSpan.FromMinutes(3));
+        Assert.False(second.Store.Snapshot!.HdrEnabledByGameHelper);
+        Assert.Equal(0, second.Hdr.DisableCalls);
+    }
+
     [Fact]
     public void Launch_ConfirmsHdrBeforeCreatingProcess_ThenTracksOnlyObservedProcess()
     {
@@ -162,6 +190,8 @@ public sealed class GameLaunchCoordinatorTests
         public bool IsEnabled { get; set; }
         public bool Known { get; set; } = true;
         public bool EnableFails { get; set; }
+        public HdrAutomationAvailability Availability { get; set; } = HdrAutomationAvailability.Available;
+        public HdrAutomationAvailability GetAutomationAvailability() => Availability;
         public int DisableCalls { get; private set; }
         public bool TryGetEnabled(out bool enabled) { enabled = IsEnabled; return Known; }
         public void Enable() { if (!EnableFails) IsEnabled = true; }

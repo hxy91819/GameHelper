@@ -16,6 +16,29 @@ public class YamlConfigProviderTests : IDisposable
     }
 
     [Fact]
+    public void HdrSettings_RoundtripAndUnrelatedGameEdit_PreservesDisplaySelection()
+    {
+        File.WriteAllText(_configPath, "hdr:\n  allowedDisplays: [TV]\n  disabledDisplays: [desk-path]\ngames: []\n");
+        var provider = new YamlConfigProvider(_configPath);
+        Assert.Equal("TV", Assert.Single(provider.Read().Hdr!.AllowedDisplays));
+        provider.Change(config => config.Games.Add(new GameConfig { DataKey = "game", Executable = "game.exe" }));
+        var settings = provider.Read().Hdr!;
+        Assert.Equal("TV", Assert.Single(settings.AllowedDisplays));
+        Assert.Equal("desk-path", Assert.Single(settings.DisabledDisplays));
+        Assert.DoesNotContain("hasDisplayRules", File.ReadAllText(_configPath));
+    }
+
+    [Fact]
+    public void HdrSettings_InvalidSave_DoesNotOverwriteDocument()
+    {
+        var provider = new YamlConfigProvider(_configPath);
+        provider.Change(config => config.Hdr = new HdrSettings { AllowedDisplays = ["TV"] });
+        var previous = File.ReadAllText(_configPath);
+        Assert.Throws<ArgumentException>(() => provider.Change(config => config.Hdr!.DisabledDisplays = [" "]));
+        Assert.Equal(previous, File.ReadAllText(_configPath));
+    }
+
+    [Fact]
     public void LoadAppConfig_WhenFileMissing_ReturnsEmpty()
     {
         var provider = new YamlConfigProvider(_configPath);

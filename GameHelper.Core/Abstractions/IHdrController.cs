@@ -1,3 +1,5 @@
+using GameHelper.Core.Models;
+
 namespace GameHelper.Core.Abstractions
 {
     /// <summary>
@@ -25,6 +27,19 @@ namespace GameHelper.Core.Abstractions
         /// Enables HDR. Safe to call if already enabled.
         /// </summary>
         void Enable();
+
+        /// <summary>Updates display selection without changing the current system HDR state.</summary>
+        void Configure(HdrSettings? settings) { }
+
+        /// <summary>Distinguishes deliberate display exclusion from unsupported hardware or query failure.</summary>
+        HdrAutomationAvailability GetAutomationAvailability() => HdrAutomationAvailability.Available;
+
+        /// <summary>Queries all active targets, including excluded displays; false means unknown.</summary>
+        bool TryGetDisplays(out IReadOnlyList<HdrDisplayInfo> displays)
+        {
+            displays = Array.Empty<HdrDisplayInfo>();
+            return false;
+        }
 
         /// <summary>
         /// Disables HDR. Safe to call if already disabled.

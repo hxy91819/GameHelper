@@ -14,6 +14,19 @@ public class YamlConfigValidatorTests : IDisposable
         _configPath = Path.Combine(_tempDir, "config.yml");
     }
 
+    [Theory]
+    [InlineData("hdr: true", false)]
+    [InlineData("hdr: {allowedDisplays: TV}", false)]
+    [InlineData("hdr: {disabledDisplays: [null]}", false)]
+    [InlineData("hdr: {allowedDisplays: [{}]}", false)]
+    [InlineData("hdr: {allowedDisplays: [], disabledDisplays: [desk]}", true)]
+    [InlineData("hdr: {allowedDisplays: [TV], disabledDisplays: [TV]}", true)]
+    public void Validate_HdrDisplaySelection_RequiresListsOfNonEmptyNames(string yaml, bool valid)
+    {
+        File.WriteAllText(_configPath, yaml);
+        Assert.Equal(valid, YamlConfigValidator.Validate(_configPath).IsValid);
+    }
+
     [Fact]
     public void Validate_WhenYamlContainsUnquotedColon_ReturnsActionableError()
     {

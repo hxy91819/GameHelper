@@ -3,11 +3,136 @@ using GameHelper.Core.Models;
 using GameHelper.Core.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using GameHelper.Infrastructure.Controllers;
 
 namespace GameHelper.Tests.Services;
 
 public sealed class MonitorModeAutomationTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void LibraryHdrLaunch_DisplayPolicy_SelectsHdrOrSdrGamePreset(bool whitelist, bool televisionConnected)
+    {
+        var displays = new List<WindowsHdrController.DisplayAdvancedColorInfo>
+        {
+            new("desk", true, false, false, "desk-path")
+        };
+        if (televisionConnected) displays.Add(new("TV", true, false, false, "tv-path"));
+        var hdrWrites = new List<(string, bool)>();
+        var hdr = new WindowsHdrController(NullLogger<WindowsHdrController>.Instance, () => displays.ToArray(),
+            (display, enabled) =>
+            {
+                hdrWrites.Add((display.Name, enabled));
+                var index = displays.FindIndex(d => d.DevicePath == display.DevicePath);
+                displays[index] = display with { Enabled = enabled };
+            }, () => { });
+        var config = new AppConfig
+        {
+            Hdr = whitelist ? new HdrSettings { AllowedDisplays = ["TV"] }
+                : new HdrSettings { DisabledDisplays = ["desk-path"] },
+            MonitorMode = new MonitorModeSettings { Enabled = true, DaylightStart = "00:00", DaylightEnd = "23:59" },
+            Games = [new() { DataKey = "game", Executable = "game.exe", HdrEnabled = true, IsEnabled = true,
+                Launch = new() { Target = @"C:\Games\game.exe" } }]
+        };
+        var source = new Mock<IGameConfiguration>();
+        source.Setup(c => c.Read()).Returns(config);
+        var monitor = new Mock<IProcessMonitor>();
+        var launcher = new Mock<IGameLauncher>();
+        var store = new Mock<IInFlightSessionStore>();
+        InFlightSnapshot? snapshot = null;
+        store.Setup(s => s.Save(It.IsAny<InFlightSnapshot>())).Callback<InFlightSnapshot>(s => snapshot = s);
+        var clock = new Clock();
+        var ddc = new Controller();
+        var automation = new GameAutomationService(monitor.Object, source.Object, hdr,
+            Mock.Of<IPlayTimeService>(), NullLogger<GameAutomationService>.Instance,
+            monitorModeController: ddc, timeProvider: clock, gameLauncher: launcher.Object, inFlightSessionStore: store.Object);
+        try
+        {
+            automation.Start();
+            var initialTouches = ddc.Touches;
+            automation.Launch("game");
+            launcher.Verify(l => l.Start(It.IsAny<GameLaunchOptions>()), Times.Once);
+            Assert.Equal(televisionConnected, snapshot!.HdrEnabledByGameHelper);
+            monitor.Raise(m => m.ProcessStarted += null, new ProcessEventInfo("game.exe", null, 123));
+            clock.Tick();
+            Assert.False(displays[0].Enabled);
+            if (televisionConnected)
+            {
+                Assert.Equal(new[] { ("TV", true) }, hdrWrites);
+                Assert.Equal(initialTouches, ddc.Touches);
+                // Hot reload must not treat an existing lease as a policy-skipped launch,
+                // even if an external actor turns HDR off before the next evaluation.
+                config.Hdr = new HdrSettings { DisabledDisplays = ["desk", "TV"] };
+                displays[1] = displays[1] with { Enabled = false };
+                automation.ReloadConfig();
+                Assert.Equal(HdrAutomationAvailability.ExcludedByPolicy, hdr.GetAutomationAvailability());
+                clock.Tick();
+                Assert.Equal(initialTouches, ddc.Touches);
+            }
+            else
+            {
+                Assert.Empty(hdrWrites);
+                Assert.Equal(0u, ddc.State[0xF0]); // Daylight game recipe, not comfort.
+                Assert.False(snapshot.HdrEnabledByGameHelper);
+            }
+            monitor.Raise(m => m.ProcessStopped += null, new ProcessEventInfo("game.exe", null, 123));
+            Assert.Equal(0x0Cu, ddc.State[0xF0]);
+            Assert.All(displays, display => Assert.False(display.Enabled));
+        }
+        finally { automation.Stop(); }
+    }
+
+    [Fact]
+    public void SkippedHdrGame_ConnectTelevisionOnTick_EnablesHdrAndSuspendsDdc()
+    {
+        var televisionConnected = false;
+        var televisionHdr = false;
+        var queryFails = false;
+        var hdr = new WindowsHdrController(NullLogger<WindowsHdrController>.Instance,
+            () =>
+            {
+                if (queryFails) throw new InvalidOperationException("display query failed");
+                return televisionConnected
+                    ? [new("TV", true, televisionHdr, false, "tv-path")]
+                    : new[] { new WindowsHdrController.DisplayAdvancedColorInfo("desk", true, false, false, "desk-path") };
+            },
+            (_, enabled) => televisionHdr = enabled, () => { });
+        var config = new AppConfig
+        {
+            Hdr = new HdrSettings { AllowedDisplays = ["TV"] },
+            MonitorMode = new MonitorModeSettings { Enabled = true, DaylightStart = "00:00", DaylightEnd = "23:59" },
+            Games = [new() { DataKey = "game", Executable = "game.exe", HdrEnabled = true, IsEnabled = true }]
+        };
+        var source = new Mock<IGameConfiguration>();
+        source.Setup(c => c.Read()).Returns(config);
+        var monitor = new Mock<IProcessMonitor>();
+        var clock = new Clock();
+        var ddc = new Controller();
+        var automation = new GameAutomationService(monitor.Object, source.Object, hdr,
+            Mock.Of<IPlayTimeService>(), NullLogger<GameAutomationService>.Instance,
+            monitorModeController: ddc, timeProvider: clock, gameLauncher: Mock.Of<IGameLauncher>());
+        try
+        {
+            automation.Start();
+            automation.Launch("game");
+            monitor.Raise(m => m.ProcessStarted += null, new ProcessEventInfo("game.exe", null, 123));
+            Assert.Equal(0u, ddc.State[0xF0]);
+            var touches = ddc.Touches;
+            queryFails = true;
+            clock.Tick();
+            Assert.Equal(touches, ddc.Touches); // Query failure must not keep using SDR fallback.
+            queryFails = false;
+            televisionConnected = true;
+            clock.Tick();
+            Assert.True(televisionHdr);
+            Assert.Equal(touches, ddc.Touches);
+        }
+        finally { automation.Stop(); }
+    }
+
     [Fact]
     public void HdrEnabled_StartReloadGameEventsAndTicks_DoNotTouchDdc()
     {
