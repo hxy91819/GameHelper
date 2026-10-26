@@ -12,6 +12,7 @@
 - [PRD](./prd/index.md): product goals and current scope.
 - [Refactor Safety Plan](./refactor-safety.md): decisions and test gaps for the current large refactor.
 - [Plans](./plans/index.md): only active, not-yet-landed proposals.
+- [Steward Workbook](./steward/desktop-and-capabilities.md): active roadmap, decisions, and user todos for ongoing multi-stage delivery.
 - [Archives](./archives/index.md): historical material retained for traceability, not current truth.
 
 ## Maintenance Rules

@@ -114,3 +114,8 @@ Uses the five canonical triage labels (`needs-triage`, `needs-info`, `ready-for-
 ### Domain docs
 
 Single-context: `CONTEXT.md` at the repo root plus `docs/adr/`. See `docs/agents/domain.md`.
+
+### Steward Workbook
+
+管家工作簿在 `docs/steward/desktop-and-capabilities.md`，存在时先读，只报未完成的用户待办。
+
