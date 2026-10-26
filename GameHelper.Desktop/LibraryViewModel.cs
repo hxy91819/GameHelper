@@ -14,6 +14,7 @@ namespace GameHelper.Desktop;
 public sealed class LibraryViewModel : ObservableState, IDisposable
 {
     private readonly IGameLibrary _library;
+    internal IGameLibrary Library => _library;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly List<AsyncCommand> _commands = [];
     private readonly ObservableCollection<LibraryGameItem> _games = [];

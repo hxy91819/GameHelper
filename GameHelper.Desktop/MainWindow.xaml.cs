@@ -16,6 +16,7 @@ public partial class MainWindow : Window
     private readonly LibraryViewModel _model;
     private readonly DispatcherTimer _refreshTimer;
     private bool _showStatistics;
+    private bool _showGlobalSettings;
     private string _layout = "grid";
 
     public static readonly DependencyProperty CardColumnsProperty = DependencyProperty.Register(nameof(CardColumns), typeof(int), typeof(MainWindow), new PropertyMetadata(4));
@@ -78,6 +79,7 @@ public partial class MainWindow : Window
         UpdateThemeButton();
         SetInstallationGroup(_model.InstallationGroup);
         StatisticsPage.DataContext = model.Statistics;
+        GlobalSettingsPage.Connect(model.Library);
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _refreshTimer.Tick += OnTick;
         _refreshTimer.Start();
@@ -98,6 +100,9 @@ public partial class MainWindow : Window
     private async void OnTick(object? sender, EventArgs e) { if (!_showStatistics) await _model.RefreshAsync(); }
     private void Navigate(bool statistics)
     {
+        _showGlobalSettings = false;
+        GlobalSettingsPage.Visibility = Visibility.Collapsed;
+        GlobalSettingsNav.Background = Brushes.Transparent;
         _showStatistics = statistics;
         Title = statistics ? "GameHelper · 游玩档案" : "GameHelper · 游戏库";
         StatisticsPage.Visibility = statistics ? Visibility.Visible : Visibility.Collapsed;
@@ -111,9 +116,20 @@ public partial class MainWindow : Window
         ReloadButton.Content = statistics ? "刷新统计" : "重新载入";
         ReloadButton.ToolTip = statistics ? "重新读取历史游玩记录" : "放弃未保存设置并重新载入";
     }
+    private async void OnGlobalSettings(object sender, RoutedEventArgs e)
+    {
+        _showGlobalSettings = true; _showStatistics = false;
+        Title = "GameHelper · 全局设置";
+        LibraryPage.Visibility = Visibility.Collapsed; StatisticsPage.Visibility = Visibility.Collapsed;
+        GlobalSettingsPage.Visibility = Visibility.Visible;
+        LibraryNav.Background = Brushes.Transparent; StatisticsNav.Background = Brushes.Transparent;
+        GlobalSettingsNav.SetResourceReference(Control.BackgroundProperty, "NavigationSelected");
+        ReloadButton.Content = "重新载入设置"; ReloadButton.ToolTip = "放弃全局设置草稿并重新载入";
+        WorkspaceScroll.ScrollToTop(); await GlobalSettingsPage.EnsureLoadedAsync();
+    }
     private async void OnStatistics(object sender, RoutedEventArgs e) { Navigate(true); await _model.Statistics.EnsureLoadedAsync(); }
     private async void OnLibrary(object sender, RoutedEventArgs e) { _model.SetGenre(null); SetInstallationGroup("installed"); Navigate(false); await _model.RefreshAsync(); await _model.LoadWeeklyAsync(); }
-    private async void OnRefreshLibrary(object sender, RoutedEventArgs e) { await _model.RefreshAsync(); await _model.LoadWeeklyAsync(); }
+    private async void OnRefreshLibrary(object sender, RoutedEventArgs e) { if (_showGlobalSettings) { await GlobalSettingsPage.LoadAsync(); return; } await _model.RefreshAsync(); await _model.LoadWeeklyAsync(); }
     private void OnSettings(object sender, RoutedEventArgs e) { if (_model.Selected is not null) SettingsPanel.Visibility = Visibility.Visible; }
     private void OnCloseSettings(object sender, RoutedEventArgs e) => SettingsPanel.Visibility = Visibility.Collapsed;
     private void OnContinueDetails(object sender, RoutedEventArgs e)
@@ -236,6 +252,7 @@ public partial class MainWindow : Window
 
     private async void OnReload(object sender, RoutedEventArgs e)
     {
+        if (_showGlobalSettings) { await GlobalSettingsPage.LoadAsync(); return; }
         if (_showStatistics) { await _model.Statistics.RefreshAsync(); return; }
         if (_model.HasUnsavedChanges && MessageBox.Show(this, "放弃未保存的修改并重新载入？", "重新载入", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         await _model.RefreshAsync(discardDrafts: true);
@@ -251,7 +268,7 @@ public partial class MainWindow : Window
 
     private void OnKeyboard(object sender, KeyEventArgs e)
     {
-        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F)
+        if (!_showGlobalSettings && Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.F)
         {
             if (_showStatistics) StatisticsPage.FocusSearch();
             else { SearchBox.Focus(); SearchBox.SelectAll(); }
