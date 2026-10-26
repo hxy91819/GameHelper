@@ -14,10 +14,8 @@ public sealed class LocalGameDiscovery(ISteamGameResolver steam, TimeProvider? t
     private readonly object _steamGate = new();
     private IReadOnlyList<SteamInstalledGame> _installed = [];
     private DateTimeOffset? _checked;
-    private static readonly string[] Auxiliary = ["unins", "uninstall", "crashreport", "crashhandler", "vcredist", "dxsetup", "unitycrash", "cefsubprocess", "steamwebhelper", "prereqsetup", "easyanticheat", "battleye"];
-    private static readonly HashSet<string> AuxiliaryNames = new(StringComparer.OrdinalIgnoreCase) { "setup", "installer", "reporter", "redist", "updater", "anticheat" };
     private static readonly HashSet<string> ExcludedDirectories = new(StringComparer.OrdinalIgnoreCase)
-    { "Engine", "_CommonRedist", "Redist", "__Installer", "DirectX", "DotNet", "Support", "EasyAntiCheat", "BattlEye", "$RECYCLE.BIN", "System Volume Information", "node_modules", ".git" };
+    { "$RECYCLE.BIN", "System Volume Information", "node_modules", ".git" };
 
     public Task<LocalGameScan> ScanAsync(string directory, IReadOnlyList<GameConfig> existing, CancellationToken cancellationToken)
         => Task.Run(() => Scan(directory, existing, cancellationToken), cancellationToken);
@@ -30,7 +28,9 @@ public sealed class LocalGameDiscovery(ISteamGameResolver steam, TimeProvider? t
         if ((File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0) throw new ArgumentException("请选择实际目录，扫描不会跟随目录链接。");
         var pending = new Queue<(string Path, int Depth)>();
         pending.Enqueue((root, 0));
-        var found = new List<(string Path, string Folder, string Name, long Score, bool Added)>();
+        var found = new List<(string Path, string Folder, LocalExecutableClassifier.Evidence Evidence, long Size, bool Added)>();
+        var singleGame = LocalExecutableClassifier.IsSingleGameRoot(root);
+        var rootName = Path.GetFileName(Path.TrimEndingDirectorySeparator(root));
         var skipped = 0;
         var visited = 0;
         var entries = 0;
@@ -50,28 +50,45 @@ public sealed class LocalGameDiscovery(ISteamGameResolver steam, TimeProvider? t
                     if ((attributes & FileAttributes.ReparsePoint) != 0) continue;
                     if ((attributes & FileAttributes.Directory) != 0)
                     {
-                        if (ExcludedDirectories.Contains(Path.GetFileName(path))) continue;
+                        var folderName = Path.GetFileName(path);
+                        if (ExcludedDirectories.Contains(folderName)) continue;
+                        // Unity resources do not contain the launch entry; avoid spending the scan budget on assets.
+                        if (folderName.EndsWith("_Data", StringComparison.OrdinalIgnoreCase)
+                            && File.Exists(Path.Combine(next.Path, folderName[..^5] + ".exe"))) continue;
                         if (next.Depth < 8) pending.Enqueue((path, next.Depth + 1));
                         else truncated = true;
                         continue;
                     }
                     if (!path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || path.Length > 1024) continue;
-                    var fileName = Path.GetFileNameWithoutExtension(path);
-                    if (AuxiliaryNames.Contains(fileName) || Auxiliary.Any(part => fileName.Contains(part, StringComparison.OrdinalIgnoreCase))) continue;
                     var relative = Path.GetRelativePath(root, path);
-                    var group = relative.Contains(Path.DirectorySeparatorChar) ? relative.Split(Path.DirectorySeparatorChar)[0] : Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar));
-                    var name = ReadName(path, group);
+                    var nested = relative.Contains(Path.DirectorySeparatorChar);
+                    var group = singleGame || !nested ? rootName : relative.Split(Path.DirectorySeparatorChar)[0];
+                    var gameDirectory = singleGame || !nested ? root : Path.Combine(root, group);
+                    var evidence = LocalExecutableClassifier.Inspect(path, gameDirectory, group);
                     var size = new FileInfo(path).Length;
-                    var score = size + (fileName.Contains("shipping", StringComparison.OrdinalIgnoreCase) ? 1_000_000_000L : 0);
-                    found.Add((path, group, name, score, ConfigEntryMatcher.FindExistingForIntake(existing, ExecutableIdentity.Parse(path)) is not null));
+                    found.Add((path, group, evidence, size, ConfigEntryMatcher.FindExistingForIntake(existing, ExecutableIdentity.Parse(path)) is not null));
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { skipped++; }
         }
         var candidates = found.GroupBy(item => item.Folder, StringComparer.OrdinalIgnoreCase)
-            .SelectMany(group => group.OrderByDescending(item => item.Score).ThenBy(item => item.Path, StringComparer.OrdinalIgnoreCase)
-                .Select((item, index) => new LocalGameCandidate(item.Name, item.Path, item.Folder, index == 0, item.Added)))
-            .OrderBy(item => item.Folder, StringComparer.CurrentCultureIgnoreCase).ThenByDescending(item => item.Recommended).ToList();
+            .SelectMany(group =>
+            {
+                var ranked = group.OrderBy(item => item.Evidence.Auxiliary).ThenByDescending(item => item.Evidence.Strength)
+                    .ThenByDescending(item => item.Size).ThenBy(item => item.Path, StringComparer.OrdinalIgnoreCase).ToList();
+                var best = ranked[0];
+                var unambiguous = !best.Evidence.Auxiliary && best.Evidence.Strength >= 60
+                    && ranked.Count(item => !item.Evidence.Auxiliary && item.Evidence.Strength == best.Evidence.Strength) == 1;
+                return ranked.Select(item => new LocalGameCandidate(item.Evidence.Name, item.Path, item.Folder,
+                    unambiguous && item.Path == best.Path, item.Added)
+                {
+                    IsAuxiliary = item.Evidence.Auxiliary,
+                    Evidence = item.Evidence.Reason + (!unambiguous && item.Evidence.Strength >= 60
+                        ? "；同目录存在多个同等候选，请确认" : string.Empty)
+                });
+            })
+            .OrderBy(item => item.Folder, StringComparer.CurrentCultureIgnoreCase).ThenBy(item => item.IsAuxiliary)
+            .ThenByDescending(item => item.Recommended).ToList();
         // Include JSON escaping in the budget, keeping even long Unicode paths below the 4 MiB IPC limit.
         var bounded = new List<LocalGameCandidate>(); var bytes = 0;
         foreach (var candidate in candidates)
@@ -81,18 +98,6 @@ public sealed class LocalGameDiscovery(ISteamGameResolver steam, TimeProvider? t
             bounded.Add(candidate);
         }
         return new LocalGameScan(root, bounded, skipped, truncated);
-    }
-
-    private static string ReadName(string path, string fallback)
-    {
-        try
-        {
-            var name = FileVersionInfo.GetVersionInfo(path).ProductName?.Trim();
-            if (!string.IsNullOrWhiteSpace(name) && name.Length <= 160 && !name.Contains("Unreal", StringComparison.OrdinalIgnoreCase)
-                && !name.Contains("Unity", StringComparison.OrdinalIgnoreCase) && !name.Contains("Operating System", StringComparison.OrdinalIgnoreCase)) return name;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
-        return fallback;
     }
 
     public IReadOnlyDictionary<string, GameInstallation> Assess(IReadOnlyList<GameConfig> games)
