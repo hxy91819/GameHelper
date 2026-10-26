@@ -90,7 +90,7 @@ public partial class GlobalSettingsView : UserControl
         var response = await SendAsync(operation);
         var state = response.SyncStatus;
         SyncState.Text = state is null ? "暂无同步状态。" :
-            $"{state.Repo} · {(state.Enabled ? "自动推送已开启" : "自动推送已关闭")}\n" +
+            $"{state.Repo} · {(state.Enabled ? "同步已启用" : "同步未启用")}\n" +
             $"上次成功：{(state.LastSuccessUtc == default ? "尚未推送" : state.LastSuccessUtc.ToLocalTime().ToString("g"))}\n" +
             (state.ConfigError ?? state.LastError ?? (state.HasPendingData ? "有待推送数据。" : "当前没有待推送数据。"));
         if (operation != GameLibraryOperation.SyncStatus) Result.Text = response.Message;

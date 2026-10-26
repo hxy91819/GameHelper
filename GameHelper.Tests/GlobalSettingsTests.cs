@@ -189,6 +189,33 @@ public sealed class GlobalSettingsTests : IDisposable
         var failed = await library.ExecuteAsync(new() { Operation = GameLibraryOperation.SyncValidate });
         Assert.False(failed.Success); Assert.Equal("denied", failed.Error);
     }
+
+    [Fact]
+    public async Task SyncPush_ReportsCommitIdOrMasterSwitchHint()
+    {
+        var sync = new Mock<ISyncService>();
+        sync.Setup(service => service.GetStatus()).Returns(new SyncStatusInfo
+            { Configured = true, Enabled = true, Repo = "owner/repo" });
+        sync.Setup(service => service.SyncNowAsync(true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SyncOutcome.UploadedCommit("abc123"));
+        var library = new GameLibrary(Provider, Mock.Of<IGameCatalogService>(), Mock.Of<IGameAutomationService>(),
+            Mock.Of<IMonitorControlService>(), Mock.Of<IGameLaunchCoordinator>(), Mock.Of<ISteamGameResolver>(),
+            Mock.Of<IPlaytimeSnapshotProvider>(), sync: sync.Object);
+
+        var uploaded = await library.ExecuteAsync(new() { Operation = GameLibraryOperation.SyncPush });
+        Assert.True(uploaded.Success);
+        Assert.Equal("已推送统计提交：abc123", uploaded.Message);
+
+        const string disabledDetail = "sync 未配置或未启用（config.yml: sync.enabled: true）";
+        sync.Setup(service => service.GetStatus()).Returns(new SyncStatusInfo
+            { Configured = true, Enabled = false, Repo = "owner/repo" });
+        sync.Setup(service => service.SyncNowAsync(true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SyncOutcome.Skipped(disabledDetail));
+        var skipped = await library.ExecuteAsync(new() { Operation = GameLibraryOperation.SyncPush });
+        Assert.True(skipped.Success);
+        Assert.Equal(disabledDetail, skipped.Message);
+    }
+
     private static async Task<T> PipeRoundTripAsync<T>(T value)
     {
         using var stream = new MemoryStream();

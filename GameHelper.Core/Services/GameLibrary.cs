@@ -145,8 +145,16 @@ public sealed class GameLibrary(
         var outcome = operation == GameLibraryOperation.SyncValidate
             ? await service.ValidateAsync(cancellationToken).ConfigureAwait(false)
             : await service.SyncNowAsync(true, cancellationToken).ConfigureAwait(false);
+        var status = service.GetStatus();
+        // sync.enabled is the master switch: skipped uploads must say so instead of looking successful.
+        var message = outcome.Status switch
+        {
+            SyncOutcomeStatus.Uploaded => $"已推送统计提交：{outcome.CommitId}",
+            SyncOutcomeStatus.Skipped when !status.Enabled => outcome.Detail,
+            _ => outcome.Detail ?? (outcome.Success ? "操作完成。" : null)
+        };
         return new GameLibraryResponse { Success = outcome.Success, Error = outcome.Error,
-            Message = outcome.Detail ?? (outcome.Success ? "操作完成。" : null), SyncOutcome = outcome, SyncStatus = service.GetStatus() };
+            Message = message, SyncOutcome = outcome, SyncStatus = status };
     }
 
     private async Task<GameLibraryResponse> ScanDirectoryAsync(string directory, CancellationToken cancellationToken)
