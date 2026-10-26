@@ -19,7 +19,11 @@ public sealed class GlobalSettingsTests : IDisposable
     [Fact]
     public void Save_RoundTripsAllSettings_AppliesStartupAndReload_PreservesGames()
     {
-        Provider.Change(config => config.Games.Add(new GameConfig { DataKey = "game", Executable = "game.exe" }));
+        Provider.Change(config => config.Games.Add(new GameConfig
+        {
+            DataKey = "game", Executable = "game.exe", SpeedMultiplier = 2,
+            SpeedHotkeys = [new() { Hotkey = "Ctrl+F1", Speed = 1 }, new() { Hotkey = "Ctrl+F2" }]
+        }));
         var autoStart = new Mock<IAutoStartManager>(); var automation = new Mock<IGameAutomationService>();
         var hdr = new Mock<IHdrController>();
         IReadOnlyList<HdrDisplayInfo> displays = [new("TV", "tv-path", true, false, false, true)];
@@ -48,7 +52,11 @@ public sealed class GlobalSettingsTests : IDisposable
         Assert.True(saved.DisplaysAvailable); Assert.Single(saved.Displays);
         Assert.Contains(nameof(AppConfig.ProcessMonitorType), saved.RestartRequired);
         Assert.Contains(nameof(AppConfig.ProcessMonitorType), service.Get().RestartRequired);
-        Assert.Equal("game", Assert.Single(Provider.Read().Games).DataKey);
+        var game = Assert.Single(Provider.Read().Games);
+        Assert.Equal("game", game.DataKey);
+        Assert.Equal(2, game.SpeedMultiplier);
+        Assert.Equal(new double?[] { 1, null }, game.SpeedHotkeys!.Select(binding => binding.Speed));
+        Assert.Equal(new[] { "Ctrl+F1", "Ctrl+F2" }, game.SpeedHotkeys.Select(binding => binding.Hotkey));
         request.Hdr.AllowedDisplays.Clear(); saved.Hdr.AllowedDisplays.Clear();
         Assert.Single(service.Get().Hdr!.AllowedDisplays);
         Assert.True(YamlConfigValidator.Validate(Path.Combine(_root, "config.yml")).IsValid);

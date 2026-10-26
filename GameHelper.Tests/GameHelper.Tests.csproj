@@ -31,7 +31,6 @@
 
   <ItemGroup>
     <Compile Remove="GamePlayTimeManagerTests.cs" />
-    <Compile Remove="Portable/**/*.cs" />
   </ItemGroup>
 
 </Project>
