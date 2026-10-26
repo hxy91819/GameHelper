@@ -99,17 +99,17 @@ public sealed class MonitorModeSettings
 
     private static void ValidatePresets(List<MonitorModePresetData> presets, string fieldName)
     {
-        if (presets.Count == 0)
+        if (presets is null || presets.Count == 0)
         {
             throw new ArgumentException($"monitorMode.{fieldName} must contain at least one preset.");
         }
 
         foreach (var preset in presets)
         {
-            if (!MonitorModeWrite.TryParse(preset.Code, preset.Value, out var write))
+            if (preset is null || !MonitorModeWrite.TryParse(preset.Code, preset.Value, out _))
             {
                 throw new ArgumentException(
-                    $"monitorMode.{fieldName} contains an invalid code/value pair: '{preset.Code}' = '{preset.Value}'.");
+                    $"monitorMode.{fieldName} contains an invalid code/value pair: '{preset?.Code}' = '{preset?.Value}'.");
             }
         }
     }

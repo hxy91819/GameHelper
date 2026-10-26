@@ -13,6 +13,8 @@ public class NoOpMonitorModeController : IMonitorModeController
     /// <inheritdoc />
     public bool IsAvailable => true;
 
+    public MonitorModeSnapshot? ReadSnapshot() => null;
+
     /// <inheritdoc />
     public IReadOnlyDictionary<byte, uint>? TryReadState(IReadOnlyList<MonitorModeWrite> probeCodes) => null;
 

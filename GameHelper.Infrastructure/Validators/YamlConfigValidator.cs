@@ -4,6 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using YamlDotNet.Core;
+using GameHelper.Core.Models;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 using YamlDotNet.RepresentationModel;
 
 namespace GameHelper.Infrastructure.Validators
@@ -19,6 +22,30 @@ namespace GameHelper.Infrastructure.Validators
 
     public static class YamlConfigValidator
     {
+        private static void ValidateGlobals(YamlMappingNode root, ValidationResult result)
+        {
+            foreach (var name in new[] { "autoStartInteractiveMonitor", "launchOnSystemStartup" })
+                if (root.Children.TryGetValue(new YamlScalarNode(name), out var value) &&
+                    (value is not YamlScalarNode scalar || !bool.TryParse(scalar.Value, out _)))
+                    result.Errors.Add($"{name} must be a boolean.");
+            try
+            {
+                // Reuse the same domain validation as SettingsService; the persisted sync key is `sync`.
+                var globals = new YamlMappingNode();
+                foreach (var name in new[] { "processMonitorType", "hdr", "breakReminder", "monitorMode", "cheatEngine", "sync" })
+                    if (root.Children.TryGetValue(new YamlScalarNode(name), out var node))
+                        globals.Add(new YamlScalarNode(name == "sync" ? "syncSettings" : name), node);
+                var document = new YamlStream(new YamlDocument(globals));
+                using var writer = new StringWriter();
+                document.Save(writer, false);
+                var config = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance)
+                    .IgnoreUnmatchedProperties().Build().Deserialize<AppConfig>(writer.ToString());
+                var validation = Validate(config);
+                result.Errors.AddRange(validation.Errors);
+            }
+            catch (Exception ex) { result.Errors.Add("Invalid global settings: " + ex.Message); }
+        }
+
         private enum FieldType { String, Bool, Number, Object }
 
         private sealed class FieldSpec
@@ -75,6 +102,28 @@ namespace GameHelper.Infrastructure.Validators
             return dict;
         }
 
+        /// <summary>Validates detached application settings before the configuration transaction commits.</summary>
+        public static ValidationResult Validate(AppConfig config)
+        {
+            var result = new ValidationResult();
+            void Check(Action action) { try { action(); } catch (ArgumentException ex) { result.Errors.Add(ex.Message); } }
+            if (!Enum.IsDefined(config.ProcessMonitorType)) result.Errors.Add("processMonitorType must be ETW or WMI.");
+            Check(() => config.Hdr?.Validate());
+            Check(() => config.BreakReminder?.Validate());
+            Check(() => config.MonitorMode?.Validate());
+            if (config.SyncSettings is { } sync)
+            {
+                var error = sync.Validate(allowUnconfigured: !sync.Enabled);
+                if (error is not null) result.Errors.Add(error);
+            }
+            if (config.CheatEngine?.Executable is { Length: > 0 } path &&
+                (!(path.Length > 3 && char.IsLetter(path[0]) && path[1] == ':' && (path[2] is '\\' or '/')) && !path.StartsWith(@"\\") ||
+                 !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
+                result.Errors.Add("cheatEngine.executable must be an absolute Windows .exe path.");
+            result.IsValid = result.Errors.Count == 0;
+            return result;
+        }
+
         public static ValidationResult Validate(string path)
         {
             var result = new ValidationResult();
@@ -100,6 +149,7 @@ namespace GameHelper.Infrastructure.Validators
                     return result;
                 }
 
+                ValidateGlobals(root, result);
                 ValidateHdr(root, result);
                 ValidateBreakReminder(root, result);
                 if (!root.Children.TryGetValue(new YamlScalarNode("games"), out var gamesNode))

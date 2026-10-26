@@ -2,6 +2,10 @@ namespace GameHelper.Core.Models;
 
 public sealed record GameLibraryResponse
 {
+    public AppSettingsSnapshot? Settings { get; init; }
+    public MonitorModeSnapshot? DdcSnapshot { get; init; }
+    public SyncStatusInfo? SyncStatus { get; init; }
+    public GameHelper.Core.Abstractions.SyncOutcome? SyncOutcome { get; init; }
     public bool Success { get; init; }
     public string? Error { get; init; }
     public string? Message { get; init; }

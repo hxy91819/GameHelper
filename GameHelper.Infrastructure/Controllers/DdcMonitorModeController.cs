@@ -19,6 +19,7 @@ namespace GameHelper.Infrastructure.Controllers;
 /// </remarks>
 public sealed class DdcMonitorModeController : IMonitorModeController
 {
+    private readonly IHdrController? _hdr;
     private const int ReadAttempts = 2;
     private const int ReadRetryDelayMs = 50;
     private const int WriteSettleDelayMs = 400;
@@ -197,9 +198,10 @@ public sealed class DdcMonitorModeController : IMonitorModeController
         }
     }
 
-    public DdcMonitorModeController(ILogger<DdcMonitorModeController> logger)
+    public DdcMonitorModeController(ILogger<DdcMonitorModeController> logger, IHdrController? hdr = null)
         : this(logger, null, null)
     {
+        _hdr = hdr;
     }
 
     internal DdcMonitorModeController(
@@ -297,6 +299,49 @@ public sealed class DdcMonitorModeController : IMonitorModeController
             _logger.LogWarning(ex, "DDC/CI monitor state read failed; treated as unreadable.");
             return null;
         }
+    }
+
+    /// <inheritdoc />
+    public MonitorModeSnapshot? ReadSnapshot()
+    {
+        if (!OperatingSystem.IsWindows() || _hdr is null) return null;
+        try
+        {
+            return RunOnSta<MonitorModeSnapshot?>(() =>
+            {
+                lock (_busLock)
+                {
+                    if (!_hdr.TryGetDisplays(out var displays) || displays.Count == 0 || displays.Any(display => display.Enabled)) return null;
+                    using var session = AcquireFirstPhysicalMonitor();
+                    if (!session.IsValid) return null;
+                    var values = ReadCandidates(code => TryReadCode(session.Handle, code, out var value) ? value : null);
+                    // A second query rejects topology/HDR changes during the potentially slow bus reads.
+                    var identity = string.Join("|", displays.Select(d => d.DevicePath).OrderBy(p => p, StringComparer.Ordinal));
+                    if (!_hdr.TryGetDisplays(out var current) || current.Any(d => d.Enabled) ||
+                        identity != string.Join("|", current.Select(d => d.DevicePath).OrderBy(p => p, StringComparer.Ordinal))) return null;
+                    return values.Count == 0 ? null : new MonitorModeSnapshot(identity + "|" + session.Description, values);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "DDC recording snapshot unavailable.");
+            return null;
+        }
+    }
+
+    internal static IReadOnlyList<MonitorModeWrite> ReadCandidates(Func<byte, uint?> read)
+    {
+        var values = new List<MonitorModeWrite>();
+        foreach (var code in MonitorModeSnapshot.DefaultCodes)
+        {
+            try
+            {
+                if (read(code) is { } value && value <= 255) values.Add(new MonitorModeWrite(code, value));
+            }
+            catch (Exception) { /* An unsupported candidate must not prevent reading the others. */ }
+        }
+        return values.AsReadOnly();
     }
 
     private IReadOnlyDictionary<byte, uint>? TryReadStateCore(IReadOnlyList<MonitorModeWrite> probeCodes)

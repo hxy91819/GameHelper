@@ -14,6 +14,9 @@ namespace GameHelper.Core.Abstractions;
 /// </summary>
 public interface IMonitorModeController
 {
+    /// <summary>Reads recording candidates without writing; null when HDR state is unknown/on or the monitor is offline.</summary>
+    MonitorModeSnapshot? ReadSnapshot() => null;
+
     /// <summary>Whether a controllable monitor was detected. When false all calls are no-ops.</summary>
     bool IsAvailable { get; }
 

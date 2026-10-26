@@ -8,7 +8,8 @@ namespace GameHelper.Core.Services;
 public sealed class GameLibrary(
     IGameConfiguration configuration, IGameCatalogService catalog, IGameAutomationService automation,
     IMonitorControlService monitor, IGameLaunchCoordinator launch, ISteamGameResolver steam,
-    IPlaytimeSnapshotProvider history, TimeProvider? timeProvider = null, ILocalGameDiscovery? localGames = null) : IGameLibrary
+    IPlaytimeSnapshotProvider history, TimeProvider? timeProvider = null, ILocalGameDiscovery? localGames = null,
+    ISettingsService? settings = null, IMonitorModeController? monitorMode = null, ISyncService? sync = null) : IGameLibrary
 {
     public Task<GameLibraryResponse> ExecuteAsync(GameLibraryRequest request, CancellationToken cancellationToken = default)
     {
@@ -16,6 +17,22 @@ public sealed class GameLibrary(
         string? message = null;
         switch (request.Operation)
         {
+            case GameLibraryOperation.GetSettings:
+                return Task.FromResult(new GameLibraryResponse { Success = true, Settings = RequireSettings().Get() });
+            case GameLibraryOperation.UpdateSettings:
+                var updated = RequireSettings().Update(request.Settings ?? throw new ArgumentException("缺少全局设置。"));
+                return Task.FromResult(new GameLibraryResponse { Success = true, Settings = updated, Message = "全局设置已保存。" });
+            case GameLibraryOperation.DdcSnapshot:
+                if (configuration.Read().MonitorMode?.Enabled == true)
+                    throw new InvalidOperationException("请先保存关闭显示器自动预设，再录制，以免自动切换影响采样。");
+                var sample = monitorMode?.ReadSnapshot();
+                return Task.FromResult(new GameLibraryResponse { Success = sample is not null, DdcSnapshot = sample,
+                    Error = sample is null ? "无法读取显示器：请确认显示器在线、DDC/CI 已开启且所有显示器 HDR 已关闭。" : null });
+            case GameLibraryOperation.SyncStatus:
+                return Task.FromResult(new GameLibraryResponse { Success = true, SyncStatus = RequireSync().GetStatus() });
+            case GameLibraryOperation.SyncValidate:
+            case GameLibraryOperation.SyncPush:
+                return ExecuteSyncAsync(request.Operation, cancellationToken);
             case GameLibraryOperation.Statistics:
                 var snapshot = history.GetSnapshot();
                 if (snapshot.ReadFailed)
@@ -116,6 +133,19 @@ public sealed class GameLibrary(
                     .SelectMany(record => record.Sessions).Sum(session => session.DurationMinutes)
             }).ToList()
         });
+    }
+
+    private ISettingsService RequireSettings() => settings ?? throw new InvalidOperationException("当前运行时不支持全局设置，请更新运行时。");
+    private ISyncService RequireSync() => sync ?? throw new InvalidOperationException("当前运行时不支持 GitHub 同步，请更新运行时。");
+
+    private async Task<GameLibraryResponse> ExecuteSyncAsync(GameLibraryOperation operation, CancellationToken cancellationToken)
+    {
+        var service = RequireSync();
+        var outcome = operation == GameLibraryOperation.SyncValidate
+            ? await service.ValidateAsync(cancellationToken).ConfigureAwait(false)
+            : await service.SyncNowAsync(true, cancellationToken).ConfigureAwait(false);
+        return new GameLibraryResponse { Success = outcome.Success, Error = outcome.Error,
+            Message = outcome.Detail ?? (outcome.Success ? "操作完成。" : null), SyncOutcome = outcome, SyncStatus = service.GetStatus() };
     }
 
     private async Task<GameLibraryResponse> ScanDirectoryAsync(string directory, CancellationToken cancellationToken)

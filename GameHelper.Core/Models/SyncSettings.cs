@@ -43,8 +43,9 @@ public sealed class SyncSettings
 
     /// <summary>
     /// 校验配置并归一化目录写法。返回 null 表示通过，否则返回可直接展示的错误信息。
+    /// allowUnconfigured 仅供保存未启用且尚未填写仓库的设置草稿使用。
     /// </summary>
-    public string? Validate()
+    public string? Validate(bool allowUnconfigured = false)
     {
         if (!string.Equals(Provider, "github", StringComparison.OrdinalIgnoreCase))
         {
@@ -58,33 +59,36 @@ public sealed class SyncSettings
         }
 
         var repo = Repo?.Trim() ?? string.Empty;
-        var slash = repo.IndexOf('/');
-        if (slash <= 0 || slash == repo.Length - 1 || repo.IndexOf('/', slash + 1) >= 0)
+        if (!allowUnconfigured || repo.Length > 0)
         {
-            return $"sync.repo 必须为 owner/name 格式，当前值: \"{Repo}\"";
-        }
-
-        var invalidRepoChars = false;
-        foreach (var part in new[] { repo[..slash], repo[(slash + 1)..] })
-        {
-            foreach (var c in part)
+            var slash = repo.IndexOf('/');
+            if (slash <= 0 || slash == repo.Length - 1 || repo.IndexOf('/', slash + 1) >= 0)
             {
-                if (!char.IsLetterOrDigit(c) && c is not ('-' or '.' or '_'))
+                return $"sync.repo 必须为 owner/name 格式，当前值: \"{Repo}\"";
+            }
+
+            var invalidRepoChars = false;
+            foreach (var part in new[] { repo[..slash], repo[(slash + 1)..] })
+            {
+                foreach (var c in part)
                 {
-                    invalidRepoChars = true;
+                    if (!char.IsLetterOrDigit(c) && c is not ('-' or '.' or '_'))
+                    {
+                        invalidRepoChars = true;
+                        break;
+                    }
+                }
+
+                if (invalidRepoChars)
+                {
                     break;
                 }
             }
 
             if (invalidRepoChars)
             {
-                break;
+                return $"sync.repo 含有不支持的字符: \"{Repo}\"";
             }
-        }
-
-        if (invalidRepoChars)
-        {
-            return $"sync.repo 含有不支持的字符: \"{Repo}\"";
         }
 
         var directory = NormalizedDirectory;
