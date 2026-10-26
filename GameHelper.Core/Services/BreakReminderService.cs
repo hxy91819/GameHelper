@@ -62,6 +62,29 @@ public sealed class BreakReminderService : IBreakReminderService
         }
     }
 
+    public void Snooze(TimeSpan duration)
+    {
+        if (duration <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(duration));
+        lock (_gate)
+        {
+            if (_disposed || _timer is null) return;
+            var target = _playtime + duration;
+            if (target > _nextReminder) _nextReminder = target;
+            ClearNotifications();
+        }
+    }
+
+    public void ResetCycle()
+    {
+        lock (_gate)
+        {
+            if (_disposed || _timer is null) return;
+            Reset();
+            _lastSample = _clock.GetTimestamp();
+            Sample(_generation);
+        }
+    }
+
     public void Stop()
     {
         lock (_gate)

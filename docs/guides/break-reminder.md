@@ -36,6 +36,20 @@ breakReminder:
 
 Windows 勿扰、全屏及通知音量设置可能抑制显示或声音，发送成功不代表用户已看到通知。程序尊重系统设置，不强行弹窗；被抑制的提醒不排队补发。发送失败会记录日志，并在下一次正常提醒节点再尝试。[微软通知接口说明](https://learn.microsoft.com/en-us/windows/win32/shell/notification-area)
 
+## 后台托盘与手动计时操作
+
+Windows 下以 `monitor --background` 运行且未设置 `GAMEHELPER_DATA_DIR` 隔离目录时，后台监控拥有一个常驻的原生系统托盘图标；前台诊断模式和沙盒实例不创建常驻图标。托盘与休息提醒的临时通知图标各自管理，关闭通知不会移除常驻入口。Explorer 重启后会重建图标。
+
+悬停提示每 5 秒更新监控状态、运行中的游戏名称与本局分钟数；提示过长时截断，右键菜单保留完整摘要。双击图标或选择“打开 GameHelper 游戏库”会启动同目录的 `GameHelper.Desktop.exe`，否则使用发布目录的 `desktop/GameHelper.Desktop.exe`，并传入当前 `--config`。重复打开由游戏库现有单实例机制激活窗口；关闭游戏库后监控和托盘继续运行。
+
+右键菜单另提供：
+
+- “推迟休息提醒 15 分钟”：保留当轮累计时间，把下一次提醒推迟到至少再累计 15 分钟前台游戏时间之后，不会把更晚的原定提醒提前。切出游戏会暂停推迟计时；连续休息达到 `breakMinutes` 后清除推迟状态。提醒出现后仍按 `repeatMinutes` 重复。
+- “重置本轮休息计时”：立即清空当轮累计与推迟状态，并清除当前通知；从操作时刻重新累计完整的 `playMinutes`，不停止监控。
+- “退出 GameHelper 后台监控”：请求宿主正常停止，释放托盘与监控资源并保存会话。
+
+提醒未启用或已停止时，推迟和重置菜单不可用。`IBreakReminderService.Snooze(TimeSpan)` 只接受正时长；停止后调用推迟或重置不会启动计时器。
+
 ## 验证
 
 核心测试使用虚拟时间，不用真实等待40分钟，也不需要管理员权限。可按需执行原生桌面 API 检查（会发送两条测试通知，其中一条请求提示音）：
@@ -47,3 +61,5 @@ Remove-Item Env:GAMEHELPER_VERIFY_BREAK_NOTIFICATIONS
 ```
 
 原生检查验证提交、取消和资源清理；实际游戏全屏下的显示和声音仍需目视、听觉确认。实机监控验证必须使用 `GAMEHELPER_DATA_DIR` 沙盒和 `GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE=1`，并保持用户实例运行，详见[验证部署流程](verify-and-deploy-workflow.md)。
+
+托盘状态摘要、动作分发及推迟／重置由虚拟时间单测覆盖。Windows 实机还需检查双击和右键菜单、Explorer 重启后图标恢复、退出后会话保存；常驻图标仅在未隔离的后台模式出现，不应通过取消沙盒隔离影响正在运行的用户实例。
