@@ -11,6 +11,7 @@ namespace GameHelper.Core.Services;
 /// Game process start time. Loader log writes older than this belong to a previous run, so the
 /// completion marker already present after a fast boot still counts. Null falls back to the gate start.
 /// </param>
+/// <param name="Hotkeys">Hotkey snapshot from the same game activation as Speed.</param>
 /// <param name="ExpectedProcessPath">Executable path the PID must still own at attach time; guards against PID reuse during the wait.</param>
 public sealed record SpeedAttachRequest(
     string DataKey,
@@ -18,4 +19,5 @@ public sealed record SpeedAttachRequest(
     double Speed,
     string? ChainloaderLogPath,
     DateTime? ProcessStartedUtc,
-    string? ExpectedProcessPath);
+    string? ExpectedProcessPath,
+    IReadOnlyList<GameHelper.Core.Models.SpeedHotkey>? Hotkeys = null);

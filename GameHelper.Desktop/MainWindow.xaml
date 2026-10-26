@@ -51,6 +51,9 @@
         <CheckBox Content="启用游戏自动化" IsChecked="{Binding Enabled}" />
         <CheckBox Content="启动前开启 HDR" IsChecked="{Binding Hdr}" />
         <StackPanel Orientation="Horizontal"><CheckBox Content="游戏倍速" IsChecked="{Binding UseSpeed}" /><TextBox Text="{Binding Speed, UpdateSourceTrigger=PropertyChanged}" Width="72" Margin="12,0,0,0" IsEnabled="{Binding UseSpeed}" AutomationProperties.Name="倍速倍率" /></StackPanel>
+        <TextBlock Text="游戏内倍速热键（每行一项）" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,12,0,0" />
+        <TextBox Text="{Binding SpeedHotkeys, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" MinHeight="76" VerticalScrollBarVisibility="Auto" IsEnabled="{Binding UseSpeed}" AutomationProperties.Name="游戏内倍速热键" />
+        <TextBlock Text="Ctrl+F1=2 设置 2×；Ctrl+F2=1 恢复原速；Ctrl+F3=toggle 在主倍速与原速间切换。支持 Ctrl/Alt/Shift、F1–F12、A–Z、0–9；倍率用小数点。保存后下次启动生效。" FontSize="11" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,6,0,0" />
         <TextBlock Text="启动入口" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,18,0,0" />
         <TextBox Text="{Binding Target, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" ToolTip="游戏 exe、快捷方式完整路径，或 steam://rungameid/数字" AutomationProperties.Name="启动入口" />
         <Button Content="选择程序或快捷方式…" Click="OnChooseEntry" />

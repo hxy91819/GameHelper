@@ -247,6 +247,7 @@ namespace GameHelper.Infrastructure.Providers
             HdrEnabled = storedGameConfig.Hdr ?? false,
             SpeedMultiplier = storedGameConfig.Speed,
             SpeedAttach = storedGameConfig.SpeedAttach,
+            SpeedHotkeys = storedGameConfig.SpeedHotkeys,
             Launch = storedGameConfig.Launch,
             AddedAt = storedGameConfig.AddedAt is { } addedAt
                 ? DateTimeOffset.Parse(addedAt, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind) : null
@@ -308,6 +309,7 @@ namespace GameHelper.Infrastructure.Providers
             Hdr = gameConfig.HdrEnabled,
             Speed = gameConfig.SpeedMultiplier,
             SpeedAttach = gameConfig.SpeedAttach,
+            SpeedHotkeys = gameConfig.SpeedHotkeys,
             Launch = gameConfig.Launch,
             AddedAt = gameConfig.AddedAt?.ToString("O", System.Globalization.CultureInfo.InvariantCulture)
         };
@@ -377,6 +379,8 @@ namespace GameHelper.Infrastructure.Providers
             public double? Speed { get; set; }
 
             public string? SpeedAttach { get; set; }
+
+            public List<SpeedHotkey>? SpeedHotkeys { get; set; }
 
             public GameLaunchOptions? Launch { get; set; }
             public string? AddedAt { get; set; }

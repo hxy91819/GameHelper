@@ -120,6 +120,15 @@ internal static class ConfigEntryNormalizer
             speedMultiplier = null;
         }
 
+        var hotkeys = source.SpeedHotkeys;
+        try { SpeedHotkey.Validate(hotkeys); }
+        catch (ArgumentException ex)
+        {
+            if (rejectInvalidSpeed) throw new InvalidDataException($"Invalid speedHotkeys for '{dataKey}': {ex.Message}", ex);
+            logger?.LogWarning(ex, "Ignore invalid speedHotkeys for {DataKey}", dataKey);
+            hotkeys = null;
+        }
+
         return new GameConfig
         {
             DataKey = dataKey,
@@ -128,6 +137,7 @@ internal static class ConfigEntryNormalizer
             IsEnabled = source.IsEnabled,
             HdrEnabled = source.HdrEnabled,
             SpeedMultiplier = speedMultiplier,
+            SpeedHotkeys = hotkeys?.ToList(),
             SpeedAttach = NormalizeSpeedAttach(source.SpeedAttach, dataKey, logger, rejectInvalidSpeed),
             Launch = source.Launch,
             AddedAt = source.AddedAt

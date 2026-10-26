@@ -14,4 +14,8 @@ public interface IGameSpeedController
     /// controller bailed out (invalid pid, missing executable, already attached, ...).
     /// </returns>
     bool ApplySpeed(int processId, double speedMultiplier);
+
+    /// <summary>Applies an initial multiplier and registers optional in-game speed shortcuts.</summary>
+    bool ApplySpeed(int processId, double speedMultiplier, IReadOnlyList<GameHelper.Core.Models.SpeedHotkey> hotkeys)
+        => ApplySpeed(processId, speedMultiplier);
 }

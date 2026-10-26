@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Xml.Linq;
 using GameHelper.Core.Abstractions;
+using GameHelper.Core.Models;
 using GameHelper.Core.Utilities;
 using Microsoft.Extensions.Logging;
 
@@ -48,6 +49,9 @@ public sealed class CheatEngineSpeedController : IGameSpeedController
     }
 
     public bool ApplySpeed(int processId, double speedMultiplier)
+        => ApplySpeed(processId, speedMultiplier, []);
+
+    public bool ApplySpeed(int processId, double speedMultiplier, IReadOnlyList<SpeedHotkey> hotkeys)
     {
         if (processId <= 0)
         {
@@ -63,6 +67,7 @@ public sealed class CheatEngineSpeedController : IGameSpeedController
 
         try
         {
+            SpeedHotkey.Validate(hotkeys);
             var cheatEnginePath = _configuration.Read().CheatEngine?.Executable?.Trim();
             if (string.IsNullOrWhiteSpace(cheatEnginePath))
             {
@@ -84,7 +89,7 @@ public sealed class CheatEngineSpeedController : IGameSpeedController
             // Each launch owns its input until CE has opened it, including repeat requests for
             // the same PID after a GameHelper restart. Never overwrite another launch's table.
             var tablePath = Path.Combine(_tableDirectory, $"speed-{processId}-{Guid.NewGuid():N}.ct");
-            WriteTableAtomically(tablePath, processId, speedMultiplier);
+            WriteTableAtomically(tablePath, processId, speedMultiplier, hotkeys);
 
             _launch(new ProcessStartInfo
             {
@@ -119,11 +124,14 @@ public sealed class CheatEngineSpeedController : IGameSpeedController
             throw new InvalidOperationException("Cheat Engine did not start.");
     }
 
-    private static void WriteTableAtomically(string path, int processId, double speedMultiplier)
+    private static void WriteTableAtomically(string path, int processId, double speedMultiplier, IReadOnlyList<SpeedHotkey> hotkeys)
     {
         var speed = speedMultiplier.ToString("R", CultureInfo.InvariantCulture);
+        var bindings = string.Join(",\n", hotkeys.Select(binding =>
+            "  {keys = {" + string.Join(",", binding.GetVirtualKeys()) + "}, speed = " +
+            (binding.Speed?.ToString("R", CultureInfo.InvariantCulture) ?? "nil") + "}"));
         var lua = $"local targetPid = {processId.ToString(CultureInfo.InvariantCulture)}\n" +
-            $"local targetSpeed = {speed}\n" + s_speedScript.Value;
+            $"local targetSpeed = {speed}\nlocal speedHotkeys = {{\n{bindings}\n}}\n" + s_speedScript.Value;
         var document = new XDocument(new XDeclaration("1.0", "utf-8", null),
             new XElement("CheatTable", new XAttribute("CheatEngineTableVersion", 45),
                 new XElement("CheatEntries"),

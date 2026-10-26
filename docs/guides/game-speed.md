@@ -29,6 +29,39 @@ games:
 
 GameHelper 将生成的临时表写入 `%AppData%\GameHelper\cheat-engine\`，每次附加使用包含 PID 和随机标识的独立文件；同一 PID 的重复或并发请求不会覆盖尚未被 CE 读取的表。旧表会自动清理。配置热重载后，新的倍速对下一次游戏启动生效。发起附加成功不等于已验证游戏实际速度，配置或启动失败会记日志而不打断监控。
 
+## 游戏内热键与多档倍速
+
+保留 `speed` 作为初始／主倍速；可选 `speedHotkeys` 为每个快捷键配置一个档位。不配置此列表时，旧的单值配置行为保持不变。
+
+```yaml
+speed: 2.0
+speedHotkeys:
+  - hotkey: Ctrl+F1
+    speed: 0.5
+  - hotkey: Ctrl+F2
+    speed: 3.0
+  - hotkey: Ctrl+F3
+    speed: 1.0   # 一键原速
+  - hotkey: Ctrl+F4  # 省略 speed：在主倍速与原速间切换
+```
+
+- `hotkey` 支持 `Ctrl`、`Alt`、`Shift` 修饰键，加一个 `F1`–`F12`、`A`–`Z` 或 `0`–`9` 键；修饰键可省略，大小写和顺序不影响组合身份。同一游戏不可重复配置同一组合。
+- 每项 `speed` 必须为大于零的有限数字。省略它表示 toggle：当前为 `1.0x` 时切回主倍速，否则恢复 `1.0x`；主倍速本身为 `1.0x` 时切换仍为原速。
+- 仍须配置游戏的 `speed` 才会启动 CE。仅有 `speedHotkeys` 不触发附加；暂停 `0` 不会因为切档而被主动恢复。
+- 热键直接由 CE 的 `createHotkey` 注册，游戏无需切出窗口或通过 GameHelper IPC 切档。它们是 CE 全局热键，游戏在后台时也可响应；不同游戏同时运行应选用不同组合。长按可能连续触发，建议短按切换。
+- 游戏退出、CE 被手动切换目标或退出监视失败时，销毁该表注册的全部热键；注册中途失败也会清理已注册项。无法取得退出监视句柄时仅应用初始倍速，不注册无法随目标清理的热键。
+- 修改配置或 WPF 游戏设置后，下次游戏启动时重新生成热键；已运行的 CE 表保持原配置。速度设置和 Unity 重连刷新由同一可重复调用函数处理，乘法钩子仍传入基准 `1`，避免叠乘。
+
+CE API 参见 [官方 Lua Script engine 文档](https://www.cheatengine.org/help/Scriptengine.htm)。
+
+开发验证：`dotnet build GameHelper.sln -p:EnableWindowsTargeting=true`。Linux 没有 WPF 运行时，可运行以下无 WPF 的测试入口，执行真实 Core/Infrastructure 与 MoonSharp Lua 桩测试：
+
+```sh
+dotnet test GameHelper.Tests/Portable/SpeedHotkeys.Portable.Tests.csproj -p:EnableWindowsTargeting=true --filter 'FullyQualifiedName!~ChainloaderMarker_IsVisibleWhileTheGameHoldsTheLogOpen'
+```
+
+排除项依赖 Windows 文件共享锁语义；WPF 视图模型与实际 CE 按键验收仍须在 Windows 运行。Lua 桩测试覆盖档位、toggle、暂停、乘法／替换钩子、切换目标、退出与异常清理。
+
 ## 与 mod loader（BepInEx / MelonLoader）共存
 
 Cheat Engine 附加进程时会把自己的辅助 DLL（含 autorun 目录里的 MonoDataCollector 等）注入游戏。若游戏同时装有 mod loader，其启动敏感阶段会与这次注入竞争，导致游戏以访问冲突崩溃且两边都没有日志（BepInEx 首次运行生成 interop 程序集的窗口尤其危险，实测在 Unity 6000.0.62 IL2CPP 游戏上稳定复现）。

@@ -75,6 +75,12 @@ namespace GameHelper.Tests
     file sealed class FakeSpeedController : IGameSpeedController
     {
         public List<(int ProcessId, double Speed)> Applied { get; } = new();
+        public IReadOnlyList<SpeedHotkey>? Hotkeys { get; private set; }
+        public bool ApplySpeed(int processId, double speedMultiplier, IReadOnlyList<SpeedHotkey> hotkeys)
+        {
+            Hotkeys = hotkeys;
+            return ApplySpeed(processId, speedMultiplier);
+        }
         private readonly TaskCompletionSource _firstApply =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -191,6 +197,7 @@ namespace GameHelper.Tests
             HdrEnabled = game.HdrEnabled,
             SpeedMultiplier = game.SpeedMultiplier,
             SpeedAttach = game.SpeedAttach,
+            SpeedHotkeys = game.SpeedHotkeys,
             Launch = game.Launch
         };
     }
@@ -256,6 +263,26 @@ namespace GameHelper.Tests
                 };
             }
             return dict;
+        }
+
+        [Fact]
+        public void ConfiguredSpeedHotkeys_AreForwardedWithInitialSpeed()
+        {
+            var monitor = new FakeMonitor();
+            var config = new CoreGameConfig
+            {
+                DataKey = "game", Executable = "game.exe", SpeedMultiplier = 2,
+                SpeedHotkeys = [new() { Hotkey = "Ctrl+F1", Speed = 1 }, new() { Hotkey = "F2" }]
+            };
+            var speed = new FakeSpeedController();
+            var service = new GameAutomationService(monitor,
+                new FakeConfig(new Dictionary<string, CoreGameConfig> { ["game"] = config }),
+                new FakeHdr(), new FakePlayTime(), NullLogger<GameAutomationService>.Instance, speedController: speed);
+            service.Start();
+            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 1234));
+            Assert.Equal((1234, 2d), Assert.Single(speed.Applied));
+            Assert.Equal(config.SpeedHotkeys, speed.Hotkeys);
+            service.Stop();
         }
 
         [Fact]
@@ -826,12 +853,14 @@ namespace GameHelper.Tests
                     DataKey = "gamex",
                     Executable = exePath,
                     IsEnabled = true,
-                    SpeedMultiplier = 1.5
+                    SpeedMultiplier = 1.5,
+                    SpeedHotkeys = [new() { Hotkey = "Ctrl+F1", Speed = 1 }]
                 };
+                var source = new FakeConfig(new Dictionary<string, CoreGameConfig> { ["gamex"] = config });
                 var speed = new FakeSpeedController();
                 var service = new GameAutomationService(
                     monitor,
-                    new FakeConfig(new Dictionary<string, CoreGameConfig> { ["gamex"] = config }),
+                    source,
                     new FakeHdr(),
                     new FakePlayTime(),
                     NullLogger<GameAutomationService>.Instance,
@@ -848,12 +877,21 @@ namespace GameHelper.Tests
                 await Task.Delay(200);
                 Assert.Empty(speed.Applied);
 
+                // Reload while gated: this activation must retain its original speed/key snapshot.
+                source.Change(document =>
+                {
+                    document.Games[0].SpeedMultiplier = 4;
+                    document.Games[0].SpeedHotkeys = [new() { Hotkey = "F4", Speed = 3 }];
+                });
+                service.ReloadConfig();
                 AppendChainloaderMarker(exePath);
 
                 await speed.WaitForFirstApplyAsync(TimeSpan.FromSeconds(5));
                 var applied = Assert.Single(speed.Applied);
                 Assert.Equal(4321, applied.ProcessId);
                 Assert.Equal(1.5, applied.Speed);
+                Assert.Equal(config.SpeedHotkeys, speed.Hotkeys);
+                service.Stop();
             }
             finally
             {
