@@ -74,6 +74,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     private readonly ISystemPowerEvents? _powerEvents;
 
     private AutomationConfigIndex _configIndex = AutomationConfigIndex.Empty;
+    private CheatEngineSettings? _cheatEngine;
     private GameProcessMatcher _processMatcher;
     private bool _started;
     private bool _inFlightPersistFailureActive;
@@ -402,6 +403,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         // MelonLoader) boots alongside, its sensitive startup phase races that injection and
         // crashes the game with zero logs. Without a resolvable game path the loader cannot be
         // detected, so the legacy immediate attach applies (same as speedAttach: immediate).
+        var hotkeys = CheatEngineSettings.Resolve(config.SpeedHotkeys, _cheatEngine);
         var loaderInfo = ModLoaderDetector.Detect(gamePath);
         if (IsImmediateSpeedAttach(config)
             || loaderInfo.Kind == ModLoaderKind.None
@@ -415,7 +417,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                     config.DataKey);
             }
 
-            ApplyAndRecordSpeed(config.DataKey, processId.Value, config.SpeedMultiplier.Value, config.SpeedHotkeys);
+            ApplyAndRecordSpeed(config.DataKey, processId.Value, config.SpeedMultiplier.Value, hotkeys);
             return;
         }
 
@@ -426,7 +428,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             loaderInfo.LogPath,
             processStartedUtc,
             gamePath,
-            config.SpeedHotkeys?.ToArray()));
+            hotkeys?.ToArray()));
     }
 
     /// <summary>
@@ -630,6 +632,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         var configuration = _gameConfiguration.Read();
         _hdr.Configure(configuration.Hdr);
         _monitorModeSettings = configuration.MonitorMode;
+        _cheatEngine = configuration.CheatEngine;
         _monitorModePlan = MonitorModePlan.TryCreate(configuration.MonitorMode, _logger, ResolveMonitorModeCoordinates);
         var configs = (configuration.Games ?? new List<GameConfig>())
             .Where(static config => !string.IsNullOrWhiteSpace(config.DataKey))

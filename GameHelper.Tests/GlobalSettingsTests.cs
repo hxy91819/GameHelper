@@ -63,7 +63,7 @@ public sealed class GlobalSettingsTests : IDisposable
     }
 
     [Theory]
-    [InlineData("monitor")] [InlineData("reminder")] [InlineData("ddc")] [InlineData("ce")] [InlineData("sync")] [InlineData("hdr")] [InlineData("ddc-null")]
+    [InlineData("monitor")] [InlineData("reminder")] [InlineData("ddc")] [InlineData("ce")] [InlineData("ce-hotkeys")] [InlineData("sync")] [InlineData("hdr")] [InlineData("ddc-null")]
     public void InvalidSettings_DoNotCommitOrApply(string field)
     {
         Provider.Change(config => config.AutoStartInteractiveMonitor = true);
@@ -78,6 +78,7 @@ public sealed class GlobalSettingsTests : IDisposable
             case "ddc": request.MonitorMode = new() { GamePresets = [] }; break;
             case "ddc-null": request.MonitorMode = new() { GamePresets = null! }; break;
             case "ce": request.CheatEngine = new() { Executable = "relative.exe" }; break;
+            case "ce-hotkeys": request.CheatEngine = new() { SpeedHotkeys = [new() { Hotkey = "Ctrl+F1" }, new() { Hotkey = "F1+Ctrl" }] }; break;
             case "sync": request.SyncSettings = new() { Enabled = true, Repo = "bad" }; break;
             case "hdr": request.Hdr = new() { AllowedDisplays = [""] }; break;
         }
@@ -104,6 +105,8 @@ public sealed class GlobalSettingsTests : IDisposable
     [InlineData("monitorMode:\n  daylightStart: invalid")]
     [InlineData("monitorMode:\n  gamePresets: []")]
     [InlineData("cheatEngine:\n  executable: relative.exe")]
+    [InlineData("cheatEngine:\n  speedHotkeys:\n    - hotkey: Ctrl+F1\n      speed: 0")]
+    [InlineData("cheatEngine:\n  speedHotkeys:\n    - hotkey: Ctrl+F1\n    - hotkey: F1+Ctrl")]
     [InlineData("sync:\n  enabled: true\n  repo: bad")]
     [InlineData("sync:\n  method: unknown")]
     [InlineData("sync:\n  intervalMinutes: 1")]
@@ -111,6 +114,24 @@ public sealed class GlobalSettingsTests : IDisposable
     {
         var path = Path.Combine(_root, "config.yml"); File.WriteAllText(path, yaml);
         Assert.False(YamlConfigValidator.Validate(path).IsValid);
+    }
+
+    [Fact]
+    public void DefaultSpeedHotkeys_RoundTripThroughSettingsAndYaml()
+    {
+        var service = new SettingsService(Provider);
+        var saved = service.Update(new()
+        {
+            CheatEngine = new() { SpeedHotkeys = [new() { Hotkey = "Ctrl+F1", Speed = 0.5 }, new() { Hotkey = "Ctrl+F2" }] }
+        });
+        Assert.Null(saved.CheatEngine!.Executable);
+        var stored = Provider.Read().CheatEngine!.SpeedHotkeys!;
+        Assert.Equal(new[] { "Ctrl+F1", "Ctrl+F2" }, stored.Select(binding => binding.Hotkey));
+        Assert.Equal(new double?[] { 0.5, null }, stored.Select(binding => binding.Speed));
+        Assert.True(YamlConfigValidator.Validate(Path.Combine(_root, "config.yml")).IsValid);
+
+        service.Update(new() { CheatEngine = new() { Executable = @"C:\Tools\cheatengine.exe" } });
+        Assert.Null(Provider.Read().CheatEngine!.SpeedHotkeys);
     }
 
     [Fact]

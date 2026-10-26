@@ -207,12 +207,13 @@ namespace GameHelper.Infrastructure.Providers
 
         private static CheatEngineSettings? ToCheatEngineSettings(StoredCheatEngineConfig? cheatEngine)
         {
-            if (cheatEngine is null || string.IsNullOrWhiteSpace(cheatEngine.Executable))
-            {
-                return null;
-            }
-
-            return new CheatEngineSettings { Executable = cheatEngine.Executable.Trim() };
+            var executable = cheatEngine?.Executable?.Trim();
+            var hotkeys = cheatEngine?.SpeedHotkeys is { Count: > 0 } list ? list : null;
+            try { SpeedHotkey.Validate(hotkeys); }
+            catch (ArgumentException) { hotkeys = null; }
+            return string.IsNullOrEmpty(executable) && hotkeys is null
+                ? null
+                : new CheatEngineSettings { Executable = string.IsNullOrEmpty(executable) ? null : executable, SpeedHotkeys = hotkeys };
         }
 
         private static SyncSettings? ToSyncSettings(StoredSyncConfig? sync)
@@ -277,9 +278,10 @@ namespace GameHelper.Infrastructure.Providers
         private static StoredCheatEngineConfig? ToStoredCheatEngine(CheatEngineSettings? cheatEngine)
         {
             var executable = cheatEngine?.Executable?.Trim();
-            return string.IsNullOrWhiteSpace(executable)
+            var hotkeys = cheatEngine?.SpeedHotkeys is { Count: > 0 } list ? list : null;
+            return string.IsNullOrWhiteSpace(executable) && hotkeys is null
                 ? null
-                : new StoredCheatEngineConfig { Executable = executable };
+                : new StoredCheatEngineConfig { Executable = string.IsNullOrWhiteSpace(executable) ? null : executable, SpeedHotkeys = hotkeys };
         }
 
         private static StoredSyncConfig? ToStoredSync(SyncSettings? sync)
@@ -339,6 +341,8 @@ namespace GameHelper.Infrastructure.Providers
         private sealed class StoredCheatEngineConfig
         {
             public string? Executable { get; set; }
+
+            public List<SpeedHotkey>? SpeedHotkeys { get; set; }
         }
 
         private sealed class StoredStartupConfig

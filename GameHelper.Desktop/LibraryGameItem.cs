@@ -53,8 +53,7 @@ public sealed class LibraryGameItem : ObservableState
         _enabled = row.Config.IsEnabled;
         _useSpeed = row.Config.SpeedMultiplier is not null;
         _speed = (row.Config.SpeedMultiplier ?? 1.5).ToString("0.##", CultureInfo.CurrentCulture);
-        _speedHotkeys = string.Join(Environment.NewLine, (row.Config.SpeedHotkeys ?? []).Select(binding =>
-            $"{binding.Hotkey}={binding.Speed?.ToString("R", CultureInfo.InvariantCulture) ?? "toggle"}"));
+        _speedHotkeys = SpeedHotkey.FormatLines(row.Config.SpeedHotkeys);
         _state = row.State;
         _minutes = row.TotalMinutes;
         _runningStartedAt = row.RunningStartedAt;
@@ -211,7 +210,7 @@ public sealed class LibraryGameItem : ObservableState
                 || !double.IsFinite(parsed) || parsed <= 0) throw new ArgumentException("倍速必须是大于 0 的数字。");
             speed = parsed;
         }
-        var hotkeys = ParseSpeedHotkeys(SpeedHotkeys);
+        var hotkeys = SpeedHotkey.ParseLines(SpeedHotkeys);
         if (string.IsNullOrWhiteSpace(Name)) throw new ArgumentException("请输入游戏名称。");
         if (UseDs4Windows && string.IsNullOrWhiteSpace(Target)) throw new ArgumentException("启用 DS4Windows 前，请先配置游戏启动入口。");
         return new GameConfig
@@ -224,26 +223,6 @@ public sealed class LibraryGameItem : ObservableState
                 Ds4WindowsPath = UseDs4Windows ? Ds4WindowsPath.Trim() : null
             }
         };
-    }
-
-    private static List<SpeedHotkey>? ParseSpeedHotkeys(string text)
-    {
-        var bindings = new List<SpeedHotkey>();
-        foreach (var line in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            var parts = line.Split('=', StringSplitOptions.TrimEntries);
-            if (parts.Length != 2) throw new ArgumentException("倍速热键每行填写 热键=倍率 或 热键=toggle，例如 Ctrl+F1=2。");
-            double? speed = null;
-            if (!parts[1].Equals("toggle", StringComparison.OrdinalIgnoreCase))
-            {
-                if (!double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
-                    throw new ArgumentException("热键倍率请使用数字和小数点，例如 1.5；切换原速填写 toggle。");
-                speed = parsed;
-            }
-            bindings.Add(new() { Hotkey = parts[0], Speed = speed });
-        }
-        SpeedHotkey.Validate(bindings);
-        return bindings.Count == 0 ? null : bindings;
     }
 
     private static string? NullIfEmpty(string text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();

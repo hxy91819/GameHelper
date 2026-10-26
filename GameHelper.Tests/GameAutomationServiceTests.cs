@@ -286,6 +286,30 @@ namespace GameHelper.Tests
         }
 
         [Fact]
+        public void DefaultSpeedHotkeys_ApplyOnlyToGamesWithoutOwnHotkeys()
+        {
+            var monitor = new FakeMonitor();
+            var own = new CoreGameConfig
+            {
+                DataKey = "own", Executable = "own.exe", SpeedMultiplier = 2,
+                SpeedHotkeys = [new() { Hotkey = "F4", Speed = 3 }]
+            };
+            var inherits = new CoreGameConfig { DataKey = "inherits", Executable = "inherits.exe", SpeedMultiplier = 2 };
+            var configuration = new FakeConfig(new Dictionary<string, CoreGameConfig> { ["own"] = own, ["inherits"] = inherits });
+            List<SpeedHotkey> defaults = [new() { Hotkey = "Ctrl+F1", Speed = 1 }, new() { Hotkey = "Ctrl+F2" }];
+            configuration.Change(config => config.CheatEngine = new() { SpeedHotkeys = defaults });
+            var speed = new FakeSpeedController();
+            var service = new GameAutomationService(monitor, configuration,
+                new FakeHdr(), new FakePlayTime(), NullLogger<GameAutomationService>.Instance, speedController: speed);
+            service.Start();
+            monitor.RaiseStart(new ProcessEventInfo("inherits.exe", null, 1));
+            Assert.Equal(defaults, speed.Hotkeys);
+            monitor.RaiseStart(new ProcessEventInfo("own.exe", null, 2));
+            Assert.Equal(own.SpeedHotkeys, speed.Hotkeys);
+            service.Stop();
+        }
+
+        [Fact]
         public void SingleGame_Lifecycle_EnablesAndDisablesHdr_TracksPlaytime()
         {
             var monitor = new FakeMonitor();

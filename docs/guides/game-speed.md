@@ -50,17 +50,29 @@ speedHotkeys:
 - 仍须配置游戏的 `speed` 才会启动 CE。仅有 `speedHotkeys` 不触发附加；暂停 `0` 不会因为切档而被主动恢复。
 - 热键直接由 CE 的 `createHotkey` 注册，游戏无需切出窗口或通过 GameHelper IPC 切档。它们是 CE 全局热键，游戏在后台时也可响应；不同游戏同时运行应选用不同组合。长按可能连续触发，建议短按切换。
 - 游戏退出、CE 被手动切换目标或退出监视失败时，销毁该表注册的全部热键；注册中途失败也会清理已注册项。无法取得退出监视句柄时仅应用初始倍速，不注册无法随目标清理的热键。
-- 修改配置或 WPF 游戏设置后，下次游戏启动时重新生成热键；已运行的 CE 表保持原配置。速度设置和 Unity 重连刷新由同一可重复调用函数处理，乘法钩子仍传入基准 `1`，避免叠乘。
+- 修改配置、WPF 游戏设置或全局设置后，下次游戏启动时重新生成热键；已运行的 CE 表保持原配置。速度设置和 Unity 重连刷新由同一可重复调用函数处理，乘法钩子仍传入基准 `1`，避免叠乘。
+
+### 全局默认热键
+
+在 `cheatEngine.speedHotkeys` 配一套默认档位，所有配置了 `speed` 但没有自己 `speedHotkeys` 的游戏都会使用它，不必逐个游戏重复填写：
+
+```yaml
+cheatEngine:
+  executable: "C:\\Program Files\\Cheat Engine\\cheatengine-x86_64-SSE4-AVX2.exe"
+  speedHotkeys:
+    - hotkey: Ctrl+F1
+      speed: 1.0
+    - hotkey: Ctrl+F2   # 主倍速与原速间切换
+```
+
+- 格式和校验规则与游戏级 `speedHotkeys` 相同。
+- 游戏填写了非空 `speedHotkeys` 时整体替换默认，不做逐键合并；游戏列表留空即继承默认。
+- WPF「全局设置 → Cheat Engine」的“默认倍速热键”逐行编辑，写法同游戏设置（`Ctrl+F1=1`、`Ctrl+F2=toggle`）；保存后下次启动游戏生效。
+- 默认热键同样只在游戏配置了 `speed` 时生效。
 
 CE API 参见 [官方 Lua Script engine 文档](https://www.cheatengine.org/help/Scriptengine.htm)。
 
-开发验证：`dotnet build GameHelper.sln -p:EnableWindowsTargeting=true`。Linux 没有 WPF 运行时，可运行以下无 WPF 的测试入口，执行真实 Core/Infrastructure 与 MoonSharp Lua 桩测试：
-
-```sh
-dotnet test GameHelper.Tests/Portable/SpeedHotkeys.Portable.Tests.csproj -p:EnableWindowsTargeting=true --filter 'FullyQualifiedName!~ChainloaderMarker_IsVisibleWhileTheGameHoldsTheLogOpen'
-```
-
-排除项依赖 Windows 文件共享锁语义；WPF 视图模型与实际 CE 按键验收仍须在 Windows 运行。Lua 桩测试覆盖档位、toggle、暂停、乘法／替换钩子、切换目标、退出与异常清理。
+开发验证在 Windows 上运行 `dotnet build GameHelper.sln` 与 `dotnet test GameHelper.sln`。Lua 桩测试（`CheatEngineSpeedHotkeyLuaTests`）覆盖档位、toggle、暂停、乘法／替换钩子、切换目标、退出与异常清理；实际 CE 按键验收仍须在 Windows 实机进行。
 
 ## 与 mod loader（BepInEx / MelonLoader）共存
 

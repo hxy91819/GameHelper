@@ -29,6 +29,24 @@ public sealed class GlobalSettingsDraftTests
     }
 
     [Fact]
+    public void DefaultSpeedHotkeys_EditAsTextAndRejectInvalidLines()
+    {
+        var draft = new GlobalSettingsViewModel(new()
+        {
+            CheatEngine = new() { Executable = @"C:\ce.exe", SpeedHotkeys = [new() { Hotkey = "Ctrl+F1", Speed = 2 }] }
+        });
+        Assert.Equal("Ctrl+F1=2", draft.DefaultSpeedHotkeys);
+        draft.DefaultSpeedHotkeys = "Ctrl+F1=0.5\nCtrl+F2=toggle";
+        var request = draft.ToRequest();
+        Assert.Equal(@"C:\ce.exe", request.CheatEngine!.Executable);
+        Assert.Equal(new double?[] { 0.5, null }, request.CheatEngine.SpeedHotkeys!.Select(binding => binding.Speed));
+        draft.DefaultSpeedHotkeys = "";
+        Assert.Null(draft.ToRequest().CheatEngine!.SpeedHotkeys);
+        draft.DefaultSpeedHotkeys = "Ctrl+F1=";
+        Assert.Throws<ArgumentException>(() => draft.ToRequest());
+    }
+
+    [Fact]
     public void UnavailableDisplays_PreservesAllRules_AndDefaultPolicyUsesExclusions()
     {
         var saved = new HdrSettings { AllowedDisplays = ["offline"], DisabledDisplays = ["other"] };

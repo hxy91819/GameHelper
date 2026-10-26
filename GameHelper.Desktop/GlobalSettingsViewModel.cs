@@ -17,6 +17,7 @@ public sealed class GlobalSettingsViewModel
         RepeatMinutes = reminder.RepeatMinutes; Sound = reminder.Sound;
         MonitorMode = snapshot.MonitorMode ?? new();
         CheatEnginePath = snapshot.CheatEngine?.Executable ?? string.Empty;
+        DefaultSpeedHotkeys = SpeedHotkey.FormatLines(snapshot.CheatEngine?.SpeedHotkeys);
         Sync = snapshot.SyncSettings ?? new();
         Sync.Method = Sync.NormalizedMethod;
         var policy = snapshot.Hdr ?? new();
@@ -32,6 +33,7 @@ public sealed class GlobalSettingsViewModel
     public bool Sound { get; set; }
     public MonitorModeSettings MonitorMode { get; }
     public string CheatEnginePath { get; set; }
+    public string DefaultSpeedHotkeys { get; set; }
     public SyncSettings Sync { get; }
     public IReadOnlyList<HdrDisplayChoice> Displays { get; }
     public string DisplayStatus => _snapshot.DisplaysAvailable ? (Displays.Count == 0 ? "当前没有活跃显示器。" : "勾选允许自动开启 HDR 的显示器；未连接显示器的规则会保留。") : "暂时无法读取显示器；已保存的规则保持不变。";
@@ -58,7 +60,10 @@ public sealed class GlobalSettingsViewModel
             Hdr = new HdrSettings { AllowedDisplays = allowed, DisabledDisplays = disabled },
             BreakReminder = new BreakReminderSettings { Enabled = ReminderEnabled, PlayMinutes = PlayMinutes,
                 BreakMinutes = BreakMinutes, RepeatMinutes = RepeatMinutes, Sound = Sound },
-            MonitorMode = MonitorMode, CheatEngine = new CheatEngineSettings { Executable = CheatEnginePath.Trim() }, SyncSettings = Sync
+            MonitorMode = MonitorMode, CheatEngine = new CheatEngineSettings
+            {
+                Executable = CheatEnginePath.Trim(), SpeedHotkeys = SpeedHotkey.ParseLines(DefaultSpeedHotkeys)
+            }, SyncSettings = Sync
         };
     }
 }

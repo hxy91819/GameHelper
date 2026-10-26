@@ -143,6 +143,8 @@ namespace GameHelper.Infrastructure.Validators
                 (!(path.Length > 3 && char.IsLetter(path[0]) && path[1] == ':' && (path[2] is '\\' or '/')) && !path.StartsWith(@"\\") ||
                  !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
                 result.Errors.Add("cheatEngine.executable must be an absolute Windows .exe path.");
+            try { GameHelper.Core.Models.SpeedHotkey.Validate(config.CheatEngine?.SpeedHotkeys); }
+            catch (ArgumentException ex) { result.Errors.Add("cheatEngine.speedHotkeys: " + ex.Message); }
             result.IsValid = result.Errors.Count == 0;
             return result;
         }
@@ -175,6 +177,10 @@ namespace GameHelper.Infrastructure.Validators
                 ValidateGlobals(root, result);
                 ValidateHdr(root, result);
                 ValidateBreakReminder(root, result);
+                if (root.Children.TryGetValue(new YamlScalarNode("cheatEngine"), out var cheatEngine)
+                    && cheatEngine is YamlMappingNode cheatEngineMapping
+                    && cheatEngineMapping.Children.TryGetValue(new YamlScalarNode("speedHotkeys"), out var defaultHotkeys))
+                    ValidateSpeedHotkeys(defaultHotkeys, "cheatEngine.speedHotkeys", result);
                 if (!root.Children.TryGetValue(new YamlScalarNode("games"), out var gamesNode))
                 {
                     result.Warnings.Add("Missing 'games' section. Nothing to validate.");
@@ -226,7 +232,7 @@ namespace GameHelper.Infrastructure.Validators
                         if (!game.Children.TryGetValue(new YamlScalarNode(field.Name), out var node)) continue;
                         if (field.Type == FieldType.Object)
                         {
-                            if (field.Name == "speedHotkeys") ValidateSpeedHotkeys(node, idx, result);
+                            if (field.Name == "speedHotkeys") ValidateSpeedHotkeys(node, $"games[{idx}] speedHotkeys", result);
                             else ValidateLaunch(node, idx, result);
                             continue;
                         }
@@ -319,9 +325,8 @@ namespace GameHelper.Infrastructure.Validators
             }
         }
 
-        private static void ValidateSpeedHotkeys(YamlNode node, int index, ValidationResult result)
+        private static void ValidateSpeedHotkeys(YamlNode node, string prefix, ValidationResult result)
         {
-            var prefix = $"games[{index}] speedHotkeys";
             if (node is not YamlSequenceNode sequence)
             {
                 result.Errors.Add($"{prefix} must be a sequence.");

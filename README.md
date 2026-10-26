@@ -186,6 +186,7 @@ games:
 - 游戏退出后，为它启动的 CE 倍速实例会自动关闭；手动打开的其他 CE 不受影响。手动把该实例切换到其他进程时，取消自动关闭。
 - `speedAttach`：可选的 CE 附加时序策略，`auto`（默认）在检测到 BepInEx/MelonLoader 时推迟附加到 loader 启动完成之后（90 秒超时兜底），`immediate` 恢复一启动就附加的旧行为。
 - `cheatEngine.executable`：Cheat Engine 可执行文件的绝对路径；只在至少一款游戏配置了 `speed` 时使用。
+- `cheatEngine.speedHotkeys`：可选的全局默认倍速热键，格式同游戏的 `speedHotkeys`；配置了 `speed` 但没填自己热键的游戏自动使用，游戏自己的列表整体替换默认。WPF「全局设置 → Cheat Engine」可逐行编辑。
 - `startup.autoStartMonitor`：交互模式启动后是否自动进入实时监控。
 - `startup.launchOnStartup`：是否随系统启动 GameHelper。
 - `sync`：统计推送到 GitHub 的配置（省略整段表示未配置；完整字段见 `docs/guides/sync.md`）。

@@ -6,6 +6,11 @@ startup:
   launchOnStartup: false
 cheatEngine:
   executable: C:\Program Files\Cheat Engine\cheatengine-x86_64-SSE4-AVX2.exe
+  # 可选：未单独配置 speedHotkeys 的倍速游戏使用这套默认热键
+  speedHotkeys:
+    - hotkey: Ctrl+F1
+      speed: 1.0
+    - hotkey: Ctrl+F2   # 省略 speed：在主倍速与原速间切换
 # 统计推送示例（默认关闭；完整字段见 docs/guides/sync.md）
 sync:
   enabled: false

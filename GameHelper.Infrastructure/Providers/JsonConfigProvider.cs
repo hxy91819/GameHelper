@@ -207,16 +207,32 @@ namespace GameHelper.Infrastructure.Providers
 
         private static CheatEngineSettings? ReadCheatEngineSettings(JsonElement root)
         {
-            if (!TryGetProperty(root, "cheatEngine", out var value) || value.ValueKind != JsonValueKind.Object ||
-                !TryGetProperty(value, "executable", out var executableNode) || executableNode.ValueKind != JsonValueKind.String)
+            if (!TryGetProperty(root, "cheatEngine", out var value) || value.ValueKind != JsonValueKind.Object)
             {
                 return null;
             }
 
-            var executable = executableNode.GetString()?.Trim();
-            return string.IsNullOrWhiteSpace(executable)
+            var executable = TryGetProperty(value, "executable", out var executableNode) && executableNode.ValueKind == JsonValueKind.String
+                ? executableNode.GetString()?.Trim()
+                : null;
+            List<SpeedHotkey>? hotkeys = null;
+            if (TryGetProperty(value, "speedHotkeys", out var hotkeysNode) && hotkeysNode.ValueKind == JsonValueKind.Array)
+            {
+                try
+                {
+                    hotkeys = JsonSerializer.Deserialize<List<SpeedHotkey>>(hotkeysNode.GetRawText(), JsonOptions);
+                    SpeedHotkey.Validate(hotkeys);
+                }
+                catch (Exception ex) when (ex is ArgumentException or JsonException)
+                {
+                    hotkeys = null;
+                }
+            }
+
+            hotkeys = hotkeys is { Count: > 0 } ? hotkeys : null;
+            return string.IsNullOrWhiteSpace(executable) && hotkeys is null
                 ? null
-                : new CheatEngineSettings { Executable = executable };
+                : new CheatEngineSettings { Executable = string.IsNullOrWhiteSpace(executable) ? null : executable, SpeedHotkeys = hotkeys };
         }
 
         private sealed class JsonGameConfigDocument
