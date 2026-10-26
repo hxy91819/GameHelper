@@ -9,7 +9,7 @@
 - [x] 阶段 3：按显示器指定 HDR 策略与 DDC 降级（分支 feat/per-display-hdr，最近线程 thr_6ipq7bi95p）
 - [x] 阶段 4：WPF 桌面端闭环（全局设置页、系统托盘、DDC 向导、海报选中框修复与运行中动态光效，最近线程 thr_6gx8b3reeb、thr_n5vzzhtijx）
 - [ ] 阶段 5：按阶段 1 试验反馈落地选中的游玩档案手帐能力与 GitHub 同步 SVG 卡片
-- [ ] 阶段 6：Linux 集成与独立代码审查，输出 Windows Agent 实机验收与部署提示词 ← 进行中
+- [x] 阶段 6：Linux 集成与独立代码审查，输出 Windows Agent 实机验收与部署提示词（分支 origin/feat/steward-integration，最近线程 thr_8djvx3mw6c）
 
 ## 关键决策
 
