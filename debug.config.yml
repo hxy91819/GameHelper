@@ -67,3 +67,10 @@ games:
     displayName: Tales of Arise
     enabled: true
     hdr: false
+
+# 可选年度/季度报告点评；不配置则关闭。API Key 留在本机，不纳入版本控制。
+# report:
+#   llm:
+#     baseUrl: https://example.com/v1
+#     model: your-model
+#     apiKey: your-local-key

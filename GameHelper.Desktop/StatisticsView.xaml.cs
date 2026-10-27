@@ -7,6 +7,7 @@ namespace GameHelper.Desktop;
 public partial class StatisticsView : UserControl
 {
     public StatisticsView() => InitializeComponent();
+    public void Connect(GameHelper.Core.Abstractions.IGameLibrary library) => ReportPage.Connect(library);
     internal void FocusSearch() { RankingSearch.Focus(); RankingSearch.SelectAll(); }
 
     private async void OnGameClicked(object sender, MouseButtonEventArgs e)

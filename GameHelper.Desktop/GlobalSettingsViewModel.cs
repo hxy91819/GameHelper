@@ -18,6 +18,8 @@ public sealed class GlobalSettingsViewModel
         MonitorMode = snapshot.MonitorMode ?? new();
         CheatEnginePath = snapshot.CheatEngine?.Executable ?? string.Empty;
         DefaultSpeedHotkeys = SpeedHotkey.FormatLines(snapshot.CheatEngine?.SpeedHotkeys);
+        ReportBaseUrl = snapshot.Report?.Llm?.BaseUrl ?? "";
+        ReportModel = snapshot.Report?.Llm?.Model ?? "";
         Sync = snapshot.SyncSettings ?? new();
         Sync.Method = Sync.NormalizedMethod;
         var policy = snapshot.Hdr ?? new();
@@ -34,6 +36,11 @@ public sealed class GlobalSettingsViewModel
     public MonitorModeSettings MonitorMode { get; }
     public string CheatEnginePath { get; set; }
     public string DefaultSpeedHotkeys { get; set; }
+    public string ReportBaseUrl { get; set; }
+    public string ReportModel { get; set; }
+    public ReportSettings? BuildReportSettings(string apiKey) =>
+        _snapshot.Report is null && string.IsNullOrWhiteSpace(ReportBaseUrl) && string.IsNullOrWhiteSpace(ReportModel) && string.IsNullOrEmpty(apiKey)
+            ? null : new ReportSettings { Llm = new ReportLlmSettings { BaseUrl = ReportBaseUrl.Trim(), Model = ReportModel.Trim(), ApiKey = apiKey } };
     public SyncSettings Sync { get; }
     public IReadOnlyList<HdrDisplayChoice> Displays { get; }
     public string DisplayStatus => _snapshot.DisplaysAvailable ? (Displays.Count == 0 ? "当前没有活跃显示器。" : "勾选允许自动开启 HDR 的显示器；未连接显示器的规则会保留。") : "暂时无法读取显示器；已保存的规则保持不变。";

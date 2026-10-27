@@ -92,6 +92,7 @@ public partial class MainWindow : Window
         UpdateThemeButton();
         SetInstallationGroup(_model.InstallationGroup);
         StatisticsPage.DataContext = model.Statistics;
+        StatisticsPage.Connect(model.Library);
         GlobalSettingsPage.Connect(model.Library);
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _refreshTimer.Tick += OnTick;
