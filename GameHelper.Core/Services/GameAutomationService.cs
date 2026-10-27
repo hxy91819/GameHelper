@@ -60,15 +60,13 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     private readonly object _stateLock = new();
 
     private readonly SessionTracker _sessionTracker = new();
-    private readonly ISystemPowerEvents? _powerEvents;
+    private readonly SessionSuspendHandler _sessionSuspend;
 
     private AutomationConfigIndex _configIndex = AutomationConfigIndex.Empty;
     private GameProcessMatcher _processMatcher;
     private bool _started;
     private bool _inFlightPersistFailureActive;
     private DateTime _inFlightPersistFailureLoggedAtUtc = DateTime.MinValue;
-    /// <summary>系统开始睡眠/休眠的 UTC 时刻；null 表示当前没有进行中的暂停。</summary>
-    private DateTime? _suspendStartedAtUtc;
 
     public GameAutomationService(
         IProcessMonitor monitor,
@@ -103,8 +101,10 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         _locationSource = locationSource;
         _locationCacheStore = locationCacheStore;
         _timeProvider = timeProvider ?? TimeProvider.System;
-        _powerEvents = powerEvents;
         _logger = logger;
+        _sessionSuspend = new SessionSuspendHandler(
+            powerEvents, _stateLock, () => _started, _sessionTracker, _inFlightStarts,
+            _playTime, _timeProvider, PersistInFlightSnapshot, _logger);
         _companionPolicy = new Ds4WindowsAutomationPolicy(gameLauncher, logger);
         _processMatcher = new GameProcessMatcher(_configIndex, _pathResolver, _logger);
         _speedAttachment = new SpeedAttachmentCoordinator(
@@ -120,7 +120,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             if (_started) return;
             var configuration = LoadAndBuildIndexes();
             _sessionTracker.Clear();
-            _suspendStartedAtUtc = null;
+            _sessionSuspend.Reset();
             _ownLaunchedDataKeys.Clear();
             RecoverInFlightSessions();
             var recoveredHdrLease = _hdrScheduler.OwnsEnabledHdr;
@@ -130,14 +130,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
             _monitor.ProcessStarted += OnProcessStarted;
             _monitor.ProcessStopped += OnProcessStopped;
-            if (_powerEvents is not null)
-            {
-                // 先取消再订阅：即使外部在未 Stop 的情况下重复 Start 也不会重复挂接。
-                _powerEvents.Suspending -= OnSystemSuspending;
-                _powerEvents.Resumed -= OnSystemResumed;
-                _powerEvents.Suspending += OnSystemSuspending;
-                _powerEvents.Resumed += OnSystemResumed;
-            }
+            _sessionSuspend.Subscribe();
             _started = true;
             try { _breakReminder?.Start(configuration); }
             catch (Exception ex) { _logger.LogWarning(ex, "Failed to start break reminders"); }
@@ -213,12 +206,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 _started = false;
                 _monitor.ProcessStarted -= OnProcessStarted;
                 _monitor.ProcessStopped -= OnProcessStopped;
-                if (_powerEvents is not null)
-                {
-                    _powerEvents.Suspending -= OnSystemSuspending;
-                    _powerEvents.Resumed -= OnSystemResumed;
-                }
-                _suspendStartedAtUtc = null;
+                _sessionSuspend.Unsubscribe();
                 _speedAttachment.CancelAll();
 
                 foreach (var dataKey in _sessionTracker.GetActiveDataKeysSnapshot())
@@ -590,75 +578,6 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             }
 
             return starts;
-        }
-    }
-
-    /// <summary>
-    /// 系统即将睡眠或休眠：只登记时刻。会话继续持有，唤醒时把暂停跨度从时长里剔除，
-    /// 这样睡眠期间既不丢会话，也不把休眠时间计入游玩时长。
-    /// </summary>
-    private void OnSystemSuspending(object? sender, EventArgs e)
-    {
-        lock (_stateLock)
-        {
-            if (!_started)
-            {
-                _suspendStartedAtUtc = null;
-                return;
-            }
-
-            _suspendStartedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        }
-
-        _logger.LogInformation("System suspending; active game sessions stop counting until resume.");
-    }
-
-    /// <summary>
-    /// 系统唤醒：把刚过去的时间暂停跨度整体加回各活跃会话的开始时间（等价于剔除休眠时长），
-    /// 并把调整后的开始时间写进 in-flight 快照，重启恢复路径保持一致。
-    /// </summary>
-    private void OnSystemResumed(object? sender, EventArgs e)
-    {
-        var resumeUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        lock (_stateLock)
-        {
-            if (!_started)
-            {
-                _suspendStartedAtUtc = null;
-                return;
-            }
-
-            var suspendedAt = _suspendStartedAtUtc;
-            _suspendStartedAtUtc = null;
-            if (suspendedAt is not { } suspendUtc || resumeUtc <= suspendUtc) return;
-
-            var paused = resumeUtc - suspendUtc;
-            var active = _sessionTracker.GetActiveDataKeysSnapshot();
-            if (active.Count == 0) return;
-
-            foreach (var key in active)
-            {
-                if (_inFlightStarts.TryGetValue(key, out var startedAt))
-                {
-                    _inFlightStarts[key] = startedAt + paused;
-                }
-            }
-
-            try
-            {
-                _playTime.ShiftActiveStarts(paused);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to exclude the paused span from active session starts.");
-            }
-
-            // 持久化调整后的开始时间：随后的重启恢复不会把这段暂停记回游玩时长。
-            PersistInFlightSnapshot();
-            _logger.LogInformation(
-                "System resumed after {Paused} of sleep; paused span excluded from {Count} active session(s).",
-                paused,
-                active.Count);
         }
     }
 
