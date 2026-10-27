@@ -9,6 +9,38 @@ namespace GameHelper.Tests;
 public sealed class DesktopLibraryViewModelTests
 {
     [Fact]
+    public Task JournalFromLibraryAndDashboard_SharesSavedDataAndPreservesLaunchDraft() => OnSta(() =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gh-library-journal-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var backend = new Backend();
+            var clock = new FixedClock(DateTimeOffset.UnixEpoch);
+            using var model = new LibraryViewModel(backend, Path.Combine(root, "config.yml"), null, clock);
+            model.RefreshAsync().GetAwaiter().GetResult();
+            model.Selected!.Name = "未保存的名称";
+            var editor = model.EditSelectedJournal()!;
+            editor.Status = "已通关";
+            editor.Note = "完整旅程";
+            Assert.True(editor.Save());
+            Assert.Contains("完整旅程", model.SelectedJournalSummary);
+            Assert.True(model.Selected.IsDirty);
+            Assert.Equal(0, backend.Saves);
+            model.Statistics.RefreshAsync().GetAwaiter().GetResult();
+            var row = model.Statistics.Games.Cast<StatisticsGameRow>().Single();
+            Assert.Equal("完整旅程", row.Note);
+            var fromArchive = model.Statistics.EditJournal(row);
+            fromArchive.Status = "搁置";
+            Assert.True(fromArchive.Save());
+            Assert.Contains("搁置", model.SelectedJournalSummary);
+            Assert.DoesNotContain("通关", model.SelectedJournalSummary);
+            Assert.True(model.Selected.IsDirty);
+            Assert.Equal(0, backend.Saves);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    });
+
+    [Fact]
     public Task SaveChangedSteamTarget_RefreshesAutomaticGenres() => OnDispatcher(async () =>
     {
         var root = Path.Combine(Path.GetTempPath(), "gh-genre-identity-" + Guid.NewGuid().ToString("N"));

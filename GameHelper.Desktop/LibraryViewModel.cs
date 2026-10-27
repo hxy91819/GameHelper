@@ -22,6 +22,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private readonly LibraryDraftStore? _draftStore;
     private readonly SteamPosterLibrary _posters;
     private readonly LibraryGenreStore _genreStore;
+    private readonly LibraryJournalStore _journalStore;
     private readonly LibraryScanStore _scanStore;
     private readonly GameHelper.Infrastructure.Artwork.SteamGenreClient _genreClient;
     private static readonly System.Net.Http.HttpClient GenreHttp = new(new System.Net.Http.SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(12) };
@@ -61,7 +62,9 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         _allowGenreNetwork = configPath is not null && (posters?.AllowNetwork ?? true);
         _genreClient = genreClient ?? new(GenreHttp, Path.Combine(GameHelper.Core.Utilities.AppDataPath.GetGameHelperDirectory(), "cache", "steam-genres"));
         _timeProvider = timeProvider ?? TimeProvider.System;
-        Statistics = new StatisticsViewModel(library, FindArtwork);
+        _journalStore = new LibraryJournalStore(configPath ?? metadataConfigPath);
+        _journalStore.Saved += OnJournalSaved;
+        Statistics = new StatisticsViewModel(library, FindArtwork, _journalStore, _timeProvider);
         _posters = posters ?? new SteamPosterLibrary(configPath ?? metadataConfigPath, allowNetwork: configPath is not null);
         if (configPath is not null)
         {
@@ -105,7 +108,13 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public string InstallationSummary => $"本机 {_games.Count(game => game.InstallationState == GameInstallationState.Installed)} · 未找到 {_games.Count(game => game.InstallationState == GameInstallationState.Missing)} · 待确认 {_games.Count(game => game.InstallationState == GameInstallationState.Unknown)}";
     public string InstallationGroup => _group;
     public string Search { get => _search; set { if (Set(ref _search, value)) Filter(); } }
-    public LibraryGameItem? Selected { get => _selected; set { if (Set(ref _selected, value)) ActionError = string.Empty; RefreshCommands(); } }
+    public LibraryGameItem? Selected { get => _selected; set { if (Set(ref _selected, value)) { ActionError = string.Empty; Changed(nameof(SelectedJournalSummary)); } RefreshCommands(); } }
+    public string SelectedJournalSummary => Selected is null ? string.Empty : JournalSummary(_journalStore.Read(Selected.DataKey));
+    internal JournalEditorViewModel? EditSelectedJournal() => Selected is null ? null : new(_journalStore, Selected.DataKey, Selected.Name, _timeProvider);
+    private void OnJournalSaved(object? sender, EventArgs e) => Changed(nameof(SelectedJournalSummary));
+    internal static string JournalSummary(JournalRecord record) => record.Status
+        + (record.CompletedOn is { } date ? $" · 通关 {date:yyyy/MM/dd}" : string.Empty)
+        + (record.Note.Length > 0 ? "\n" + record.Note : "\n还没有留下短评");
     public bool HasUnsavedChanges => _games.Any(game => game.IsDirty);
 
     private AsyncCommand Command(Func<Task> action, Func<bool> canExecute)
@@ -452,6 +461,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public void Dispose()
     {
         _elapsedTimer?.Stop();
+        _journalStore.Saved -= OnJournalSaved;
         Statistics.Dispose();
         _lifetime.Cancel();
         _lifetime.Dispose();
