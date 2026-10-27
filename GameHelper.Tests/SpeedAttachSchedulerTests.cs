@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Services;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -100,17 +101,18 @@ public sealed class SpeedAttachSchedulerTests : IDisposable
     public async Task ProcessGone_SkipsAttachCompletely()
     {
         var probe = new StubIdentityProbe(returnFound: false);
-        var applied = new List<SpeedAttachRequest>();
+        var applied = new ConcurrentQueue<SpeedAttachRequest>();
         var scheduler = new SpeedAttachScheduler(
             TimeProvider.System,
             NullLogger.Instance,
-            applied.Add,
+            applied.Enqueue,
             probe,
             PollInterval,
-            TimeSpan.FromSeconds(30));
+            TimeSpan.FromMilliseconds(100));
 
         scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, null, null, @"D:\Games\Game\Game.exe"));
 
+        // Wait past the fallback: without the identity guard this request would attach.
         await Task.Delay(800);
         scheduler.CancelAll();
         Assert.Empty(applied);
@@ -120,17 +122,18 @@ public sealed class SpeedAttachSchedulerTests : IDisposable
     public async Task PidReusedByAnotherImage_SkipsAttach()
     {
         var probe = new StubIdentityProbe(returnFound: true, imagePath: @"C:\Elsewhere\Other.exe");
-        var applied = new List<SpeedAttachRequest>();
+        var applied = new ConcurrentQueue<SpeedAttachRequest>();
         var scheduler = new SpeedAttachScheduler(
             TimeProvider.System,
             NullLogger.Instance,
-            applied.Add,
+            applied.Enqueue,
             probe,
             PollInterval,
-            TimeSpan.FromSeconds(30));
+            TimeSpan.FromMilliseconds(100));
 
         scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, null, null, @"D:\Games\Game\Game.exe"));
 
+        // Wait past the fallback: without the identity guard this request would attach.
         await Task.Delay(800);
         scheduler.CancelAll();
         Assert.Empty(applied);

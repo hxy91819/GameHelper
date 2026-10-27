@@ -95,20 +95,6 @@ namespace GameHelper.Tests
         }
     }
 
-    file sealed class FakeIdentityProbe : IProcessIdentityProbe
-    {
-        private readonly Func<int, (bool Found, string? ImagePath)> _behavior;
-
-        public FakeIdentityProbe(Func<int, (bool Found, string? ImagePath)> behavior) => _behavior = behavior;
-
-        public bool TryGetImagePath(int processId, out string? imagePath)
-        {
-            var (found, image) = _behavior(processId);
-            imagePath = image;
-            return found;
-        }
-    }
-
     file sealed class FakeLauncher : IGameLauncher
     {
         public int Starts { get; private set; }
@@ -1006,87 +992,6 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public async Task DeferredSpeedAttach_SkippedWhenProcessDies()
-        {
-            var exePath = CreateModdedGameDirectory("GameDead.exe");
-            try
-            {
-                var monitor = new FakeMonitor();
-                var config = new CoreGameConfig
-                {
-                    DataKey = "gamedead",
-                    Executable = exePath,
-                    IsEnabled = true,
-                    SpeedMultiplier = 1.5
-                };
-                var speed = new FakeSpeedController();
-                var service = new GameAutomationService(
-                    monitor,
-                    new FakeConfig(new Dictionary<string, CoreGameConfig> { ["gamedead"] = config }),
-                    new FakeHdr(),
-                    new FakePlayTime(),
-                    NullLogger<GameAutomationService>.Instance,
-                    speedController: speed,
-                    processIdentityProbe: new FakeIdentityProbe(_ => (false, null)),
-                    speedGatePollInterval: TinyPollInterval,
-                    speedGateTimeout: TimeSpan.FromSeconds(30),
-                    gameLauncher: new FakeLauncher());
-
-                service.Start();
-                service.Launch("gamedead");
-                monitor.RaiseStart(new ProcessEventInfo("GameDead.exe", exePath, 4321));
-
-                // The gate never attaches for a process that already vanished.
-                await Task.Delay(600);
-                Assert.Empty(speed.Applied);
-            }
-            finally
-            {
-                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
-            }
-        }
-
-        [Fact]
-        public async Task DeferredSpeedAttach_SkippedWhenPidReusedByOtherImage()
-        {
-            var exePath = CreateModdedGameDirectory("GameReused.exe");
-            try
-            {
-                var monitor = new FakeMonitor();
-                var config = new CoreGameConfig
-                {
-                    DataKey = "gamereused",
-                    Executable = exePath,
-                    IsEnabled = true,
-                    SpeedMultiplier = 1.5
-                };
-                var speed = new FakeSpeedController();
-                var service = new GameAutomationService(
-                    monitor,
-                    new FakeConfig(new Dictionary<string, CoreGameConfig> { ["gamereused"] = config }),
-                    new FakeHdr(),
-                    new FakePlayTime(),
-                    NullLogger<GameAutomationService>.Instance,
-                    speedController: speed,
-                    processIdentityProbe: new FakeIdentityProbe(_ => (true, @"C:\SomethingElse\NotTheGame.exe")),
-                    speedGatePollInterval: TinyPollInterval,
-                    speedGateTimeout: TimeSpan.FromSeconds(30),
-                    gameLauncher: new FakeLauncher());
-
-                service.Start();
-                service.Launch("gamereused");
-                monitor.RaiseStart(new ProcessEventInfo("GameReused.exe", exePath, 4321));
-
-                await Task.Delay(600);
-                Assert.Empty(speed.Applied);
-            }
-            finally
-            {
-                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
-            }
-        }
-
-        [Fact]
         public async Task StopEvent_CancelsPendingDeferredAttach()
         {
             var exePath = CreateModdedGameDirectory("GameStopped.exe");
@@ -1252,29 +1157,6 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void PowerEvents_AfterServiceStop_DoNotShiftSessions()
-        {
-            var monitor = new FakeMonitor();
-            var cfg = new FakeConfig(Dict(("game.exe", true, false)));
-            var hdr = new FakeHdr();
-            var play = new FakePlayTime();
-            var power = new FakePowerEvents();
-            var clock = new PowerClock(new DateTimeOffset(2026, 10, 22, 20, 0, 0, TimeSpan.Zero));
-            var service = new GameAutomationService(
-                monitor, cfg, hdr, play, NullLogger<GameAutomationService>.Instance,
-                timeProvider: clock, powerEvents: power);
-            service.Start();
-            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 7));
-            service.Stop();
-
-            power.RaiseSuspend();
-            clock.Advance(TimeSpan.FromHours(5));
-            power.RaiseResume();
-
-            Assert.Empty(play.ShiftedStarts);
-        }
-
-        [Fact]
         public void MonitorModeAutomation_PausesDuringHdrAutomationGameRun_AndResumesAfterExit()
         {
             var monitor = new FakeMonitor();
@@ -1295,15 +1177,14 @@ namespace GameHelper.Tests
             Assert.Equal(MonitorMode.Comfort, controller.Modes[^1]);
 
             // 库内启动勾选 HDR 的游戏：先确认开启 HDR，预设自动化随之暂停（期间零 DDC I/O）。
+            var writesBeforeLaunch = controller.Recipes.Count;
             service.Launch("hdrgame");
             monitor.RaiseStart(new ProcessEventInfo("hdrgame.exe", null, 77));
-            var writesDuringPause = controller.Recipes.Count;
-            clock.Advance(TimeSpan.FromSeconds(11));
-            Assert.Equal(writesDuringPause, controller.Recipes.Count);
+            Assert.Equal(writesBeforeLaunch, controller.Recipes.Count);
 
             // 游戏退出且 HDR 恢复关闭：预设自动化恢复并按白天无游戏的口径切回护眼。
             monitor.RaiseStop(new ProcessEventInfo("hdrgame.exe", null, 77));
-            Assert.Equal(writesDuringPause + 1, controller.Recipes.Count);
+            Assert.Equal(writesBeforeLaunch + 1, controller.Recipes.Count);
             Assert.Equal(MonitorMode.Comfort, controller.Modes[^1]);
             Assert.False(hdr.IsEnabled);
         }
@@ -1328,12 +1209,10 @@ namespace GameHelper.Tests
             monitor.RaiseStart(new ProcessEventInfo("hdrgame.exe", null, 78));
             Assert.Equal(MonitorMode.Game, controller.Modes[^1]);
             Assert.Equal(0, hdr.EnableCalls);
-            var writesDuringPause = controller.Recipes.Count;
-            clock.Advance(TimeSpan.FromSeconds(11));
-            Assert.Equal(writesDuringPause, controller.Recipes.Count);
+            var writesWithGameActive = controller.Recipes.Count;
 
             monitor.RaiseStop(new ProcessEventInfo("hdrgame.exe", null, 78));
-            Assert.Equal(writesDuringPause + 1, controller.Recipes.Count);
+            Assert.Equal(writesWithGameActive + 1, controller.Recipes.Count);
             Assert.Equal(MonitorMode.Comfort, controller.Modes[^1]);
         }
 

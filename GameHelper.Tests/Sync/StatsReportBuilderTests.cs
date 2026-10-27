@@ -64,7 +64,7 @@ public class StatsReportBuilderTests
     [Fact]
     public void Build_WithUtcKindEnd_AttributesToLocalDay()
     {
-        var utcEnd = DateTime.UtcNow;
+        var utcEnd = new DateTime(2026, 9, 5, 23, 45, 0, DateTimeKind.Utc);
         var expectedDay = utcEnd.ToLocalTime().Date;
         var records = new List<GamePlaytimeRecord>
         {
