@@ -60,22 +60,13 @@ public static class ConfigEntryMatcher
         return null;
     }
 
-    public static string NormalizePath(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return string.Empty;
-        }
-
-        try
-        {
-            return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        }
-        catch
-        {
-            return path.Trim().TrimEnd('\\', '/');
-        }
-    }
+    /// <summary>
+    /// Normalizes an executable path for exact-match comparison. Delegates to
+    /// <see cref="PathNormalizer.NormalizePath"/> so add/import flows and runtime matching agree
+    /// on Windows drive/UNC paths, separators, and dot segments. Missing input maps to an empty
+    /// string to preserve the historical contract.
+    /// </summary>
+    public static string NormalizePath(string? path) => PathNormalizer.NormalizePath(path) ?? string.Empty;
 
     /// <summary>
     /// Extracts the Steam install directory segment from a path, i.e. the <c>&lt;dir&gt;</c>
