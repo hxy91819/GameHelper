@@ -67,7 +67,7 @@ dotnet run --project .\GameHelper.ConsoleHost -- sync test
 dotnet run --project .\GameHelper.ConsoleHost -- sync status
 ```
 
-`config.yml` 的键名与存储格式保持兼容；设置保存仅校验全局设置，普通配置变更保持原有拒绝范围；`validate-config` 检查完整文件，YAML 适配层处理格式与兼容读写。
+`config.yml` 保持原有键名、字段顺序、列表缩进与写回格式（保存仍会去掉注释和未知字段）；设置保存仅校验全局设置，普通配置变更保持原有拒绝范围；`validate-config` 检查完整文件，YAML 适配层处理格式与兼容读写。
 
 `config list` 会同时显示 `dataKey` 和 `displayName`，方便核对配置显示名。
 

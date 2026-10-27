@@ -1,0 +1,41 @@
+monitor: WMI
+startup: {launchOnStartup: true}
+cheatEngine:
+  executable: C:\Tools\CE.exe
+  speedHotkeys: [{hotkey: Ctrl+F1, speed: 1}, {hotkey: Ctrl+F2}]
+breakReminder: {enabled: true, playMinutes: 30, breakMinutes: 4, repeatMinutes: 8, sound: false}
+monitorMode:
+  enabled: true
+  location: off
+  latitude: 39.907
+  longitude: 116.391
+  daylightStart: "08:00"
+  daylightEnd: "19:00"
+  gamePresets: [{code: DC, value: "0x05"}]
+  comfortPresets: [{code: F0, value: "0x0C"}]
+hdr: {allowedDisplays: [TV], disabledDisplays: [desk]}
+sync:
+  enabled: true
+  provider: github
+  method: api
+  repo: owner/repo
+  branch: main
+  token: fake-token
+  directory: stats
+  intervalMinutes: 60
+  includeRawCsv: true
+games:
+  - dataKey: sample
+    executable: sample.exe
+    displayName: Sample
+    enabled: false
+    hdr: true
+    speed: 2.0
+    speedAttach: immediate
+    speedHotkeys: [{hotkey: Ctrl+F3, speed: 0.5}, {hotkey: Ctrl+F4}]
+    launch:
+      target: C:\Games\sample.exe
+      arguments: -windowed
+      workingDirectory: C:\Games
+      ds4WindowsPath: C:\Tools\DS4Windows.exe
+    addedAt: 2026-01-02T03:04:05+08:00

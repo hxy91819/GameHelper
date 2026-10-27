@@ -1,0 +1,54 @@
+monitor: ETW
+startup:
+  launchOnStartup: false
+cheatEngine:
+  executable: C:\Program Files\Cheat Engine\cheatengine-x86_64-SSE4-AVX2.exe
+  speedHotkeys:
+    - hotkey: Ctrl+F1
+      speed: 1
+    - hotkey: Ctrl+F2
+breakReminder:
+  enabled: false
+  playMinutes: 40
+  breakMinutes: 5
+  repeatMinutes: 10
+  sound: true
+monitorMode:
+  enabled: false
+  location: off
+  daylightStart: 07:00
+  daylightEnd: 18:30
+  gamePresets:
+    - code: DC
+      value: 0x05
+    - code: E2
+      value: 0x04
+    - code: F0
+      value: 0x00
+  comfortPresets:
+    - code: F0
+      value: 0x0C
+sync:
+  enabled: false
+  provider: github
+  method: git
+  repo: yourname/game-stats
+  directory: game-stats
+  intervalMinutes: 1440
+  includeRawCsv: false
+games:
+  - dataKey: cheatengine
+    executable: Cheat Engine.exe
+    displayName: Cheat Engine
+    enabled: true
+    hdr: true
+  - dataKey: project_plague
+    executable: Project_Plague.exe
+    displayName: Project Plague
+    enabled: true
+    hdr: false
+  - dataKey: talesofarise
+    executable: Tales of Arise.exe
+    displayName: Tales of Arise
+    enabled: true
+    hdr: false

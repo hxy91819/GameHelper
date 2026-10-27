@@ -23,6 +23,18 @@ internal static class YamlConfigCodec
         _ => CamelCaseNamingConvention.Instance.Apply(property.Name)
     };
 
+    // The retired stored DTOs declared these fields in this order.
+    private static int LegacyOrder(PropertyInfo property)
+    {
+        var names = property.DeclaringType == typeof(GameConfig)
+            ? new[] { "dataKey", "executable", "displayName", "enabled", "hdr", "speed", "speedAttach", "speedHotkeys", "launch", "addedAt" }
+            : property.DeclaringType == typeof(SyncSettings)
+                ? new[] { "enabled", "provider", "method", "repo", "branch", "token", "directory", "intervalMinutes", "includeRawCsv" }
+                : Array.Empty<string>();
+        var index = Array.IndexOf(names, WireName(property));
+        return index < 0 ? names.Length : index;
+    }
+
     private static IEnumerable<PropertyInfo> Properties(Type type) => type.GetProperties()
         .Where(property => property.CanWrite && property.GetIndexParameters().Length == 0);
 
@@ -32,7 +44,7 @@ internal static class YamlConfigCodec
         foreach (var type in new[] { typeof(AppConfig), typeof(GameConfig), typeof(SyncSettings) })
             foreach (var property in type.GetProperties())
                 builder.WithAttributeOverride(type, property.Name, property.CanWrite
-                    ? new YamlMemberAttribute { Alias = WireName(property), ApplyNamingConventions = false }
+                    ? new YamlMemberAttribute { Alias = WireName(property), ApplyNamingConventions = false, Order = LegacyOrder(property) }
                     : new YamlIgnoreAttribute());
         return builder.WithNamingConvention(CamelCaseNamingConvention.Instance)
             .WithTypeConverter(new TimestampConverter());
@@ -83,16 +95,21 @@ internal static class YamlConfigCodec
 
     public static string Serialize(AppConfig config)
     {
-        var text = Configure(new SerializerBuilder()).ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
-            .WithIndentedSequences().WithNewLine("\n").Build().Serialize(config);
-        var stream = new YamlStream();
-        stream.Load(new StringReader(text));
-        var root = (YamlMappingNode)stream.Documents[0].RootNode;
-        root.Children.Remove(new YamlScalarNode("launchOnSystemStartup"), out var launch);
-        root.Add("startup", new YamlMappingNode { { "launchOnStartup", launch! } });
-        using var writer = new StringWriter { NewLine = "\n" };
-        stream.Save(writer, false);
-        return writer.ToString();
+        // Keep the legacy envelope and top-level order without re-emitting through YamlStream,
+        // whose emitter drops sequence indentation and appends the document end marker.
+        var stored = new
+        {
+            Monitor = config.ProcessMonitorType,
+            Startup = new { LaunchOnStartup = config.LaunchOnSystemStartup },
+            config.CheatEngine,
+            config.BreakReminder,
+            config.MonitorMode,
+            config.Hdr,
+            Sync = config.SyncSettings,
+            config.Games
+        };
+        return Configure(new SerializerBuilder()).ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
+            .WithIndentedSequences().WithNewLine("\n").Build().Serialize(stored);
     }
 
     private static bool IsNull(YamlNode node) => node is YamlScalarNode scalar && scalar.Style == ScalarStyle.Plain &&
