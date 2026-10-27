@@ -12,8 +12,9 @@ namespace GameHelper.Core.Services;
 /// <summary>
 /// Owns speed attachment policy, deferred work and exit correlation. Configuration and
 /// lifecycle calls remain serialized by GameAutomationService's state lock. Deferred
-/// callbacks touch only the concurrent attach records and the scheduler's concurrent state;
-/// they never acquire the service lock. Exit report lookup runs outside that lock.
+/// callbacks use the scheduler execution boundary and a short record lock; neither
+/// acquires the service lock. Stop drains execution before clearing records. Exit report
+/// lookup runs outside the service lock.
 /// </summary>
 internal sealed class SpeedAttachmentCoordinator
 {
@@ -31,6 +32,9 @@ internal sealed class SpeedAttachmentCoordinator
     private readonly SpeedAttachScheduler _speedAttachGate;
     private readonly ConcurrentDictionary<int, SpeedAttachRecord> _recentSpeedAttacks = new();
     private CheatEngineSettings? _cheatEngine;
+    private readonly object _recordLock = new();
+    private bool _accepting = true;
+    private long _epoch;
 
     internal SpeedAttachmentCoordinator(
         IGameSpeedController? speedController,
@@ -51,9 +55,22 @@ internal sealed class SpeedAttachmentCoordinator
 
     internal void Configure(CheatEngineSettings? settings) => _cheatEngine = settings;
 
-    internal void CancelAll() => _speedAttachGate.CancelAll();
+    // Called under the service state lock, before recovery may request an immediate attach.
+    internal void Start()
+    {
+        lock (_recordLock) { _accepting = true; _epoch++; }
+    }
 
-    internal void ClearRecords() => _recentSpeedAttacks.Clear();
+    internal void CancelAll()
+    {
+        lock (_recordLock) { _accepting = false; _epoch++; }
+        _speedAttachGate.CancelAllAndWait();
+    }
+
+    internal void ClearRecords()
+    {
+        lock (_recordLock) _recentSpeedAttacks.Clear();
+    }
 
     // Capture under the service state lock; report only after releasing it (WER file I/O).
     internal SpeedAttachRecord? CaptureExit(int processId)
@@ -119,6 +136,12 @@ internal sealed class SpeedAttachmentCoordinator
     /// </summary>
     private void ApplyAndRecordSpeed(string dataKey, int processId, double speed, IReadOnlyList<SpeedHotkey>? hotkeys)
     {
+        long epoch;
+        lock (_recordLock)
+        {
+            if (!_accepting) return;
+            epoch = _epoch;
+        }
         try
         {
             var attached = hotkeys is { Count: > 0 }
@@ -126,9 +149,15 @@ internal sealed class SpeedAttachmentCoordinator
                 : _speedController!.ApplySpeed(processId, speed);
             if (attached)
             {
-                var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
-                _recentSpeedAttacks[processId] = new SpeedAttachRecord(dataKey, nowUtc);
-                PruneSpeedAttachRecords(nowUtc);
+                lock (_recordLock)
+                {
+                    // A timed-out controller may finish later, even after a restart. Never republish
+                    // its old record into the stopped service or a new lifecycle.
+                    if (!_accepting || epoch != _epoch) return;
+                    var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+                    _recentSpeedAttacks[processId] = new SpeedAttachRecord(dataKey, nowUtc);
+                    PruneSpeedAttachRecords(nowUtc);
+                }
             }
         }
         catch (Exception ex)

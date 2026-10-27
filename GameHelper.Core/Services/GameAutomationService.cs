@@ -103,6 +103,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         {
             if (_started) return;
             var configuration = LoadAndBuildIndexes();
+            _speedAttachment.Start();
             _sessionTracker.Clear();
             _sessionSuspend.Reset();
             _ownLaunchedDataKeys.Clear();
@@ -170,6 +171,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
     public void Stop()
     {
+        TimeoutException? attachmentTimeout = null;
         lock (_monitorMode.UpdateLock)
         {
             lock (_stateLock)
@@ -188,7 +190,11 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 Cleanup(() => _monitor.ProcessStarted -= OnProcessStarted, "unsubscribe process starts");
                 Cleanup(() => _monitor.ProcessStopped -= OnProcessStopped, "unsubscribe process stops");
                 Cleanup(_sessionSuspend.Unsubscribe, "unsubscribe power events");
-                Cleanup(_speedAttachment.CancelAll, "cancel pending speed attachments");
+                Cleanup(() =>
+                {
+                    try { _speedAttachment.CancelAll(); }
+                    catch (TimeoutException ex) { attachmentTimeout = ex; throw; }
+                }, "cancel and drain speed attachments");
 
                 foreach (var dataKey in _sessionTracker.GetActiveDataKeysSnapshot())
                 {
@@ -232,9 +238,13 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                     _logger.LogDebug(ex, "Failed to disable stop events during shutdown");
                 }
 
-                _logger.LogInformation("GameAutomationService stopped");
+                if (attachmentTimeout is null) _logger.LogInformation("GameAutomationService stopped");
+                else _logger.LogWarning("GameAutomationService cleanup completed with an outstanding speed attachment");
             }
         }
+        // Cleanup still completes on timeout, but do not claim a successful stop while an
+        // uninterruptible external controller call remains in progress.
+        if (attachmentTimeout is not null) throw attachmentTimeout;
     }
 
     private void Cleanup(Action cleanup, string operation)

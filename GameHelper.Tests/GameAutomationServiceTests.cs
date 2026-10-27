@@ -135,6 +135,27 @@ namespace GameHelper.Tests
         }
     }
 
+    file sealed class AttachBarrierLogger : ILogger<GameAutomationService>, IDisposable
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Cancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public ManualResetEventSlim Release { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel level) => true;
+        public void Log<TState>(LogLevel level, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            var message = formatter(state, exception);
+            if (message.Contains("attaching speed now", StringComparison.Ordinal))
+            {
+                Entered.TrySetResult();
+                if (!Release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("Attach barrier was not released");
+            }
+            if (message.Contains("Deferred speed attach cancelled", StringComparison.Ordinal)) Cancelled.TrySetResult();
+        }
+        public void Dispose() => Release.Dispose();
+    }
+
     file sealed class ListLogger<T> : ILogger<T>
     {
         private sealed class NullScope : IDisposable
@@ -235,6 +256,162 @@ namespace GameHelper.Tests
 
     public class GameAutomationServiceTests
     {
+        [Fact]
+        public async Task Stop_CallbackPastCancellationCheck_CannotAttachOrRepopulateRecords()
+        {
+            using var logger = new AttachBarrierLogger();
+            var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var speed = new Mock<IGameSpeedController>();
+            speed.Setup(c => c.ApplySpeed(It.IsAny<int>(), It.IsAny<double>())).Returns(() =>
+            {
+                applied.TrySetResult();
+                return true;
+            });
+            var coordinator = new SpeedAttachmentCoordinator(speed.Object, TimeProvider.System, logger, null,
+                TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(30));
+            var exePath = CreateModdedGameDirectory("Stopped.exe");
+            var directory = Path.GetDirectoryName(exePath)!;
+            try
+            {
+                coordinator.ApplyConfiguredSpeed(new CoreGameConfig { DataKey = "stopped", SpeedMultiplier = 2 },
+                    151, exePath, DateTime.UtcNow.AddMinutes(-1));
+                AppendChainloaderMarker(exePath);
+                await logger.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                coordinator.CancelAll();
+                coordinator.ClearRecords();
+                logger.Release.Set();
+                // Observe the completed cancellation path, or the buggy attach, before assertions.
+                await Task.WhenAny(logger.Cancelled.Task, applied.Task)
+                    .WaitAsync(TimeSpan.FromSeconds(5));
+                speed.Verify(c => c.ApplySpeed(It.IsAny<int>(), It.IsAny<double>()), Times.Never);
+                Assert.Null(coordinator.CaptureExit(151));
+            }
+            finally
+            {
+                logger.Release.Set();
+                coordinator.CancelAll();
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+
+        [Fact]
+        public async Task Stop_DeferredCallbackPastCancellationCheck_RemainsInactiveAfterRestart()
+        {
+            using var logger = new AttachBarrierLogger();
+            var speed = new FakeSpeedController();
+            var monitor = new FakeMonitor();
+            var exePath = CreateModdedGameDirectory("Stopped.exe");
+            var config = new CoreGameConfig { DataKey = "stopped", Executable = "Stopped.exe", IsEnabled = true, SpeedMultiplier = 2 };
+            var identity = new Mock<IProcessIdentityProbe>();
+            var processStartedUtc = DateTime.UtcNow.AddMinutes(-1);
+            string? imagePath = exePath;
+            identity.Setup(p => p.TryGetStartTimeUtc(151, out processStartedUtc)).Returns(true);
+            identity.Setup(p => p.TryGetImagePath(151, out imagePath)).Returns(true);
+            var service = new GameAutomationService(monitor,
+                new FakeConfig(new Dictionary<string, CoreGameConfig> { ["stopped"] = config }),
+                new FakeHdr(), new FakePlayTime(), logger, speedController: speed,
+                speedGatePollInterval: TimeSpan.FromMilliseconds(10), processIdentityProbe: identity.Object);
+            try
+            {
+                service.Start();
+                monitor.RaiseStart(new ProcessEventInfo("Stopped.exe", exePath, 151));
+                AppendChainloaderMarker(exePath);
+                await logger.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                service.Stop();
+                Assert.Empty(service.GetGameStates());
+                service.Start();
+                logger.Release.Set();
+                await logger.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.Empty(speed.Applied);
+                Assert.Empty(service.GetGameStates());
+            }
+            finally
+            {
+                logger.Release.Set();
+                service.Stop();
+                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
+            }
+        }
+
+        [Fact]
+        public async Task Stop_BlockedController_TimesOutAfterCleanup_AndLateCompletionCannotRestoreRecords()
+        {
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var release = new ManualResetEventSlim();
+            var speed = new Mock<IGameSpeedController>();
+            speed.Setup(c => c.ApplySpeed(It.IsAny<int>(), It.IsAny<double>())).Returns(() =>
+            {
+                entered.TrySetResult();
+                if (!release.Wait(TimeSpan.FromSeconds(15))) throw new TimeoutException("Controller barrier was not released");
+                return true;
+            });
+            var exePath = CreateModdedGameDirectory("Blocked.exe");
+            var coordinator = new SpeedAttachmentCoordinator(speed.Object, TimeProvider.System,
+                NullLogger.Instance, null, TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(30));
+            try
+            {
+                coordinator.ApplyConfiguredSpeed(new CoreGameConfig { DataKey = "blocked", SpeedMultiplier = 2 },
+                    152, exePath, DateTime.UtcNow.AddMinutes(-1));
+                AppendChainloaderMarker(exePath);
+                await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                var stop = Task.Run(() => Assert.Throws<TimeoutException>(coordinator.CancelAll));
+                await stop.WaitAsync(TimeSpan.FromSeconds(8));
+                coordinator.ClearRecords();
+                release.Set();
+                // A second drain waits for the previously blocked controller and record publication.
+                await Task.Run(coordinator.CancelAll).WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.Null(coordinator.CaptureExit(152));
+            }
+            finally
+            {
+                release.Set();
+                coordinator.CancelAll();
+                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
+            }
+        }
+
+        [Fact]
+        public async Task Stop_ControllerDrainTimeout_StillFlushesSessionsAndClearsState()
+        {
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var release = new ManualResetEventSlim();
+            var speed = new Mock<IGameSpeedController>();
+            speed.Setup(c => c.ApplySpeed(It.IsAny<int>(), It.IsAny<double>())).Returns(() =>
+            {
+                entered.TrySetResult();
+                Assert.True(release.Wait(TimeSpan.FromSeconds(15)));
+                return true;
+            });
+            var monitor = new FakeMonitor();
+            var playTime = new FakePlayTime();
+            var store = new Mock<IInFlightSessionStore>();
+            var exePath = CreateModdedGameDirectory("Blocked.exe");
+            var service = new GameAutomationService(monitor,
+                new FakeConfig(new Dictionary<string, CoreGameConfig>
+                {
+                    ["blocked"] = new() { DataKey = "blocked", Executable = "Blocked.exe", IsEnabled = true, SpeedMultiplier = 2 }
+                }), new FakeHdr(), playTime, NullLogger<GameAutomationService>.Instance,
+                speedController: speed.Object, inFlightSessionStore: store.Object,
+                speedGatePollInterval: TimeSpan.FromMilliseconds(10), speedGateTimeout: TimeSpan.Zero);
+            try
+            {
+                service.Start();
+                monitor.RaiseStart(new ProcessEventInfo("Blocked.exe", exePath, 154));
+                await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await Task.Run(() => Assert.Throws<TimeoutException>(service.Stop)).WaitAsync(TimeSpan.FromSeconds(8));
+                Assert.Equal(new[] { "blocked" }, playTime.Stopped);
+                Assert.Empty(service.GetGameStates());
+                Assert.Empty(service.GetRunningSessionStarts());
+                store.Verify(s => s.Clear(), Times.Once);
+            }
+            finally
+            {
+                release.Set();
+                service.Stop();
+                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
+            }
+        }
+
         [Theory]
         [InlineData("process-start")]
         [InlineData("process-stop")]

@@ -16,6 +16,40 @@ public sealed class SpeedAttachSchedulerTests : IDisposable
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(25);
 
     [Fact]
+    public async Task Shutdown_WaitsForCallbackThatAlreadyEnteredExecution()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var finished = false;
+        var scheduler = new SpeedAttachScheduler(TimeProvider.System, NullLogger.Instance, _ =>
+        {
+            entered.TrySetResult();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(10)));
+            finished = true;
+        }, pollInterval: PollInterval, timeout: TimeSpan.Zero);
+        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 153, 2, null, null, null));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var stop = Task.Run(() =>
+        {
+            stopStarted.TrySetResult();
+            scheduler.CancelAllAndWait();
+            Assert.True(finished);
+        });
+        try
+        {
+            await stopStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.WhenAny(stop, Task.Delay(100));
+            Assert.False(stop.IsCompleted);
+        }
+        finally
+        {
+            release.Set();
+            await stop.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Fact]
     public async Task MarkerWrittenAfterGateStart_AttachesWithoutWaitingForTimeout()
     {
         var logPath = Path.Combine(_tempDirectory, "BepInEx", "LogOutput.log");

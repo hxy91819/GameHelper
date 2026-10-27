@@ -31,6 +31,9 @@ public sealed class SpeedAttachScheduler
     private readonly TimeSpan _pollInterval;
     private readonly TimeSpan _timeout;
     private readonly ConcurrentDictionary<int, CancellationTokenSource> _pending = new();
+    // Multiple games may attach concurrently. Shutdown takes the exclusive side after cancellation.
+    private readonly ReaderWriterLockSlim _executionBoundary = new();
+    private static readonly TimeSpan StopDrainTimeout = TimeSpan.FromSeconds(5);
 
     public SpeedAttachScheduler(
         TimeProvider timeProvider,
@@ -97,6 +100,25 @@ public sealed class SpeedAttachScheduler
     }
 
     /// <summary>
+    /// Cancels queued work and waits at most five seconds for callbacks already executing.
+    /// A timeout is reported to the owner: a controller call cannot safely be interrupted.
+    /// </summary>
+    internal void CancelAllAndWait()
+    {
+        CancelAll();
+        try
+        {
+            if (!_executionBoundary.TryEnterWriteLock(StopDrainTimeout))
+                throw new TimeoutException("Speed attachment did not finish within the five-second shutdown limit.");
+            _executionBoundary.ExitWriteLock();
+        }
+        catch (LockRecursionException ex)
+        {
+            throw new TimeoutException("Cannot drain speed attachment from inside its own callback.", ex);
+        }
+    }
+
+    /// <summary>
     /// Signals the gate to stop. Disposal is owned by <see cref="RunGateAsync"/>'s finally block, so
     /// a cancel can never race a dispose while the gate is still awaiting on the same token.
     /// </summary>
@@ -142,7 +164,7 @@ public sealed class SpeedAttachScheduler
                         request.DataKey,
                         elapsed,
                         request.ProcessId);
-                    InvokeApply(request);
+                    InvokeApply(request, cancellationToken);
                     return;
                 }
 
@@ -154,14 +176,14 @@ public sealed class SpeedAttachScheduler
                         request.DataKey,
                         _timeout,
                         request.ProcessId);
-                    InvokeApply(request);
+                    InvokeApply(request, cancellationToken);
                     return;
                 }
             }
         }
         catch (OperationCanceledException)
         {
-            // Cancelled by a stop event or service shutdown: intentionally do not attach.
+            _logger.LogDebug("Deferred speed attach cancelled for {DataKey} (PID {ProcessId}).", request.DataKey, request.ProcessId);
         }
         catch (Exception ex)
         {
@@ -179,15 +201,23 @@ public sealed class SpeedAttachScheduler
         }
     }
 
-    private void InvokeApply(SpeedAttachRequest request)
+    private void InvokeApply(SpeedAttachRequest request, CancellationToken cancellationToken)
     {
+        _executionBoundary.EnterReadLock();
         try
         {
-            _apply(request);
+            // Cancellation may have happened after the gate's last check (including in logging).
+            // Stop takes the write side, so a successful drain covers apply and record publication.
+            cancellationToken.ThrowIfCancellationRequested();
+            try { _apply(request); }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Deferred speed apply failed for {DataKey} (PID {ProcessId}).", request.DataKey, request.ProcessId);
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogError(ex, "Deferred speed apply failed for {DataKey} (PID {ProcessId}).", request.DataKey, request.ProcessId);
+            _executionBoundary.ExitReadLock();
         }
     }
 
