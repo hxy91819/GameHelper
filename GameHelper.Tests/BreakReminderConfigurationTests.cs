@@ -12,14 +12,10 @@ public sealed class BreakReminderConfigurationTests : IDisposable
 
     public BreakReminderConfigurationTests() => Directory.CreateDirectory(_directory);
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void ConfigurationChanges_PreserveReminderAlongsideCatalogStartupAndSpeed(bool json)
+    [Fact]
+    public void ConfigurationChanges_PreserveReminderAlongsideCatalogStartupAndSpeed()
     {
-        IGameConfiguration provider = json
-            ? new JsonConfigProvider(Path.Combine(_directory, "config.json"))
-            : new YamlConfigProvider(Path.Combine(_directory, "config.yml"));
+        IGameConfiguration provider = new YamlConfigProvider(Path.Combine(_directory, "config.yml"));
         var settings = new BreakReminderSettings { Enabled = true, PlayMinutes = 30, BreakMinutes = 6, RepeatMinutes = 8, Sound = false };
         provider.Change(config =>
         {
@@ -27,13 +23,13 @@ public sealed class BreakReminderConfigurationTests : IDisposable
             config.CheatEngine = new CheatEngineSettings { Executable = @"C:\Tools\cheatengine.exe" };
             config.Games.Add(new GameConfig { DataKey = "game", Executable = "game.exe", SpeedMultiplier = 2 });
         });
-        new SettingsService(provider).Update(new UpdateAppSettingsRequest { AutoStartInteractiveMonitor = true });
+        new SettingsService(provider).Update(new UpdateAppSettingsRequest { ProcessMonitorType = ProcessMonitorType.WMI });
         provider.Change(config => config.Games[0].DisplayName = "Game");
         var saved = provider.Read();
         Assert.Equal(settings, saved.BreakReminder);
         Assert.Equal(2, Assert.Single(saved.Games).SpeedMultiplier);
         Assert.Equal(@"C:\Tools\cheatengine.exe", saved.CheatEngine?.Executable);
-        Assert.True(saved.AutoStartInteractiveMonitor);
+        Assert.Equal(ProcessMonitorType.WMI, saved.ProcessMonitorType);
     }
 
     [Fact]
@@ -47,7 +43,7 @@ public sealed class BreakReminderConfigurationTests : IDisposable
         Assert.Equal(new BreakReminderSettings(), provider.Read().BreakReminder);
         File.WriteAllText(path, "breakReminder:\n  enabled: true\ngames: []\n");
         Assert.Equal(new BreakReminderSettings { Enabled = true }, provider.Read().BreakReminder);
-        provider.Change(config => config.AutoStartInteractiveMonitor = true);
+        provider.Change(config => config.ProcessMonitorType = ProcessMonitorType.WMI);
         Assert.Equal(new BreakReminderSettings { Enabled = true }, provider.Read().BreakReminder);
     }
 
@@ -89,13 +85,11 @@ public sealed class BreakReminderConfigurationTests : IDisposable
         Assert.Contains(result.Warnings, warning => warning.Contains("unknown", StringComparison.Ordinal));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void InvalidDuration_CannotCommitAndLeavesOriginalDocumentIntact(bool json)
+    [Fact]
+    public void InvalidDuration_CannotCommitAndLeavesOriginalDocumentIntact()
     {
-        var path = Path.Combine(_directory, json ? "config.json" : "config.yml");
-        IGameConfiguration provider = json ? new JsonConfigProvider(path) : new YamlConfigProvider(path);
+        var path = Path.Combine(_directory, "config.yml");
+        IGameConfiguration provider = new YamlConfigProvider(path);
         provider.Change(config => config.BreakReminder = new BreakReminderSettings { Enabled = true });
         var original = File.ReadAllText(path);
         Assert.Throws<ArgumentException>(() => provider.Change(config =>

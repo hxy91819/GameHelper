@@ -1,11 +1,11 @@
-namespace GameHelper.Core.Abstractions
+namespace GameHelper.Core.Abstractions;
+
+/// <summary>
+/// Tracks gameplay sessions per game. Implementations are responsible for persisting
+/// sessions (e.g., to a file) so that statistics can be computed later.
+/// </summary>
+public interface IPlayTimeService
 {
-    /// <summary>
-    /// Tracks gameplay sessions per game. Implementations are responsible for persisting
-    /// sessions (e.g., to a file) so that statistics can be computed later.
-    /// </summary>
-    public interface IPlayTimeService
-    {
     /// <summary>
     /// Starts (or continues) tracking a session for the given game name.
     /// Idempotent if called repeatedly for the same active session.
@@ -37,5 +37,4 @@ namespace GameHelper.Core.Abstractions
     /// 的墙钟时间排除出游玩时长（offset 为实际暂停跨度，即唤醒时间 - 休眠时间）。
     /// </summary>
     void ShiftActiveStarts(TimeSpan offset);
-    }
 }

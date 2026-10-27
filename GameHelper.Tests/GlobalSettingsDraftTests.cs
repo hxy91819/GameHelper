@@ -7,11 +7,10 @@ namespace GameHelper.Tests;
 public sealed class GlobalSettingsDraftTests
 {
     [Fact]
-    public void SaveDisplayChoices_PreservesOfflineRulesAndLegacyInteractiveFlag()
+    public void SaveDisplayChoices_PreservesOfflineRules()
     {
         var snapshot = new AppSettingsSnapshot
         {
-            AutoStartInteractiveMonitor = true,
             Hdr = new() { AllowedDisplays = ["tv-path", "offline-tv"], DisabledDisplays = ["Desk", "offline-desk"] },
             DisplaysAvailable = true,
             Displays = [new("TV", "tv-path", true, false, false, true), new("Desk", "desk-path", true, false, false, false)],
@@ -20,7 +19,6 @@ public sealed class GlobalSettingsDraftTests
         var draft = new GlobalSettingsViewModel(snapshot);
         draft.Displays[0].Selected = false; draft.Displays[1].Selected = true;
         var request = draft.ToRequest();
-        Assert.True(request.AutoStartInteractiveMonitor);
         Assert.Equal(new[] { "offline-tv", "desk-path" }, request.Hdr!.AllowedDisplays);
         Assert.Equal(new[] { "offline-desk", "tv-path" }, request.Hdr.DisabledDisplays);
         Assert.Equal(20, request.MonitorMode!.Latitude);

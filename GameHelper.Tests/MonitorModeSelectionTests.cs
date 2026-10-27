@@ -14,7 +14,7 @@ public sealed class MonitorModeSelectionTests
 
         Assert.True(selection.IsDryRun);
         Assert.Equal(ProcessMonitorType.ETW, selection.MonitorType);
-        Assert.Equal("Dry-run (rehearsal only)", selection.GetDisplayText());
+        Assert.Equal(MonitorModeSource.DryRun, selection.Source);
     }
 
     [Fact]
@@ -26,7 +26,6 @@ public sealed class MonitorModeSelectionTests
 
         Assert.Equal(MonitorModeSource.CommandLine, selection.Source);
         Assert.Equal(ProcessMonitorType.WMI, selection.MonitorType);
-        Assert.Equal("WMI (from command line)", selection.GetDisplayText());
     }
 
     [Fact]
@@ -38,7 +37,7 @@ public sealed class MonitorModeSelectionTests
 
         Assert.True(selection.HasInvalidCommandLineType);
         Assert.Equal(ProcessMonitorType.ETW, selection.MonitorType);
-        Assert.Equal("ETW (invalid command line, using default)", selection.GetDisplayText());
+        Assert.Equal(MonitorModeSource.InvalidCommandLine, selection.Source);
     }
 
     [Fact]
@@ -48,7 +47,6 @@ public sealed class MonitorModeSelectionTests
 
         Assert.Equal(MonitorModeSource.Config, selection.Source);
         Assert.Equal(ProcessMonitorType.WMI, selection.MonitorType);
-        Assert.Equal("WMI (from config)", selection.GetDisplayText());
     }
 
     [Fact]
@@ -58,6 +56,5 @@ public sealed class MonitorModeSelectionTests
 
         Assert.Equal(MonitorModeSource.Default, selection.Source);
         Assert.Equal(ProcessMonitorType.ETW, selection.MonitorType);
-        Assert.Equal("ETW (default)", selection.GetDisplayText());
     }
 }

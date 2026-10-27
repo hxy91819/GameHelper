@@ -46,9 +46,6 @@ public sealed class LibraryRecencyTests
             var reopened = new YamlConfigProvider(path).Read();
             Assert.Equal(expected, reopened.Games.Single(game => game.DataKey == "new").AddedAt);
             Assert.Null(reopened.Games.Single(game => game.DataKey == "legacy").AddedAt);
-            var jsonPath = Path.Combine(root, "config.json");
-            new JsonConfigProvider(jsonPath).Change(config => config.Games = reopened.Games);
-            Assert.Equal(expected, new JsonConfigProvider(jsonPath).Read().Games.Single(game => game.DataKey == "new").AddedAt);
         }
         finally { Directory.Delete(root, true); }
     }

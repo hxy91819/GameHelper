@@ -1,56 +1,23 @@
 using GameHelper.Core.Models;
 using GameHelper.Core.Utilities;
+using GameHelper.Core.Validation;
 using Microsoft.Extensions.Logging;
 
 namespace GameHelper.Infrastructure.Providers;
 
-internal enum MissingDataKeyAction
-{
-    Skip,
-    Throw
-}
-
 internal static class ConfigEntryNormalizer
 {
-    public static GameConfig? NormalizeLoaded(
-        GameConfig source,
-        MissingDataKeyAction missingDataKeyAction,
-        ILogger? logger = null)
+    /// <summary>Normalize an entry read from disk; incomplete entries are skipped with a warning.</summary>
+    public static GameConfig? NormalizeLoaded(GameConfig source, ILogger? logger = null)
     {
         var executable = (source.Executable ?? string.Empty).Trim();
         var displayName = (source.DisplayName ?? string.Empty).Trim();
         var dataKey = (source.DataKey ?? string.Empty).Trim();
 
-        if (string.IsNullOrWhiteSpace(dataKey))
+        var errors = AppConfigValidator.ValidateGameIdentity(source);
+        if (errors.Count > 0)
         {
-            if (missingDataKeyAction == MissingDataKeyAction.Throw)
-            {
-                throw new InvalidDataException("Configuration entry is missing required DataKey.");
-            }
-
-            logger?.LogWarning("Skip config entry: DataKey is missing.");
-            return null;
-        }
-
-        if (string.IsNullOrWhiteSpace(executable))
-        {
-            if (missingDataKeyAction == MissingDataKeyAction.Throw)
-            {
-                throw new InvalidDataException($"Configuration entry '{dataKey}' is missing required Executable.");
-            }
-
-            logger?.LogWarning("Skip config entry '{DataKey}': Executable is missing.", dataKey);
-            return null;
-        }
-
-        if (!ExecutableIdentity.TryCreate(executable, out _))
-        {
-            if (missingDataKeyAction == MissingDataKeyAction.Throw)
-            {
-                throw new InvalidDataException($"Configuration entry '{dataKey}' has an invalid Executable identity.");
-            }
-
-            logger?.LogWarning("Skip config entry '{DataKey}': Executable identity is invalid.", dataKey);
+            logger?.LogWarning("Skip config entry '{DataKey}': {Errors}", dataKey, string.Join(" ", errors));
             return null;
         }
 
@@ -59,23 +26,10 @@ internal static class ConfigEntryNormalizer
 
     public static GameConfig NormalizeForSave(GameConfig source, ILogger? logger = null)
     {
+        var errors = AppConfigValidator.ValidateGameIdentity(source);
+        if (errors.Count > 0) throw new InvalidDataException(string.Join("\n", errors));
         var dataKey = (source.DataKey ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(dataKey))
-        {
-            throw new InvalidDataException("Cannot save config entry without DataKey.");
-        }
-
         var executable = (source.Executable ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(executable))
-        {
-            throw new InvalidDataException($"Cannot save config entry '{dataKey}' without Executable.");
-        }
-
-        if (!ExecutableIdentity.TryCreate(executable, out _))
-        {
-            throw new InvalidDataException($"Cannot save config entry '{dataKey}' with an invalid Executable identity.");
-        }
-
         var displayName = (source.DisplayName ?? string.Empty).Trim();
         return CreateNormalized(source, dataKey, executable, displayName, logger, rejectInvalidSpeed: true);
     }
@@ -105,7 +59,7 @@ internal static class ConfigEntryNormalizer
     {
         var speedMultiplier = source.SpeedMultiplier;
         if (speedMultiplier.HasValue &&
-            (!double.IsFinite(speedMultiplier.Value) || speedMultiplier.Value <= 0))
+            !AppConfigValidator.IsValidSpeed(speedMultiplier))
         {
             if (rejectInvalidSpeed)
             {
@@ -129,19 +83,14 @@ internal static class ConfigEntryNormalizer
             hotkeys = null;
         }
 
-        return new GameConfig
-        {
-            DataKey = dataKey,
-            Executable = executable,
-            DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
-            IsEnabled = source.IsEnabled,
-            HdrEnabled = source.HdrEnabled,
-            SpeedMultiplier = speedMultiplier,
-            SpeedHotkeys = hotkeys?.ToList(),
-            SpeedAttach = NormalizeSpeedAttach(source.SpeedAttach, dataKey, logger, rejectInvalidSpeed),
-            Launch = source.Launch,
-            AddedAt = source.AddedAt
-        };
+        var normalized = source.Copy();
+        normalized.DataKey = dataKey;
+        normalized.Executable = executable;
+        normalized.DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName;
+        normalized.SpeedMultiplier = speedMultiplier;
+        normalized.SpeedHotkeys = hotkeys?.ToList();
+        normalized.SpeedAttach = NormalizeSpeedAttach(source.SpeedAttach, dataKey, logger, rejectInvalidSpeed);
+        return normalized;
     }
 
     private static string? NormalizeSpeedAttach(string? source, string dataKey, ILogger? logger, bool rejectInvalidSpeed)
@@ -152,7 +101,7 @@ internal static class ConfigEntryNormalizer
             return null;
         }
 
-        if (value is GameConfig.SpeedAttachPolicyAuto or GameConfig.SpeedAttachPolicyImmediate)
+        if (AppConfigValidator.IsValidSpeedAttach(value))
         {
             return value;
         }

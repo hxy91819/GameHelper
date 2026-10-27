@@ -28,6 +28,26 @@ public sealed class ConfigEntryMatcherTests
         Assert.Same(existing, match);
     }
 
+    [Theory]
+    [InlineData("C:/Games/Game/game.exe")]
+    [InlineData(@"C:\Games\.\Game\game.exe")]
+    public void FindExistingForAdd_WhenSameWindowsPathSpelledDifferently_ReturnsPathMatch(string incomingPath)
+    {
+        // Separator style and dot segments are spellings of the same file; normalization must
+        // deduplicate them instead of relying on the host OS path semantics.
+        var existing = new GameConfig
+        {
+            DataKey = "game-a",
+            Executable = @"C:\Games\Game\game.exe"
+        };
+
+        var match = ConfigEntryMatcher.FindExistingForIntake(
+            new[] { existing },
+            ExecutableIdentity.Parse(incomingPath));
+
+        Assert.Same(existing, match);
+    }
+
     [Fact]
     public void FindExistingForAdd_WhenSingleNameOnlyCandidate_ReturnsNameMatch()
     {

@@ -1,3 +1,4 @@
+using GameHelper.Core.Utilities;
 using System;
 using System.Globalization;
 using System.IO;
@@ -17,10 +18,11 @@ public sealed class JsonLocationCacheStore : ILocationCacheStore
 {
     private readonly string _filePath;
     private readonly ILogger<JsonLocationCacheStore>? _logger;
+    private readonly TimeProvider _timeProvider;
 
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
 
-    public JsonLocationCacheStore(string filePath, ILogger<JsonLocationCacheStore>? logger = null)
+    public JsonLocationCacheStore(string filePath, ILogger<JsonLocationCacheStore>? logger = null, TimeProvider? timeProvider = null)
     {
         if (string.IsNullOrWhiteSpace(filePath))
         {
@@ -29,6 +31,7 @@ public sealed class JsonLocationCacheStore : ILocationCacheStore
 
         _filePath = filePath;
         _logger = logger;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <inheritdoc />
@@ -73,21 +76,12 @@ public sealed class JsonLocationCacheStore : ILocationCacheStore
         {
             Latitude = coordinate.Latitude,
             Longitude = coordinate.Longitude,
-            UpdatedAt = DateTime.Now
+            UpdatedAt = _timeProvider.GetLocalNow().DateTime
         };
 
-        var tempPath = _filePath + ".tmp";
-        try
+        AtomicFile.Write(_filePath, tempPath =>
         {
             File.WriteAllText(tempPath, JsonSerializer.Serialize(cached, SerializerOptions), Encoding.UTF8);
-            File.Move(tempPath, _filePath, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(tempPath))
-            {
-                File.Delete(tempPath);
-            }
-        }
+        }, temporaryPath: _filePath + ".tmp");
     }
 }

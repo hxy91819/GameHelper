@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Services;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -13,6 +14,40 @@ public sealed class SpeedAttachSchedulerTests : IDisposable
         Guid.NewGuid().ToString("N"));
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(25);
+
+    [Fact]
+    public async Task Shutdown_WaitsForCallbackThatAlreadyEnteredExecution()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var finished = false;
+        var scheduler = new SpeedAttachScheduler(TimeProvider.System, NullLogger.Instance, _ =>
+        {
+            entered.TrySetResult();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(10)));
+            finished = true;
+        }, pollInterval: PollInterval, timeout: TimeSpan.Zero);
+        scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 153, 2, null, null, null));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var stop = Task.Run(() =>
+        {
+            stopStarted.TrySetResult();
+            scheduler.CancelAllAndWait();
+            Assert.True(finished);
+        });
+        try
+        {
+            await stopStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.WhenAny(stop, Task.Delay(100));
+            Assert.False(stop.IsCompleted);
+        }
+        finally
+        {
+            release.Set();
+            await stop.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
 
     [Fact]
     public async Task MarkerWrittenAfterGateStart_AttachesWithoutWaitingForTimeout()
@@ -100,17 +135,18 @@ public sealed class SpeedAttachSchedulerTests : IDisposable
     public async Task ProcessGone_SkipsAttachCompletely()
     {
         var probe = new StubIdentityProbe(returnFound: false);
-        var applied = new List<SpeedAttachRequest>();
+        var applied = new ConcurrentQueue<SpeedAttachRequest>();
         var scheduler = new SpeedAttachScheduler(
             TimeProvider.System,
             NullLogger.Instance,
-            applied.Add,
+            applied.Enqueue,
             probe,
             PollInterval,
-            TimeSpan.FromSeconds(30));
+            TimeSpan.FromMilliseconds(100));
 
         scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, null, null, @"D:\Games\Game\Game.exe"));
 
+        // Wait past the fallback: without the identity guard this request would attach.
         await Task.Delay(800);
         scheduler.CancelAll();
         Assert.Empty(applied);
@@ -120,17 +156,18 @@ public sealed class SpeedAttachSchedulerTests : IDisposable
     public async Task PidReusedByAnotherImage_SkipsAttach()
     {
         var probe = new StubIdentityProbe(returnFound: true, imagePath: @"C:\Elsewhere\Other.exe");
-        var applied = new List<SpeedAttachRequest>();
+        var applied = new ConcurrentQueue<SpeedAttachRequest>();
         var scheduler = new SpeedAttachScheduler(
             TimeProvider.System,
             NullLogger.Instance,
-            applied.Add,
+            applied.Enqueue,
             probe,
             PollInterval,
-            TimeSpan.FromSeconds(30));
+            TimeSpan.FromMilliseconds(100));
 
         scheduler.ScheduleDeferred(new SpeedAttachRequest("game", 100, 1.5, null, null, @"D:\Games\Game\Game.exe"));
 
+        // Wait past the fallback: without the identity guard this request would attach.
         await Task.Delay(800);
         scheduler.CancelAll();
         Assert.Empty(applied);

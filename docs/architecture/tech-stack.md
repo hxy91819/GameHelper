@@ -17,7 +17,6 @@
 | 类别 | 名称 | 当前版本 | 用途 |
 | --- | --- | --- | --- |
 | 依赖注入 & 宿主 | `Microsoft.Extensions.Hosting` | 9.0.8 | 构建通用 Host、注册后台服务。|
-| 控制台 UI | `Spectre.Console` | 0.47.0 | 渲染 CLI、交互式 Shell。|
 | 桌面游戏库 | WPF / MVVM | .NET 8 Windows Desktop | 原生界面、视图模型和本地命名管道；复用 ConsoleHost 自动化，见 [游戏库](../guides/game-library.md)。|
 | 配置解析 | `YamlDotNet` | 13.7.1 | 解析 `config.yml`，兼容旧字段。|
 | 进程监控 (ETW) | `Microsoft.Diagnostics.Tracing.TraceEvent` | 3.1.8 | 低延迟内核事件监控。|
@@ -55,7 +54,6 @@
 - [ ] `config.yml` 旧字段可读，可写入包含 `DataKey` 的新条目。
 - [ ] `playtime.csv` 追加记录后保持旧版本兼容。
 - [ ] WMI 降级路径在非管理员权限仍可运行。
-- [ ] CLI/Shell 在 Spectre Console 升级后输出无 ANSI 破损。
 - [ ] 引入新的字符串/本地化库时验证不影响 FuzzySharp。
 
 > 若需新增库或服务，请先提交架构评审，说明对现有兼容性、部署和测试流程的影响。

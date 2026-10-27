@@ -60,7 +60,6 @@ namespace GameHelper.Tests
             {
                 Games = source.Games.Select(CloneGame).ToList(),
                 ProcessMonitorType = source.ProcessMonitorType,
-                AutoStartInteractiveMonitor = source.AutoStartInteractiveMonitor,
                 LaunchOnSystemStartup = source.LaunchOnSystemStartup
             };
 

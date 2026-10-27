@@ -12,14 +12,14 @@
 ## 启动方式
 
 ```powershell
-# 默认进入交互式 Shell
+# 无参数启动：打开 WPF 游戏库
 dotnet run --project .\GameHelper.ConsoleHost --
 
-# 显式进入交互式 Shell
-dotnet run --project .\GameHelper.ConsoleHost -- interactive
+# 指定配置路径时透传给游戏库
+dotnet run --project .\GameHelper.ConsoleHost -- --config D:\GameHelper\config.yml
 ```
 
-已发布的可执行文件启动时如果没运行在 Windows Terminal 里，会自动用 `wt.exe` 把交互窗口搬进 Windows Terminal；行为、关闭方式和边界见[启动窗口宿主](terminal-host.md)。
+无参数启动会打开 WPF 游戏库；行为与后台入口见[启动与后台运行](startup.md)。
 
 ## 常用命令
 
@@ -41,18 +41,14 @@ dotnet run --project .\GameHelper.ConsoleHost -- config add <exe|path-to-exe>
 dotnet run --project .\GameHelper.ConsoleHost -- config import-steam
 dotnet run --project .\GameHelper.ConsoleHost -- config remove <dataKey>
 
-# 配置工具与校验
-dotnet run --project .\GameHelper.ConsoleHost -- convert-config
+# 配置校验
 dotnet run --project .\GameHelper.ConsoleHost -- validate-config
-dotnet run --project .\GameHelper.ConsoleHost -- migrate
 
 # 统计推送
 dotnet run --project .\GameHelper.ConsoleHost -- sync now [--force]
 dotnet run --project .\GameHelper.ConsoleHost -- sync test
 dotnet run --project .\GameHelper.ConsoleHost -- sync status
 ```
-
-`migrate` 会复用 Core 监控匹配阈值迁移旧 `playtime.csv`，只自动改写唯一的精确或模糊匹配；歧义记录会保留给人工处理。
 
 `config list` 会输出每个条目的 `dataKey`、`displayName`、启用状态和 HDR 设置，便于核对本地配置。
 
@@ -77,7 +73,6 @@ dotnet run --project .\GameHelper.ConsoleHost -- sync status
 ```yaml
 monitor: ETW
 startup:
-  autoStartMonitor: false
   launchOnStartup: false
 sync:
   enabled: false
@@ -101,7 +96,6 @@ games:
 - `displayName`：界面显示名称。
 - `enabled`：是否参与监控、时长统计和自动化。
 - `hdr`：是否在该游戏运行时由 GameHelper 自动开启 HDR；`false` 不会关闭用户已经手动开启的 HDR。
-- `startup.autoStartMonitor`：交互模式启动后是否自动进入实时监控。
 - `startup.launchOnStartup`：是否随系统启动 GameHelper。
 - `sync`：统计推送配置（上述为节选，完整字段与 token 说明见 [sync 指南](sync.md)）；省略整段表示未配置推送。
 - `breakReminder`：全局前台游戏休息提醒，默认关闭；添加 `breakReminder: { enabled: true }` 后按40／5／10分钟规则运行，详见[休息提醒指南](break-reminder.md)。
@@ -110,22 +104,7 @@ games:
 
 `config import-steam` 会扫描 Steam 主目录及 `libraryfolders.vdf` 中的库，读取已安装游戏的 `appmanifest_*.acf`，为每个游戏选择一个候选主可执行文件，并通过一次批量写入添加到配置。相同可执行文件已存在时会更新其显示名称和启用状态。
 
-交互式 Shell 的“配置管理”也提供“扫描并导入 Steam 游戏”入口：会先显示候选游戏清单，用户确认后才写入配置。
-
 所有配置写操作都会在最新完整文档上应用一次变更，再通过临时文件原子替换；游戏清单、监控设置和启动设置不会因彼此更新而丢失。
-
-## 实时监控与历史记录预览
-
-交互式 Shell 选择“实时监控”后，启动监控前会展示“历史记录预览”面板：
-
-- 按游戏聚合最近 60 个自然日（含今天）的游玩记录，显示次数、总时长和最近游玩时间，按最近游玩时间排序（刚玩过的排最前，最近游玩时间相同再比总时长）；同一天多次启动同一游戏不再重复占行。
-- 面板下方附最近 60 天的每日游玩时长趋势迷你图（8 行纵向柱状：每天一列，自底向上按当日时长占峰值的比例填充块字符，峰值日占满 8 行；底行零值天以灰点占位；日期轴每 14 天一个刻度并固定右对齐标注末端日期；按会话结束时间的本地日期归属）。
-- 趋势图标题行尾部并列两个趋势状态（把窗口对半分为“近 30 天”与“前 30 天”比较，红=增加、绿=减少、灰=持平）：
-  - 时长状态：比较两个半窗的日均游玩时长，变化超过 ±10% 显示“↑ 时长增加”或“↓ 时长减少”并附变化百分比，阈值内显示“→ 时长基本持平”；前半窗无游玩时显示“↑ 时长增加（此前无游玩）”，整个窗口无游玩时不显示。
-  - 游戏数量状态：比较两个半窗内玩过的不同游戏款数，显示“↑ 游戏数量增加（3→5 款）”或“↓ 游戏数量减少（5→3 款）”，数量相同显示“→ 游戏数量持平（N 款）”，两半窗均无游玩时不显示。
-- 窗口外的旧会话不参与预览统计；没有任何窗口内记录时会显示占位提示。窗口天数由 `StatisticsService.PreviewWindowDays` 定义。
-
-会话结束（按 Q 返回）后，仍会像之前一样汇总本次新增的游玩记录。
 
 ## 拖放添加游戏
 

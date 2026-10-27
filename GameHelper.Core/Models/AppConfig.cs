@@ -1,54 +1,48 @@
 using System.Collections.Generic;
 
-namespace GameHelper.Core.Models
+namespace GameHelper.Core.Models;
+
+/// <summary>
+/// Root configuration model that contains global application settings and game configurations.
+/// </summary>
+public class AppConfig
 {
     /// <summary>
-    /// Root configuration model that contains global application settings and game configurations.
+    /// List of game configurations.
     /// </summary>
-    public class AppConfig
-    {
-        /// <summary>
-        /// List of game configurations.
-        /// </summary>
-        public List<GameConfig> Games { get; set; } = new();
+    public List<GameConfig> Games { get; set; } = new();
 
-        /// <summary>
-        /// Type of process monitor to use. If not specified, defaults to ETW (Event Tracing for Windows).
-        /// ETW provides better performance and lower latency but requires administrator privileges.
-        /// Users can explicitly set this to WMI for backward compatibility or non-admin environments.
-        /// </summary>
-        public ProcessMonitorType ProcessMonitorType { get; set; } = ProcessMonitorType.ETW;
+    /// <summary>
+    /// Type of process monitor to use. If not specified, defaults to ETW (Event Tracing for Windows).
+    /// ETW provides better performance and lower latency but requires administrator privileges.
+    /// Users can explicitly set this to WMI for backward compatibility or non-admin environments.
+    /// </summary>
+    public ProcessMonitorType ProcessMonitorType { get; set; } = ProcessMonitorType.ETW;
 
-        /// <summary>
-        /// When enabled, the interactive shell will automatically start the monitor after launch.
-        /// </summary>
-        public bool AutoStartInteractiveMonitor { get; set; }
+    /// <summary>
+    /// When enabled, GameHelper will register itself to launch automatically on system startup.
+    /// </summary>
+    public bool LaunchOnSystemStartup { get; set; }
 
-        /// <summary>
-        /// When enabled, GameHelper will register itself to launch automatically on system startup.
-        /// </summary>
-        public bool LaunchOnSystemStartup { get; set; }
+    /// <summary>
+    /// Optional Cheat Engine integration settings.
+    /// </summary>
+    public CheatEngineSettings? CheatEngine { get; set; }
 
-        /// <summary>
-        /// Optional Cheat Engine integration settings.
-        /// </summary>
-        public CheatEngineSettings? CheatEngine { get; set; }
+    /// <summary>Optional global foreground-game break reminder configuration.</summary>
+    public BreakReminderSettings? BreakReminder { get; set; }
 
-        /// <summary>Optional global foreground-game break reminder configuration.</summary>
-        public BreakReminderSettings? BreakReminder { get; set; }
+    /// <summary>
+    /// Optional monitor preset-mode automation (DDC/CI switching between a game
+    /// preset during daylight play and a comfort preset otherwise); null means disabled.
+    /// </summary>
+    public MonitorModeSettings? MonitorMode { get; set; }
 
-        /// <summary>
-        /// Optional monitor preset-mode automation (DDC/CI switching between a game
-        /// preset during daylight play and a comfort preset otherwise); null means disabled.
-        /// </summary>
-        public MonitorModeSettings? MonitorMode { get; set; }
+    /// <summary>Optional per-display HDR automation selection.</summary>
+    public HdrSettings? Hdr { get; set; }
 
-        /// <summary>Optional per-display HDR automation selection.</summary>
-        public HdrSettings? Hdr { get; set; }
-
-        /// <summary>
-        /// 统计自动推送配置；null 表示未配置（config.yml 无 sync 段）。
-        /// </summary>
-        public SyncSettings? SyncSettings { get; set; }
-    }
+    /// <summary>
+    /// 统计自动推送配置；null 表示未配置（config.yml 无 sync 段）。
+    /// </summary>
+    public SyncSettings? SyncSettings { get; set; }
 }

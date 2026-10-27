@@ -330,19 +330,8 @@ public sealed class SyncService : ISyncService
                 Directory.CreateDirectory(dir);
             }
 
-            var tempPath = $"{_statePath}.{Guid.NewGuid():N}.tmp";
-            try
-            {
-                File.WriteAllText(tempPath, JsonSerializer.Serialize(state, StateJsonOptions), Encoding.UTF8);
-                File.Move(tempPath, _statePath, overwrite: true);
-            }
-            finally
-            {
-                if (File.Exists(tempPath))
-                {
-                    File.Delete(tempPath);
-                }
-            }
+            AtomicFile.Write(_statePath, tempPath =>
+                File.WriteAllText(tempPath, JsonSerializer.Serialize(state, StateJsonOptions), Encoding.UTF8));
         }
         catch (Exception ex)
         {

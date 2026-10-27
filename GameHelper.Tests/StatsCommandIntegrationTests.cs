@@ -277,7 +277,6 @@ namespace GameHelper.Tests
             provider.Change(config =>
             {
                 config.ProcessMonitorType = source.ProcessMonitorType;
-                config.AutoStartInteractiveMonitor = source.AutoStartInteractiveMonitor;
                 config.LaunchOnSystemStartup = source.LaunchOnSystemStartup;
                 config.Games = source.Games.ToList();
             });

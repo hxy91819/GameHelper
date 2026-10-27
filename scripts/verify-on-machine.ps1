@@ -158,7 +158,6 @@ if (-not $SkipVerify) {
     @"
 monitor: ETW
 startup:
-  autoStartMonitor: false
   launchOnStartup: false
 games:
   - dataKey: verify_smoke
@@ -279,7 +278,7 @@ try {
     }
     $deployed = $true
 
-    # Migrate retired passive-launcher shortcuts back to the normal interactive entry.
+    # Migrate retired passive-launcher shortcuts back to the WPF library entry.
     $launcherExe = Join-Path $publishDir 'GameHelper.Launcher.exe'
     try {
             $shortcutShell = New-Object -ComObject WScript.Shell

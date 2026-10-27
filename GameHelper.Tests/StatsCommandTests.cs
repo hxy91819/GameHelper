@@ -97,16 +97,6 @@ public sealed class StatsCommandTests
         {
             throw new InvalidOperationException("broken file");
         }
-
-        public SessionActivitySnapshot GetSessionActivitySnapshot()
-        {
-            throw new InvalidOperationException("broken file");
-        }
-
-        public SessionActivityPreview GetSessionActivityPreview()
-        {
-            throw new InvalidOperationException("broken file");
-        }
     }
 
     private sealed class EmptyStatisticsService : IStatisticsService
@@ -114,20 +104,6 @@ public sealed class StatsCommandTests
         public IReadOnlyList<GameStatsSummary> GetOverview() => Array.Empty<GameStatsSummary>();
 
         public GameStatsSummary? GetDetails(string dataKeyOrGameName) => null;
-
-        public SessionActivitySnapshot GetSessionActivitySnapshot() => new(
-            new HashSet<SessionActivityKey>(),
-            Array.Empty<SessionActivityRecord>(),
-            string.Empty);
-
-        public SessionActivityPreview GetSessionActivityPreview() => new(
-            Array.Empty<SessionGameSummary>(),
-            Array.Empty<DailyPlaytimeSummary>(),
-            0,
-            StatisticsService.PreviewWindowDays,
-            string.Empty,
-            0,
-            0);
     }
 
     private sealed class RecordingStatisticsService : IStatisticsService
@@ -154,19 +130,5 @@ public sealed class StatsCommandTests
             LastDetailsArgument = dataKeyOrGameName;
             return _details;
         }
-
-        public SessionActivitySnapshot GetSessionActivitySnapshot() => new(
-            new HashSet<SessionActivityKey>(),
-            Array.Empty<SessionActivityRecord>(),
-            string.Empty);
-
-        public SessionActivityPreview GetSessionActivityPreview() => new(
-            Array.Empty<SessionGameSummary>(),
-            Array.Empty<DailyPlaytimeSummary>(),
-            0,
-            StatisticsService.PreviewWindowDays,
-            string.Empty,
-            0,
-            0);
     }
 }

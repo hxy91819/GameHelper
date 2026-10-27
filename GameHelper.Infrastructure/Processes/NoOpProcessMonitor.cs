@@ -3,52 +3,51 @@ using System.Threading;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 
-namespace GameHelper.Infrastructure.Processes
+namespace GameHelper.Infrastructure.Processes;
+
+public class NoOpProcessMonitor : IProcessMonitor
 {
-    public class NoOpProcessMonitor : IProcessMonitor
+    private ProcessObservationPolicy _policy = ProcessObservationPolicy.ObserveAll();
+
+    public event Action<ProcessEventInfo>? ProcessStarted;
+    public event Action<ProcessEventInfo>? ProcessStopped;
+
+    public void Configure(ProcessObservationPolicy policy)
     {
-        private ProcessObservationPolicy _policy = ProcessObservationPolicy.ObserveAll();
+        ArgumentNullException.ThrowIfNull(policy);
+        Volatile.Write(ref _policy, policy);
+    }
 
-        public event Action<ProcessEventInfo>? ProcessStarted;
-        public event Action<ProcessEventInfo>? ProcessStopped;
+    public void Start()
+    {
+        // no-op
+    }
 
-        public void Configure(ProcessObservationPolicy policy)
+    public void Stop()
+    {
+        // no-op
+    }
+
+    public void Dispose()
+    {
+        // no-op
+    }
+
+    // Helpers to simulate events in future tests if needed
+    public void SimulateStart(ProcessEventInfo processInfo)
+    {
+        if (Volatile.Read(ref _policy).Includes(processInfo.ExecutableName))
         {
-            ArgumentNullException.ThrowIfNull(policy);
-            Volatile.Write(ref _policy, policy);
+            ProcessStarted?.Invoke(processInfo);
         }
+    }
 
-        public void Start()
+    public void SimulateStop(ProcessEventInfo processInfo)
+    {
+        var policy = Volatile.Read(ref _policy);
+        if (policy.ObserveStopEvents && policy.Includes(processInfo.ExecutableName))
         {
-            // no-op
-        }
-
-        public void Stop()
-        {
-            // no-op
-        }
-
-        public void Dispose()
-        {
-            // no-op
-        }
-
-        // Helpers to simulate events in future tests if needed
-        public void SimulateStart(ProcessEventInfo processInfo)
-        {
-            if (Volatile.Read(ref _policy).Includes(processInfo.ExecutableName))
-            {
-                ProcessStarted?.Invoke(processInfo);
-            }
-        }
-
-        public void SimulateStop(ProcessEventInfo processInfo)
-        {
-            var policy = Volatile.Read(ref _policy);
-            if (policy.ObserveStopEvents && policy.Includes(processInfo.ExecutableName))
-            {
-                ProcessStopped?.Invoke(processInfo);
-            }
+            ProcessStopped?.Invoke(processInfo);
         }
     }
 }

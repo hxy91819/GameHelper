@@ -122,21 +122,14 @@ public sealed class GameCatalogService : IGameCatalogService
             var identity = request.Executable ?? existing.ExecutableIdentity ??
                 throw new InvalidOperationException($"Game '{dataKey}' has no executable identity.");
 
-            var updated = new GameConfig
-            {
-                DataKey = existing.DataKey,
-                Executable = identity.Value,
-                DisplayName = request.ClearDisplayName ? null : request.DisplayName ?? existing.DisplayName,
-                IsEnabled = request.IsEnabled ?? existing.IsEnabled,
-                HdrEnabled = request.HdrEnabled ?? existing.HdrEnabled,
-                SpeedMultiplier = request.ClearSpeedMultiplier
-                    ? null
-                    : request.SpeedMultiplier ?? existing.SpeedMultiplier,
-                SpeedAttach = existing.SpeedAttach,
-                SpeedHotkeys = request.ClearSpeedHotkeys ? null : request.SpeedHotkeys ?? existing.SpeedHotkeys,
-                Launch = request.ClearLaunch ? null : request.Launch ?? existing.Launch,
-                AddedAt = existing.AddedAt
-            };
+            var updated = existing.Copy();
+            updated.Executable = identity.Value;
+            updated.DisplayName = request.ClearDisplayName ? null : request.DisplayName ?? existing.DisplayName;
+            updated.IsEnabled = request.IsEnabled ?? existing.IsEnabled;
+            updated.HdrEnabled = request.HdrEnabled ?? existing.HdrEnabled;
+            updated.SpeedMultiplier = request.ClearSpeedMultiplier ? null : request.SpeedMultiplier ?? existing.SpeedMultiplier;
+            updated.SpeedHotkeys = request.ClearSpeedHotkeys ? null : request.SpeedHotkeys ?? existing.SpeedHotkeys;
+            updated.Launch = request.ClearLaunch ? null : request.Launch ?? existing.Launch;
 
             SpeedHotkey.Validate(updated.SpeedHotkeys);
             configs[updated.DataKey] = updated;
@@ -179,19 +172,14 @@ public sealed class GameCatalogService : IGameCatalogService
             return new GameCatalogIntakeResult { Entry = ToEntry(existing), WasAdded = false, PreviousExecutablePath = existing.ExecutablePath };
         var previousExecutablePath = existing?.ExecutablePath;
         var dataKey = ResolveDataKey(request, existing, configs.Values);
-        var updated = new GameConfig
-        {
-            DataKey = dataKey,
-            Executable = request.Executable.Value,
-            DisplayName = request.DisplayName ?? existing?.DisplayName,
-            IsEnabled = request.IsEnabled,
-            HdrEnabled = request.HdrEnabled ?? existing?.HdrEnabled ?? false,
-            SpeedMultiplier = request.SpeedMultiplier ?? existing?.SpeedMultiplier,
-            SpeedAttach = existing?.SpeedAttach,
-            SpeedHotkeys = existing?.SpeedHotkeys,
-            Launch = request.Launch ?? existing?.Launch,
-            AddedAt = existing is null ? now : existing.AddedAt
-        };
+        var updated = existing?.Copy() ?? new GameConfig { AddedAt = now };
+        updated.DataKey = dataKey;
+        updated.Executable = request.Executable.Value;
+        updated.DisplayName = request.DisplayName ?? existing?.DisplayName;
+        updated.IsEnabled = request.IsEnabled;
+        updated.HdrEnabled = request.HdrEnabled ?? existing?.HdrEnabled ?? false;
+        updated.SpeedMultiplier = request.SpeedMultiplier ?? existing?.SpeedMultiplier;
+        updated.Launch = request.Launch ?? existing?.Launch;
 
         if (existing is not null &&
             !string.Equals(existing.DataKey, dataKey, StringComparison.OrdinalIgnoreCase))
@@ -270,19 +258,9 @@ public sealed class GameCatalogService : IGameCatalogService
         foreach (var config in configs)
         {
             var dataKey = ConfigIdentity.EnsureUniqueDataKey(config.DataKey, usedDataKeys);
-            result[dataKey] = new GameConfig
-            {
-                DataKey = dataKey,
-                Executable = config.Executable,
-                DisplayName = config.DisplayName,
-                IsEnabled = config.IsEnabled,
-                HdrEnabled = config.HdrEnabled,
-                SpeedMultiplier = config.SpeedMultiplier,
-                SpeedAttach = config.SpeedAttach,
-                SpeedHotkeys = config.SpeedHotkeys,
-                Launch = config.Launch,
-                AddedAt = config.AddedAt
-            };
+            var copy = config.Copy();
+            copy.DataKey = dataKey;
+            result[dataKey] = copy;
         }
 
         return result;

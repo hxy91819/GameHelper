@@ -1,4 +1,4 @@
-﻿using GameHelper.Core.Abstractions;
+using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Services;
 
@@ -6,23 +6,7 @@ namespace GameHelper.Tests;
 
 public sealed class CoreApplicationServicesTests
 {
-    [Fact]
-    public void SettingsService_Update_ShouldPersistSnapshot()
-    {
-        var provider = new FakeGameConfiguration();
-        var service = new SettingsService(provider);
-
-        var updated = service.Update(new UpdateAppSettingsRequest
-        {
-            ProcessMonitorType = ProcessMonitorType.WMI,
-            AutoStartInteractiveMonitor = true,
-            LaunchOnSystemStartup = true
-        });
-
-        Assert.Equal(ProcessMonitorType.WMI, updated.ProcessMonitorType);
-        Assert.True(updated.AutoStartInteractiveMonitor);
-        Assert.True(updated.LaunchOnSystemStartup);
-    }
+    private static readonly TimeProvider Clock = new FixedClock(new DateTimeOffset(2026, 10, 17, 12, 0, 0, TimeSpan.Zero));
 
     [Fact]
     public void GameCatalogService_IntakeUpdateRemove_CommitOncePerOperation()
@@ -140,8 +124,7 @@ public sealed class CoreApplicationServicesTests
     {
         var configuration = new FakeGameConfiguration(new AppConfig
         {
-            ProcessMonitorType = ProcessMonitorType.WMI,
-            AutoStartInteractiveMonitor = true
+            ProcessMonitorType = ProcessMonitorType.WMI
         });
         var service = new GameCatalogService(configuration);
 
@@ -154,7 +137,6 @@ public sealed class CoreApplicationServicesTests
         Assert.Equal(2, results.Count);
         Assert.Equal(1, configuration.ChangeCount);
         Assert.Equal(ProcessMonitorType.WMI, configuration.Read().ProcessMonitorType);
-        Assert.True(configuration.Read().AutoStartInteractiveMonitor);
     }
 
     [Fact]
@@ -170,7 +152,7 @@ public sealed class CoreApplicationServicesTests
             }]
         });
 
-        var now = DateTime.Now;
+        var now = Clock.GetLocalNow().DateTime;
         var snapshot = new FakePlaytimeSnapshotProvider
         {
             Records = new List<GamePlaytimeRecord>
@@ -187,7 +169,7 @@ public sealed class CoreApplicationServicesTests
             }
         };
 
-        var service = new StatisticsService(snapshot, provider);
+        var service = new StatisticsService(snapshot, provider, Clock);
         var overview = service.GetOverview();
 
         Assert.Single(overview);
@@ -209,7 +191,7 @@ public sealed class CoreApplicationServicesTests
             }]
         });
 
-        var now = DateTime.Now;
+        var now = Clock.GetLocalNow().DateTime;
         var snapshot = new FakePlaytimeSnapshotProvider
         {
             Records = new List<GamePlaytimeRecord>
@@ -225,272 +207,12 @@ public sealed class CoreApplicationServicesTests
             }
         };
 
-        var service = new StatisticsService(snapshot, provider);
+        var service = new StatisticsService(snapshot, provider, Clock);
         var overview = service.GetOverview();
 
         Assert.Single(overview);
         Assert.Equal("wh40krt", overview[0].GameName);
         Assert.Equal("Warhammer 40,000: Rogue Trader", overview[0].DisplayName);
-    }
-
-    [Fact]
-    public void StatisticsService_GetSessionActivitySnapshot_ShouldResolveDisplayNames()
-    {
-        var provider = new FakeGameConfiguration(new AppConfig
-        {
-            Games = [new()
-            {
-                DataKey = "game-key",
-                Executable = "game.exe",
-                DisplayName = "Game Display"
-            }]
-        });
-
-        var started = new DateTime(2024, 1, 1, 20, 0, 0, DateTimeKind.Unspecified);
-        var snapshot = new FakePlaytimeSnapshotProvider
-        {
-            Snapshot = new PlaytimeSnapshot(
-                new List<GamePlaytimeRecord>
-                {
-                    new()
-                    {
-                        GameName = "game-key",
-                        Sessions =
-                        {
-                            new PlaySession("game-key", started, started.AddMinutes(30), TimeSpan.FromMinutes(30), 30)
-                        }
-                    }
-                },
-                @"C:\GameHelper\playtime.csv")
-        };
-
-        var service = new StatisticsService(snapshot, provider);
-        var activity = service.GetSessionActivitySnapshot();
-
-        var record = Assert.Single(activity.Records);
-        Assert.Equal("Game Display", record.DisplayName);
-        Assert.Equal(@"C:\GameHelper\playtime.csv", activity.Source);
-        Assert.Contains(record.Key, activity.Keys);
-    }
-
-    [Fact]
-    public void StatisticsService_GetSessionActivityPreview_ShouldAggregateRecentSessionsByGame()
-    {
-        var provider = new FakeGameConfiguration(new AppConfig
-        {
-            Games =
-            [
-                new() { DataKey = "game-key", Executable = "game.exe", DisplayName = "Game Display" },
-                new() { DataKey = "other-key", Executable = "other.exe", DisplayName = "Other Game" }
-            ]
-        });
-
-        var today = DateTime.Now.Date;
-        var utcSessionLocal = today.AddDays(-1).AddHours(12);
-        var utcSessionUtc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(utcSessionLocal, DateTimeKind.Unspecified));
-        var snapshot = new FakePlaytimeSnapshotProvider
-        {
-            Records = new List<GamePlaytimeRecord>
-            {
-                new()
-                {
-                    GameName = "game-key",
-                    Sessions =
-                    {
-                        new PlaySession("game-key", today.AddDays(-2).AddHours(20), today.AddDays(-2).AddHours(21), TimeSpan.FromHours(1), 60),
-                        new PlaySession("game-key", today.AddDays(-3).AddHours(20), today.AddDays(-3).AddHours(20).AddMinutes(30), TimeSpan.FromMinutes(30), 30),
-                        new PlaySession("game-key", today.AddDays(-4).AddHours(20), today.AddDays(-4).AddHours(20).AddMinutes(45), TimeSpan.FromMinutes(45), 45),
-                        // UTC 会话：由“本地归属日 = 昨天”反推 UTC 时间，跨午夜/时区时归属日恒定
-                        new PlaySession(
-                            "game-key",
-                            utcSessionUtc.AddHours(-1),
-                            utcSessionUtc,
-                            TimeSpan.FromMinutes(30),
-                            30),
-                        // 窗口外的旧会话应被排除（窗口为 60 天，-20 天已在窗口内，改用 -90 天）
-                        new PlaySession("game-key", today.AddDays(-90).AddHours(20), today.AddDays(-90).AddHours(21).AddMinutes(30), TimeSpan.FromMinutes(90), 90)
-                    }
-                },
-                new()
-                {
-                    GameName = "other-key",
-                    Sessions =
-                    {
-                        new PlaySession("other-key", today.AddDays(-2).AddHours(22), today.AddDays(-2).AddHours(22).AddMinutes(20), TimeSpan.FromMinutes(20), 20)
-                    }
-                }
-            }
-        };
-
-        var service = new StatisticsService(snapshot, provider);
-        var preview = service.GetSessionActivityPreview();
-
-        Assert.Equal(5, preview.SessionCount);
-        Assert.Equal(StatisticsService.PreviewWindowDays, preview.WindowDays);
-        Assert.Equal(2, preview.Games.Count);
-
-        var first = preview.Games[0];
-        Assert.Equal("game-key", first.GameName);
-        Assert.Equal("Game Display", first.DisplayName);
-        Assert.Equal(4, first.SessionCount);
-        Assert.Equal(165, first.TotalMinutes);
-        Assert.Equal(20, preview.Games[1].TotalMinutes);
-
-        Assert.Equal(StatisticsService.PreviewWindowDays, preview.DailyTrend.Count);
-        Assert.Equal(today.AddDays(-(StatisticsService.PreviewWindowDays - 1)), preview.DailyTrend[0].Date);
-        Assert.Equal(80, Assert.Single(preview.DailyTrend, day => day.Date == today.AddDays(-2)).Minutes);
-        Assert.Equal(30, Assert.Single(preview.DailyTrend, day => day.Date == today.AddDays(-3)).Minutes);
-        Assert.Equal(45, Assert.Single(preview.DailyTrend, day => day.Date == today.AddDays(-4)).Minutes);
-
-        // UTC 会话按本地日期归属，此处构造时即锚定在昨天
-        Assert.Equal(30, Assert.Single(preview.DailyTrend, day => day.Date == utcSessionLocal.Date).Minutes);
-        Assert.Equal(185, preview.DailyTrend.Sum(day => day.Minutes));
-
-        // 窗口内会话全部落在后半（近段），前半（早段）无游玩
-        Assert.Equal(0, preview.PreviousHalfGames);
-        Assert.Equal(2, preview.RecentHalfGames);
-    }
-
-    [Fact]
-    public void StatisticsService_GetSessionActivityPreview_ShouldCountDistinctGamesPerWindowHalf()
-    {
-        // 窗口 60 天对半分：早段=前 30 天，近段=后 30 天（与渲染端 CompareHalves 划分一致）。
-        // alpha 两半窗都玩；beta 只在早段；gamma 只在近段；窗口外的旧会话不参与分桶。
-        var provider = new FakeGameConfiguration(new AppConfig
-        {
-            Games =
-            [
-                new() { DataKey = "alpha", Executable = "alpha.exe", DisplayName = "Alpha" },
-                new() { DataKey = "beta", Executable = "beta.exe", DisplayName = "Beta" },
-                new() { DataKey = "gamma", Executable = "gamma.exe", DisplayName = "Gamma" },
-                new() { DataKey = "outside", Executable = "outside.exe", DisplayName = "Outside" }
-            ]
-        });
-
-        var today = DateTime.Now.Date;
-        var snapshot = new FakePlaytimeSnapshotProvider
-        {
-            Records = new List<GamePlaytimeRecord>
-            {
-                new()
-                {
-                    GameName = "alpha",
-                    Sessions =
-                    {
-                        new PlaySession("alpha", today.AddDays(-45).AddHours(20), today.AddDays(-45).AddHours(21), TimeSpan.FromHours(1), 60),
-                        new PlaySession("alpha", today.AddHours(-3), today.AddHours(-2), TimeSpan.FromHours(1), 60)
-                    }
-                },
-                new()
-                {
-                    GameName = "beta",
-                    Sessions = { new PlaySession("beta", today.AddDays(-45).AddHours(20), today.AddDays(-45).AddHours(21), TimeSpan.FromHours(1), 60) }
-                },
-                new()
-                {
-                    GameName = "gamma",
-                    Sessions = { new PlaySession("gamma", today.AddHours(-3), today.AddHours(-2), TimeSpan.FromHours(1), 60) }
-                },
-                new()
-                {
-                    GameName = "outside",
-                    Sessions = { new PlaySession("outside", today.AddDays(-90).AddHours(20), today.AddDays(-90).AddHours(21), TimeSpan.FromHours(1), 60) }
-                }
-            }
-        };
-
-        var service = new StatisticsService(snapshot, provider);
-        var preview = service.GetSessionActivityPreview();
-
-        Assert.Equal(4, preview.SessionCount);
-        Assert.Equal(2, preview.PreviousHalfGames);
-        Assert.Equal(2, preview.RecentHalfGames);
-        // 同一游戏跨半窗只计一次；全窗口 Game 表仍仅含 alpha/beta/gamma 三款（outside 全程窗口外，被排除）。
-        Assert.Equal(3, preview.Games.Count);
-    }
-
-    [Fact]
-    public void StatisticsService_GetSessionActivityPreview_ShouldOrderByLastPlayedThenTotalMinutes()
-    {
-        var provider = new FakeGameConfiguration(new AppConfig
-        {
-            Games =
-            [
-                new() { DataKey = "recent-short", Executable = "recent-short.exe", DisplayName = "Recent Short" },
-                new() { DataKey = "middle-long", Executable = "middle-long.exe", DisplayName = "Middle Long" },
-                new() { DataKey = "oldest", Executable = "oldest.exe", DisplayName = "Oldest" }
-            ]
-        });
-
-        var today = DateTime.Now.Date;
-        var snapshot = new FakePlaytimeSnapshotProvider
-        {
-            Records = new List<GamePlaytimeRecord>
-            {
-                // 最近游玩时间最晚但总时长最短 → 应排第一
-                new()
-                {
-                    GameName = "recent-short",
-                    Sessions = { new PlaySession("recent-short", today.AddHours(-3), today.AddHours(-2), TimeSpan.FromHours(1), 60) }
-                },
-                // 最近游玩时间居中但总时长最长 → 应排第二
-                new()
-                {
-                    GameName = "middle-long",
-                    Sessions =
-                    {
-                        new PlaySession("middle-long", today.AddDays(-2).AddHours(20), today.AddDays(-2).AddHours(23), TimeSpan.FromHours(3), 180),
-                        new PlaySession("middle-long", today.AddDays(-3).AddHours(20), today.AddDays(-3).AddHours(23), TimeSpan.FromHours(3), 180)
-                    }
-                },
-                // 最近游玩时间最早 → 应排最后
-                new()
-                {
-                    GameName = "oldest",
-                    Sessions = { new PlaySession("oldest", today.AddDays(-5).AddHours(20), today.AddDays(-5).AddHours(21), TimeSpan.FromHours(1), 60) }
-                }
-            }
-        };
-
-        var service = new StatisticsService(snapshot, provider);
-        var preview = service.GetSessionActivityPreview();
-
-        Assert.Equal(
-            new[] { "recent-short", "middle-long", "oldest" },
-            preview.Games.Select(game => game.GameName).ToArray());
-    }
-
-    [Fact]
-    public void StatisticsService_GetSessionActivityPreview_ShouldReturnEmptyGames_WhenAllSessionsOutOfWindow()
-    {
-        var provider = new FakeGameConfiguration(new AppConfig
-        {
-            Games = [new() { DataKey = "game-key", Executable = "game.exe", DisplayName = "Game Display" }]
-        });
-
-        var today = DateTime.Now.Date;
-        var snapshot = new FakePlaytimeSnapshotProvider
-        {
-            Records = new List<GamePlaytimeRecord>
-            {
-                new()
-                {
-                    GameName = "game-key",
-                    Sessions =
-                    {
-                        new PlaySession("game-key", today.AddDays(-90).AddHours(20), today.AddDays(-90).AddHours(21), TimeSpan.FromHours(1), 60)
-                    }
-                }
-            }
-        };
-
-        var service = new StatisticsService(snapshot, provider);
-        var preview = service.GetSessionActivityPreview();
-
-        Assert.Empty(preview.Games);
-        Assert.Equal(0, preview.SessionCount);
-        Assert.Equal(StatisticsService.PreviewWindowDays, preview.DailyTrend.Count);
-        Assert.All(preview.DailyTrend, day => Assert.Equal(0, day.Minutes));
     }
 
     [Fact]
@@ -506,6 +228,7 @@ public sealed class CoreApplicationServicesTests
             }]
         });
 
+        var now = Clock.GetLocalNow().DateTime;
         var snapshot = new FakePlaytimeSnapshotProvider
         {
             Records = new List<GamePlaytimeRecord>
@@ -515,13 +238,13 @@ public sealed class CoreApplicationServicesTests
                     GameName = "game-key",
                     Sessions =
                     {
-                        new PlaySession("game-key", DateTime.Now.AddMinutes(-30), DateTime.Now, TimeSpan.FromMinutes(30), 30)
+                        new PlaySession("game-key", now.AddMinutes(-30), now, TimeSpan.FromMinutes(30), 30)
                     }
                 }
             }
         };
 
-        var service = new StatisticsService(snapshot, provider);
+        var service = new StatisticsService(snapshot, provider, Clock);
         var details = service.GetDetails("game-key");
 
         Assert.NotNull(details);
@@ -540,7 +263,7 @@ public sealed class CoreApplicationServicesTests
             ]
         });
 
-        var now = DateTime.Now;
+        var now = Clock.GetLocalNow().DateTime;
         var snapshot = new FakePlaytimeSnapshotProvider
         {
             Records = new List<GamePlaytimeRecord>
@@ -568,7 +291,7 @@ public sealed class CoreApplicationServicesTests
             }
         };
 
-        var service = new StatisticsService(snapshot, provider);
+        var service = new StatisticsService(snapshot, provider, Clock);
         var overview = service.GetOverview();
 
         Assert.Equal(2, overview.Count);
@@ -621,7 +344,6 @@ public sealed class CoreApplicationServicesTests
             return new AppConfig
             {
                 ProcessMonitorType = source.ProcessMonitorType,
-                AutoStartInteractiveMonitor = source.AutoStartInteractiveMonitor,
                 LaunchOnSystemStartup = source.LaunchOnSystemStartup,
                 Games = source.Games?.Select(config => new GameConfig
                 {
@@ -691,5 +413,12 @@ public sealed class CoreApplicationServicesTests
         {
             StopCalled = true;
         }
+    }
+
+    private sealed class FixedClock(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
     }
 }

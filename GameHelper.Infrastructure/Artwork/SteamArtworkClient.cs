@@ -1,3 +1,4 @@
+using GameHelper.Core.Utilities;
 using System.Net.Http;
 using System.Text.Json;
 
@@ -181,13 +182,8 @@ public sealed class SteamArtworkClient(HttpClient http, string cacheDirectory,
                     var bytes = await ReadAsync(url, ImageLimit, timeout.Token, image: true);
                     if (!validateImage(bytes)) continue;
                     Directory.CreateDirectory(cacheDirectory);
-                    var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                    try
-                    {
-                        await File.WriteAllBytesAsync(temporary, bytes, timeout.Token);
-                        File.Move(temporary, path, true);
-                    }
-                    finally { if (File.Exists(temporary)) File.Delete(temporary); }
+                    await AtomicFile.WriteAsync(path, temporary =>
+                        File.WriteAllBytesAsync(temporary, bytes, timeout.Token));
                     if (File.Exists(failed)) File.Delete(failed);
                     return path;
                 }

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using GameHelper.ConsoleHost;
@@ -6,6 +7,7 @@ using GameHelper.ConsoleHost.Commands;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
+using GameHelper.Infrastructure.Notifications;
 using Microsoft.Extensions.DependencyInjection;
 
 // Parse command line arguments
@@ -14,9 +16,21 @@ using var backgroundOutput = parsedArgs.Background ? BackgroundConsoleOutput.Ope
 if (!parsedArgs.Background) ConsoleEncoding.EnsureUtf8();
 var isFileDropRequest = FileDropHandler.LooksLikeFilePaths(parsedArgs.EffectiveArgs);
 
-// 正常打开交互窗口，条件允许时尽早交给 Windows Terminal；否则保留当前控制台。
-if (!parsedArgs.Background && WindowsTerminalHost.TryRelaunch(args, isFileDropRequest))
+// No command: open the WPF library, which connects to (or starts) the background runtime itself.
+// Only a bare invocation (optionally with --config) takes this path; any other global option or
+// sub-command keeps the console behavior below so it is not silently swallowed.
+if (StartupModeResolver.ShouldOpenLibrary(parsedArgs))
 {
+    try
+    {
+        using var library = Process.Start(SystemTrayLogic.LibraryStartInfo(AppContext.BaseDirectory, parsedArgs.ConfigOverride, File.Exists));
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Failed to open the GameHelper library: {ex.Message}");
+        Environment.Exit(1);
+    }
+
     return;
 }
 
@@ -64,9 +78,9 @@ try
 
     try
     {
-        var persistentHost = !isFileDropRequest && (parsedArgs.UseInteractiveShell || parsedArgs.EffectiveArgs.Length == 0
-            || parsedArgs.EffectiveArgs[0].Equals("monitor", StringComparison.OrdinalIgnoreCase)
-            || parsedArgs.EffectiveArgs[0].Equals("interactive", StringComparison.OrdinalIgnoreCase));
+        var persistentHost = !isFileDropRequest
+            && parsedArgs.EffectiveArgs.Length > 0
+            && parsedArgs.EffectiveArgs[0].Equals("monitor", StringComparison.OrdinalIgnoreCase);
         if (persistentHost)
         {
             var autoStartManager = host.Services.GetRequiredService<IAutoStartManager>();

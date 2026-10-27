@@ -115,7 +115,7 @@ Remove-Item Env:GAMEHELPER_TEST_PUBLISH_EXE
 
 每次功能或修复完成都须实际更新本机。日常入口是 WPF，后台 ConsoleHost 不显示窗口。验收没有可见 Console / Terminal 窗口，并确认运行时的 ETW 会话和游戏库 IPC；WMI 配置验证 WMI 进程事件。仅确认 PID 存活不足以完成交付。
 
-后台窗口核验使用 `scripts/probe-console-window.ps1 -TargetProcessId <pid> -RequireNoConsole`，没有控制台或仅有不可见兼容对象时成功；控制台自身和其 Terminal owner 都必须不可见。探针运行在独立进程中。手动旧交互验收省略该开关，仍要求窗口可见；不能用 `Process.MainWindowHandle` 代替控制台检查。
+后台窗口核验使用 `scripts/probe-console-window.ps1 -TargetProcessId <pid> -RequireNoConsole`，没有控制台或仅有不可见兼容对象时成功；控制台自身和其 Terminal owner 都必须不可见。探针运行在独立进程中。旧 Console 交互入口已移除，不再需要可见窗口验收；不能用 `Process.MainWindowHandle` 代替控制台检查。
 
 ### 5. 收尾：commit 并 push（常驻授权）
 
@@ -141,13 +141,13 @@ Remove-Item Env:GAMEHELPER_TEST_PUBLISH_EXE
 
 `ConsoleHost` 在 **stdout 被管道捕获且没有真实控制台** 的场景下启动即卡死（零输出）。自动化拉起实例（测试实例或正式实例皆然）不要用捕获 stdout 的方式（如 `exe | tee`、`subprocess.run(capture_output=True)`），应改用 `Start-Process`（不经由当前管道）或 `cmd /c ... > 日志文件 2>&1` 的文件重定向，并通过轮询日志文件 / 进程存活来确认启动成功。
 
-后台运行时由 WPF 无窗口引导，以 `CreateNoWindow` 拉起并把输出写入配置旁日志。后台发布回归调用实际部署启动函数，检查无可见窗口、重复启动复用同一 PID、IPC 和 ETW/CSV。旧 `PublishedInteractiveStartupTests` 只有设置 `GAMEHELPER_TEST_VISIBLE_CONSOLE=1` 时运行，默认测试不会弹出 Console。
+后台运行时由 WPF 无窗口引导，以 `CreateNoWindow` 拉起并把输出写入配置旁日志。后台发布回归调用实际部署启动函数，检查无可见窗口、重复启动复用同一 PID、IPC 和 ETW/CSV。可见旧 Console 入口已移除，默认测试不会弹出 Console。
 
 ## 功能级验证要求
 
-除上述通用流程外，涉及用户可见界面的改动（如交互式 Shell 渲染）还应：
+除上述通用流程外，涉及用户可见界面的改动（如 WPF 游戏库渲染）还应：
 
-- 用沙盒数据目录 + `--config` 参数或预置 `playtime.csv` 驱动真实渲染路径，人工确认输出版面。
+- 用沙盒数据目录 + `--config` 参数或预置 `playtime.csv` 驱动真实 WPF/CLI 渲染路径，人工确认输出版面。
 - 保留或新增对应的自动化测试断言，确保后续回归有安全网。
 
 ### WPF 与后台启动入口
@@ -156,6 +156,6 @@ Remove-Item Env:GAMEHELPER_TEST_PUBLISH_EXE
 
 E2E 监控测试的共享启动助手也必须显式传入 `monitor --background`，不能只隐藏外层 cmd（不能据此保证内部监控进程没有可见控制台）。测试助手复用正式 `BackgroundRuntime.CreateStartInfo`，直接启动后台宿主，不再包装 cmd；读取配置旁 `.runtime.log` 判断就绪；ETW 落盘回归同时通过独立控制台探针断言无可见窗口。
 
-所有自动辅助启动使用隐藏窗口或无控制台参数。CE 和 DS4Windows 请求 Hidden；真实游戏启动仍遵循用户入口。端到端游戏替身必须是 winexe 无窗口程序，不能把 cmd.exe 作为待启动游戏；其启动经过真实 ShellExecute 时仍会分配控制台。可见旧 Console 测试保持显式 opt-in。
+所有自动辅助启动使用隐藏窗口或无控制台参数。CE 和 DS4Windows 请求 Hidden；真实游戏启动仍遵循用户入口。端到端游戏替身必须是 winexe 无窗口程序，不能把 cmd.exe 作为待启动游戏；其启动经过真实 ShellExecute 时仍会分配控制台。
 
 WPF `--snapshot` 在屏幕外渲染，不激活、不显示任务栏按钮；沙盒中的长驻 UI 下载验证设置 `GAMEHELPER_TEST_OFFSCREEN=1` 也使用相同位置，测试对话框同步放到屏幕外。该测试开关只在存在 `GAMEHELPER_DATA_DIR` 时生效。

@@ -93,7 +93,6 @@ namespace GameHelper.Tests
             {
                 Games = source.Games.Select(CloneGame).ToList(),
                 ProcessMonitorType = source.ProcessMonitorType,
-                AutoStartInteractiveMonitor = source.AutoStartInteractiveMonitor,
                 LaunchOnSystemStartup = source.LaunchOnSystemStartup
             };
 
@@ -416,29 +415,6 @@ namespace GameHelper.Tests
 
             Assert.Equal(1, play.StartCalls);
         }
-
-        [Fact]
-        public void RelativePath_ResolvedToAbsolute()
-        {
-            var monitor = new FakeMonitor();
-            var fullPath = System.IO.Path.GetFullPath("game.exe");
-            var cfg = new FakeConfig(new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["rel"] = new()
-                {
-                    DataKey = "rel",
-                    Executable = fullPath,
-                    IsEnabled = true
-                }
-            });
-            var play = new FakePlayTime();
-            CreateService(monitor, cfg, new FakeHdr(), play);
-
-            monitor.RaiseStart(new ProcessEventInfo("game.exe", "game.exe"));
-
-            Assert.Equal(1, play.StartCalls);
-        }
-
 
         [Fact]
         public void MultipleProcesses_DifferentPaths_StopOne_KeepsOtherActive()

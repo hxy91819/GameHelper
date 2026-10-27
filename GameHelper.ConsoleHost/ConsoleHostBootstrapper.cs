@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using GameHelper.ConsoleHost.Interactive;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
@@ -104,9 +103,10 @@ public static class ConsoleHostBootstrapper
             services.AddSingleton<IMonitorModeController, DdcMonitorModeController>();
             services.AddSingleton<IProcessIdentityProbe, WindowsProcessIdentityProbe>();
             services.AddSingleton<IUserLocationSource, WindowsLocationProvider>();
-            services.AddSingleton<ILocationCacheStore>(_ => new JsonLocationCacheStore(
+            services.AddSingleton<ILocationCacheStore>(sp => new JsonLocationCacheStore(
                 AppDataPath.GetLocationCachePath(),
-                _.GetRequiredService<ILoggerFactory>().CreateLogger<JsonLocationCacheStore>()));
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<JsonLocationCacheStore>(),
+                sp.GetRequiredService<TimeProvider>()));
             services.AddSingleton<IInFlightSessionStore>(_ => new JsonInFlightSessionStore(
                 AppDataPath.GetInFlightSessionsPath(),
                 _.GetRequiredService<ILoggerFactory>().CreateLogger<JsonInFlightSessionStore>()));

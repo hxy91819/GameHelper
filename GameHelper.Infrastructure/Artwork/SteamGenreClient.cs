@@ -1,3 +1,4 @@
+using GameHelper.Core.Utilities;
 using System.Net.Http;
 using System.Text.Json;
 
@@ -59,15 +60,14 @@ public sealed class SteamGenreClient(HttpClient http, string cacheDirectory, Tim
             catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException or KeyNotFoundException or InvalidOperationException or OperationCanceledException) { }
             finally { _nextRequest = _clock.GetUtcNow().AddSeconds(1); }
             var updated = new Cache(_clock.GetUtcNow(), genres is null ? cached?.SucceededAt : _clock.GetUtcNow(), genres ?? cached?.Genres ?? []);
-            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
                 Directory.CreateDirectory(cacheDirectory);
-                await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(updated), cancellationToken).ConfigureAwait(false);
-                File.Move(temporary, path, true);
+                await AtomicFile.WriteAsync(path, temporary =>
+                    File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(updated), cancellationToken),
+                    cleanup: temporary => { try { if (File.Exists(temporary)) File.Delete(temporary); } catch (IOException) { } catch (UnauthorizedAccessException) { } }).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-            finally { try { if (File.Exists(temporary)) File.Delete(temporary); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
             return updated.Genres;
         }
         finally { _gate.Release(); }

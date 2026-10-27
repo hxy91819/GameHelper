@@ -16,7 +16,7 @@ Already covered:
 
 - Core service orchestration around `GameAutomationService`, including path matching, fuzzy matching, HDR scheduling, and multi-process reference counting.
 - Monitor lifecycle symmetry in `MonitorControlService`.
-- Config provider roundtrips for YAML and JSON game entries.
+- Config provider roundtrips for YAML game entries.
 - File-drop request serialization and reload behaviour.
 - Statistics aggregation and display-name resolution.
 - Dependency direction from infrastructure and shells toward core.
@@ -26,7 +26,7 @@ Added in this stage:
 - YAML `Save()` preserves global app settings when replacing the game list.
 - `GameAutomationService` is covered with the current CSV-backed playtime adapter, proving matched `DataKey` values are persisted to `playtime.csv`.
 - Console host DI composition is covered through `ConsoleHostBootstrapper`, including config override and monitor dry-run registration.
-- Non-interactive CLI command dispatch is covered through `ConsoleCommandDispatcher`, avoiding process-level side effects while still testing command routing.
+- CLI command dispatch is covered through `ConsoleCommandDispatcher`, avoiding process-level side effects while still testing command routing.
 - Local Markdown links in `docs/` and `README.md` must remain valid while documents are archived or rewritten.
 
 Still recommended before deeper refactors:

@@ -4,42 +4,41 @@ using GameHelper.Core.Abstractions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace GameHelper.ConsoleHost
+namespace GameHelper.ConsoleHost;
+
+public class Worker : BackgroundService
 {
-    public class Worker : BackgroundService
+    private readonly ILogger<Worker> _logger;
+    private readonly IMonitorControlService _monitorControlService;
+
+    private readonly ISystemTrayService? _tray;
+
+    public Worker(
+        ILogger<Worker> logger,
+        IMonitorControlService monitorControlService,
+        ISystemTrayService? tray = null)
     {
-        private readonly ILogger<Worker> _logger;
-        private readonly IMonitorControlService _monitorControlService;
+        _logger = logger;
+        _monitorControlService = monitorControlService;
+        _tray = tray;
+    }
 
-        private readonly ISystemTrayService? _tray;
-
-        public Worker(
-            ILogger<Worker> logger,
-            IMonitorControlService monitorControlService,
-            ISystemTrayService? tray = null)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        _logger.LogInformation("GameHelper ConsoleHost started");
+        try
         {
-            _logger = logger;
-            _monitorControlService = monitorControlService;
-            _tray = tray;
+            _monitorControlService.Start();
+            _tray?.Start();
+            await Task.Delay(Timeout.Infinite, stoppingToken);
         }
-
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        finally
         {
-            _logger.LogInformation("GameHelper ConsoleHost started");
-            try
-            {
-                _monitorControlService.Start();
-                _tray?.Start();
-                await Task.Delay(Timeout.Infinite, stoppingToken);
-            }
+            try { _tray?.Stop(); }
             finally
             {
-                try { _tray?.Stop(); }
-                finally
-                {
-                    _monitorControlService.Stop();
-                    _logger.LogInformation("GameHelper ConsoleHost stopping");
-                }
+                _monitorControlService.Stop();
+                _logger.LogInformation("GameHelper ConsoleHost stopping");
             }
         }
     }

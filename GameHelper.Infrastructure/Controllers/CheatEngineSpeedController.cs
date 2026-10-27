@@ -138,22 +138,13 @@ public sealed class CheatEngineSpeedController : IGameSpeedController
                 new XElement("UserdefinedSymbols"),
                 new XElement("LuaScript", new XCData(lua))));
 
-        var tempPath = path + ".tmp";
-        try
+        AtomicFile.Write(path, tempPath =>
         {
             using (var writer = new StreamWriter(tempPath, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
             {
                 document.Save(writer);
             }
-            File.Move(tempPath, path, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(tempPath))
-            {
-                File.Delete(tempPath);
-            }
-        }
+        }, temporaryPath: path + ".tmp");
     }
 
     private void DeleteExpiredTables()

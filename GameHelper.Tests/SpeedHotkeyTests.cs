@@ -74,14 +74,12 @@ public sealed class SpeedHotkeyTests
         });
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Providers_RoundtripHotkeysAndCatalogEditsPreserveAndClearThem(bool json)
+    [Fact]
+    public void Provider_RoundtripsHotkeysAndCatalogEditsPreserveAndClearThem()
     {
         WithConfig(path =>
         {
-            GameHelper.Core.Abstractions.IGameConfiguration provider = json ? new JsonConfigProvider(path) : new YamlConfigProvider(path);
+            GameHelper.Core.Abstractions.IGameConfiguration provider = new YamlConfigProvider(path);
             provider.Change(config => config.Games = [new()
             {
                 DataKey = "game", Executable = "game.exe", SpeedMultiplier = 2,

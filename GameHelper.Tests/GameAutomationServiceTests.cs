@@ -9,6 +9,7 @@ using GameHelper.Core.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using Moq;
 using CoreGameConfig = GameHelper.Core.Models.GameConfig;
 
 namespace GameHelper.Tests
@@ -95,20 +96,6 @@ namespace GameHelper.Tests
         }
     }
 
-    file sealed class FakeIdentityProbe : IProcessIdentityProbe
-    {
-        private readonly Func<int, (bool Found, string? ImagePath)> _behavior;
-
-        public FakeIdentityProbe(Func<int, (bool Found, string? ImagePath)> behavior) => _behavior = behavior;
-
-        public bool TryGetImagePath(int processId, out string? imagePath)
-        {
-            var (found, image) = _behavior(processId);
-            imagePath = image;
-            return found;
-        }
-    }
-
     file sealed class FakeLauncher : IGameLauncher
     {
         public int Starts { get; private set; }
@@ -148,6 +135,27 @@ namespace GameHelper.Tests
         }
     }
 
+    file sealed class AttachBarrierLogger : ILogger<GameAutomationService>, IDisposable
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Cancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public ManualResetEventSlim Release { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel level) => true;
+        public void Log<TState>(LogLevel level, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            var message = formatter(state, exception);
+            if (message.Contains("attaching speed now", StringComparison.Ordinal))
+            {
+                Entered.TrySetResult();
+                if (!Release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("Attach barrier was not released");
+            }
+            if (message.Contains("Deferred speed attach cancelled", StringComparison.Ordinal)) Cancelled.TrySetResult();
+        }
+        public void Dispose() => Release.Dispose();
+    }
+
     file sealed class ListLogger<T> : ILogger<T>
     {
         private sealed class NullScope : IDisposable
@@ -182,7 +190,6 @@ namespace GameHelper.Tests
         {
             Games = source.Games.Select(CloneGame).ToList(),
             ProcessMonitorType = source.ProcessMonitorType,
-            AutoStartInteractiveMonitor = source.AutoStartInteractiveMonitor,
             LaunchOnSystemStartup = source.LaunchOnSystemStartup,
             MonitorMode = source.MonitorMode,
             CheatEngine = source.CheatEngine
@@ -249,6 +256,350 @@ namespace GameHelper.Tests
 
     public class GameAutomationServiceTests
     {
+        [Fact]
+        public async Task Stop_CallbackPastCancellationCheck_CannotAttachOrRepopulateRecords()
+        {
+            using var logger = new AttachBarrierLogger();
+            var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var speed = new Mock<IGameSpeedController>();
+            speed.Setup(c => c.ApplySpeed(It.IsAny<int>(), It.IsAny<double>())).Returns(() =>
+            {
+                applied.TrySetResult();
+                return true;
+            });
+            var coordinator = new SpeedAttachmentCoordinator(speed.Object, TimeProvider.System, logger, null,
+                TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(30));
+            var exePath = CreateModdedGameDirectory("Stopped.exe");
+            var directory = Path.GetDirectoryName(exePath)!;
+            try
+            {
+                coordinator.ApplyConfiguredSpeed(new CoreGameConfig { DataKey = "stopped", SpeedMultiplier = 2 },
+                    151, exePath, DateTime.UtcNow.AddMinutes(-1));
+                AppendChainloaderMarker(exePath);
+                await logger.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                coordinator.CancelAll();
+                coordinator.ClearRecords();
+                logger.Release.Set();
+                // Observe the completed cancellation path, or the buggy attach, before assertions.
+                await Task.WhenAny(logger.Cancelled.Task, applied.Task)
+                    .WaitAsync(TimeSpan.FromSeconds(5));
+                speed.Verify(c => c.ApplySpeed(It.IsAny<int>(), It.IsAny<double>()), Times.Never);
+                Assert.Null(coordinator.CaptureExit(151));
+            }
+            finally
+            {
+                logger.Release.Set();
+                coordinator.CancelAll();
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+
+        [Fact]
+        public async Task Stop_DeferredCallbackPastCancellationCheck_RemainsInactiveAfterRestart()
+        {
+            using var logger = new AttachBarrierLogger();
+            var speed = new FakeSpeedController();
+            var monitor = new FakeMonitor();
+            var exePath = CreateModdedGameDirectory("Stopped.exe");
+            var config = new CoreGameConfig { DataKey = "stopped", Executable = "Stopped.exe", IsEnabled = true, SpeedMultiplier = 2 };
+            var identity = new Mock<IProcessIdentityProbe>();
+            var processStartedUtc = DateTime.UtcNow.AddMinutes(-1);
+            string? imagePath = exePath;
+            identity.Setup(p => p.TryGetStartTimeUtc(151, out processStartedUtc)).Returns(true);
+            identity.Setup(p => p.TryGetImagePath(151, out imagePath)).Returns(true);
+            var service = new GameAutomationService(monitor,
+                new FakeConfig(new Dictionary<string, CoreGameConfig> { ["stopped"] = config }),
+                new FakeHdr(), new FakePlayTime(), logger, speedController: speed,
+                speedGatePollInterval: TimeSpan.FromMilliseconds(10), processIdentityProbe: identity.Object);
+            try
+            {
+                service.Start();
+                monitor.RaiseStart(new ProcessEventInfo("Stopped.exe", exePath, 151));
+                AppendChainloaderMarker(exePath);
+                await logger.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                service.Stop();
+                Assert.Empty(service.GetGameStates());
+                service.Start();
+                logger.Release.Set();
+                await logger.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.Empty(speed.Applied);
+                Assert.Empty(service.GetGameStates());
+            }
+            finally
+            {
+                logger.Release.Set();
+                service.Stop();
+                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
+            }
+        }
+
+        [Fact]
+        public async Task Stop_CallbackPastFinalTokenCheck_CannotBorrowRestartedGeneration()
+        {
+            var monitor = new FakeMonitor();
+            var speed = new FakeSpeedController();
+            var exePath = CreateModdedGameDirectory("OldGeneration.exe");
+            var service = new GameAutomationService(monitor,
+                new FakeConfig(new Dictionary<string, CoreGameConfig>
+                {
+                    ["old"] = new() { DataKey = "old", Executable = "OldGeneration.exe", IsEnabled = true, SpeedMultiplier = 2 }
+                }), new FakeHdr(), new FakePlayTime(), NullLogger<GameAutomationService>.Instance,
+                speedController: speed, speedGatePollInterval: TinyPollInterval, speedGateTimeout: TimeSpan.Zero);
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var release = new ManualResetEventSlim();
+            service.Start();
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var coordinator = (SpeedAttachmentCoordinator)typeof(GameAutomationService).GetField("_speedAttachment", flags)!.GetValue(service)!;
+            var scheduler = typeof(SpeedAttachmentCoordinator).GetField("_speedAttachGate", flags)!.GetValue(coordinator)!;
+            var applyField = typeof(SpeedAttachScheduler).GetField("_apply", flags)!;
+            var original = (Action<SpeedAttachRequest, long>)applyField.GetValue(scheduler)!;
+            // Wrap the real delegate: InvokeApply has already performed its final token check,
+            // but the coordinator has not examined generation or entered the controller yet.
+            applyField.SetValue(scheduler, (Action<SpeedAttachRequest, long>)((request, generation) =>
+            {
+                entered.TrySetResult();
+                if (!release.Wait(TimeSpan.FromSeconds(15))) throw new TimeoutException("Callback barrier was not released");
+                try { original(request, generation); }
+                finally { completed.TrySetResult(); }
+            }));
+            try
+            {
+                monitor.RaiseStart(new ProcessEventInfo("OldGeneration.exe", exePath, 155));
+                await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await Task.Run(service.Stop).WaitAsync(TimeSpan.FromSeconds(8));
+                service.Start();
+                release.Set();
+                await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.Empty(speed.Applied);
+                Assert.Null(coordinator.CaptureExit(155));
+                Assert.Empty(service.GetGameStates());
+            }
+            finally
+            {
+                release.Set();
+                service.Stop();
+                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
+            }
+        }
+
+        [Fact]
+        public async Task Stop_BlockedController_WarnsAfterDrainTimeout_AndLateCompletionCannotRestoreRecords()
+        {
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var release = new ManualResetEventSlim();
+            var speed = new Mock<IGameSpeedController>();
+            speed.Setup(c => c.ApplySpeed(It.IsAny<int>(), It.IsAny<double>())).Returns(() =>
+            {
+                entered.TrySetResult();
+                if (!release.Wait(TimeSpan.FromSeconds(15))) throw new TimeoutException("Controller barrier was not released");
+                return true;
+            });
+            var exePath = CreateModdedGameDirectory("Blocked.exe");
+            var logger = new ListLogger<GameAutomationService>();
+            var coordinator = new SpeedAttachmentCoordinator(speed.Object, TimeProvider.System,
+                logger, null, TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(30));
+            try
+            {
+                coordinator.ApplyConfiguredSpeed(new CoreGameConfig { DataKey = "blocked", SpeedMultiplier = 2 },
+                    152, exePath, DateTime.UtcNow.AddMinutes(-1));
+                AppendChainloaderMarker(exePath);
+                await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                var stop = Task.Run(coordinator.CancelAll);
+                await stop.WaitAsync(TimeSpan.FromSeconds(8));
+                Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("five-second shutdown limit"));
+                coordinator.ClearRecords();
+                release.Set();
+                // A second drain waits for the previously blocked controller and record publication.
+                await Task.Run(coordinator.CancelAll).WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.Null(coordinator.CaptureExit(152));
+            }
+            finally
+            {
+                release.Set();
+                coordinator.CancelAll();
+                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
+            }
+        }
+
+        [Fact]
+        public async Task Stop_ControllerDrainTimeout_StillFlushesSessionsAndClearsState()
+        {
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var release = new ManualResetEventSlim();
+            var speed = new Mock<IGameSpeedController>();
+            speed.Setup(c => c.ApplySpeed(It.IsAny<int>(), It.IsAny<double>())).Returns(() =>
+            {
+                entered.TrySetResult();
+                Assert.True(release.Wait(TimeSpan.FromSeconds(15)));
+                return true;
+            });
+            var logger = new ListLogger<GameAutomationService>();
+            var monitor = new FakeMonitor();
+            var playTime = new FakePlayTime();
+            var store = new Mock<IInFlightSessionStore>();
+            var exePath = CreateModdedGameDirectory("Blocked.exe");
+            var service = new GameAutomationService(monitor,
+                new FakeConfig(new Dictionary<string, CoreGameConfig>
+                {
+                    ["blocked"] = new() { DataKey = "blocked", Executable = "Blocked.exe", IsEnabled = true, SpeedMultiplier = 2 }
+                }), new FakeHdr(), playTime, logger,
+                speedController: speed.Object, inFlightSessionStore: store.Object,
+                speedGatePollInterval: TimeSpan.FromMilliseconds(10), speedGateTimeout: TimeSpan.Zero);
+            try
+            {
+                service.Start();
+                monitor.RaiseStart(new ProcessEventInfo("Blocked.exe", exePath, 154));
+                await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await Task.Run(service.Stop).WaitAsync(TimeSpan.FromSeconds(8));
+                Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("five-second shutdown limit"));
+                Assert.Equal(new[] { "blocked" }, playTime.Stopped);
+                Assert.Empty(service.GetGameStates());
+                Assert.Empty(service.GetRunningSessionStarts());
+                store.Verify(s => s.Clear(), Times.Once);
+            }
+            finally
+            {
+                release.Set();
+                service.Stop();
+                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
+            }
+        }
+
+        [Theory]
+        [InlineData("process-start")]
+        [InlineData("process-stop")]
+        [InlineData("suspend")]
+        [InlineData("resume")]
+        public void Stop_UnsubscribeFailure_DoesNotInterruptRemainingCleanup(string failingEvent)
+        {
+            var monitor = new Mock<IProcessMonitor>();
+            var power = new Mock<ISystemPowerEvents>();
+            var playTime = new FakePlayTime();
+            var store = new Mock<IInFlightSessionStore>();
+            var reminder = new Mock<IBreakReminderService>();
+            var speed = new FakeSpeedController();
+            var service = new GameAutomationService(monitor.Object,
+                new FakeConfig(new Dictionary<string, CoreGameConfig>
+                {
+                    ["game"] = new() { DataKey = "game", Executable = "game.exe", IsEnabled = true, SpeedMultiplier = 2 }
+                }), new FakeHdr(), playTime, NullLogger<GameAutomationService>.Instance,
+                speedController: speed, breakReminder: reminder.Object, inFlightSessionStore: store.Object,
+                powerEvents: power.Object);
+            service.Start();
+            monitor.Raise(m => m.ProcessStarted += null, new ProcessEventInfo("game.exe", null, 17));
+            // Configure throwing removers after the initial subscription.
+            if (failingEvent == "process-start") monitor.SetupRemove(m => m.ProcessStarted -= It.IsAny<Action<ProcessEventInfo>>()).Throws(new InvalidOperationException());
+            if (failingEvent == "process-stop") monitor.SetupRemove(m => m.ProcessStopped -= It.IsAny<Action<ProcessEventInfo>>()).Throws(new InvalidOperationException());
+            if (failingEvent == "suspend") power.SetupRemove(p => p.Suspending -= It.IsAny<EventHandler>()).Throws(new InvalidOperationException());
+            if (failingEvent == "resume") power.SetupRemove(p => p.Resumed -= It.IsAny<EventHandler>()).Throws(new InvalidOperationException());
+
+            service.Stop();
+
+            monitor.VerifyRemove(m => m.ProcessStarted -= It.IsAny<Action<ProcessEventInfo>>(), Times.Once);
+            monitor.VerifyRemove(m => m.ProcessStopped -= It.IsAny<Action<ProcessEventInfo>>(), Times.Once);
+            power.VerifyRemove(p => p.Suspending -= It.IsAny<EventHandler>(), Times.Once);
+            power.VerifyRemove(p => p.Resumed -= It.IsAny<EventHandler>(), Times.Once);
+            reminder.Verify(r => r.Stop(), Times.Once);
+            store.Verify(s => s.Clear(), Times.Once);
+            Assert.Equal(new[] { "game" }, playTime.Stopped);
+            Assert.Empty(service.GetGameStates());
+            Assert.Empty(service.GetRunningSessionStarts());
+            // A throwing event remover can leave a handler subscribed; it must remain inert.
+            monitor.Raise(m => m.ProcessStarted += null, new ProcessEventInfo("game.exe", null, 18));
+            Assert.Single(playTime.Started);
+            Assert.Single(speed.Applied);
+            Assert.Empty(service.GetGameStates());
+        }
+
+        [Fact]
+        public void Restart_AfterStartUnsubscribeFailure_RegistersAndEndsSessionOnce()
+        {
+            var monitor = new Mock<IProcessMonitor>();
+            var play = new FakePlayTime();
+            var service = new GameAutomationService(monitor.Object, new FakeConfig(Dict(("game.exe", true, false))),
+                new FakeHdr(), play, NullLogger<GameAutomationService>.Instance);
+            service.Start();
+            monitor.SetupRemove(m => m.ProcessStarted -= It.IsAny<Action<ProcessEventInfo>>())
+                .Throws(new InvalidOperationException("unsubscribe failed"));
+            service.Stop();
+            service.Start();
+            try
+            {
+                monitor.Raise(m => m.ProcessStarted += null, new ProcessEventInfo("game.exe", null, 17));
+                monitor.Raise(m => m.ProcessStopped += null, new ProcessEventInfo("game.exe", null, 17));
+                Assert.Equal(1, play.StartCalls);
+                Assert.Equal(1, play.StopCalls);
+                Assert.Empty(service.GetGameStates());
+                Assert.Empty(service.GetRunningSessionStarts());
+            }
+            finally { service.Stop(); }
+        }
+
+        [Fact]
+        public void Restart_RetainedPowerDelegates_CannotAlterNewSuspendSpan()
+        {
+            var monitor = new FakeMonitor();
+            var power = new Mock<ISystemPowerEvents>();
+            var suspendHandlers = new List<EventHandler>();
+            var resumeHandlers = new List<EventHandler>();
+            power.SetupAdd(p => p.Suspending += It.IsAny<EventHandler>()).Callback<EventHandler>(suspendHandlers.Add);
+            power.SetupAdd(p => p.Resumed += It.IsAny<EventHandler>()).Callback<EventHandler>(resumeHandlers.Add);
+            power.SetupRemove(p => p.Suspending -= It.IsAny<EventHandler>()).Throws(new InvalidOperationException());
+            power.SetupRemove(p => p.Resumed -= It.IsAny<EventHandler>()).Throws(new InvalidOperationException());
+            var clock = new PowerClock(new DateTimeOffset(2026, 10, 22, 20, 0, 0, TimeSpan.Zero));
+            var play = new FakePlayTime();
+            var service = new GameAutomationService(monitor, new FakeConfig(Dict(("game.exe", true, false))),
+                new FakeHdr(), play, NullLogger<GameAutomationService>.Instance, timeProvider: clock, powerEvents: power.Object);
+            service.Start();
+            service.Stop();
+            service.Start();
+            try
+            {
+                monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 17));
+                suspendHandlers[1](null, EventArgs.Empty);
+                clock.Advance(TimeSpan.FromMinutes(30));
+                suspendHandlers[0](null, EventArgs.Empty);
+                resumeHandlers[0](null, EventArgs.Empty);
+                Assert.Empty(play.ShiftedStarts);
+                clock.Advance(TimeSpan.FromMinutes(30));
+                resumeHandlers[1](null, EventArgs.Empty);
+                Assert.Equal(TimeSpan.FromHours(1), Assert.Single(play.ShiftedStarts));
+            }
+            finally { service.Stop(); }
+        }
+
+        [Fact]
+        public void Restart_BetweenSessionRegistrationAndCompanion_DiscardsOldCompanionOperation()
+        {
+            var monitor = new FakeMonitor();
+            var launcher = new FakeLauncher();
+            var controller = new Mock<IMonitorModeController>();
+            controller.SetupGet(c => c.IsAvailable).Returns(true);
+            Action? onApply = null;
+            controller.Setup(c => c.Apply(It.IsAny<IReadOnlyList<MonitorModeWrite>>())).Callback(() => onApply?.Invoke());
+            var service = new GameAutomationService(monitor,
+                new FakeConfig(Dict(("game.exe", true, false)), AlwaysDaylightPresets()),
+                new FakeHdr(), new FakePlayTime(), NullLogger<GameAutomationService>.Instance,
+                monitorModeController: controller.Object, gameLauncher: launcher);
+            service.Start();
+            onApply = () =>
+            {
+                onApply = null;
+                service.Stop();
+                service.Start();
+            };
+            try
+            {
+                monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 17));
+                Assert.Null(onApply); // The preset update actually crossed Stop -> Start.
+                Assert.Equal(0, launcher.CompanionStops);
+                Assert.Empty(launcher.Companions);
+                Assert.Empty(service.GetGameStates());
+            }
+            finally { service.Stop(); }
+        }
+
         private static IReadOnlyDictionary<string, CoreGameConfig> Dict(params (string name, bool enabled, bool hdrEnabled)[] items)
         {
             var dict = new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase);
@@ -1007,87 +1358,6 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public async Task DeferredSpeedAttach_SkippedWhenProcessDies()
-        {
-            var exePath = CreateModdedGameDirectory("GameDead.exe");
-            try
-            {
-                var monitor = new FakeMonitor();
-                var config = new CoreGameConfig
-                {
-                    DataKey = "gamedead",
-                    Executable = exePath,
-                    IsEnabled = true,
-                    SpeedMultiplier = 1.5
-                };
-                var speed = new FakeSpeedController();
-                var service = new GameAutomationService(
-                    monitor,
-                    new FakeConfig(new Dictionary<string, CoreGameConfig> { ["gamedead"] = config }),
-                    new FakeHdr(),
-                    new FakePlayTime(),
-                    NullLogger<GameAutomationService>.Instance,
-                    speedController: speed,
-                    processIdentityProbe: new FakeIdentityProbe(_ => (false, null)),
-                    speedGatePollInterval: TinyPollInterval,
-                    speedGateTimeout: TimeSpan.FromSeconds(30),
-                    gameLauncher: new FakeLauncher());
-
-                service.Start();
-                service.Launch("gamedead");
-                monitor.RaiseStart(new ProcessEventInfo("GameDead.exe", exePath, 4321));
-
-                // The gate never attaches for a process that already vanished.
-                await Task.Delay(600);
-                Assert.Empty(speed.Applied);
-            }
-            finally
-            {
-                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
-            }
-        }
-
-        [Fact]
-        public async Task DeferredSpeedAttach_SkippedWhenPidReusedByOtherImage()
-        {
-            var exePath = CreateModdedGameDirectory("GameReused.exe");
-            try
-            {
-                var monitor = new FakeMonitor();
-                var config = new CoreGameConfig
-                {
-                    DataKey = "gamereused",
-                    Executable = exePath,
-                    IsEnabled = true,
-                    SpeedMultiplier = 1.5
-                };
-                var speed = new FakeSpeedController();
-                var service = new GameAutomationService(
-                    monitor,
-                    new FakeConfig(new Dictionary<string, CoreGameConfig> { ["gamereused"] = config }),
-                    new FakeHdr(),
-                    new FakePlayTime(),
-                    NullLogger<GameAutomationService>.Instance,
-                    speedController: speed,
-                    processIdentityProbe: new FakeIdentityProbe(_ => (true, @"C:\SomethingElse\NotTheGame.exe")),
-                    speedGatePollInterval: TinyPollInterval,
-                    speedGateTimeout: TimeSpan.FromSeconds(30),
-                    gameLauncher: new FakeLauncher());
-
-                service.Start();
-                service.Launch("gamereused");
-                monitor.RaiseStart(new ProcessEventInfo("GameReused.exe", exePath, 4321));
-
-                await Task.Delay(600);
-                Assert.Empty(speed.Applied);
-            }
-            finally
-            {
-                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
-            }
-        }
-
-        [Fact]
         public async Task StopEvent_CancelsPendingDeferredAttach()
         {
             var exePath = CreateModdedGameDirectory("GameStopped.exe");
@@ -1253,29 +1523,6 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public void PowerEvents_AfterServiceStop_DoNotShiftSessions()
-        {
-            var monitor = new FakeMonitor();
-            var cfg = new FakeConfig(Dict(("game.exe", true, false)));
-            var hdr = new FakeHdr();
-            var play = new FakePlayTime();
-            var power = new FakePowerEvents();
-            var clock = new PowerClock(new DateTimeOffset(2026, 10, 22, 20, 0, 0, TimeSpan.Zero));
-            var service = new GameAutomationService(
-                monitor, cfg, hdr, play, NullLogger<GameAutomationService>.Instance,
-                timeProvider: clock, powerEvents: power);
-            service.Start();
-            monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 7));
-            service.Stop();
-
-            power.RaiseSuspend();
-            clock.Advance(TimeSpan.FromHours(5));
-            power.RaiseResume();
-
-            Assert.Empty(play.ShiftedStarts);
-        }
-
-        [Fact]
         public void MonitorModeAutomation_PausesDuringHdrAutomationGameRun_AndResumesAfterExit()
         {
             var monitor = new FakeMonitor();
@@ -1296,15 +1543,14 @@ namespace GameHelper.Tests
             Assert.Equal(MonitorMode.Comfort, controller.Modes[^1]);
 
             // 库内启动勾选 HDR 的游戏：先确认开启 HDR，预设自动化随之暂停（期间零 DDC I/O）。
+            var writesBeforeLaunch = controller.Recipes.Count;
             service.Launch("hdrgame");
             monitor.RaiseStart(new ProcessEventInfo("hdrgame.exe", null, 77));
-            var writesDuringPause = controller.Recipes.Count;
-            clock.Advance(TimeSpan.FromSeconds(11));
-            Assert.Equal(writesDuringPause, controller.Recipes.Count);
+            Assert.Equal(writesBeforeLaunch, controller.Recipes.Count);
 
             // 游戏退出且 HDR 恢复关闭：预设自动化恢复并按白天无游戏的口径切回护眼。
             monitor.RaiseStop(new ProcessEventInfo("hdrgame.exe", null, 77));
-            Assert.Equal(writesDuringPause + 1, controller.Recipes.Count);
+            Assert.Equal(writesBeforeLaunch + 1, controller.Recipes.Count);
             Assert.Equal(MonitorMode.Comfort, controller.Modes[^1]);
             Assert.False(hdr.IsEnabled);
         }
@@ -1329,12 +1575,10 @@ namespace GameHelper.Tests
             monitor.RaiseStart(new ProcessEventInfo("hdrgame.exe", null, 78));
             Assert.Equal(MonitorMode.Game, controller.Modes[^1]);
             Assert.Equal(0, hdr.EnableCalls);
-            var writesDuringPause = controller.Recipes.Count;
-            clock.Advance(TimeSpan.FromSeconds(11));
-            Assert.Equal(writesDuringPause, controller.Recipes.Count);
+            var writesWithGameActive = controller.Recipes.Count;
 
             monitor.RaiseStop(new ProcessEventInfo("hdrgame.exe", null, 78));
-            Assert.Equal(writesDuringPause + 1, controller.Recipes.Count);
+            Assert.Equal(writesWithGameActive + 1, controller.Recipes.Count);
             Assert.Equal(MonitorMode.Comfort, controller.Modes[^1]);
         }
 

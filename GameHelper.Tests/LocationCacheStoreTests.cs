@@ -9,6 +9,8 @@ namespace GameHelper.Tests;
 
 public class LocationCacheStoreTests : IDisposable
 {
+    private static readonly DateTimeOffset FixedNow = new(2026, 10, 17, 9, 0, 0, TimeSpan.Zero);
+
     private readonly string _tempDir;
 
     public LocationCacheStoreTests()
@@ -27,7 +29,7 @@ public class LocationCacheStoreTests : IDisposable
     [Fact]
     public void SaveThenLoad_RoundTripsCoordinate()
     {
-        var store = new JsonLocationCacheStore(CachePath);
+        var store = new JsonLocationCacheStore(CachePath, timeProvider: new FixedClock(FixedNow));
 
         store.Save(new UserCoordinate(39.907, 116.391));
         var cached = store.Load();
@@ -35,7 +37,7 @@ public class LocationCacheStoreTests : IDisposable
         Assert.NotNull(cached);
         Assert.Equal(39.907, cached!.Latitude, precision: 6);
         Assert.Equal(116.391, cached.Longitude, precision: 6);
-        Assert.True(cached.UpdatedAt <= DateTime.Now && cached.UpdatedAt > DateTime.Now.AddMinutes(-1));
+        Assert.Equal(FixedNow.DateTime, cached.UpdatedAt);
         Assert.False(File.Exists(CachePath + ".tmp"));
     }
 
@@ -77,5 +79,12 @@ public class LocationCacheStoreTests : IDisposable
         Assert.NotNull(cached);
         Assert.Equal(3, cached!.Latitude, precision: 6);
         Assert.Equal(4, cached.Longitude, precision: 6);
+    }
+
+    private sealed class FixedClock(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
     }
 }

@@ -116,12 +116,10 @@ namespace GameHelper.Tests
                 var expectedConfig = Path.Combine(expectedDir, "config.yml");
 
                 var yaml = new YamlConfigProvider();
-                var json = new JsonConfigProvider();
 
                 Directory.CreateDirectory(expectedDir);
                 File.WriteAllText(expectedConfig, "games: []");
                 Assert.Equal(expectedConfig, yaml.ConfigPath);
-                Assert.Equal(Path.Combine(expectedDir, "config.json"), json.ConfigPath);
             }
             finally
             {

@@ -47,11 +47,13 @@ public static class SystemTrayLogic
         return true;
     }
 
-    public static ProcessStartInfo LibraryStartInfo(string baseDirectory, string config, Func<string, bool> exists)
+    /// <summary>Start the WPF library beside the host; a null config lets the library use its default path.</summary>
+    public static ProcessStartInfo LibraryStartInfo(string baseDirectory, string? config, Func<string, bool> exists)
     {
         var executable = Path.Combine(baseDirectory, "GameHelper.Desktop.exe");
         if (!exists(executable)) executable = Path.Combine(baseDirectory, "desktop", "GameHelper.Desktop.exe");
         var start = new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(executable)! };
+        if (config is null) return start;
         start.ArgumentList.Add("--config");
         start.ArgumentList.Add(config);
         return start;
@@ -68,7 +70,6 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
     private readonly Action _exit;
     private readonly IBreakReminderService _reminders;
     private readonly ILogger<WindowsSystemTrayService> _logger;
-    private readonly NativeMethods.WindowProcedure _procedure;
     private readonly ManualResetEventSlim _ready = new(false);
     private readonly string _className = "GameHelper.SystemTray." + Guid.NewGuid().ToString("N");
     private Thread? _thread;
@@ -88,7 +89,6 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
         _exit = exit;
         _reminders = reminders;
         _logger = logger;
-        _procedure = HandleMessage;
     }
 
     public bool IsRunning => !_stopRequested && Volatile.Read(ref _window) != IntPtr.Zero;
@@ -147,24 +147,15 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
 
     private void RunWindow()
     {
-        var instance = NativeMethods.GetModuleHandle(null);
-        ushort windowClass = 0;
+        NativeMessageWindow? messageWindow = null;
         IntPtr window = IntPtr.Zero;
         try
         {
             _taskbarCreated = NativeMethods.RegisterWindowMessage("TaskbarCreated");
             if (_taskbarCreated == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
-            var registration = new NativeMethods.WindowClass
-            {
-                Size = (uint)Marshal.SizeOf<NativeMethods.WindowClass>(), Procedure = _procedure,
-                Instance = instance, ClassName = _className
-            };
-            windowClass = NativeMethods.RegisterClassEx(ref registration);
-            if (windowClass == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
-            // A hidden top-level window receives Explorer's TaskbarCreated broadcast.
-            window = NativeMethods.CreateWindowEx(0, _className, "GameHelper", 0,
-                0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
-            if (window == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            messageWindow = new NativeMessageWindow(_className, "GameHelper", HandleMessage,
+                ex => _logger.LogWarning(ex, "Failed to clean up native message window"));
+            window = messageWindow.Handle;
             // Elevated monitoring still needs Explorer's lower-integrity restart broadcast.
             if (!NativeMethods.ChangeWindowMessageFilterEx(window, _taskbarCreated, 1, IntPtr.Zero))
                 throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -174,13 +165,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             Volatile.Write(ref _window, window);
             _ready.Set();
             if (_stopRequested) return;
-            int result;
-            while ((result = NativeMethods.GetMessage(out var message, IntPtr.Zero, 0, 0)) > 0)
-            {
-                NativeMethods.TranslateMessage(ref message);
-                NativeMethods.DispatchMessage(ref message);
-            }
-            if (result < 0) throw new Win32Exception(Marshal.GetLastWin32Error());
+            NativeMessageWindow.PumpMessages();
         }
         catch (Exception ex)
         {
@@ -192,9 +177,8 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             _stopRequested = true;
             SafeCleanup(() => { if (window != IntPtr.Zero) NativeMethods.KillTimer(window, 1); });
             SafeCleanup(() => RemoveIcon(window));
-            SafeCleanup(() => { if (window != IntPtr.Zero) NativeMethods.DestroyWindow(window); });
+            messageWindow?.Dispose();
             Volatile.Write(ref _window, IntPtr.Zero);
-            SafeCleanup(() => { if (windowClass != 0) NativeMethods.UnregisterClass(_className, instance); });
             _ready.Set();
         }
     }
@@ -217,12 +201,12 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
                     if (eventId == 0x0203) Dispatch((uint)SystemTrayAction.OpenLibrary); // WM_LBUTTONDBLCLK
                     else if (eventId is 0x0205 or 0x007b) ShowMenu(window); // WM_RBUTTONUP / WM_CONTEXTMENU
                     return IntPtr.Zero;
-                case 0x0010: NativeMethods.DestroyWindow(window); return IntPtr.Zero;
-                case 0x0002: NativeMethods.PostQuitMessage(0); return IntPtr.Zero;
+                case 0x0010: NativeMessageWindow.DestroyWindow(window); return IntPtr.Zero;
+                case 0x0002: NativeMessageWindow.PostQuitMessage(0); return IntPtr.Zero;
             }
         }
         catch (Exception ex) { _logger.LogWarning(ex, "Tray interaction failed"); return IntPtr.Zero; }
-        return NativeMethods.DefWindowProc(window, message, wParam, lParam);
+        return NativeMessageWindow.DefWindowProc(window, message, wParam, lParam);
     }
 
     private void Dispatch(uint command) => SystemTrayLogic.Dispatch(command, _reminders, _openLibrary, _exit);
@@ -307,32 +291,6 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool DestroyMenu(IntPtr menu);
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool GetCursorPos(out Point point);
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool SetForegroundWindow(IntPtr window);
-        public delegate IntPtr WindowProcedure(IntPtr window, uint message, nuint wParam, IntPtr lParam);
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        public struct WindowClass
-        {
-            public uint Size, Style;
-            public WindowProcedure Procedure;
-            public int ClassExtra, WindowExtra;
-            public IntPtr Instance, Icon, Cursor, Background;
-            public string? MenuName;
-            public string ClassName;
-            public IntPtr SmallIcon;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct Message
-        {
-            public IntPtr Window;
-            public uint Id;
-            public nuint WParam;
-            public IntPtr LParam;
-            public uint Time;
-            public int X, Y;
-            public uint Private;
-        }
-
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         public struct IconData
         {
@@ -350,22 +308,6 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             public IntPtr BalloonIcon;
         }
 
-        [DllImport("kernel32.dll", EntryPoint = "GetModuleHandleW", CharSet = CharSet.Unicode)]
-        public static extern IntPtr GetModuleHandle(string? module);
-        [DllImport("user32.dll", EntryPoint = "RegisterClassExW", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern ushort RegisterClassEx(ref WindowClass registration);
-        [DllImport("user32.dll", EntryPoint = "CreateWindowExW", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern IntPtr CreateWindowEx(uint extended, string className, string name, uint style,
-            int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr parameter);
-        [DllImport("user32.dll", EntryPoint = "UnregisterClassW", CharSet = CharSet.Unicode)]
-        [return: MarshalAs(UnmanagedType.Bool)] public static extern bool UnregisterClass(string className, IntPtr instance);
-        [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool DestroyWindow(IntPtr window);
-        [DllImport("user32.dll", EntryPoint = "GetMessageW", SetLastError = true)]
-        public static extern int GetMessage(out Message message, IntPtr window, uint min, uint max);
-        [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool TranslateMessage(ref Message message);
-        [DllImport("user32.dll", EntryPoint = "DispatchMessageW")] public static extern IntPtr DispatchMessage(ref Message message);
-        [DllImport("user32.dll", EntryPoint = "DefWindowProcW")] public static extern IntPtr DefWindowProc(IntPtr window, uint message, nuint wParam, IntPtr lParam);
-        [DllImport("user32.dll")] public static extern void PostQuitMessage(int code);
         [DllImport("user32.dll", EntryPoint = "LoadIconW")] public static extern IntPtr LoadIcon(IntPtr instance, IntPtr resource);
         [DllImport("user32.dll")] public static extern nuint SetTimer(IntPtr window, nuint id, uint milliseconds, IntPtr callback);
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool KillTimer(IntPtr window, nuint id);

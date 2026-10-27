@@ -6,7 +6,7 @@
 
 图形界面是日常游戏库入口，ConsoleHost 是唯一监控、计时、HDR 和 CE 状态的拥有者。二者通过按用户和配置路径隔离的本机命名管道通信，不运行第二套自动化。关闭游戏库继续监控，重复打开同一配置的游戏库激活原窗口。原型代码保存在 `codex/wpf-library-prototype`。
 
-用户在 WPF 成为主界面后明确重新选择后台启动，因此本决定替代 ADR-0001 的可见 Console 要求。开机和部署通过 WPF `--background` 拉起无控制台的 `ConsoleHost monitor --background`，就绪后短暂的 WPF 引导进程退出；常驻运行时仍是唯一状态拥有者。主动打开游戏库正常激活，自动恢复使用 `--restore` 不激活。Console CLI 和 Terminal 转移仅用于手动诊断。默认回归继续验证共享逻辑、发布监控与 IPC；旧可见 Console 界面测试通过环境变量显式启用。
+用户在 WPF 成为主界面后明确重新选择后台启动，因此本决定替代 ADR-0001 的可见 Console 要求。开机和部署通过 WPF `--background` 拉起无控制台的 `ConsoleHost monitor --background`，就绪后短暂的 WPF 引导进程退出；常驻运行时仍是唯一状态拥有者。主动打开游戏库正常激活，自动恢复使用 `--restore` 不激活。Console CLI 仅保留显式手动命令；无参数启动、Terminal 转移与旧可见 Console 界面的处置见 [ADR-0003](0003-remove-console-interactive-ui.md)。默认回归继续验证共享逻辑、发布监控与 IPC。
 
 游戏启动入口独立于进程匹配标识。启动请求先开启监控，再记录待启动状态、开启并读回确认 HDR，然后调用原程序/快捷方式或 Steam URI。计时和倍速仍由真实进程事件驱动。最后一个 HDR 游戏及待启动请求都结束时才恢复本工具修改的 HDR；原本已开启则不关闭。等待进程超过两分钟、入口创建失败或用户停止监控均清理待启动状态。暂停自动化的游戏允许普通启动，不额外监控或调整 HDR。
 

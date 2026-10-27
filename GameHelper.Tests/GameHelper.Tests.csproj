@@ -13,13 +13,13 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="MoonSharp" Version="2.0.0" />
     <PackageReference Include="Moq" Version="4.20.72" />
-    <PackageReference Include="Spectre.Console.Testing" Version="0.47.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <EmbeddedResource Include="Resources/ConfigurationCompatibility/*.yml" />
   </ItemGroup>
 
   <ItemGroup>
@@ -27,10 +27,6 @@
     <ProjectReference Include="..\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj" />
     <ProjectReference Include="..\GameHelper.Core\GameHelper.Core.csproj" />
     <ProjectReference Include="..\GameHelper.Desktop\GameHelper.Desktop.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Remove="GamePlayTimeManagerTests.cs" />
   </ItemGroup>
 
 </Project>

@@ -3,7 +3,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using GameHelper.ConsoleHost.Commands;
-using GameHelper.ConsoleHost.Interactive;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
@@ -19,10 +18,9 @@ public static class ConsoleCommandDispatcher
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(parsedArgs);
 
-        var interactiveMode = parsedArgs.UseInteractiveShell || parsedArgs.EffectiveArgs.Length == 0;
-        if (interactiveMode)
+        if (parsedArgs.EffectiveArgs.Length == 0)
         {
-            await RunInteractiveAsync(host, parsedArgs, cancellationToken).ConfigureAwait(false);
+            CommandHelpers.PrintUsage();
             return;
         }
 
@@ -58,44 +56,13 @@ public static class ConsoleCommandDispatcher
                     parsedArgs.EffectiveArgs.Skip(1).ToArray()).ConfigureAwait(false);
                 break;
 
-            case "convert-config":
-                ConvertConfigCommand.Run();
-                break;
-
             case "validate-config":
                 ValidateConfigCommand.Run(parsedArgs.ConfigOverride);
-                break;
-
-            case "migrate":
-            case "migrate-config":
-                MigrateCommand.Run(parsedArgs.EffectiveArgs.Skip(1).ToArray());
-                break;
-
-            case "interactive":
-                await RunInteractiveAsync(host, parsedArgs, cancellationToken).ConfigureAwait(false);
                 break;
 
             default:
                 CommandHelpers.PrintUsage();
                 break;
-        }
-    }
-
-    private static async Task RunInteractiveAsync(IHost host, ParsedArguments parsedArgs, CancellationToken cancellationToken)
-    {
-        var ipcServer = host.Services.GetRequiredService<IFileDropIpcServer>();
-        await ipcServer.StartAsync(cancellationToken).ConfigureAwait(false);
-        var libraryServer = host.Services.GetRequiredService<GameLibraryServer>();
-        await libraryServer.StartAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            var shell = new InteractiveShell(host, parsedArgs);
-            await shell.RunAsync();
-        }
-        finally
-        {
-            await ipcServer.StopAsync(cancellationToken).ConfigureAwait(false);
-            await libraryServer.StopAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 }

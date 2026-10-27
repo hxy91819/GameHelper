@@ -14,7 +14,7 @@ public sealed record BreakReminderSettings
     {
         if (PlayMinutes <= 0 || BreakMinutes <= 0 || RepeatMinutes <= 0)
         {
-            throw new ArgumentException("breakReminder playMinutes, breakMinutes and repeatMinutes must be positive integers.");
+            throw new ArgumentException("breakReminder.playMinutes, breakReminder.breakMinutes and breakReminder.repeatMinutes must be positive integers.");
         }
     }
 }

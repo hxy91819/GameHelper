@@ -1,5 +1,4 @@
 using System.IO;
-using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
 
@@ -12,20 +11,12 @@ internal sealed class ThemePreferenceStore(string configPath)
 
     internal bool ReadLight()
     {
-        try { return File.Exists(_path) && JsonSerializer.Deserialize<Preference>(File.ReadAllText(_path))?.Theme == "light"; }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { return false; }
+        return DesktopDocumentStore.Read(_path, () => new Preference("dark")).Theme == "light";
     }
 
     internal void Write(bool light)
     {
-        var temporary = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
-            File.WriteAllText(temporary, JsonSerializer.Serialize(new Preference(light ? "light" : "dark")));
-            File.Move(temporary, _path, true);
-        }
-        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        DesktopDocumentStore.Write(_path, new Preference(light ? "light" : "dark"));
     }
 
     private sealed record Preference(string Theme);

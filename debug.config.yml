@@ -2,7 +2,6 @@
 # GameHelper debug configuration
 monitor: ETW
 startup:
-  autoStartMonitor: false
   launchOnStartup: false
 cheatEngine:
   executable: C:\Program Files\Cheat Engine\cheatengine-x86_64-SSE4-AVX2.exe
