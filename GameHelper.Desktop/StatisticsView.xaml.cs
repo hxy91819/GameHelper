@@ -1,13 +1,15 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using GameHelper.Core.Models;
 
 namespace GameHelper.Desktop;
 
 public partial class StatisticsView : UserControl
 {
     public StatisticsView() => InitializeComponent();
-    public void Connect(GameHelper.Core.Abstractions.IGameLibrary library) => ReportPage.Connect(library);
+    public void Connect(GameHelper.Core.Abstractions.IGameLibrary library, Func<PlaytimeReport, PlaytimeReport>? enrichReport = null)
+        => ReportPage.Connect(library, enrichReport);
     internal void FocusSearch() { RankingSearch.Focus(); RankingSearch.SelectAll(); }
 
     private void OnEditJournal(object sender, RoutedEventArgs e)

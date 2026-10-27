@@ -1,6 +1,6 @@
 namespace GameHelper.Core.Models;
 
-/// <summary>Program-generated report. Completion data can be joined by DataKey by a desktop-side provider.</summary>
+/// <summary>Program-generated report. Desktop-side providers join local journal completions by DataKey.</summary>
 public sealed record PlaytimeReport
 {
     public ReportPeriod Period { get; init; } = new(2000);
@@ -22,4 +22,11 @@ public sealed record PlaytimeReport
     public IReadOnlyList<long> HourMinutes { get; init; } = new long[24];
     public int? MostPlayedHour { get; init; }
     public IReadOnlyList<string> NewGameKeys { get; init; } = [];
+    /// <summary>Completed games joined from the local desktop journal, ordered by completion date.</summary>
+    public IReadOnlyList<ReportClearedGame> ClearedGames { get; init; } = [];
+    public int PreviousClearedGames { get; init; }
+    public int ClearedChange => ClearedGames.Count - PreviousClearedGames;
 }
+
+/// <summary>One local journal completion. The note is display/export only and never sent to the commentary endpoint.</summary>
+public sealed record ReportClearedGame(string DataKey, string Name, DateOnly CompletedOn, string Status, string Note = "");
