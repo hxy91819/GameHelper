@@ -144,8 +144,12 @@ public partial class MainWindow : Window
         foreach (var entry in entries) { var item = new MenuItem { Header = entry.Label }; item.Click += entry.Action; menu.Items.Add(item); }
         menu.IsOpen = true;
     }
-    private void OnAddMenu(object sender, RoutedEventArgs e) => ShowMenu(sender, ("添加程序…", OnAdd), ("扫描目录…", OnScanDirectory), ("扫描 Steam…", OnSteam));
-    private void OnManage(object sender, RoutedEventArgs e) => ShowMenu(sender, ("添加程序…", OnAdd), ("扫描目录…", OnScanDirectory), ("扫描 Steam…", OnSteam), ("按名称补全海报…", OnMatchMissingPosters), ("所选游戏设置…", OnSettings));
+    private void OnAddMenu(object sender, RoutedEventArgs e) => ShowMenu(sender, [("添加程序…", OnAdd), .. ScanEntries(), ("扫描 Steam…", OnSteam)]);
+    private void OnManage(object sender, RoutedEventArgs e) => ShowMenu(sender, [("添加程序…", OnAdd), .. ScanEntries(), ("扫描 Steam…", OnSteam), ("按名称补全海报…", OnMatchMissingPosters), ("所选游戏设置…", OnSettings)]);
+    // Remembered roots rescan in one click; MenuItem treats "_" as an access-key marker, so escape it in paths.
+    private IEnumerable<(string Label, RoutedEventHandler Action)> ScanEntries() =>
+        [("扫描目录…", OnScanDirectory), .. _model.RecentScanDirectories.Select(directory =>
+            ("重新扫描 " + directory.Replace("_", "__"), (RoutedEventHandler)(async (_, _) => await ScanAsync(await _model.RescanDirectoryAsync(directory)))))];
     private void OnFiltersMenu(object sender, RoutedEventArgs e) => ShowMenu(sender,
         ("本地未找到", (_, _) => SetInstallationGroup("missing")), ("安装状态待确认", (_, _) => SetInstallationGroup("unknown")),
         ("倍速游戏", (_, _) => _model.SetFilter("speed")), ("清除能力筛选", (_, _) => _model.SetFilter("all")));
@@ -218,9 +222,13 @@ public partial class MainWindow : Window
     {
         var folder = new OpenFolderDialog { Title = "选择游戏库目录或单个游戏目录", Multiselect = false };
         if (folder.ShowDialog(this) != true) return;
-        var scan = await _model.DiscoverDirectoryAsync(folder.FolderName);
+        await ScanAsync(await _model.DiscoverDirectoryAsync(folder.FolderName));
+    }
+
+    private async Task ScanAsync(LocalGameScan? scan)
+    {
         if (scan is null) return;
-        var dialog = new DirectoryImportWindow(scan) { Owner = this };
+        var dialog = new DirectoryImportWindow(scan, _model.IgnoredScanPrograms, _model.SetScanIgnored) { Owner = this };
         if (dialog.ShowDialog() == true) await _model.ImportDirectoryAsync(dialog.SelectedGames);
     }
 
@@ -341,7 +349,7 @@ public partial class MainWindow : Window
         if (Environment.GetEnvironmentVariable("GAMEHELPER_TEST_SCAN_DIRECTORY") is { Length: > 0 } scanDirectory)
         {
             var scan = await _model.DiscoverDirectoryAsync(scanDirectory) ?? throw new InvalidOperationException(_model.Status);
-            var dialog = new DirectoryImportWindow(scan) { Owner = this, ShowActivated = false, ShowInTaskbar = false };
+            var dialog = new DirectoryImportWindow(scan, _model.IgnoredScanPrograms) { Owner = this, ShowActivated = false, ShowInTaskbar = false };
             WindowSnapshot.PrepareOffscreen(dialog);
             try
             {

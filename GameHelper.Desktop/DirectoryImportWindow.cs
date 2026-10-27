@@ -13,7 +13,7 @@ internal sealed class DirectoryImportWindow : Window
     public IReadOnlyList<LocalGameCandidate> SelectedGames => _selection.SelectedGames;
     internal void ShowAuxiliaryCandidates() => _selection.ShowAuxiliary = true;
 
-    public DirectoryImportWindow(LocalGameScan scan)
+    public DirectoryImportWindow(LocalGameScan scan, IEnumerable<string>? ignoredPaths = null, Action<IReadOnlyList<string>, bool>? ignoredChanged = null)
     {
         Title = "从目录添加游戏";
         Width = 1100; Height = 700; MinWidth = 800; MinHeight = 460;
@@ -21,15 +21,17 @@ internal sealed class DirectoryImportWindow : Window
         Background = ThemeBrushes.Get("Sidebar");
         Foreground = ThemeBrushes.Get("TextPrimary");
         FontFamily = new FontFamily("Segoe UI, Microsoft YaHei UI"); FontSize = 12;
-        _selection = new DirectoryImportSelection(scan.Candidates);
+        _selection = new DirectoryImportSelection(scan.Candidates, ignoredPaths);
+        if (ignoredChanged is not null) _selection.IgnoredChanged += ignoredChanged;
         var view = CollectionViewSource.GetDefaultView(_selection.Choices);
         view.GroupDescriptions.Add(new PropertyGroupDescription("Candidate.Folder"));
         view.Filter = value => _selection.Matches((DirectoryGameChoice)value);
         var root = new DockPanel();
         var header = new StackPanel();
-        header.Children.Add(new TextBlock { Text = $"发现 {scan.Candidates.Select(item => item.Folder).Distinct(StringComparer.OrdinalIgnoreCase).Count()} 个目录 · {scan.Candidates.Count} 个候选程序", FontSize = 25, FontWeight = FontWeights.SemiBold });
+        var title = new TextBlock { FontSize = 25, FontWeight = FontWeights.SemiBold };
+        header.Children.Add(title);
         header.Children.Add(new TextBlock { Text = scan.Root, Foreground = ThemeBrushes.Get("Muted"), TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = scan.Root, Margin = new Thickness(0, 8, 0, 10) });
-        header.Children.Add(new TextBlock { Text = "默认不勾选。每个游戏目录只选择一个程序；推荐仅供参考，请确认名称、依据和完整路径后添加。已有条目保持原设置。", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10) });
+        header.Children.Add(new TextBlock { Text = "默认不勾选。每个游戏目录只选择一个程序；推荐仅供参考，请确认名称、依据和完整路径后添加。已在游戏库和已忽略的目录默认收起，不是游戏的目录可点右侧“忽略此目录”。", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10) });
         if (scan.Truncated || scan.SkippedDirectories > 0)
             header.Children.Add(new TextBlock { Text = $"{(scan.Truncated ? "扫描已到达数量、深度或时间上限，请缩小目录重扫。" : "") } 跳过 {scan.SkippedDirectories} 个无法读取的目录。", Foreground = ThemeBrushes.Get("Warning"), TextWrapping = TextWrapping.Wrap });
         var search = new TextBox { ToolTip = "按游戏名或路径筛选", Margin = new Thickness(0, 6, 0, 12) };
@@ -38,6 +40,19 @@ internal sealed class DirectoryImportWindow : Window
         auxiliary.SetBinding(CheckBox.IsCheckedProperty, new Binding(nameof(DirectoryImportSelection.ShowAuxiliary))
         { Source = _selection, Mode = BindingMode.TwoWay });
         header.Children.Add(auxiliary);
+        var existing = new CheckBox { Margin = new Thickness(0, 0, 0, 10) };
+        existing.SetBinding(CheckBox.IsCheckedProperty, new Binding(nameof(DirectoryImportSelection.ShowExisting)) { Source = _selection, Mode = BindingMode.TwoWay });
+        header.Children.Add(existing);
+        var ignored = new CheckBox { Margin = new Thickness(0, 0, 0, 10) };
+        ignored.SetBinding(CheckBox.IsCheckedProperty, new Binding(nameof(DirectoryImportSelection.ShowIgnored)) { Source = _selection, Mode = BindingMode.TwoWay });
+        header.Children.Add(ignored);
+        void UpdateCounts()
+        {
+            title.Text = _selection.NewFolderCount == 0 ? "没有发现新游戏目录" : $"发现 {_selection.NewFolderCount} 个新游戏目录";
+            existing.Content = $"显示已在游戏库的目录（{_selection.ExistingFolderCount}）";
+            ignored.Content = $"显示已忽略的目录（{_selection.IgnoredFolderCount}）";
+        }
+        UpdateCounts();
         DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
         var footer = new DockPanel { Margin = new Thickness(0, 18, 0, 0) };
         var add = new Button { Content = "添加选中（0）", IsDefault = true, IsEnabled = false };
@@ -53,7 +68,10 @@ internal sealed class DirectoryImportWindow : Window
         search.TextChanged += (_, _) => _selection.Search = search.Text;
         _selection.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName is nameof(DirectoryImportSelection.Search) or nameof(DirectoryImportSelection.ShowAuxiliary)) view.Refresh();
+            if (args.PropertyName is nameof(DirectoryImportSelection.Search) or nameof(DirectoryImportSelection.ShowAuxiliary)
+                or nameof(DirectoryImportSelection.ShowExisting) or nameof(DirectoryImportSelection.ShowIgnored)
+                or nameof(DirectoryImportSelection.IgnoredFolderCount)) view.Refresh();
+            UpdateCounts();
             add.Content = $"添加选中（{_selection.SelectedCount}）";
             add.IsEnabled = _selection.SelectedCount > 0;
         };
@@ -70,7 +88,21 @@ internal sealed class DirectoryImportWindow : Window
         groupTitle.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
         groupTitle.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
         groupTitle.SetBinding(ToolTipProperty, new Binding("Name"));
-        groupBorder.AppendChild(groupTitle);
+        var groupRow = new FrameworkElementFactory(typeof(DockPanel));
+        var ignore = new FrameworkElementFactory(typeof(Button));
+        ignore.SetValue(DockPanel.DockProperty, Dock.Right);
+        ignore.SetValue(Button.PaddingProperty, new Thickness(10, 2, 10, 2));
+        ignore.SetBinding(ContentControl.ContentProperty, new Binding("Items[0]." + nameof(DirectoryGameChoice.IgnoreLabel)));
+        ignore.SetBinding(VisibilityProperty, new Binding("Items[0]." + nameof(DirectoryGameChoice.CanIgnore)) { Converter = new BooleanToVisibilityConverter() });
+        ignore.SetValue(ToolTipProperty, "忽略后，重新扫描时这个目录默认不再出现；可勾选“显示已忽略的目录”恢复。");
+        ignore.AddHandler(ButtonBase.ClickEvent, new RoutedEventHandler((sender, _) =>
+        {
+            if ((sender as FrameworkElement)?.DataContext is CollectionViewGroup { Items: [DirectoryGameChoice choice, ..] })
+                _selection.SetFolderIgnored(choice.Candidate.Folder, !choice.FolderIgnored);
+        }));
+        groupRow.AppendChild(ignore);
+        groupRow.AppendChild(groupTitle);
+        groupBorder.AppendChild(groupRow);
         grid.GroupStyle.Add(new GroupStyle { HeaderTemplate = new DataTemplate { VisualTree = groupBorder } });
         var headerStyle = new Style(typeof(DataGridColumnHeader));
         headerStyle.Setters.Add(new Setter(Control.BackgroundProperty, ThemeBrushes.Get("Sidebar")));

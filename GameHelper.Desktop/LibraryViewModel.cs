@@ -22,6 +22,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private readonly LibraryDraftStore? _draftStore;
     private readonly SteamPosterLibrary _posters;
     private readonly LibraryGenreStore _genreStore;
+    private readonly LibraryScanStore _scanStore;
     private readonly GameHelper.Infrastructure.Artwork.SteamGenreClient _genreClient;
     private static readonly System.Net.Http.HttpClient GenreHttp = new(new System.Net.Http.SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(12) };
     private readonly bool _allowGenreNetwork;
@@ -56,6 +57,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     {
         _library = library;
         _genreStore = new LibraryGenreStore(configPath ?? metadataConfigPath);
+        _scanStore = new LibraryScanStore(configPath);
         _allowGenreNetwork = configPath is not null && (posters?.AllowNetwork ?? true);
         _genreClient = genreClient ?? new(GenreHttp, Path.Combine(GameHelper.Core.Utilities.AppDataPath.GetGameHelperDirectory(), "cache", "steam-genres"));
         _timeProvider = timeProvider ?? TimeProvider.System;
@@ -384,8 +386,26 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             if (!response.Success) throw new InvalidOperationException(response.Error);
             scan = response.LocalScan;
             Status = $"扫描完成：{scan?.Candidates.Count ?? 0} 个候选程序，请勾选需要加入的游戏。";
+            if (scan is not null) SaveScanMemory(() => _scanStore.Remember(scan.Root));
         });
         return scan;
+    }
+    internal IReadOnlyList<string> RecentScanDirectories => _scanStore.Directories;
+    internal IReadOnlyCollection<string> IgnoredScanPrograms => _scanStore.Ignored;
+    internal void SetScanIgnored(IReadOnlyList<string> executables, bool ignored) => SaveScanMemory(() => _scanStore.SetIgnored(executables, ignored));
+    /// <summary>Rescan a remembered root; a root that no longer exists is dropped from the list.</summary>
+    public async Task<LocalGameScan?> RescanDirectoryAsync(string directory)
+    {
+        if (Directory.Exists(directory)) return await DiscoverDirectoryAsync(directory);
+        SaveScanMemory(() => _scanStore.Forget(directory));
+        Status = $"目录已不存在，已从最近扫描中移除：{directory}";
+        return null;
+    }
+    // Scan memory is a convenience; failing to persist it must not fail the scan itself.
+    private void SaveScanMemory(Action save)
+    {
+        try { save(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Status += " 扫描记录未能保存：" + ex.Message; }
     }
     public Task ImportDirectoryAsync(IReadOnlyList<LocalGameCandidate> games) => RunAsync(() => SendAsync(new GameLibraryRequest { Operation = GameLibraryOperation.ImportDirectory, LocalGames = games }));
     internal Task<IReadOnlyList<GameHelper.Infrastructure.Artwork.SteamArtworkGame>> SearchPostersAsync(string query, CancellationToken cancellationToken) => _posters.SearchAsync(query, cancellationToken);
