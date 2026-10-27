@@ -18,6 +18,11 @@ internal sealed class HdrScheduler
     /// <summary>Confirms HDR before the game can initialize its display pipeline.</summary>
     public void PrepareForLaunch(IHdrController hdr, ILogger logger)
     {
+        WithLease(hdr, () => Prepare(hdr, logger));
+    }
+
+    private void Prepare(IHdrController hdr, ILogger logger)
+    {
         if (!hdr.TryGetEnabled(out var enabled)) throw new InvalidOperationException("无法确认 HDR 状态，游戏尚未启动。");
         if (enabled) return;
         var availability = hdr.GetAutomationAvailability();
@@ -43,6 +48,22 @@ internal sealed class HdrScheduler
         IReadOnlyDictionary<string, GameConfig> configsByDataKey,
         IHdrController hdr,
         ILogger logger)
+    {
+        WithLease(hdr, () => UpdateCore(activeDataKeys, configsByDataKey, hdr, logger));
+    }
+
+    private void WithLease(IHdrController hdr, Action operation)
+    {
+        var lease = HdrLeaseGuard.For(hdr);
+        lock (lease.Sync)
+        {
+            try { operation(); }
+            finally { lease.Owned = _enabledByScheduler; }
+        }
+    }
+
+    private void UpdateCore(IEnumerable<string> activeDataKeys,
+        IReadOnlyDictionary<string, GameConfig> configsByDataKey, IHdrController hdr, ILogger logger)
     {
         var shouldEnableHdr = activeDataKeys.Any(dataKey =>
             configsByDataKey.TryGetValue(dataKey, out var config) && config.HdrEnabled);

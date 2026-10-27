@@ -102,3 +102,5 @@ No provider DTO, mapping, normalizer field list or YAML validation template need
 A new exceptional wire alias belongs in the codec only when a wire name differs from
 camelCase; new UI/CLI editing controls and feature behavior remain separate work.
 Tests and user-facing field documentation accompany the feature as usual.
+
+Tray presentation is split between Core `TrayMenuService` snapshots/action routing and the native Windows message window. Library reads and commands run on workers. Manual primary HDR uses `TrayHdrControl` and a controller-scoped weak lease registry shared with `HdrScheduler`; lock order is automation state → HDR lease gate → controller. Manual operations never re-enter automation. Scheduler prepare/update publishes ownership even on failure; startup recovery updates HDR before exposing the tray. Manual writes bypass automation target selection and never add rollback targets.

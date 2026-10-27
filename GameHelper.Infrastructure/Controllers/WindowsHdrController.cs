@@ -13,7 +13,7 @@ namespace GameHelper.Infrastructure.Controllers;
 /// <summary>
 /// Windows HDR control: selected DisplayConfig targets when configured, otherwise the Win+Alt+B shortcut.
 /// </summary>
-public sealed class WindowsHdrController : IHdrController
+public sealed class WindowsHdrController : IHdrController, IPrimaryDisplayHdrController
 {
     private const uint QdcOnlyActivePaths = 0x00000002;
     private const uint ErrorSuccess = 0;
@@ -130,6 +130,39 @@ public sealed class WindowsHdrController : IHdrController
             displays = _displays.Select(d => new HdrDisplayInfo(d.Name, d.DevicePath,
                 d.Supported, d.Enabled, d.ForceDisabled, Allows(d))).ToArray();
             return true;
+        }
+    }
+
+    public TrayHdrState ReadPrimary()
+    {
+        lock (_sync)
+        {
+            if (!RefreshState()) return new(null, false, "无法读取显示器");
+            var primary = _displays.Where(d => d.Primary).ToArray();
+            if (primary.Length != 1) return new(null, false, "无法唯一识别主显示器");
+            var display = primary[0];
+            return new(display.Enabled, display.Supported && !display.ForceDisabled,
+                display.Supported && !display.ForceDisabled ? null : "主显示器不支持 HDR");
+        }
+    }
+
+    public void TogglePrimary()
+    {
+        lock (_sync)
+        {
+            var state = ReadPrimary();
+            if (!state.CanToggle) throw new InvalidOperationException(state.Reason);
+            var display = _displays.Single(d => d.Primary);
+            var desired = !state.Enabled!.Value;
+            // Manual changes never enter the automation rollback target set.
+            _setDisplayState(display, desired);
+            for (var attempt = 0; attempt < MaxStatePollingAttempts; attempt++)
+            {
+                _pollDelay();
+                var updated = ReadPrimary();
+                if (updated.Enabled == desired && updated.CanToggle) return;
+            }
+            throw new InvalidOperationException("未能确认主显示器的 HDR 状态。");
         }
     }
 
@@ -394,7 +427,11 @@ public sealed class WindowsHdrController : IHdrController
                 targetName.monitorDevicePath ?? string.Empty,
                 paths[i].targetInfo.adapterId.LowPart,
                 paths[i].targetInfo.adapterId.HighPart,
-                paths[i].targetInfo.id));
+                paths[i].targetInfo.id,
+                paths[i].sourceInfo.modeInfoIdx < modeCount &&
+                modes[paths[i].sourceInfo.modeInfoIdx].infoType == 1 &&
+                modes[paths[i].sourceInfo.modeInfoIdx].sourceX == 0 &&
+                modes[paths[i].sourceInfo.modeInfoIdx].sourceY == 0));
         }
 
         return result;
@@ -649,6 +686,10 @@ public sealed class WindowsHdrController : IHdrController
         public uint id;
         [FieldOffset(8)]
         public LUID adapterId;
+        [FieldOffset(28)]
+        public int sourceX;
+        [FieldOffset(32)]
+        public int sourceY;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -722,7 +763,7 @@ public sealed class WindowsHdrController : IHdrController
     }
 
     internal readonly record struct DisplayAdvancedColorInfo(string Name, bool Supported, bool Enabled, bool ForceDisabled,
-        string DevicePath = "", uint AdapterLow = 0, int AdapterHigh = 0, uint TargetId = 0);
+        string DevicePath = "", uint AdapterLow = 0, int AdapterHigh = 0, uint TargetId = 0, bool Primary = false);
 
     #endregion
 }
