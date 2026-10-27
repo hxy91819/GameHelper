@@ -12,4 +12,5 @@ public sealed record GameLibraryRequest
     public PlaytimeDashboardQuery? Statistics { get; init; }
     public string? Directory { get; init; }
     public IReadOnlyList<LocalGameCandidate> LocalGames { get; init; } = [];
+    public ReportPeriod? ReportPeriod { get; init; }
 }
