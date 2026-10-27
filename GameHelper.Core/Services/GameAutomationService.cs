@@ -174,6 +174,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         {
             lock (_stateLock)
             {
+                _started = false;
                 if (_maintenanceTimer is not null)
                 {
                     try { _maintenanceTimer.Dispose(); }
@@ -184,11 +185,10 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
                 try { _breakReminder?.Stop(); }
                 catch (Exception ex) { _logger.LogWarning(ex, "Failed to stop break reminders"); }
-                _started = false;
-                _monitor.ProcessStarted -= OnProcessStarted;
-                _monitor.ProcessStopped -= OnProcessStopped;
-                _sessionSuspend.Unsubscribe();
-                _speedAttachment.CancelAll();
+                Cleanup(() => _monitor.ProcessStarted -= OnProcessStarted, "unsubscribe process starts");
+                Cleanup(() => _monitor.ProcessStopped -= OnProcessStopped, "unsubscribe process stops");
+                Cleanup(_sessionSuspend.Unsubscribe, "unsubscribe power events");
+                Cleanup(_speedAttachment.CancelAll, "cancel pending speed attachments");
 
                 foreach (var dataKey in _sessionTracker.GetActiveDataKeysSnapshot())
                 {
@@ -199,19 +199,19 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Failed to flush session for {DataKey}", dataKey);
-                        RetainCompletedSession(dataKey);
+                        Cleanup(() => RetainCompletedSession(dataKey), "retain the failed session flush");
                     }
                 }
 
-                _sessionTracker.Clear();
-                _pendingLaunches.Clear();
-                _launchFailures.Clear();
-                _ownLaunchedDataKeys.Clear();
+                Cleanup(_sessionTracker.Clear, "_sessionTracker.Clear");
+                Cleanup(_pendingLaunches.Clear, "_pendingLaunches.Clear");
+                Cleanup(_launchFailures.Clear, "_launchFailures.Clear");
+                Cleanup(_ownLaunchedDataKeys.Clear, "_ownLaunchedDataKeys.Clear");
                 try { UpdateHdrState(); }
                 catch (Exception ex) { _logger.LogWarning(ex, "Failed to restore HDR during shutdown"); }
-                _inFlightStarts.Clear();
-                _inFlightProcessStarts.Clear();
-                _speedAttachment.ClearRecords();
+                Cleanup(_inFlightStarts.Clear, "_inFlightStarts.Clear");
+                Cleanup(_inFlightProcessStarts.Clear, "_inFlightProcessStarts.Clear");
+                Cleanup(_speedAttachment.ClearRecords, "_speedAttachment.ClearRecords");
 
                 try
                 {
@@ -237,11 +237,18 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         }
     }
 
+    private void Cleanup(Action cleanup, string operation)
+    {
+        try { cleanup(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Failed to {Operation} during shutdown", operation); }
+    }
+
     private void OnProcessStarted(ProcessEventInfo processInfo)
     {
         GameConfig? externalGame = null;
         lock (_stateLock)
         {
+            if (!_started) return;
             var normalizedName = PathNormalizer.NormalizeName(processInfo.ExecutableName);
             var config = _processMatcher.Match(processInfo, normalizedName, out var normalizedPath, out var matchLabel);
 
@@ -357,6 +364,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
         lock (_stateLock)
         {
+            if (!_started) return;
             var hadAnyActive = _sessionTracker.ActiveCount > 0;
 
             if (!_sessionTracker.TryResolve(processInfo, out var entry))

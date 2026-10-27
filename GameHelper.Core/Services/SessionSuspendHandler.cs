@@ -64,8 +64,10 @@ internal sealed class SessionSuspendHandler
     {
         if (_powerEvents is not null)
         {
-            _powerEvents.Suspending -= OnSystemSuspending;
-            _powerEvents.Resumed -= OnSystemResumed;
+            try { _powerEvents.Suspending -= OnSystemSuspending; }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to unsubscribe system suspend events"); }
+            try { _powerEvents.Resumed -= OnSystemResumed; }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to unsubscribe system resume events"); }
         }
         Reset();
     }

@@ -9,6 +9,7 @@ using GameHelper.Core.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using Moq;
 using CoreGameConfig = GameHelper.Core.Models.GameConfig;
 
 namespace GameHelper.Tests
@@ -234,6 +235,52 @@ namespace GameHelper.Tests
 
     public class GameAutomationServiceTests
     {
+        [Theory]
+        [InlineData("process-start")]
+        [InlineData("process-stop")]
+        [InlineData("suspend")]
+        [InlineData("resume")]
+        public void Stop_UnsubscribeFailure_DoesNotInterruptRemainingCleanup(string failingEvent)
+        {
+            var monitor = new Mock<IProcessMonitor>();
+            var power = new Mock<ISystemPowerEvents>();
+            var playTime = new FakePlayTime();
+            var store = new Mock<IInFlightSessionStore>();
+            var reminder = new Mock<IBreakReminderService>();
+            var speed = new FakeSpeedController();
+            var service = new GameAutomationService(monitor.Object,
+                new FakeConfig(new Dictionary<string, CoreGameConfig>
+                {
+                    ["game"] = new() { DataKey = "game", Executable = "game.exe", IsEnabled = true, SpeedMultiplier = 2 }
+                }), new FakeHdr(), playTime, NullLogger<GameAutomationService>.Instance,
+                speedController: speed, breakReminder: reminder.Object, inFlightSessionStore: store.Object,
+                powerEvents: power.Object);
+            service.Start();
+            monitor.Raise(m => m.ProcessStarted += null, new ProcessEventInfo("game.exe", null, 17));
+            // Configure throwing removers after Start, whose subscription also removes power handlers.
+            if (failingEvent == "process-start") monitor.SetupRemove(m => m.ProcessStarted -= It.IsAny<Action<ProcessEventInfo>>()).Throws(new InvalidOperationException());
+            if (failingEvent == "process-stop") monitor.SetupRemove(m => m.ProcessStopped -= It.IsAny<Action<ProcessEventInfo>>()).Throws(new InvalidOperationException());
+            if (failingEvent == "suspend") power.SetupRemove(p => p.Suspending -= It.IsAny<EventHandler>()).Throws(new InvalidOperationException());
+            if (failingEvent == "resume") power.SetupRemove(p => p.Resumed -= It.IsAny<EventHandler>()).Throws(new InvalidOperationException());
+
+            service.Stop();
+
+            monitor.VerifyRemove(m => m.ProcessStarted -= It.IsAny<Action<ProcessEventInfo>>(), Times.Once);
+            monitor.VerifyRemove(m => m.ProcessStopped -= It.IsAny<Action<ProcessEventInfo>>(), Times.Once);
+            power.VerifyRemove(p => p.Suspending -= It.IsAny<EventHandler>(), Times.Exactly(2));
+            power.VerifyRemove(p => p.Resumed -= It.IsAny<EventHandler>(), Times.Exactly(2));
+            reminder.Verify(r => r.Stop(), Times.Once);
+            store.Verify(s => s.Clear(), Times.Once);
+            Assert.Equal(new[] { "game" }, playTime.Stopped);
+            Assert.Empty(service.GetGameStates());
+            Assert.Empty(service.GetRunningSessionStarts());
+            // A throwing event remover can leave a handler subscribed; it must remain inert.
+            monitor.Raise(m => m.ProcessStarted += null, new ProcessEventInfo("game.exe", null, 18));
+            Assert.Single(playTime.Started);
+            Assert.Single(speed.Applied);
+            Assert.Empty(service.GetGameStates());
+        }
+
         private static IReadOnlyDictionary<string, CoreGameConfig> Dict(params (string name, bool enabled, bool hdrEnabled)[] items)
         {
             var dict = new Dictionary<string, CoreGameConfig>(StringComparer.OrdinalIgnoreCase);
