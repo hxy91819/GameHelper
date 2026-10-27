@@ -4,18 +4,10 @@ using Microsoft.Extensions.Logging;
 
 namespace GameHelper.Infrastructure.Providers;
 
-internal enum MissingDataKeyAction
-{
-    Skip,
-    Throw
-}
-
 internal static class ConfigEntryNormalizer
 {
-    public static GameConfig? NormalizeLoaded(
-        GameConfig source,
-        MissingDataKeyAction missingDataKeyAction,
-        ILogger? logger = null)
+    /// <summary>Normalize an entry read from disk; incomplete entries are skipped with a warning.</summary>
+    public static GameConfig? NormalizeLoaded(GameConfig source, ILogger? logger = null)
     {
         var executable = (source.Executable ?? string.Empty).Trim();
         var displayName = (source.DisplayName ?? string.Empty).Trim();
@@ -23,33 +15,18 @@ internal static class ConfigEntryNormalizer
 
         if (string.IsNullOrWhiteSpace(dataKey))
         {
-            if (missingDataKeyAction == MissingDataKeyAction.Throw)
-            {
-                throw new InvalidDataException("Configuration entry is missing required DataKey.");
-            }
-
             logger?.LogWarning("Skip config entry: DataKey is missing.");
             return null;
         }
 
         if (string.IsNullOrWhiteSpace(executable))
         {
-            if (missingDataKeyAction == MissingDataKeyAction.Throw)
-            {
-                throw new InvalidDataException($"Configuration entry '{dataKey}' is missing required Executable.");
-            }
-
             logger?.LogWarning("Skip config entry '{DataKey}': Executable is missing.", dataKey);
             return null;
         }
 
         if (!ExecutableIdentity.TryCreate(executable, out _))
         {
-            if (missingDataKeyAction == MissingDataKeyAction.Throw)
-            {
-                throw new InvalidDataException($"Configuration entry '{dataKey}' has an invalid Executable identity.");
-            }
-
             logger?.LogWarning("Skip config entry '{DataKey}': Executable identity is invalid.", dataKey);
             return null;
         }

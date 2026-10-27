@@ -125,7 +125,7 @@ namespace GameHelper.Infrastructure.Providers
             {
                 var normalized = forSave
                     ? ConfigEntryNormalizer.NormalizeForSave(source, _logger)
-                    : ConfigEntryNormalizer.NormalizeLoaded(source, MissingDataKeyAction.Skip, _logger);
+                    : ConfigEntryNormalizer.NormalizeLoaded(source, _logger);
                 if (normalized is not null)
                 {
                     normalizedGames.Add(normalized);

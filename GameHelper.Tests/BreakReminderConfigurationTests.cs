@@ -12,14 +12,10 @@ public sealed class BreakReminderConfigurationTests : IDisposable
 
     public BreakReminderConfigurationTests() => Directory.CreateDirectory(_directory);
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void ConfigurationChanges_PreserveReminderAlongsideCatalogStartupAndSpeed(bool json)
+    [Fact]
+    public void ConfigurationChanges_PreserveReminderAlongsideCatalogStartupAndSpeed()
     {
-        IGameConfiguration provider = json
-            ? new JsonConfigProvider(Path.Combine(_directory, "config.json"))
-            : new YamlConfigProvider(Path.Combine(_directory, "config.yml"));
+        IGameConfiguration provider = new YamlConfigProvider(Path.Combine(_directory, "config.yml"));
         var settings = new BreakReminderSettings { Enabled = true, PlayMinutes = 30, BreakMinutes = 6, RepeatMinutes = 8, Sound = false };
         provider.Change(config =>
         {
@@ -89,13 +85,11 @@ public sealed class BreakReminderConfigurationTests : IDisposable
         Assert.Contains(result.Warnings, warning => warning.Contains("unknown", StringComparison.Ordinal));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void InvalidDuration_CannotCommitAndLeavesOriginalDocumentIntact(bool json)
+    [Fact]
+    public void InvalidDuration_CannotCommitAndLeavesOriginalDocumentIntact()
     {
-        var path = Path.Combine(_directory, json ? "config.json" : "config.yml");
-        IGameConfiguration provider = json ? new JsonConfigProvider(path) : new YamlConfigProvider(path);
+        var path = Path.Combine(_directory, "config.yml");
+        IGameConfiguration provider = new YamlConfigProvider(path);
         provider.Change(config => config.BreakReminder = new BreakReminderSettings { Enabled = true });
         var original = File.ReadAllText(path);
         Assert.Throws<ArgumentException>(() => provider.Change(config =>

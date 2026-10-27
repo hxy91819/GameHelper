@@ -9,6 +9,7 @@ namespace GameHelper.ConsoleHost.Commands
         {
             Console.WriteLine("GameHelper Console");
             Console.WriteLine("Usage:");
+            Console.WriteLine("  (no command)        Open the GameHelper library window");
             Console.WriteLine("  monitor [--config <path>] [--monitor-type <type>] [--debug]");
             Console.WriteLine("  config list [--config <path>] [--debug]");
             Console.WriteLine("  config add <exe|path-to-exe> [--config <path>] [--debug]");
@@ -17,8 +18,6 @@ namespace GameHelper.ConsoleHost.Commands
             Console.WriteLine("  stats [--game <name>] [--config <path>] [--debug]");
             Console.WriteLine("  sync now [--force] / sync test / sync status");
             Console.WriteLine("                      Stats sync configuration and manual triggers (see docs/guides/sync.md)");
-            Console.WriteLine("  migrate [--config <path>] [--csv <path>] [--dry-run] [--force]");
-            Console.WriteLine("  convert-config");
             Console.WriteLine("  validate-config");
             Console.WriteLine();
             Console.WriteLine("Global options:");
@@ -27,12 +26,6 @@ namespace GameHelper.ConsoleHost.Commands
             Console.WriteLine("                     ETW provides lower latency but may require admin privileges");
             Console.WriteLine("  --monitor-dry-run  Dry-run monitor flow without starting background services");
             Console.WriteLine("  --debug, -v        Enable verbose debug logging");
-            Console.WriteLine();
-            Console.WriteLine("Migrate command options:");
-            Console.WriteLine("  --config <path>    Config file path (default: %AppData%\\GameHelper\\config.yml)");
-            Console.WriteLine("  --csv <path>       CSV file path (default: %AppData%\\GameHelper\\playtime.csv)");
-            Console.WriteLine("  --dry-run          Preview mode; do not modify files");
-            Console.WriteLine("  --force            Skip confirmation prompts");
         }
 
         public static void PrintBuildInfo(bool debug)

@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using GameHelper.ConsoleHost.Commands;
+using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
@@ -55,17 +56,8 @@ public static class ConsoleCommandDispatcher
                     parsedArgs.EffectiveArgs.Skip(1).ToArray()).ConfigureAwait(false);
                 break;
 
-            case "convert-config":
-                ConvertConfigCommand.Run();
-                break;
-
             case "validate-config":
                 ValidateConfigCommand.Run(parsedArgs.ConfigOverride);
-                break;
-
-            case "migrate":
-            case "migrate-config":
-                MigrateCommand.Run(parsedArgs.EffectiveArgs.Skip(1).ToArray());
                 break;
 
             default:
