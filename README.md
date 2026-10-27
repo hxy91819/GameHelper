@@ -67,6 +67,8 @@ dotnet run --project .\GameHelper.ConsoleHost -- sync test
 dotnet run --project .\GameHelper.ConsoleHost -- sync status
 ```
 
+`config.yml` 的键名与存储格式保持兼容；配置保存和 `validate-config` 共用 Core 校验规则，YAML 适配层只处理格式与兼容读写。
+
 `config list` 会同时显示 `dataKey` 和 `displayName`，方便核对配置显示名。
 
 `config import-steam` 会扫描本机 Steam 的所有游戏库，并批量添加已安装且可定位到主可执行文件的游戏。

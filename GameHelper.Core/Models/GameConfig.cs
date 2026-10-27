@@ -8,6 +8,10 @@ namespace GameHelper.Core.Models;
 /// </summary>
 public class GameConfig
 {
+    /// <summary>Copies all stored fields, retaining reference equality semantics for game entries.
+    /// Callers replacing mutable collections must detach those collections themselves.</summary>
+    public GameConfig Copy() => (GameConfig)MemberwiseClone();
+
     /// <summary><c>speedAttach</c> policy value: attach as soon as the first game process starts (legacy behavior).</summary>
     public const string SpeedAttachPolicyImmediate = "immediate";
 

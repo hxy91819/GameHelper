@@ -1,7 +1,7 @@
 using System.Text.Json;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
-using GameHelper.Infrastructure.Validators;
+using GameHelper.Core.Validation;
 
 namespace GameHelper.Core.Services;
 
@@ -28,7 +28,7 @@ public sealed class SettingsService(IGameConfiguration gameConfiguration,
                 if (request.MonitorMode is not null) current.MonitorMode = Clone(request.MonitorMode);
                 if (request.CheatEngine is not null) current.CheatEngine = Clone(request.CheatEngine);
                 if (request.SyncSettings is not null) current.SyncSettings = Clone(request.SyncSettings);
-                var validation = YamlConfigValidator.Validate(current);
+                var validation = AppConfigValidator.Validate(current);
                 if (!validation.IsValid) throw new ArgumentException(string.Join("\n", validation.Errors));
             });
             // Persistence succeeded: report partial application explicitly so the client cannot mistake it for an unsaved draft.

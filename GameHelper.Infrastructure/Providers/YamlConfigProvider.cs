@@ -9,8 +9,7 @@ using GameHelper.Core.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using YamlDotNet.Core;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using GameHelper.Core.Validation;
 
 namespace GameHelper.Infrastructure.Providers;
 
@@ -51,18 +50,6 @@ public sealed class YamlConfigProvider : IGameConfiguration, IConfigPathProvider
 
     public string ConfigPath => _configFilePath;
 
-    private static IDeserializer Deserializer => new DeserializerBuilder()
-        .WithNamingConvention(CamelCaseNamingConvention.Instance)
-        .IgnoreUnmatchedProperties()
-        .Build();
-
-    private static ISerializer Serializer => new SerializerBuilder()
-        .WithNamingConvention(CamelCaseNamingConvention.Instance)
-        .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
-        .WithIndentedSequences()
-        .WithNewLine("\n")
-        .Build();
-
     public AppConfig Read()
     {
         lock (_gate)
@@ -80,6 +67,8 @@ public sealed class YamlConfigProvider : IGameConfiguration, IConfigPathProvider
             var appConfig = Normalize(ReadCore());
             change(appConfig);
             appConfig = Normalize(appConfig, forSave: true);
+            var validation = AppConfigValidator.Validate(appConfig);
+            if (!validation.IsValid) throw new ArgumentException(string.Join("\n", validation.Errors));
             WriteCore(appConfig);
             return Normalize(ReadCore());
         }
@@ -106,8 +95,7 @@ public sealed class YamlConfigProvider : IGameConfiguration, IConfigPathProvider
 
             var yaml = File.ReadAllText(_configFilePath, Encoding.UTF8);
 
-            var storedConfig = Deserializer.Deserialize<StoredAppConfig?>(yaml);
-            return ToAppConfig(storedConfig);
+            return NormalizeGlobals(YamlConfigCodec.Deserialize(yaml));
         }
         catch (YamlException ex)
         {
@@ -118,8 +106,7 @@ public sealed class YamlConfigProvider : IGameConfiguration, IConfigPathProvider
     private AppConfig Normalize(AppConfig appConfig, bool forSave = false)
     {
         appConfig.Hdr?.Validate();
-        if (forSave) appConfig.BreakReminder?.Validate();
-        if (forSave) appConfig.MonitorMode?.Validate();
+
         var normalizedGames = new List<GameConfig>();
         foreach (var source in appConfig.Games ?? Enumerable.Empty<GameConfig>())
         {
@@ -149,7 +136,7 @@ public sealed class YamlConfigProvider : IGameConfiguration, IConfigPathProvider
             Directory.CreateDirectory(dir);
         }
 
-        var yaml = Serializer.Serialize(ToStoredAppConfig(appConfig));
+        var yaml = YamlConfigCodec.Serialize(PrepareForWrite(appConfig));
         var tempPath = _configFilePath + ".tmp";
         try
         {
@@ -178,216 +165,44 @@ public sealed class YamlConfigProvider : IGameConfiguration, IConfigPathProvider
             ex);
     }
 
-    private static AppConfig ToAppConfig(StoredAppConfig? storedConfig)
+    private static AppConfig NormalizeGlobals(AppConfig config)
     {
-        if (storedConfig is null)
+        if (config.CheatEngine is { } ce)
         {
-            return new AppConfig
-            {
-                Games = new List<GameConfig>(),
-                ProcessMonitorType = ProcessMonitorType.ETW
-            };
+            ce.Executable = string.IsNullOrWhiteSpace(ce.Executable) ? null : ce.Executable.Trim();
+            try { SpeedHotkey.Validate(ce.SpeedHotkeys); }
+            catch (ArgumentException) { ce.SpeedHotkeys = null; }
+            if (ce.SpeedHotkeys is { Count: 0 }) ce.SpeedHotkeys = null;
+            if (ce.Executable is null && ce.SpeedHotkeys is null) config.CheatEngine = null;
         }
-
-        return new AppConfig
+        if (config.SyncSettings is { } sync)
         {
-            ProcessMonitorType = storedConfig.Monitor ?? ProcessMonitorType.ETW,
-            LaunchOnSystemStartup = storedConfig.Startup?.LaunchOnStartup ?? false,
-            CheatEngine = ToCheatEngineSettings(storedConfig.CheatEngine),
-            BreakReminder = storedConfig.BreakReminder,
-            MonitorMode = storedConfig.MonitorMode,
-            Hdr = storedConfig.Hdr,
-            SyncSettings = ToSyncSettings(storedConfig.Sync),
-            Games = storedConfig.Games?
-                .Select(ToGameConfig)
-                .ToList() ?? new List<GameConfig>()
-        };
-    }
-
-    private static CheatEngineSettings? ToCheatEngineSettings(StoredCheatEngineConfig? cheatEngine)
-    {
-        var executable = cheatEngine?.Executable?.Trim();
-        var hotkeys = cheatEngine?.SpeedHotkeys is { Count: > 0 } list ? list : null;
-        try { SpeedHotkey.Validate(hotkeys); }
-        catch (ArgumentException) { hotkeys = null; }
-        return string.IsNullOrEmpty(executable) && hotkeys is null
-            ? null
-            : new CheatEngineSettings { Executable = string.IsNullOrEmpty(executable) ? null : executable, SpeedHotkeys = hotkeys };
-    }
-
-    private static SyncSettings? ToSyncSettings(StoredSyncConfig? sync)
-    {
-        if (sync is null)
-        {
-            return null;
+            sync.Provider ??= "github";
+            sync.Method ??= "git";
+            sync.Repo ??= string.Empty;
+            if (string.IsNullOrWhiteSpace(sync.Directory)) sync.Directory = SyncSettings.DefaultDirectory;
+            if (sync.IntervalMinutes <= 0) sync.IntervalMinutes = SyncSettings.DefaultIntervalMinutes;
         }
-
-        return new SyncSettings
-        {
-            Enabled = sync.Enabled ?? false,
-            Provider = sync.Provider ?? "github",
-            Method = sync.Method ?? "git",
-            Repo = sync.Repo ?? string.Empty,
-            Branch = sync.Branch,
-            Token = sync.Token,
-            Directory = string.IsNullOrWhiteSpace(sync.Directory)
-                ? SyncSettings.DefaultDirectory
-                : sync.Directory!,
-            IntervalMinutes = sync.IntervalMinutes is > 0
-                ? sync.IntervalMinutes.Value
-                : SyncSettings.DefaultIntervalMinutes,
-            IncludeRawCsv = sync.IncludeRawCsv ?? false
-        };
+        return config;
     }
 
-    private static GameConfig ToGameConfig(StoredGameConfig storedGameConfig) => new()
+    private static AppConfig PrepareForWrite(AppConfig config)
     {
-        DataKey = storedGameConfig.DataKey ?? string.Empty,
-        Executable = storedGameConfig.Executable,
-        DisplayName = storedGameConfig.DisplayName,
-        IsEnabled = storedGameConfig.Enabled ?? true,
-        HdrEnabled = storedGameConfig.Hdr ?? false,
-        SpeedMultiplier = storedGameConfig.Speed,
-        SpeedAttach = storedGameConfig.SpeedAttach,
-        SpeedHotkeys = storedGameConfig.SpeedHotkeys,
-        Launch = storedGameConfig.Launch,
-        AddedAt = storedGameConfig.AddedAt is { } addedAt
-            ? DateTimeOffset.Parse(addedAt, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind) : null
-    };
-
-    private static StoredAppConfig ToStoredAppConfig(AppConfig appConfig) => new()
-    {
-        Monitor = appConfig.ProcessMonitorType,
-        Startup = new StoredStartupConfig
+        if (config.CheatEngine is { } ce)
         {
-            LaunchOnStartup = appConfig.LaunchOnSystemStartup
-        },
-        CheatEngine = ToStoredCheatEngine(appConfig.CheatEngine),
-        BreakReminder = appConfig.BreakReminder,
-        MonitorMode = appConfig.MonitorMode,
-        Hdr = appConfig.Hdr,
-        Sync = ToStoredSync(appConfig.SyncSettings),
-        Games = appConfig.Games
-            .Select(ToStoredGameConfig)
-            .OrderBy(game => game.DataKey, StringComparer.OrdinalIgnoreCase)
-            .ToList()
-    };
-
-    private static StoredCheatEngineConfig? ToStoredCheatEngine(CheatEngineSettings? cheatEngine)
-    {
-        var executable = cheatEngine?.Executable?.Trim();
-        var hotkeys = cheatEngine?.SpeedHotkeys is { Count: > 0 } list ? list : null;
-        return string.IsNullOrWhiteSpace(executable) && hotkeys is null
-            ? null
-            : new StoredCheatEngineConfig { Executable = string.IsNullOrWhiteSpace(executable) ? null : executable, SpeedHotkeys = hotkeys };
-    }
-
-    private static StoredSyncConfig? ToStoredSync(SyncSettings? sync)
-    {
-        if (sync is null)
-        {
-            return null;
+            ce.Executable = string.IsNullOrWhiteSpace(ce.Executable) ? null : ce.Executable.Trim();
+            if (ce.SpeedHotkeys is { Count: 0 }) ce.SpeedHotkeys = null;
+            if (ce.Executable is null && ce.SpeedHotkeys is null) config.CheatEngine = null;
         }
-
-        return new StoredSyncConfig
+        if (config.SyncSettings is { } sync)
         {
-            Enabled = sync.Enabled,
-            Provider = sync.Provider,
-            Method = sync.NormalizedMethod,
-            Repo = sync.NormalizedRepo,
-            Branch = sync.NormalizedBranch,
-            Token = string.IsNullOrWhiteSpace(sync.Token) ? null : sync.Token,
-            Directory = sync.NormalizedDirectory,
-            IntervalMinutes = sync.IntervalMinutes,
-            IncludeRawCsv = sync.IncludeRawCsv
-        };
-    }
-
-    private static StoredGameConfig ToStoredGameConfig(GameConfig gameConfig) => new()
-    {
-        DataKey = gameConfig.DataKey,
-        Executable = gameConfig.Executable,
-        DisplayName = gameConfig.DisplayName,
-        Enabled = gameConfig.IsEnabled,
-        Hdr = gameConfig.HdrEnabled,
-        Speed = gameConfig.SpeedMultiplier,
-        SpeedAttach = gameConfig.SpeedAttach,
-        SpeedHotkeys = gameConfig.SpeedHotkeys,
-        Launch = gameConfig.Launch,
-        AddedAt = gameConfig.AddedAt?.ToString("O", System.Globalization.CultureInfo.InvariantCulture)
-    };
-
-    private sealed class StoredAppConfig
-    {
-        public ProcessMonitorType? Monitor { get; set; }
-
-        public StoredStartupConfig? Startup { get; set; }
-
-        public StoredCheatEngineConfig? CheatEngine { get; set; }
-
-        public BreakReminderSettings? BreakReminder { get; set; }
-
-        public MonitorModeSettings? MonitorMode { get; set; }
-
-        public HdrSettings? Hdr { get; set; }
-
-        public StoredSyncConfig? Sync { get; set; }
-
-        public List<StoredGameConfig>? Games { get; set; }
-    }
-
-    private sealed class StoredCheatEngineConfig
-    {
-        public string? Executable { get; set; }
-
-        public List<SpeedHotkey>? SpeedHotkeys { get; set; }
-    }
-
-    private sealed class StoredStartupConfig
-    {
-        public bool LaunchOnStartup { get; set; }
-    }
-
-    private sealed class StoredSyncConfig
-    {
-        public bool? Enabled { get; set; }
-
-        public string? Provider { get; set; }
-
-        public string? Method { get; set; }
-
-        public string? Repo { get; set; }
-
-        public string? Branch { get; set; }
-
-        public string? Token { get; set; }
-
-        public string? Directory { get; set; }
-
-        public int? IntervalMinutes { get; set; }
-
-        public bool? IncludeRawCsv { get; set; }
-    }
-
-    private sealed class StoredGameConfig
-    {
-        public string? DataKey { get; set; }
-
-        public string? Executable { get; set; }
-
-        public string? DisplayName { get; set; }
-
-        public bool? Enabled { get; set; }
-
-        public bool? Hdr { get; set; }
-
-        public double? Speed { get; set; }
-
-        public string? SpeedAttach { get; set; }
-
-        public List<SpeedHotkey>? SpeedHotkeys { get; set; }
-
-        public GameLaunchOptions? Launch { get; set; }
-        public string? AddedAt { get; set; }
+            sync.Method = sync.NormalizedMethod;
+            sync.Repo = sync.NormalizedRepo;
+            sync.Branch = sync.NormalizedBranch;
+            sync.Directory = sync.NormalizedDirectory;
+            if (string.IsNullOrWhiteSpace(sync.Token)) sync.Token = null;
+        }
+        config.Games = config.Games.OrderBy(game => game.DataKey, StringComparer.OrdinalIgnoreCase).ToList();
+        return config;
     }
 }

@@ -19,7 +19,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Validators\config.template.yml" />
     <EmbeddedResource Include="Controllers\CheatEngineSpeed.lua" />
   </ItemGroup>
 
