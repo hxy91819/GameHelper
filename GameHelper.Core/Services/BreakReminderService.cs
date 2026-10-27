@@ -29,6 +29,7 @@ public sealed class BreakReminderService : IBreakReminderService
     private TimeSpan _playtime;
     private TimeSpan _rest;
     private TimeSpan _nextReminder;
+    private DateTimeOffset? _pausedUntil;
 
     public BreakReminderService(IForegroundActivityProvider activity, IBreakReminderNotifier notifier,
         IProcessPathResolver pathResolver, TimeProvider clock, ILogger<BreakReminderService> logger)
@@ -41,6 +42,26 @@ public sealed class BreakReminderService : IBreakReminderService
     }
 
     public bool IsRunning { get { lock (_gate) return _timer is not null; } }
+
+    public DateTimeOffset? PausedUntil
+    {
+        get { lock (_gate) return _pausedUntil > _clock.GetUtcNow() ? _pausedUntil : null; }
+    }
+
+    public void PauseUntil(DateTimeOffset until)
+    {
+        lock (_gate)
+        {
+            if (_disposed || _timer is null) return;
+            _pausedUntil = until > _clock.GetUtcNow() ? until : null;
+            ClearNotifications();
+        }
+    }
+
+    public void Resume()
+    {
+        lock (_gate) _pausedUntil = null;
+    }
 
     public void Start(AppConfig configuration)
     {
@@ -90,6 +111,7 @@ public sealed class BreakReminderService : IBreakReminderService
         lock (_gate)
         {
             _monitoring = false;
+            _pausedUntil = null;
             StopTimer();
             Reset();
             _matcher = null;
@@ -118,6 +140,7 @@ public sealed class BreakReminderService : IBreakReminderService
                 .ToDictionary(game => game.DataKey, StringComparer.OrdinalIgnoreCase);
             _matcher = new GameProcessMatcher(AutomationConfigIndex.Build(games, _logger), _pathResolver, _logger);
             if (changed || !settings.Enabled) { StopTimer(); Reset(); }
+            if (!settings.Enabled) _pausedUntil = null;
             _settings = settings;
             if (!_monitoring || !settings.Enabled || _timer is not null) return;
             _nextReminder = TimeSpan.FromMinutes(settings.PlayMinutes);
@@ -166,7 +189,7 @@ public sealed class BreakReminderService : IBreakReminderService
                 if (isGame)
                 {
                     _rest = TimeSpan.Zero;
-                    if (_playtime >= _nextReminder)
+                    if (_playtime >= _nextReminder && !(_pausedUntil > _clock.GetUtcNow()))
                     {
                         _nextReminder = _playtime + TimeSpan.FromMinutes(_settings.RepeatMinutes);
                         try

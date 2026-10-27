@@ -10,6 +10,60 @@ namespace GameHelper.Tests;
 
 public sealed class WindowsHdrControllerTests
 {
+    [Fact]
+    public void ManualPrimaryToggle_OnlyChangesPrimaryAndNeverAddsAutomationRollbackTargets()
+    {
+        var displays = new[]
+        {
+            new WindowsHdrController.DisplayAdvancedColorInfo("secondary", true, false, false, "second"),
+            new WindowsHdrController.DisplayAdvancedColorInfo("primary", true, false, false, "main", Primary: true)
+        };
+        var writes = new List<string>();
+        var controller = new WindowsHdrController(NullLogger<WindowsHdrController>.Instance, () => displays,
+            (display, enabled) =>
+            {
+                writes.Add(display.DevicePath);
+                displays = displays.Select(d => d.DevicePath == display.DevicePath ? d with { Enabled = enabled } : d).ToArray();
+            }, () => { });
+        controller.Configure(new() { AllowedDisplays = ["secondary"] });
+        controller.TogglePrimary();
+        Assert.True(controller.ReadPrimary().Enabled);
+        Assert.False(displays[0].Enabled);
+        Assert.Equal(new[] { "main" }, writes);
+        controller.Enable();
+        controller.Disable();
+        Assert.True(controller.ReadPrimary().Enabled);
+        Assert.False(displays[0].Enabled);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public void UnknownOrAmbiguousPrimary_CannotWrite(int count)
+    {
+        var displays = Enumerable.Range(0, count).Select(i =>
+            new WindowsHdrController.DisplayAdvancedColorInfo(i.ToString(), true, false, false, Primary: true)).ToArray();
+        var controller = new WindowsHdrController(NullLogger<WindowsHdrController>.Instance, () => displays,
+            (_, _) => throw new Xunit.Sdk.XunitException("Must not write"), () => { });
+        Assert.Null(controller.ReadPrimary().Enabled);
+        Assert.False(controller.ReadPrimary().CanToggle);
+        Assert.Throws<InvalidOperationException>(controller.TogglePrimary);
+    }
+
+    [Fact]
+    public void PrimaryQueryFailureAndUnconfirmedWrite_ReportFailure()
+    {
+        var fail = false;
+        var controller = new WindowsHdrController(NullLogger<WindowsHdrController>.Instance,
+            () => fail ? throw new Win32Exception(5) : [new("primary", true, false, false, Primary: true)],
+            (_, _) => { }, () => { });
+        Assert.Throws<InvalidOperationException>(controller.TogglePrimary);
+        fail = true;
+        Assert.Null(controller.ReadPrimary().Enabled);
+        Assert.False(controller.ReadPrimary().CanToggle);
+        Assert.Throws<InvalidOperationException>(controller.TogglePrimary);
+    }
+
     [Theory]
     [InlineData("desk", false)]
     [InlineData("DESK", false)]
