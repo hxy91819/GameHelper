@@ -9,7 +9,7 @@ GameHelper 是一个面向 Windows 玩家的游戏启动器与桌面助手。WPF
 
 详细设计与规范见 `docs/index.md`。
 
-每次功能或修复交付都会更新本机发布目录并在后台重启监控，检查运行权限、ETW 和游戏库通信。WPF 是日常入口，Console 交互界面保留作手动诊断。部署步骤见[验证与部署工作流](docs/guides/verify-and-deploy-workflow.md)。
+每次功能或修复交付都会更新本机发布目录并在后台重启监控，检查运行权限、ETW 和游戏库通信。WPF 是日常入口；ConsoleHost 保留后台监控与显式 CLI，不带参数启动会打开 WPF 游戏库。部署步骤见[验证与部署工作流](docs/guides/verify-and-deploy-workflow.md)。
 
 游戏库按 A / Studio 原型还原顶栏、横版 hero、海报网格与紧凑详情，使用原始 SVG 生成一致的 G / 播放标记，右侧详情滚动吸顶，本周时长与趋势图自适应分栏，导航采用统一圆角线条图标，海报下仅展示时长，打开或返回游戏库、切换类型时默认隐藏本地未找到的游戏；保留明暗主题、实时计时及原有启动设置。侧栏支持 Steam 游戏类型多重归属、未分类和手动修正（自动更新不覆盖）；完整启动配置、海报及类型管理进入二级面板；游玩档案提供总览、趋势、六列排行、日历与游戏／日期游玩节奏汇总，不再显示逐次流水。详见[游戏库](docs/guides/game-library.md)与[游玩档案](docs/guides/playtime-dashboard.md)。
 
@@ -23,7 +23,7 @@ GameHelper 是一个面向 Windows 玩家的游戏启动器与桌面助手。WPF
 
 ### 启动窗口与焦点
 
-开机自启通过 `desktop/GameHelper.Desktop.exe --background` 无窗口启动监控，不创建控制台。主动打开游戏库才正常显示 WPF；部署只在原本打开游戏库时恢复窗口，并使用不激活方式。旧 Console / Launcher 桌面入口迁到游戏库；手动 CLI 仍可使用。详见[启动窗口宿主](docs/guides/terminal-host.md)。
+开机自启通过 `desktop/GameHelper.Desktop.exe --background` 无窗口启动监控，不创建控制台。主动打开游戏库才正常显示 WPF；部署只在原本打开游戏库时恢复窗口，并使用不激活方式。旧 Console / Launcher 桌面入口迁到游戏库；手动 CLI 仍可使用。详见[启动与后台运行](docs/guides/startup.md)。
 
 ### WPF 游戏库
 
@@ -46,7 +46,7 @@ GameHelper 是一个面向 Windows 玩家的游戏启动器与桌面助手。WPF
 ### 常用 CLI 命令
 
 ```powershell
-# 交互模式（默认）
+# 打开游戏库（默认）
 dotnet run --project .\GameHelper.ConsoleHost --
 
 # 启动监控
@@ -61,16 +61,11 @@ dotnet run --project .\GameHelper.ConsoleHost -- config add <exe|path-to-exe>
 dotnet run --project .\GameHelper.ConsoleHost -- config import-steam
 dotnet run --project .\GameHelper.ConsoleHost -- config remove <dataKey>
 
-# 历史数据迁移
-dotnet run --project .\GameHelper.ConsoleHost -- migrate
-
 # 统计推送到 GitHub 仓库（自动/手动）
 dotnet run --project .\GameHelper.ConsoleHost -- sync now [--force]
 dotnet run --project .\GameHelper.ConsoleHost -- sync test
 dotnet run --project .\GameHelper.ConsoleHost -- sync status
 ```
-
-`migrate` 会按当前 Core 匹配规则把旧 `playtime.csv` 中的游戏名映射到 `dataKey`；歧义匹配不会自动改写。
 
 `config list` 会同时显示 `dataKey` 和 `displayName`，方便核对配置显示名。
 
@@ -161,7 +156,6 @@ GameHelper 更新替换重启（或异常崩溃）时，正在统计的游戏会
 ```yaml
 monitor: ETW
 startup:
-  autoStartMonitor: false
   launchOnStartup: false
 cheatEngine:
   executable: "C:\\Program Files\\Cheat Engine\\cheatengine-x86_64-SSE4-AVX2.exe"
@@ -187,7 +181,6 @@ games:
 - `speedAttach`：可选的 CE 附加时序策略，`auto`（默认）在检测到 BepInEx/MelonLoader 时推迟附加到 loader 启动完成之后（90 秒超时兜底），`immediate` 恢复一启动就附加的旧行为。
 - `cheatEngine.executable`：Cheat Engine 可执行文件的绝对路径；只在至少一款游戏配置了 `speed` 时使用。
 - `cheatEngine.speedHotkeys`：可选的全局默认倍速热键，格式同游戏的 `speedHotkeys`；配置了 `speed` 但没填自己热键的游戏自动使用，游戏自己的列表整体替换默认。WPF「全局设置 → Cheat Engine」可逐行编辑。
-- `startup.autoStartMonitor`：交互模式启动后是否自动进入实时监控。
 - `startup.launchOnStartup`：是否随系统启动 GameHelper。
 - `sync`：统计推送到 GitHub 的配置（省略整段表示未配置；完整字段见 `docs/guides/sync.md`）。
 
@@ -229,4 +222,4 @@ dotnet test GameHelper.sln
 - 开源使用：AGPL-3.0
 - 商业使用：见 `LICENSE`
 
-自动监控、更新及默认回归使用后台入口；CE 与 DS4Windows 请求隐藏启动。测试游戏采用无窗口探针，避免回归时弹出命令行；可见旧 Console 验收仅在显式启用时运行。
+自动监控、更新及默认回归使用后台入口；CE 与 DS4Windows 请求隐藏启动。测试游戏采用无窗口探针，避免回归时弹出命令行。

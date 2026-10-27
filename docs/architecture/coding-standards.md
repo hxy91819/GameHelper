@@ -60,7 +60,6 @@
 1. 所有 I/O 操作提供 `async` 版本，避免在同步方法中调用 `Result`/`Wait()`。
 2. 在库代码中传播 `CancellationToken`，方法签名包含可选参数 `CancellationToken cancellationToken = default`。
 3. 使用 `ConfigureAwait(false)` 仅限库内部调用；应用层不需要。
-4. 避免在后台线程中更新 Spectre.Console UI；使用提供的异步 API 或主线程调度器。
 
 ## 7. 测试与可测性
 

@@ -128,9 +128,9 @@ function Resolve-InstanceProcess {
     $process = Get-Process -Id $TargetProcessId -ErrorAction SilentlyContinue
     if ($null -ne $process) { return $process }
 
-    # The console host may transfer itself to Windows Terminal and exit, so the PID captured at
-    # launch can be gone by the time the probe runs. Fall back to the newest instance of the
-    # deployed executable; a genuine crash still yields null because nothing replaces it.
+    # The launched bootstrap may exit after handing off to the background runtime, so the PID
+    # captured at launch can be gone by the time the probe runs. Fall back to the newest instance
+    # of the deployed executable; a genuine crash still yields null because nothing replaces it.
     $exePath = Join-Path $PublishDirectory 'GameHelper.ConsoleHost.exe'
     return Get-Process -Name 'GameHelper.ConsoleHost' -ErrorAction SilentlyContinue |
         Where-Object {

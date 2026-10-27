@@ -33,9 +33,9 @@ CI runs the same script on Windows to publish ConsoleHost and execute the publis
 - **Executable Identity**: name-only and path identities must expose the same order-independent, read-only projections across catalog flows.
 - **Process Observation contracts**: ETW, WMI, and no-op adapters must share policy, filtering, stop-event, lifecycle, and PID eviction semantics.
 - **Playtime codec**: writer-to-reader roundtrips must cover commas, quotes, newlines, malformed rows, and legacy JSON import.
-- **Shell workflows**: CLI commands, interactive shell flows, and file-drop forwarding should be covered through service-facing tests or smoke tests.
+- **Shell workflows**: CLI commands and file-drop forwarding should be covered through service-facing tests or smoke tests.
 - **File-drop Intake**: a batch commits once, reloads automation once after success, and performs neither action for invalid input.
-- **Command dispatch**: non-interactive CLI routing should be covered through `ConsoleCommandDispatcher` tests rather than process-level tests when startup side effects are not under test.
+- **Command dispatch**: CLI routing should be covered through `ConsoleCommandDispatcher` tests rather than process-level tests when startup side effects are not under test.
 - **Published console artifact**: `scripts/publish-console-smoke.ps1` covers the process-level path for the published executable, embedded YAML validator resources, and config values requiring YAML quoting.
 - **Documentation navigation**: local Markdown links must stay valid while docs are archived or rewritten.
 
@@ -44,9 +44,9 @@ CI runs the same script on Windows to publish ConsoleHost and execute the publis
 - WMI and ETW integration tests are Windows-only.
 - ETW tests that require administrator privileges should skip or self-report when not elevated.
 - WPF view-model tests cover draft preservation, save-before-launch failure and search selection. The published library flow exercises real IPC, revision rejection, native launch, ETW/CSV and WPF rendering against an isolated host. Old WinUI/FlaUI suites are retired and do not constrain this design.
-- The published background entry test calls the actual deployment startup function, verifies the runtime has no console, reuses the same instance on repeated startup, and tracks a real probe through ETW/CSV. Default tests never launch the legacy interactive console. Set `GAMEHELPER_TEST_VISIBLE_CONSOLE=1` explicitly to run its three visible-window regression cases. Rendering snapshots use `ShowActivated=false`.
+- The published background entry test calls the actual deployment startup function, verifies the runtime has no console, reuses the same instance on repeated startup, and tracks a real probe through ETW/CSV. Rendering snapshots use `ShowActivated=false`.
 
 ## Known Gaps
 
-- Console host construction is covered through `ConsoleHostBootstrapper`, and non-interactive command routing is covered through `ConsoleCommandDispatcher`.
-- Console process-level smoke coverage is intentionally narrow: it exercises published `validate-config` and `config list` only, avoiding long-running monitor and interactive shell flows.
+- Console host construction is covered through `ConsoleHostBootstrapper`, and CLI command routing is covered through `ConsoleCommandDispatcher`.
+- Console process-level smoke coverage is intentionally narrow: it exercises published `validate-config` and `config list` only, avoiding long-running monitor flows.
