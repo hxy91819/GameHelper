@@ -67,8 +67,6 @@ public sealed class YamlConfigProvider : IGameConfiguration, IConfigPathProvider
             var appConfig = Normalize(ReadCore());
             change(appConfig);
             appConfig = Normalize(appConfig, forSave: true);
-            var validation = AppConfigValidator.Validate(appConfig);
-            if (!validation.IsValid) throw new ArgumentException(string.Join("\n", validation.Errors));
             WriteCore(appConfig);
             return Normalize(ReadCore());
         }
@@ -106,6 +104,8 @@ public sealed class YamlConfigProvider : IGameConfiguration, IConfigPathProvider
     private AppConfig Normalize(AppConfig appConfig, bool forSave = false)
     {
         appConfig.Hdr?.Validate();
+        if (forSave) appConfig.BreakReminder?.Validate();
+        if (forSave) appConfig.MonitorMode?.Validate();
 
         var normalizedGames = new List<GameConfig>();
         foreach (var source in appConfig.Games ?? Enumerable.Empty<GameConfig>())

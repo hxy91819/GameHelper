@@ -26,7 +26,7 @@ internal static class ConfigEntryNormalizer
 
     public static GameConfig NormalizeForSave(GameConfig source, ILogger? logger = null)
     {
-        var errors = AppConfigValidator.ValidateGame(source);
+        var errors = AppConfigValidator.ValidateGameIdentity(source);
         if (errors.Count > 0) throw new InvalidDataException(string.Join("\n", errors));
         var dataKey = (source.DataKey ?? string.Empty).Trim();
         var executable = (source.Executable ?? string.Empty).Trim();

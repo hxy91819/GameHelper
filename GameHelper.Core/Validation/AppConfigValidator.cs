@@ -15,7 +15,7 @@ public sealed class ValidationResult
 public static class AppConfigValidator
 {
     /// <summary>Validates detached application settings before the configuration transaction commits.</summary>
-    public static ValidationResult Validate(AppConfig config)
+    public static ValidationResult ValidateGlobals(AppConfig config)
     {
         var result = new ValidationResult();
         void Check(Action action) { try { action(); } catch (ArgumentException ex) { result.Errors.Add(ex.Message); } }
@@ -34,6 +34,14 @@ public static class AppConfigValidator
             result.Errors.Add("cheatEngine.executable must be an absolute Windows .exe path.");
         try { GameHelper.Core.Models.SpeedHotkey.Validate(config.CheatEngine?.SpeedHotkeys); }
         catch (ArgumentException ex) { result.Errors.Add("cheatEngine.speedHotkeys: " + ex.Message); }
+        result.IsValid = result.Errors.Count == 0;
+        return result;
+    }
+
+    /// <summary>Validates the complete file, including game entries.</summary>
+    public static ValidationResult Validate(AppConfig config)
+    {
+        var result = ValidateGlobals(config);
         var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var game in config.Games ?? [])
         {

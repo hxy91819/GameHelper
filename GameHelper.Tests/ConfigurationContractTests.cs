@@ -93,20 +93,19 @@ games:
     [InlineData("monitor")]
     [InlineData("cheatEngine")]
     [InlineData("sync")]
-    public void Change_InvalidGlobalSettings_LeavesExistingDocumentUntouched(string field)
+    public void SettingsUpdate_InvalidGlobalSettings_LeavesExistingDocumentUntouched(string field)
     {
         var provider = new YamlConfigProvider(ConfigPath);
         provider.Change(_ => { });
         var original = File.ReadAllText(ConfigPath);
-        Assert.Throws<ArgumentException>(() => provider.Change(config =>
+        var request = new UpdateAppSettingsRequest();
+        switch (field)
         {
-            switch (field)
-            {
-                case "monitor": config.ProcessMonitorType = (ProcessMonitorType)99; break;
-                case "cheatEngine": config.CheatEngine = new() { Executable = "relative.exe" }; break;
-                case "sync": config.SyncSettings = new() { Enabled = true, Repo = "invalid" }; break;
-            }
-        }));
+            case "monitor": request.ProcessMonitorType = (ProcessMonitorType)99; break;
+            case "cheatEngine": request.CheatEngine = new() { Executable = "relative.exe" }; break;
+            case "sync": request.SyncSettings = new() { Enabled = true, Repo = "invalid" }; break;
+        }
+        Assert.Throws<ArgumentException>(() => new SettingsService(provider).Update(request));
         Assert.Equal(original, File.ReadAllText(ConfigPath));
     }
 
@@ -138,6 +137,37 @@ games:
         var provider = new YamlConfigProvider(ConfigPath);
         Assert.Throws<InvalidDataException>(() => provider.Change(current => current.Games = config.Games));
         Assert.False(File.Exists(ConfigPath));
+    }
+
+    [Theory]
+    [InlineData("cheatEngine: {executable: relative.exe}", true)]
+    [InlineData("sync: {enabled: true, repo: invalid}", true)]
+    [InlineData("", false)]
+    public void LegacySaveScopes_PreserveUnrelatedInvalidConfiguration(string globals, bool settingsRejects)
+    {
+        File.WriteAllText(ConfigPath, globals + "\ngames:\n  - dataKey: sample\n    executable: sample.exe\n" + (settingsRejects ? "" : "    launch: {}\n"));
+        var provider = new YamlConfigProvider(ConfigPath);
+        provider.Change(config => config.Games[0].DisplayName = "Renamed");
+        Assert.Equal("Renamed", provider.Read().Games[0].DisplayName);
+        Assert.Equal(!settingsRejects, provider.Read().Games[0].Launch is not null);
+        var original = File.ReadAllBytes(ConfigPath);
+        var service = new SettingsService(provider);
+        var request = new UpdateAppSettingsRequest
+        {
+            ProcessMonitorType = ProcessMonitorType.WMI, LaunchOnSystemStartup = true,
+            BreakReminder = new() { PlayMinutes = 30 }
+        };
+        if (settingsRejects)
+        {
+            Assert.Throws<ArgumentException>(() => service.Update(request));
+            Assert.Equal(original, File.ReadAllBytes(ConfigPath));
+        }
+        else
+        {
+            service.Update(request);
+            Assert.Equal(ProcessMonitorType.WMI, provider.Read().ProcessMonitorType);
+            Assert.NotNull(provider.Read().Games[0].Launch);
+        }
     }
 
     private const string LegacyConfig = """
