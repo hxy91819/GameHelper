@@ -26,7 +26,7 @@ public sealed class SpeedAttachScheduler
 
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
-    private readonly Action<SpeedAttachRequest> _apply;
+    private readonly Action<SpeedAttachRequest, long> _apply;
     private readonly IProcessIdentityProbe? _identityProbe;
     private readonly TimeSpan _pollInterval;
     private readonly TimeSpan _timeout;
@@ -42,6 +42,19 @@ public sealed class SpeedAttachScheduler
         IProcessIdentityProbe? identityProbe = null,
         TimeSpan? pollInterval = null,
         TimeSpan? timeout = null)
+        : this(timeProvider, logger,
+            apply is null ? throw new ArgumentNullException(nameof(apply)) : (request, _) => apply(request),
+            identityProbe, pollInterval, timeout)
+    {
+    }
+
+    internal SpeedAttachScheduler(
+        TimeProvider timeProvider,
+        ILogger logger,
+        Action<SpeedAttachRequest, long> apply,
+        IProcessIdentityProbe? identityProbe,
+        TimeSpan? pollInterval,
+        TimeSpan? timeout)
     {
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -55,7 +68,10 @@ public sealed class SpeedAttachScheduler
     /// Schedules a deferred attach. The request is keyed by PID: game stop events and service
     /// shutdown cancel it via <see cref="CancelPending"/> / <see cref="CancelAll"/>.
     /// </summary>
-    public void ScheduleDeferred(SpeedAttachRequest request)
+    public void ScheduleDeferred(SpeedAttachRequest request) => ScheduleDeferred(request, 0);
+
+    // The owner captures generation when requesting work, never when the callback resumes.
+    internal void ScheduleDeferred(SpeedAttachRequest request, long generation)
     {
         var cts = new CancellationTokenSource();
 
@@ -75,7 +91,7 @@ public sealed class SpeedAttachScheduler
             request.DataKey,
             request.ProcessId,
             _timeout);
-        _ = Task.Run(() => RunGateAsync(request, cts.Token, cts));
+        _ = Task.Run(() => RunGateAsync(request, generation, cts.Token, cts));
     }
 
     /// <summary>Cancels a pending deferred attach. Returns true when one existed for the PID.</summary>
@@ -134,7 +150,7 @@ public sealed class SpeedAttachScheduler
         }
     }
 
-    private async Task RunGateAsync(SpeedAttachRequest request, CancellationToken cancellationToken, CancellationTokenSource cts)
+    private async Task RunGateAsync(SpeedAttachRequest request, long generation, CancellationToken cancellationToken, CancellationTokenSource cts)
     {
         try
         {
@@ -164,7 +180,7 @@ public sealed class SpeedAttachScheduler
                         request.DataKey,
                         elapsed,
                         request.ProcessId);
-                    InvokeApply(request, cancellationToken);
+                    InvokeApply(request, generation, cancellationToken);
                     return;
                 }
 
@@ -176,7 +192,7 @@ public sealed class SpeedAttachScheduler
                         request.DataKey,
                         _timeout,
                         request.ProcessId);
-                    InvokeApply(request, cancellationToken);
+                    InvokeApply(request, generation, cancellationToken);
                     return;
                 }
             }
@@ -201,7 +217,7 @@ public sealed class SpeedAttachScheduler
         }
     }
 
-    private void InvokeApply(SpeedAttachRequest request, CancellationToken cancellationToken)
+    private void InvokeApply(SpeedAttachRequest request, long generation, CancellationToken cancellationToken)
     {
         _executionBoundary.EnterReadLock();
         try
@@ -209,7 +225,7 @@ public sealed class SpeedAttachScheduler
             // Cancellation may have happened after the gate's last check (including in logging).
             // Stop takes the write side, so a successful drain covers apply and record publication.
             cancellationToken.ThrowIfCancellationRequested();
-            try { _apply(request); }
+            try { _apply(request, generation); }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Deferred speed apply failed for {DataKey} (PID {ProcessId}).", request.DataKey, request.ProcessId);

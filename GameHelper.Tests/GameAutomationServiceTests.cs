@@ -334,6 +334,56 @@ namespace GameHelper.Tests
         }
 
         [Fact]
+        public async Task Stop_CallbackPastFinalTokenCheck_CannotBorrowRestartedGeneration()
+        {
+            var monitor = new FakeMonitor();
+            var speed = new FakeSpeedController();
+            var exePath = CreateModdedGameDirectory("OldGeneration.exe");
+            var service = new GameAutomationService(monitor,
+                new FakeConfig(new Dictionary<string, CoreGameConfig>
+                {
+                    ["old"] = new() { DataKey = "old", Executable = "OldGeneration.exe", IsEnabled = true, SpeedMultiplier = 2 }
+                }), new FakeHdr(), new FakePlayTime(), NullLogger<GameAutomationService>.Instance,
+                speedController: speed, speedGatePollInterval: TinyPollInterval, speedGateTimeout: TimeSpan.Zero);
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var release = new ManualResetEventSlim();
+            service.Start();
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var coordinator = (SpeedAttachmentCoordinator)typeof(GameAutomationService).GetField("_speedAttachment", flags)!.GetValue(service)!;
+            var scheduler = typeof(SpeedAttachmentCoordinator).GetField("_speedAttachGate", flags)!.GetValue(coordinator)!;
+            var applyField = typeof(SpeedAttachScheduler).GetField("_apply", flags)!;
+            var original = (Action<SpeedAttachRequest, long>)applyField.GetValue(scheduler)!;
+            // Wrap the real delegate: InvokeApply has already performed its final token check,
+            // but the coordinator has not examined generation or entered the controller yet.
+            applyField.SetValue(scheduler, (Action<SpeedAttachRequest, long>)((request, generation) =>
+            {
+                entered.TrySetResult();
+                if (!release.Wait(TimeSpan.FromSeconds(15))) throw new TimeoutException("Callback barrier was not released");
+                try { original(request, generation); }
+                finally { completed.TrySetResult(); }
+            }));
+            try
+            {
+                monitor.RaiseStart(new ProcessEventInfo("OldGeneration.exe", exePath, 155));
+                await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await Task.Run(() => Assert.Throws<TimeoutException>(service.Stop)).WaitAsync(TimeSpan.FromSeconds(8));
+                service.Start();
+                release.Set();
+                await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.Empty(speed.Applied);
+                Assert.Null(coordinator.CaptureExit(155));
+                Assert.Empty(service.GetGameStates());
+            }
+            finally
+            {
+                release.Set();
+                service.Stop();
+                DeleteDirectoryIfExists(Path.GetDirectoryName(exePath));
+            }
+        }
+
+        [Fact]
         public async Task Stop_BlockedController_TimesOutAfterCleanup_AndLateCompletionCannotRestoreRecords()
         {
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

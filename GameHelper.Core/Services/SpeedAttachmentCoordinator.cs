@@ -49,7 +49,7 @@ internal sealed class SpeedAttachmentCoordinator
         _logger = logger;
         _speedAttachGate = new SpeedAttachScheduler(
             timeProvider, logger,
-            request => ApplyAndRecordSpeed(request.DataKey, request.ProcessId, request.Speed, request.Hotkeys),
+            (request, epoch) => ApplyAndRecordSpeed(request.DataKey, request.ProcessId, request.Speed, request.Hotkeys, epoch),
             processIdentityProbe, pollInterval, timeout);
     }
 
@@ -99,6 +99,12 @@ internal sealed class SpeedAttachmentCoordinator
         // MelonLoader) boots alongside, its sensitive startup phase races that injection and
         // crashes the game with zero logs. Without a resolvable game path the loader cannot be
         // detected, so the legacy immediate attach applies (same as speedAttach: immediate).
+        long epoch;
+        lock (_recordLock)
+        {
+            if (!_accepting) return;
+            epoch = _epoch;
+        }
         var hotkeys = CheatEngineSettings.Resolve(config.SpeedHotkeys, _cheatEngine);
         var loaderInfo = ModLoaderDetector.Detect(gamePath);
         if (IsImmediateSpeedAttach(config)
@@ -113,7 +119,7 @@ internal sealed class SpeedAttachmentCoordinator
                     config.DataKey);
             }
 
-            ApplyAndRecordSpeed(config.DataKey, processId.Value, config.SpeedMultiplier.Value, hotkeys);
+            ApplyAndRecordSpeed(config.DataKey, processId.Value, config.SpeedMultiplier.Value, hotkeys, epoch);
             return;
         }
 
@@ -124,7 +130,7 @@ internal sealed class SpeedAttachmentCoordinator
             loaderInfo.LogPath,
             processStartedUtc,
             gamePath,
-            hotkeys?.ToArray()));
+            hotkeys?.ToArray()), epoch);
     }
 
     private static bool IsImmediateSpeedAttach(GameConfig config) =>
@@ -134,13 +140,11 @@ internal sealed class SpeedAttachmentCoordinator
     /// Performs the actual attach and records it for exit-correlation when the controller really
     /// launched Cheat Engine. Runs both on the immediate path and from the deferred gate callback.
     /// </summary>
-    private void ApplyAndRecordSpeed(string dataKey, int processId, double speed, IReadOnlyList<SpeedHotkey>? hotkeys)
+    private void ApplyAndRecordSpeed(string dataKey, int processId, double speed, IReadOnlyList<SpeedHotkey>? hotkeys, long epoch)
     {
-        long epoch;
         lock (_recordLock)
         {
-            if (!_accepting) return;
-            epoch = _epoch;
+            if (!_accepting || epoch != _epoch) return;
         }
         try
         {
