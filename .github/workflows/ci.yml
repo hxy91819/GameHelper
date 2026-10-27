@@ -25,19 +25,8 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Restore core and cli projects
-        run: |
-          dotnet restore GameHelper.Core/GameHelper.Core.csproj
-          dotnet restore GameHelper.Infrastructure/GameHelper.Infrastructure.csproj
-          dotnet restore GameHelper.ConsoleHost/GameHelper.ConsoleHost.csproj
-          dotnet restore GameHelper.Tests/GameHelper.Tests.csproj
-
-      - name: Build core and cli projects
-        run: |
-          dotnet build GameHelper.Core/GameHelper.Core.csproj --configuration Release --no-restore
-          dotnet build GameHelper.Infrastructure/GameHelper.Infrastructure.csproj --configuration Release --no-restore
-          dotnet build GameHelper.ConsoleHost/GameHelper.ConsoleHost.csproj --configuration Release --no-restore
-          dotnet build GameHelper.Tests/GameHelper.Tests.csproj --configuration Release --no-restore
+      - name: Build entire solution
+        run: dotnet build GameHelper.sln --configuration Release
 
       - name: Test core and cli logic
         run: dotnet test GameHelper.Tests/GameHelper.Tests.csproj --configuration Release --no-build --verbosity normal
@@ -57,3 +46,31 @@ jobs:
       - name: Publish and smoke test ConsoleHost
         shell: pwsh
         run: ./scripts/publish-console-smoke.ps1
+
+  isolated-runtime-verify:
+    name: Isolated Runtime Verify (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Verify isolated background runtime without deployment
+        shell: pwsh
+        run: |
+          ./scripts/verify-on-machine.ps1 -SkipDeploy -VerifyRuntime -DiagnosticsDirectory "$env:RUNNER_TEMP/runtime-verify"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "Background launch without console, sandbox data writes, ETW session and library IPC passed. No deployment performed." >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload isolated instance diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: isolated-runtime-diagnostics
+          path: ${{ runner.temp }}/runtime-verify
+          if-no-files-found: warn

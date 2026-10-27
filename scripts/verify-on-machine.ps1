@@ -23,13 +23,21 @@ param(
     [switch] $SkipDeploy,
     [switch] $Restart,
     [switch] $RequireClean,
-    [switch] $AllowDegradedMonitor
+    [switch] $AllowDegradedMonitor,
+    [switch] $VerifyRuntime,
+    [string] $DiagnosticsDirectory
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot 'start-checked-instance.ps1')
+
+if ($VerifyRuntime -and $SkipVerify) { throw '-VerifyRuntime cannot be combined with -SkipVerify.' }
+if (-not [string]::IsNullOrWhiteSpace($DiagnosticsDirectory)) {
+    $DiagnosticsDirectory = [IO.Path]::GetFullPath($DiagnosticsDirectory)
+    New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force | Out-Null
+}
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 
@@ -171,6 +179,8 @@ games:
     $previousDisableSingleInstance = $env:GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE
     $env:GAMEHELPER_DATA_DIR = $sandbox
     $env:GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE = "1"
+    $testRuntime = $null
+    $verificationStarted = Get-Date
     try {
         $validateOutput = & $tempExe validate-config --config $configPath 2>&1
         if ($LASTEXITCODE -ne 0 -or (($validateOutput -join "`n") -notmatch "Config is valid\.")) {
@@ -182,12 +192,62 @@ games:
             throw "Test instance config list failed:`n$($listOutput -join "`n")"
         }
 
+        if ($VerifyRuntime) {
+            # Reuse the deployment launch/health probes against only this temporary build.
+            $testRuntime = Start-CheckedInstance $tempPublish ([ref] $testRuntime)
+            & (Join-Path $PSScriptRoot 'assert-deploy-health.ps1') -Directory $tempPublish -RepoRoot $repoRoot `
+                -ProcessId $testRuntime.Id -AllowDegradedMonitor:$AllowDegradedMonitor
+            $runtimeLog = $configPath + '.runtime.log'
+            if (-not (Test-Path -LiteralPath $runtimeLog) -or (Get-Item -LiteralPath $runtimeLog).Length -eq 0) {
+                throw 'Background runtime did not write its log in the sandbox data directory.'
+            }
+            $libraryCheck = Join-Path $sandbox 'library-health.json'
+            $libraryProbe = Start-Process -FilePath (Join-Path $tempPublish 'desktop\GameHelper.Desktop.exe') `
+                -ArgumentList @('--check', ('"' + $libraryCheck + '"')) -WindowStyle Hidden -PassThru
+            try {
+                if (-not $libraryProbe.WaitForExit(15000)) { $libraryProbe.Kill(); throw 'Isolated library IPC probe timed out.' }
+                if ($libraryProbe.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $libraryCheck)) { throw 'Isolated library IPC probe failed.' }
+                $libraryResult = Get-Content -LiteralPath $libraryCheck -Raw | ConvertFrom-Json
+                if (-not $libraryResult.Success -or $libraryResult.RuntimeProcessId -ne $testRuntime.Id) {
+                    throw 'Library IPC did not connect to the isolated runtime.'
+                }
+            }
+            finally { $libraryProbe.Dispose() }
+            Write-Host 'Isolated runtime verification passed (no console, sandbox writes, monitor readiness, library IPC).'
+        }
+
         Write-Host "Test instance verification passed (data dir sandboxed at $sandbox)."
     }
     finally {
-        $env:GAMEHELPER_DATA_DIR = $previousDataDirectory
-        $env:GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE = $previousDisableSingleInstance
-        Remove-CheckedDirectory $sandbox $tempRoot
+        try {
+            if ($VerifyRuntime) {
+                # Startup can fail before returning its PID. Only stop our temporary build.
+                Get-Process -Name GameHelper.ConsoleHost, GameHelper.Desktop -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Path -eq $tempExe -or $_.Path -eq (Join-Path $tempPublish 'desktop\GameHelper.Desktop.exe') } |
+                    ForEach-Object {
+                        try { Stop-Process -InputObject $_ -Force; $_.WaitForExit(30000) | Out-Null }
+                        catch { Write-Warning "Could not clean up isolated PID $($_.Exception.Message)" }
+                    }
+            }
+        }
+        finally {
+            try {
+                if ($DiagnosticsDirectory) {
+                    $desktopError = Join-Path $tempRoot 'GameHelper.Desktop-error.txt'
+                    if ((Test-Path -LiteralPath $desktopError) -and (Get-Item -LiteralPath $desktopError).LastWriteTime -ge $verificationStarted) {
+                        Copy-Item -LiteralPath $desktopError -Destination $DiagnosticsDirectory -Force
+                    }
+                    Copy-Item -LiteralPath $sandbox -Destination (Join-Path $DiagnosticsDirectory 'sandbox') -Recurse -Force
+                    Get-ChildItem -LiteralPath $tempPublish -Recurse -File -Include '*.log', '*error*.txt', 'deploy-manifest.json' |
+                        Copy-Item -Destination $DiagnosticsDirectory -Force
+                }
+            }
+            finally {
+                $env:GAMEHELPER_DATA_DIR = $previousDataDirectory
+                $env:GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE = $previousDisableSingleInstance
+                Remove-CheckedDirectory $sandbox $tempRoot
+            }
+        }
     }
 }
 else {
