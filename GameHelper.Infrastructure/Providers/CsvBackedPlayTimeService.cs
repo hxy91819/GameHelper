@@ -8,151 +8,101 @@ using GameHelper.Core.Utilities;
 using Microsoft.Extensions.Logging;
 using System.Text;
 
-namespace GameHelper.Infrastructure.Providers
+namespace GameHelper.Infrastructure.Providers;
+
+/// <summary>
+/// CSV-backed play time tracker that appends sessions to playtime.csv.
+/// Automatically migrates from existing playtime.json on first run.
+/// </summary>
+public sealed class CsvBackedPlayTimeService : IPlayTimeService
 {
-    /// <summary>
-    /// CSV-backed play time tracker that appends sessions to playtime.csv.
-    /// Automatically migrates from existing playtime.json on first run.
-    /// </summary>
-    public sealed class CsvBackedPlayTimeService : IPlayTimeService
+    private readonly object _gate = new();
+    private readonly object _csvWriteGate = new();
+    private readonly string _csvFilePath;
+    private readonly string _jsonFilePath;
+    private readonly ILogger<CsvBackedPlayTimeService>? _logger;
+
+    private readonly Dictionary<string, DateTime> _activeSessions;
+    private readonly TimeProvider _timeProvider;
+
+    public CsvBackedPlayTimeService(ILogger<CsvBackedPlayTimeService>? logger = null)
+        : this(AppDataPath.GetGameHelperDirectory(), logger)
     {
-        private readonly object _gate = new();
-        private readonly object _csvWriteGate = new();
-        private readonly string _csvFilePath;
-        private readonly string _jsonFilePath;
-        private readonly ILogger<CsvBackedPlayTimeService>? _logger;
+    }
 
-        private readonly Dictionary<string, DateTime> _activeSessions;
-        private readonly TimeProvider _timeProvider;
+    // For tests: pass a directory
+    public CsvBackedPlayTimeService(string configDirectory, ILogger<CsvBackedPlayTimeService>? logger = null)
+        : this(configDirectory, logger, TimeProvider.System)
+    {
+    }
 
-        public CsvBackedPlayTimeService(ILogger<CsvBackedPlayTimeService>? logger = null)
-            : this(AppDataPath.GetGameHelperDirectory(), logger)
+    // For tests: deterministic clock (start/stop/shift times must not depend on the wall clock)
+    public CsvBackedPlayTimeService(string configDirectory, ILogger<CsvBackedPlayTimeService>? logger, TimeProvider timeProvider)
+    {
+        if (string.IsNullOrWhiteSpace(configDirectory))
+            throw new ArgumentException("configDirectory required", nameof(configDirectory));
+
+        try
         {
+            Directory.CreateDirectory(configDirectory);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Failed to create config directory: {configDirectory}", ex);
         }
 
-        // For tests: pass a directory
-        public CsvBackedPlayTimeService(string configDirectory, ILogger<CsvBackedPlayTimeService>? logger = null)
-            : this(configDirectory, logger, TimeProvider.System)
+        _csvFilePath = Path.Combine(configDirectory, "playtime.csv");
+        _jsonFilePath = Path.Combine(configDirectory, "playtime.json");
+        _logger = logger;
+        _timeProvider = timeProvider;
+
+        _activeSessions = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+
+        // Perform one-time migration from JSON to CSV if needed
+        try
         {
+            MigrateFromJsonIfNeeded();
         }
-
-        // For tests: deterministic clock (start/stop/shift times must not depend on the wall clock)
-        public CsvBackedPlayTimeService(string configDirectory, ILogger<CsvBackedPlayTimeService>? logger, TimeProvider timeProvider)
+        catch (Exception ex)
         {
-            if (string.IsNullOrWhiteSpace(configDirectory))
-                throw new ArgumentException("configDirectory required", nameof(configDirectory));
-
-            try
-            {
-                Directory.CreateDirectory(configDirectory);
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException($"Failed to create config directory: {configDirectory}", ex);
-            }
-
-            _csvFilePath = Path.Combine(configDirectory, "playtime.csv");
-            _jsonFilePath = Path.Combine(configDirectory, "playtime.json");
-            _logger = logger;
-            _timeProvider = timeProvider;
-
-            _activeSessions = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
-
-            // Perform one-time migration from JSON to CSV if needed
-            try
-            {
-                MigrateFromJsonIfNeeded();
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Failed during JSON to CSV migration, continuing with empty CSV");
-                // Don't throw - we can continue with an empty CSV
-            }
+            _logger?.LogError(ex, "Failed during JSON to CSV migration, continuing with empty CSV");
+            // Don't throw - we can continue with an empty CSV
         }
+    }
 
-        public void StartTracking(string gameName)
+    public void StartTracking(string gameName)
+    {
+        if (string.IsNullOrWhiteSpace(gameName)) return;
+
+        lock (_gate)
         {
-            if (string.IsNullOrWhiteSpace(gameName)) return;
-
-            lock (_gate)
-            {
-                if (_activeSessions.ContainsKey(gameName)) return; // already tracking
-                _activeSessions[gameName] = LocalNow();
-            }
+            if (_activeSessions.ContainsKey(gameName)) return; // already tracking
+            _activeSessions[gameName] = LocalNow();
         }
+    }
 
-        /// <inheritdoc />
-        public void ResumeTracking(string gameName, DateTime startTime)
+    /// <inheritdoc />
+    public void ResumeTracking(string gameName, DateTime startTime)
+    {
+        if (string.IsNullOrWhiteSpace(gameName)) return;
+
+        lock (_gate)
         {
-            if (string.IsNullOrWhiteSpace(gameName)) return;
-
-            lock (_gate)
-            {
-                if (_activeSessions.ContainsKey(gameName)) return; // already tracking; keep the existing start
-                _activeSessions[gameName] = startTime;
-            }
+            if (_activeSessions.ContainsKey(gameName)) return; // already tracking; keep the existing start
+            _activeSessions[gameName] = startTime;
         }
+    }
 
-        public PlaySession? StopTracking(string gameName)
+    public PlaySession? StopTracking(string gameName)
+    {
+        if (string.IsNullOrWhiteSpace(gameName)) return null;
+
+        PlaySession session;
+        lock (_gate)
         {
-            if (string.IsNullOrWhiteSpace(gameName)) return null;
+            if (!_activeSessions.TryGetValue(gameName, out var startTime)) return null; // not tracking
 
-            PlaySession session;
-            lock (_gate)
-            {
-                if (!_activeSessions.TryGetValue(gameName, out var startTime)) return null; // not tracking
-
-                var endTime = LocalNow();
-                var duration = endTime - startTime;
-                if (duration < TimeSpan.Zero)
-                {
-                    duration = TimeSpan.Zero;
-                }
-
-                var durationMinutes = (long)duration.TotalMinutes;
-                if (durationMinutes < 0) durationMinutes = 0;
-
-                _activeSessions.Remove(gameName);
-                session = new PlaySession(gameName, startTime, endTime, duration, durationMinutes);
-            }
-
-            try
-            {
-                AppendSessionToCsv(session.GameName, session.StartTime, session.EndTime, session.DurationMinutes);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Failed to write session to CSV for game {GameName}", gameName);
-                // Let automation retain a completed recovery row in its durable snapshot.
-                throw;
-            }
-
-            return session;
-        }
-
-        /// <inheritdoc />
-        public void ShiftActiveStarts(TimeSpan offset)
-        {
-            if (offset == TimeSpan.Zero) return;
-
-            lock (_gate)
-            {
-                foreach (var gameName in _activeSessions.Keys.ToList())
-                {
-                    _activeSessions[gameName] += offset;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Persists a completed row recovered from a prior run's in-flight snapshot. The
-        /// true exit time of a game that died while GameHelper was down has already been
-        /// capped by the caller; this method only writes what it is given.
-        /// </summary>
-        public void WriteRecoveredSession(string gameName, DateTime startTime, DateTime endTime)
-        {
-            if (string.IsNullOrWhiteSpace(gameName)) return;
-
+            var endTime = LocalNow();
             var duration = endTime - startTime;
             if (duration < TimeSpan.Zero)
             {
@@ -162,103 +112,152 @@ namespace GameHelper.Infrastructure.Providers
             var durationMinutes = (long)duration.TotalMinutes;
             if (durationMinutes < 0) durationMinutes = 0;
 
-            AppendSessionToCsv(gameName, startTime, endTime, durationMinutes, deduplicate: true);
+            _activeSessions.Remove(gameName);
+            session = new PlaySession(gameName, startTime, endTime, duration, durationMinutes);
         }
 
-        private DateTime LocalNow() => _timeProvider.GetLocalNow().DateTime;
-
-    private void AppendSessionToCsv(string gameName, DateTime startTime, DateTime endTime, long durationMinutes, bool deduplicate = false)
+        try
         {
-            const int maxRetries = 3;
-            const int retryDelayMs = 100;
-
-            for (var attempt = 0; attempt < maxRetries; attempt++)
-            {
-                try
-                {
-                    lock (_csvWriteGate)
-                    {
-                        if (deduplicate && File.Exists(_csvFilePath))
-                        {
-                            var alreadyWritten = false;
-                            PlaytimeCsvCodec.ReadRows(_csvFilePath, row =>
-                            {
-                                if (string.Equals(row.GameName, gameName, StringComparison.OrdinalIgnoreCase)
-                                    && row.StartTime.Ticks / TimeSpan.TicksPerSecond == startTime.Ticks / TimeSpan.TicksPerSecond
-                                    && row.EndTime.Ticks / TimeSpan.TicksPerSecond == endTime.Ticks / TimeSpan.TicksPerSecond)
-                                    alreadyWritten = true;
-                            });
-                            if (alreadyWritten) return;
-                        }
-                        PlaytimeCsvCodec.Append(
-                            _csvFilePath,
-                            new PlaytimeCsvRow(gameName, startTime, endTime, durationMinutes));
-                    }
-
-                    return;
-                }
-                catch (Exception ex) when (attempt < maxRetries - 1)
-                {
-                    _logger?.LogWarning(ex, "Failed to write CSV (attempt {Attempt}/{MaxRetries}), retrying...", attempt + 1, maxRetries);
-                    System.Threading.Thread.Sleep(retryDelayMs);
-                }
-            }
-
-            throw new InvalidOperationException($"Failed to write session to CSV after {maxRetries} attempts");
+            AppendSessionToCsv(session.GameName, session.StartTime, session.EndTime, session.DurationMinutes);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to write session to CSV for game {GameName}", gameName);
+            // Let automation retain a completed recovery row in its durable snapshot.
+            throw;
         }
 
-        private void MigrateFromJsonIfNeeded()
-        {
-            // Only migrate if CSV doesn't exist but JSON does
-            if (File.Exists(_csvFilePath) || !File.Exists(_jsonFilePath))
-            {
-                return;
-            }
+        return session;
+    }
 
+    /// <inheritdoc />
+    public void ShiftActiveStarts(TimeSpan offset)
+    {
+        if (offset == TimeSpan.Zero) return;
+
+        lock (_gate)
+        {
+            foreach (var gameName in _activeSessions.Keys.ToList())
+            {
+                _activeSessions[gameName] += offset;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Persists a completed row recovered from a prior run's in-flight snapshot. The
+    /// true exit time of a game that died while GameHelper was down has already been
+    /// capped by the caller; this method only writes what it is given.
+    /// </summary>
+    public void WriteRecoveredSession(string gameName, DateTime startTime, DateTime endTime)
+    {
+        if (string.IsNullOrWhiteSpace(gameName)) return;
+
+        var duration = endTime - startTime;
+        if (duration < TimeSpan.Zero)
+        {
+            duration = TimeSpan.Zero;
+        }
+
+        var durationMinutes = (long)duration.TotalMinutes;
+        if (durationMinutes < 0) durationMinutes = 0;
+
+        AppendSessionToCsv(gameName, startTime, endTime, durationMinutes, deduplicate: true);
+    }
+
+    private DateTime LocalNow() => _timeProvider.GetLocalNow().DateTime;
+
+private void AppendSessionToCsv(string gameName, DateTime startTime, DateTime endTime, long durationMinutes, bool deduplicate = false)
+    {
+        const int maxRetries = 3;
+        const int retryDelayMs = 100;
+
+        for (var attempt = 0; attempt < maxRetries; attempt++)
+        {
             try
             {
-                _logger?.LogInformation("Migrating playtime data from JSON to CSV format");
-
-                var json = File.ReadAllText(_jsonFilePath, Encoding.UTF8);
-                var root = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-
-                if (root != null && root.TryGetValue("games", out var node) && node != null)
+                lock (_csvWriteGate)
                 {
-                    var games = JsonSerializer.Deserialize<JsonGameRecord[]>(node.ToString() ?? string.Empty);
-                    if (games != null)
+                    if (deduplicate && File.Exists(_csvFilePath))
                     {
-                        var rows = games.SelectMany(game =>
-                            (game.Sessions ?? Enumerable.Empty<JsonSessionRecord>())
-                                .Select(session => new PlaytimeCsvRow(
-                                    game.GameName,
-                                    session.StartTime,
-                                    session.EndTime,
-                                    session.DurationMinutes)));
-                        PlaytimeCsvCodec.WriteAll(_csvFilePath, rows);
-
-                        _logger?.LogInformation("Successfully migrated {GameCount} games with sessions to CSV", games.Length);
+                        var alreadyWritten = false;
+                        PlaytimeCsvCodec.ReadRows(_csvFilePath, row =>
+                        {
+                            if (string.Equals(row.GameName, gameName, StringComparison.OrdinalIgnoreCase)
+                                && row.StartTime.Ticks / TimeSpan.TicksPerSecond == startTime.Ticks / TimeSpan.TicksPerSecond
+                                && row.EndTime.Ticks / TimeSpan.TicksPerSecond == endTime.Ticks / TimeSpan.TicksPerSecond)
+                                alreadyWritten = true;
+                        });
+                        if (alreadyWritten) return;
                     }
+                    PlaytimeCsvCodec.Append(
+                        _csvFilePath,
+                        new PlaytimeCsvRow(gameName, startTime, endTime, durationMinutes));
+                }
+
+                return;
+            }
+            catch (Exception ex) when (attempt < maxRetries - 1)
+            {
+                _logger?.LogWarning(ex, "Failed to write CSV (attempt {Attempt}/{MaxRetries}), retrying...", attempt + 1, maxRetries);
+                System.Threading.Thread.Sleep(retryDelayMs);
+            }
+        }
+
+        throw new InvalidOperationException($"Failed to write session to CSV after {maxRetries} attempts");
+    }
+
+    private void MigrateFromJsonIfNeeded()
+    {
+        // Only migrate if CSV doesn't exist but JSON does
+        if (File.Exists(_csvFilePath) || !File.Exists(_jsonFilePath))
+        {
+            return;
+        }
+
+        try
+        {
+            _logger?.LogInformation("Migrating playtime data from JSON to CSV format");
+
+            var json = File.ReadAllText(_jsonFilePath, Encoding.UTF8);
+            var root = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+
+            if (root != null && root.TryGetValue("games", out var node) && node != null)
+            {
+                var games = JsonSerializer.Deserialize<JsonGameRecord[]>(node.ToString() ?? string.Empty);
+                if (games != null)
+                {
+                    var rows = games.SelectMany(game =>
+                        (game.Sessions ?? Enumerable.Empty<JsonSessionRecord>())
+                            .Select(session => new PlaytimeCsvRow(
+                                game.GameName,
+                                session.StartTime,
+                                session.EndTime,
+                                session.DurationMinutes)));
+                    PlaytimeCsvCodec.WriteAll(_csvFilePath, rows);
+
+                    _logger?.LogInformation("Successfully migrated {GameCount} games with sessions to CSV", games.Length);
                 }
             }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Failed to migrate from JSON to CSV, will continue with empty CSV");
-                // If migration fails, we'll start with an empty CSV
-            }
         }
-
-        // DTOs for JSON migration
-        private sealed class JsonGameRecord
+        catch (Exception ex)
         {
-            public string GameName { get; set; } = string.Empty;
-            public List<JsonSessionRecord>? Sessions { get; set; }
+            _logger?.LogError(ex, "Failed to migrate from JSON to CSV, will continue with empty CSV");
+            // If migration fails, we'll start with an empty CSV
         }
+    }
 
-        private sealed class JsonSessionRecord
-        {
-            public DateTime StartTime { get; set; }
-            public DateTime EndTime { get; set; }
-            public long DurationMinutes { get; set; }
-        }
+    // DTOs for JSON migration
+    private sealed class JsonGameRecord
+    {
+        public string GameName { get; set; } = string.Empty;
+        public List<JsonSessionRecord>? Sessions { get; set; }
+    }
+
+    private sealed class JsonSessionRecord
+    {
+        public DateTime StartTime { get; set; }
+        public DateTime EndTime { get; set; }
+        public long DurationMinutes { get; set; }
     }
 }

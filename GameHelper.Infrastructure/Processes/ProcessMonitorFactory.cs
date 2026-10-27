@@ -5,106 +5,105 @@ using GameHelper.Core.Models;
 using GameHelper.Infrastructure.Exceptions;
 using Microsoft.Extensions.Logging;
 
-namespace GameHelper.Infrastructure.Processes
+namespace GameHelper.Infrastructure.Processes;
+
+/// <summary>
+/// Factory for creating process monitor instances based on configuration.
+/// </summary>
+public static class ProcessMonitorFactory
 {
     /// <summary>
-    /// Factory for creating process monitor instances based on configuration.
+    /// Creates a process monitor of the specified type.
     /// </summary>
-    public static class ProcessMonitorFactory
+    /// <param name="type">The type of process monitor to create.</param>
+    /// <param name="allowedProcessNames">Optional whitelist of process names to monitor.</param>
+    /// <param name="loggerFactory">Optional logger factory; the monitor creates its own typed logger from it.</param>
+    /// <param name="pathResolver">Optional live process path resolver used by the ETW monitor when the kernel payload cannot name the process.</param>
+    /// <returns>A configured process monitor instance.</returns>
+    /// <exception cref="ArgumentException">Thrown when an unsupported monitor type is specified.</exception>
+    /// <exception cref="InsufficientPrivilegesException">Thrown when ETW monitor requires administrator privileges.</exception>
+    public static IProcessMonitor Create(
+        ProcessMonitorType type,
+        IEnumerable<string>? allowedProcessNames = null,
+        ILoggerFactory? loggerFactory = null,
+        IProcessPathResolver? pathResolver = null)
     {
-        /// <summary>
-        /// Creates a process monitor of the specified type.
-        /// </summary>
-        /// <param name="type">The type of process monitor to create.</param>
-        /// <param name="allowedProcessNames">Optional whitelist of process names to monitor.</param>
-        /// <param name="loggerFactory">Optional logger factory; the monitor creates its own typed logger from it.</param>
-        /// <param name="pathResolver">Optional live process path resolver used by the ETW monitor when the kernel payload cannot name the process.</param>
-        /// <returns>A configured process monitor instance.</returns>
-        /// <exception cref="ArgumentException">Thrown when an unsupported monitor type is specified.</exception>
-        /// <exception cref="InsufficientPrivilegesException">Thrown when ETW monitor requires administrator privileges.</exception>
-        public static IProcessMonitor Create(
-            ProcessMonitorType type,
-            IEnumerable<string>? allowedProcessNames = null,
-            ILoggerFactory? loggerFactory = null,
-            IProcessPathResolver? pathResolver = null)
+        var monitor = type switch
         {
-            var monitor = type switch
-            {
-                ProcessMonitorType.ETW => (IProcessMonitor)new EtwProcessMonitor(
-                    logger: loggerFactory?.CreateLogger<EtwProcessMonitor>(),
-                    pathResolver: pathResolver),
-                ProcessMonitorType.WMI => new WmiProcessMonitor(),
-                _ => throw new ArgumentException($"Unsupported monitor type: {type}", nameof(type))
-            };
+            ProcessMonitorType.ETW => (IProcessMonitor)new EtwProcessMonitor(
+                logger: loggerFactory?.CreateLogger<EtwProcessMonitor>(),
+                pathResolver: pathResolver),
+            ProcessMonitorType.WMI => new WmiProcessMonitor(),
+            _ => throw new ArgumentException($"Unsupported monitor type: {type}", nameof(type))
+        };
 
-            if (allowedProcessNames is not null)
-            {
-                monitor.Configure(new ProcessObservationPolicy(allowedProcessNames));
-            }
-
-            return monitor;
+        if (allowedProcessNames is not null)
+        {
+            monitor.Configure(new ProcessObservationPolicy(allowedProcessNames));
         }
 
-        /// <summary>
-        /// Creates a process monitor with automatic fallback from ETW to WMI if ETW fails.
-        /// </summary>
-        /// <param name="preferredType">The preferred monitor type to try first.</param>
-        /// <param name="allowedProcessNames">Optional whitelist of process names to monitor.</param>
-        /// <param name="loggerFactory">Optional logger factory for monitor diagnostics.</param>
-        /// <param name="pathResolver">Optional live process path resolver for the ETW monitor.</param>
-        /// <returns>A configured process monitor instance, potentially with fallback applied.</returns>
-        public static IProcessMonitor CreateWithFallback(
-            ProcessMonitorType preferredType,
-            IEnumerable<string>? allowedProcessNames = null,
-            ILoggerFactory? loggerFactory = null,
-            IProcessPathResolver? pathResolver = null)
+        return monitor;
+    }
+
+    /// <summary>
+    /// Creates a process monitor with automatic fallback from ETW to WMI if ETW fails.
+    /// </summary>
+    /// <param name="preferredType">The preferred monitor type to try first.</param>
+    /// <param name="allowedProcessNames">Optional whitelist of process names to monitor.</param>
+    /// <param name="loggerFactory">Optional logger factory for monitor diagnostics.</param>
+    /// <param name="pathResolver">Optional live process path resolver for the ETW monitor.</param>
+    /// <returns>A configured process monitor instance, potentially with fallback applied.</returns>
+    public static IProcessMonitor CreateWithFallback(
+        ProcessMonitorType preferredType,
+        IEnumerable<string>? allowedProcessNames = null,
+        ILoggerFactory? loggerFactory = null,
+        IProcessPathResolver? pathResolver = null)
+    {
+        var logger = loggerFactory?.CreateLogger("GameHelper.Infrastructure.ProcessMonitorFactory");
+
+        // If WMI is preferred, just create it directly
+        if (preferredType == ProcessMonitorType.WMI)
         {
-            var logger = loggerFactory?.CreateLogger("GameHelper.Infrastructure.ProcessMonitorFactory");
-
-            // If WMI is preferred, just create it directly
-            if (preferredType == ProcessMonitorType.WMI)
-            {
-                logger?.LogInformation("Creating WMI process monitor (preferred)");
-                return Create(ProcessMonitorType.WMI, allowedProcessNames, loggerFactory);
-            }
-
-            // Try ETW first, fall back to WMI if it fails
-            try
-            {
-                logger?.LogInformation("Attempting to create ETW process monitor");
-                var etwMonitor = Create(ProcessMonitorType.ETW, allowedProcessNames, loggerFactory, pathResolver);
-
-                // Test if we can actually start the ETW monitor
-                etwMonitor.Start();
-                etwMonitor.Stop();
-
-                logger?.LogInformation("ETW process monitor created successfully");
-                return etwMonitor;
-            }
-            catch (InsufficientPrivilegesException ex)
-            {
-                logger?.LogWarning(ex, "ETW monitor requires administrator privileges, falling back to WMI");
-                return Create(ProcessMonitorType.WMI, allowedProcessNames, loggerFactory);
-            }
-            catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == unchecked((int)0x800705AA))
-            {
-                logger?.LogInformation(ex, "ETW session limit reached (system resource exhaustion), using WMI fallback");
-                return Create(ProcessMonitorType.WMI, allowedProcessNames, loggerFactory);
-            }
-            catch (Exception ex)
-            {
-                logger?.LogWarning(ex, "Failed to create ETW monitor, falling back to WMI");
-                return Create(ProcessMonitorType.WMI, allowedProcessNames, loggerFactory);
-            }
+            logger?.LogInformation("Creating WMI process monitor (preferred)");
+            return Create(ProcessMonitorType.WMI, allowedProcessNames, loggerFactory);
         }
 
-        /// <summary>
-        /// Creates a no-op process monitor for testing or disabled scenarios.
-        /// </summary>
-        /// <returns>A no-op process monitor instance.</returns>
-        public static IProcessMonitor CreateNoOp()
+        // Try ETW first, fall back to WMI if it fails
+        try
         {
-            return new NoOpProcessMonitor();
+            logger?.LogInformation("Attempting to create ETW process monitor");
+            var etwMonitor = Create(ProcessMonitorType.ETW, allowedProcessNames, loggerFactory, pathResolver);
+
+            // Test if we can actually start the ETW monitor
+            etwMonitor.Start();
+            etwMonitor.Stop();
+
+            logger?.LogInformation("ETW process monitor created successfully");
+            return etwMonitor;
         }
+        catch (InsufficientPrivilegesException ex)
+        {
+            logger?.LogWarning(ex, "ETW monitor requires administrator privileges, falling back to WMI");
+            return Create(ProcessMonitorType.WMI, allowedProcessNames, loggerFactory);
+        }
+        catch (System.Runtime.InteropServices.COMException ex) when (ex.HResult == unchecked((int)0x800705AA))
+        {
+            logger?.LogInformation(ex, "ETW session limit reached (system resource exhaustion), using WMI fallback");
+            return Create(ProcessMonitorType.WMI, allowedProcessNames, loggerFactory);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "Failed to create ETW monitor, falling back to WMI");
+            return Create(ProcessMonitorType.WMI, allowedProcessNames, loggerFactory);
+        }
+    }
+
+    /// <summary>
+    /// Creates a no-op process monitor for testing or disabled scenarios.
+    /// </summary>
+    /// <returns>A no-op process monitor instance.</returns>
+    public static IProcessMonitor CreateNoOp()
+    {
+        return new NoOpProcessMonitor();
     }
 }

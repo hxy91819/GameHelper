@@ -12,136 +12,82 @@ using YamlDotNet.Core;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
-namespace GameHelper.Infrastructure.Providers
+namespace GameHelper.Infrastructure.Providers;
+
+/// <summary>
+/// YAML-based config provider stored at %AppData%/GameHelper/config.yml.
+/// </summary>
+public sealed class YamlConfigProvider : IGameConfiguration, IConfigPathProvider
 {
-    /// <summary>
-    /// YAML-based config provider stored at %AppData%/GameHelper/config.yml.
-    /// </summary>
-    public sealed class YamlConfigProvider : IGameConfiguration, IConfigPathProvider
+    private readonly object _gate = new();
+    private readonly string _configFilePath;
+    private readonly ILogger<YamlConfigProvider> _logger;
+
+    public YamlConfigProvider()
+        : this(ResolveDefaultPath(), NullLogger<YamlConfigProvider>.Instance)
     {
-        private readonly object _gate = new();
-        private readonly string _configFilePath;
-        private readonly ILogger<YamlConfigProvider> _logger;
+    }
 
-        public YamlConfigProvider()
-            : this(ResolveDefaultPath(), NullLogger<YamlConfigProvider>.Instance)
+    public YamlConfigProvider(ILogger<YamlConfigProvider> logger)
+        : this(ResolveDefaultPath(), logger)
+    {
+    }
+
+    public YamlConfigProvider(string configFilePath)
+        : this(configFilePath, NullLogger<YamlConfigProvider>.Instance)
+    {
+    }
+
+    public YamlConfigProvider(string configFilePath, ILogger<YamlConfigProvider> logger)
+    {
+        if (string.IsNullOrWhiteSpace(configFilePath))
         {
+            throw new ArgumentException("configFilePath required", nameof(configFilePath));
         }
 
-        public YamlConfigProvider(ILogger<YamlConfigProvider> logger)
-            : this(ResolveDefaultPath(), logger)
+        _configFilePath = configFilePath;
+        _logger = logger ?? NullLogger<YamlConfigProvider>.Instance;
+    }
+
+    public string ConfigPath => _configFilePath;
+
+    private static IDeserializer Deserializer => new DeserializerBuilder()
+        .WithNamingConvention(CamelCaseNamingConvention.Instance)
+        .IgnoreUnmatchedProperties()
+        .Build();
+
+    private static ISerializer Serializer => new SerializerBuilder()
+        .WithNamingConvention(CamelCaseNamingConvention.Instance)
+        .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
+        .WithIndentedSequences()
+        .WithNewLine("\n")
+        .Build();
+
+    public AppConfig Read()
+    {
+        lock (_gate)
         {
+            return Normalize(ReadCore());
         }
+    }
 
-        public YamlConfigProvider(string configFilePath)
-            : this(configFilePath, NullLogger<YamlConfigProvider>.Instance)
+    public AppConfig Change(Action<AppConfig> change)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+
+        lock (_gate)
         {
+            var appConfig = Normalize(ReadCore());
+            change(appConfig);
+            appConfig = Normalize(appConfig, forSave: true);
+            WriteCore(appConfig);
+            return Normalize(ReadCore());
         }
+    }
 
-        public YamlConfigProvider(string configFilePath, ILogger<YamlConfigProvider> logger)
-        {
-            if (string.IsNullOrWhiteSpace(configFilePath))
-            {
-                throw new ArgumentException("configFilePath required", nameof(configFilePath));
-            }
-
-            _configFilePath = configFilePath;
-            _logger = logger ?? NullLogger<YamlConfigProvider>.Instance;
-        }
-
-        public string ConfigPath => _configFilePath;
-
-        private static IDeserializer Deserializer => new DeserializerBuilder()
-            .WithNamingConvention(CamelCaseNamingConvention.Instance)
-            .IgnoreUnmatchedProperties()
-            .Build();
-
-        private static ISerializer Serializer => new SerializerBuilder()
-            .WithNamingConvention(CamelCaseNamingConvention.Instance)
-            .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
-            .WithIndentedSequences()
-            .WithNewLine("\n")
-            .Build();
-
-        public AppConfig Read()
-        {
-            lock (_gate)
-            {
-                return Normalize(ReadCore());
-            }
-        }
-
-        public AppConfig Change(Action<AppConfig> change)
-        {
-            ArgumentNullException.ThrowIfNull(change);
-
-            lock (_gate)
-            {
-                var appConfig = Normalize(ReadCore());
-                change(appConfig);
-                appConfig = Normalize(appConfig, forSave: true);
-                WriteCore(appConfig);
-                return Normalize(ReadCore());
-            }
-        }
-
-        private AppConfig ReadCore()
-        {
-            try
-            {
-                var dir = Path.GetDirectoryName(_configFilePath);
-                if (!string.IsNullOrEmpty(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-
-                if (!File.Exists(_configFilePath))
-                {
-                    return new AppConfig
-                    {
-                        Games = new List<GameConfig>(),
-                        ProcessMonitorType = ProcessMonitorType.ETW
-                    };
-                }
-
-                var yaml = File.ReadAllText(_configFilePath, Encoding.UTF8);
-
-                var storedConfig = Deserializer.Deserialize<StoredAppConfig?>(yaml);
-                return ToAppConfig(storedConfig);
-            }
-            catch (YamlException ex)
-            {
-                throw CreateInvalidConfigException(ex);
-            }
-        }
-
-        private AppConfig Normalize(AppConfig appConfig, bool forSave = false)
-        {
-            appConfig.Hdr?.Validate();
-            if (forSave) appConfig.BreakReminder?.Validate();
-            if (forSave) appConfig.MonitorMode?.Validate();
-            var normalizedGames = new List<GameConfig>();
-            foreach (var source in appConfig.Games ?? Enumerable.Empty<GameConfig>())
-            {
-                var normalized = forSave
-                    ? ConfigEntryNormalizer.NormalizeForSave(source, _logger)
-                    : ConfigEntryNormalizer.NormalizeLoaded(source, _logger);
-                if (normalized is not null)
-                {
-                    normalizedGames.Add(normalized);
-                }
-            }
-
-            ConfigEntryNormalizer.RepairDuplicateDataKeys(
-                normalizedGames,
-                _logger,
-                forSave ? " while saving." : " while loading.");
-
-            appConfig.Games = normalizedGames;
-            return appConfig;
-        }
-
-        private void WriteCore(AppConfig appConfig)
+    private AppConfig ReadCore()
+    {
+        try
         {
             var dir = Path.GetDirectoryName(_configFilePath);
             if (!string.IsNullOrEmpty(dir))
@@ -149,38 +95,7 @@ namespace GameHelper.Infrastructure.Providers
                 Directory.CreateDirectory(dir);
             }
 
-            var yaml = Serializer.Serialize(ToStoredAppConfig(appConfig));
-            var tempPath = _configFilePath + ".tmp";
-            try
-            {
-                File.WriteAllText(tempPath, yaml);
-                File.Move(tempPath, _configFilePath, overwrite: true);
-            }
-            finally
-            {
-                if (File.Exists(tempPath))
-                {
-                    File.Delete(tempPath);
-                }
-            }
-        }
-
-        private static string ResolveDefaultPath() => AppDataPath.GetConfigPath();
-
-        private InvalidDataException CreateInvalidConfigException(YamlException ex)
-        {
-            var location = ex.Start.Line > 0
-                ? $" at line {ex.Start.Line}, column {ex.Start.Column}"
-                : string.Empty;
-
-            return new InvalidDataException(
-                $"Failed to parse config file '{_configFilePath}'{location}. Check YAML syntax; quote string values that contain ': ' (for example displayName: \"Granblue Fantasy: Relink\").",
-                ex);
-        }
-
-        private static AppConfig ToAppConfig(StoredAppConfig? storedConfig)
-        {
-            if (storedConfig is null)
+            if (!File.Exists(_configFilePath))
             {
                 return new AppConfig
                 {
@@ -189,206 +104,290 @@ namespace GameHelper.Infrastructure.Providers
                 };
             }
 
+            var yaml = File.ReadAllText(_configFilePath, Encoding.UTF8);
+
+            var storedConfig = Deserializer.Deserialize<StoredAppConfig?>(yaml);
+            return ToAppConfig(storedConfig);
+        }
+        catch (YamlException ex)
+        {
+            throw CreateInvalidConfigException(ex);
+        }
+    }
+
+    private AppConfig Normalize(AppConfig appConfig, bool forSave = false)
+    {
+        appConfig.Hdr?.Validate();
+        if (forSave) appConfig.BreakReminder?.Validate();
+        if (forSave) appConfig.MonitorMode?.Validate();
+        var normalizedGames = new List<GameConfig>();
+        foreach (var source in appConfig.Games ?? Enumerable.Empty<GameConfig>())
+        {
+            var normalized = forSave
+                ? ConfigEntryNormalizer.NormalizeForSave(source, _logger)
+                : ConfigEntryNormalizer.NormalizeLoaded(source, _logger);
+            if (normalized is not null)
+            {
+                normalizedGames.Add(normalized);
+            }
+        }
+
+        ConfigEntryNormalizer.RepairDuplicateDataKeys(
+            normalizedGames,
+            _logger,
+            forSave ? " while saving." : " while loading.");
+
+        appConfig.Games = normalizedGames;
+        return appConfig;
+    }
+
+    private void WriteCore(AppConfig appConfig)
+    {
+        var dir = Path.GetDirectoryName(_configFilePath);
+        if (!string.IsNullOrEmpty(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        var yaml = Serializer.Serialize(ToStoredAppConfig(appConfig));
+        var tempPath = _configFilePath + ".tmp";
+        try
+        {
+            File.WriteAllText(tempPath, yaml);
+            File.Move(tempPath, _configFilePath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+        }
+    }
+
+    private static string ResolveDefaultPath() => AppDataPath.GetConfigPath();
+
+    private InvalidDataException CreateInvalidConfigException(YamlException ex)
+    {
+        var location = ex.Start.Line > 0
+            ? $" at line {ex.Start.Line}, column {ex.Start.Column}"
+            : string.Empty;
+
+        return new InvalidDataException(
+            $"Failed to parse config file '{_configFilePath}'{location}. Check YAML syntax; quote string values that contain ': ' (for example displayName: \"Granblue Fantasy: Relink\").",
+            ex);
+    }
+
+    private static AppConfig ToAppConfig(StoredAppConfig? storedConfig)
+    {
+        if (storedConfig is null)
+        {
             return new AppConfig
             {
-                ProcessMonitorType = storedConfig.Monitor ?? ProcessMonitorType.ETW,
-                LaunchOnSystemStartup = storedConfig.Startup?.LaunchOnStartup ?? false,
-                CheatEngine = ToCheatEngineSettings(storedConfig.CheatEngine),
-                BreakReminder = storedConfig.BreakReminder,
-                MonitorMode = storedConfig.MonitorMode,
-                Hdr = storedConfig.Hdr,
-                SyncSettings = ToSyncSettings(storedConfig.Sync),
-                Games = storedConfig.Games?
-                    .Select(ToGameConfig)
-                    .ToList() ?? new List<GameConfig>()
+                Games = new List<GameConfig>(),
+                ProcessMonitorType = ProcessMonitorType.ETW
             };
         }
 
-        private static CheatEngineSettings? ToCheatEngineSettings(StoredCheatEngineConfig? cheatEngine)
+        return new AppConfig
         {
-            var executable = cheatEngine?.Executable?.Trim();
-            var hotkeys = cheatEngine?.SpeedHotkeys is { Count: > 0 } list ? list : null;
-            try { SpeedHotkey.Validate(hotkeys); }
-            catch (ArgumentException) { hotkeys = null; }
-            return string.IsNullOrEmpty(executable) && hotkeys is null
-                ? null
-                : new CheatEngineSettings { Executable = string.IsNullOrEmpty(executable) ? null : executable, SpeedHotkeys = hotkeys };
-        }
-
-        private static SyncSettings? ToSyncSettings(StoredSyncConfig? sync)
-        {
-            if (sync is null)
-            {
-                return null;
-            }
-
-            return new SyncSettings
-            {
-                Enabled = sync.Enabled ?? false,
-                Provider = sync.Provider ?? "github",
-                Method = sync.Method ?? "git",
-                Repo = sync.Repo ?? string.Empty,
-                Branch = sync.Branch,
-                Token = sync.Token,
-                Directory = string.IsNullOrWhiteSpace(sync.Directory)
-                    ? SyncSettings.DefaultDirectory
-                    : sync.Directory!,
-                IntervalMinutes = sync.IntervalMinutes is > 0
-                    ? sync.IntervalMinutes.Value
-                    : SyncSettings.DefaultIntervalMinutes,
-                IncludeRawCsv = sync.IncludeRawCsv ?? false
-            };
-        }
-
-        private static GameConfig ToGameConfig(StoredGameConfig storedGameConfig) => new()
-        {
-            DataKey = storedGameConfig.DataKey ?? string.Empty,
-            Executable = storedGameConfig.Executable,
-            DisplayName = storedGameConfig.DisplayName,
-            IsEnabled = storedGameConfig.Enabled ?? true,
-            HdrEnabled = storedGameConfig.Hdr ?? false,
-            SpeedMultiplier = storedGameConfig.Speed,
-            SpeedAttach = storedGameConfig.SpeedAttach,
-            SpeedHotkeys = storedGameConfig.SpeedHotkeys,
-            Launch = storedGameConfig.Launch,
-            AddedAt = storedGameConfig.AddedAt is { } addedAt
-                ? DateTimeOffset.Parse(addedAt, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind) : null
+            ProcessMonitorType = storedConfig.Monitor ?? ProcessMonitorType.ETW,
+            LaunchOnSystemStartup = storedConfig.Startup?.LaunchOnStartup ?? false,
+            CheatEngine = ToCheatEngineSettings(storedConfig.CheatEngine),
+            BreakReminder = storedConfig.BreakReminder,
+            MonitorMode = storedConfig.MonitorMode,
+            Hdr = storedConfig.Hdr,
+            SyncSettings = ToSyncSettings(storedConfig.Sync),
+            Games = storedConfig.Games?
+                .Select(ToGameConfig)
+                .ToList() ?? new List<GameConfig>()
         };
+    }
 
-        private static StoredAppConfig ToStoredAppConfig(AppConfig appConfig) => new()
+    private static CheatEngineSettings? ToCheatEngineSettings(StoredCheatEngineConfig? cheatEngine)
+    {
+        var executable = cheatEngine?.Executable?.Trim();
+        var hotkeys = cheatEngine?.SpeedHotkeys is { Count: > 0 } list ? list : null;
+        try { SpeedHotkey.Validate(hotkeys); }
+        catch (ArgumentException) { hotkeys = null; }
+        return string.IsNullOrEmpty(executable) && hotkeys is null
+            ? null
+            : new CheatEngineSettings { Executable = string.IsNullOrEmpty(executable) ? null : executable, SpeedHotkeys = hotkeys };
+    }
+
+    private static SyncSettings? ToSyncSettings(StoredSyncConfig? sync)
+    {
+        if (sync is null)
         {
-            Monitor = appConfig.ProcessMonitorType,
-            Startup = new StoredStartupConfig
-            {
-                LaunchOnStartup = appConfig.LaunchOnSystemStartup
-            },
-            CheatEngine = ToStoredCheatEngine(appConfig.CheatEngine),
-            BreakReminder = appConfig.BreakReminder,
-            MonitorMode = appConfig.MonitorMode,
-            Hdr = appConfig.Hdr,
-            Sync = ToStoredSync(appConfig.SyncSettings),
-            Games = appConfig.Games
-                .Select(ToStoredGameConfig)
-                .OrderBy(game => game.DataKey, StringComparer.OrdinalIgnoreCase)
-                .ToList()
+            return null;
+        }
+
+        return new SyncSettings
+        {
+            Enabled = sync.Enabled ?? false,
+            Provider = sync.Provider ?? "github",
+            Method = sync.Method ?? "git",
+            Repo = sync.Repo ?? string.Empty,
+            Branch = sync.Branch,
+            Token = sync.Token,
+            Directory = string.IsNullOrWhiteSpace(sync.Directory)
+                ? SyncSettings.DefaultDirectory
+                : sync.Directory!,
+            IntervalMinutes = sync.IntervalMinutes is > 0
+                ? sync.IntervalMinutes.Value
+                : SyncSettings.DefaultIntervalMinutes,
+            IncludeRawCsv = sync.IncludeRawCsv ?? false
         };
+    }
 
-        private static StoredCheatEngineConfig? ToStoredCheatEngine(CheatEngineSettings? cheatEngine)
+    private static GameConfig ToGameConfig(StoredGameConfig storedGameConfig) => new()
+    {
+        DataKey = storedGameConfig.DataKey ?? string.Empty,
+        Executable = storedGameConfig.Executable,
+        DisplayName = storedGameConfig.DisplayName,
+        IsEnabled = storedGameConfig.Enabled ?? true,
+        HdrEnabled = storedGameConfig.Hdr ?? false,
+        SpeedMultiplier = storedGameConfig.Speed,
+        SpeedAttach = storedGameConfig.SpeedAttach,
+        SpeedHotkeys = storedGameConfig.SpeedHotkeys,
+        Launch = storedGameConfig.Launch,
+        AddedAt = storedGameConfig.AddedAt is { } addedAt
+            ? DateTimeOffset.Parse(addedAt, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind) : null
+    };
+
+    private static StoredAppConfig ToStoredAppConfig(AppConfig appConfig) => new()
+    {
+        Monitor = appConfig.ProcessMonitorType,
+        Startup = new StoredStartupConfig
         {
-            var executable = cheatEngine?.Executable?.Trim();
-            var hotkeys = cheatEngine?.SpeedHotkeys is { Count: > 0 } list ? list : null;
-            return string.IsNullOrWhiteSpace(executable) && hotkeys is null
-                ? null
-                : new StoredCheatEngineConfig { Executable = string.IsNullOrWhiteSpace(executable) ? null : executable, SpeedHotkeys = hotkeys };
+            LaunchOnStartup = appConfig.LaunchOnSystemStartup
+        },
+        CheatEngine = ToStoredCheatEngine(appConfig.CheatEngine),
+        BreakReminder = appConfig.BreakReminder,
+        MonitorMode = appConfig.MonitorMode,
+        Hdr = appConfig.Hdr,
+        Sync = ToStoredSync(appConfig.SyncSettings),
+        Games = appConfig.Games
+            .Select(ToStoredGameConfig)
+            .OrderBy(game => game.DataKey, StringComparer.OrdinalIgnoreCase)
+            .ToList()
+    };
+
+    private static StoredCheatEngineConfig? ToStoredCheatEngine(CheatEngineSettings? cheatEngine)
+    {
+        var executable = cheatEngine?.Executable?.Trim();
+        var hotkeys = cheatEngine?.SpeedHotkeys is { Count: > 0 } list ? list : null;
+        return string.IsNullOrWhiteSpace(executable) && hotkeys is null
+            ? null
+            : new StoredCheatEngineConfig { Executable = string.IsNullOrWhiteSpace(executable) ? null : executable, SpeedHotkeys = hotkeys };
+    }
+
+    private static StoredSyncConfig? ToStoredSync(SyncSettings? sync)
+    {
+        if (sync is null)
+        {
+            return null;
         }
 
-        private static StoredSyncConfig? ToStoredSync(SyncSettings? sync)
+        return new StoredSyncConfig
         {
-            if (sync is null)
-            {
-                return null;
-            }
-
-            return new StoredSyncConfig
-            {
-                Enabled = sync.Enabled,
-                Provider = sync.Provider,
-                Method = sync.NormalizedMethod,
-                Repo = sync.NormalizedRepo,
-                Branch = sync.NormalizedBranch,
-                Token = string.IsNullOrWhiteSpace(sync.Token) ? null : sync.Token,
-                Directory = sync.NormalizedDirectory,
-                IntervalMinutes = sync.IntervalMinutes,
-                IncludeRawCsv = sync.IncludeRawCsv
-            };
-        }
-
-        private static StoredGameConfig ToStoredGameConfig(GameConfig gameConfig) => new()
-        {
-            DataKey = gameConfig.DataKey,
-            Executable = gameConfig.Executable,
-            DisplayName = gameConfig.DisplayName,
-            Enabled = gameConfig.IsEnabled,
-            Hdr = gameConfig.HdrEnabled,
-            Speed = gameConfig.SpeedMultiplier,
-            SpeedAttach = gameConfig.SpeedAttach,
-            SpeedHotkeys = gameConfig.SpeedHotkeys,
-            Launch = gameConfig.Launch,
-            AddedAt = gameConfig.AddedAt?.ToString("O", System.Globalization.CultureInfo.InvariantCulture)
+            Enabled = sync.Enabled,
+            Provider = sync.Provider,
+            Method = sync.NormalizedMethod,
+            Repo = sync.NormalizedRepo,
+            Branch = sync.NormalizedBranch,
+            Token = string.IsNullOrWhiteSpace(sync.Token) ? null : sync.Token,
+            Directory = sync.NormalizedDirectory,
+            IntervalMinutes = sync.IntervalMinutes,
+            IncludeRawCsv = sync.IncludeRawCsv
         };
+    }
 
-        private sealed class StoredAppConfig
-        {
-            public ProcessMonitorType? Monitor { get; set; }
+    private static StoredGameConfig ToStoredGameConfig(GameConfig gameConfig) => new()
+    {
+        DataKey = gameConfig.DataKey,
+        Executable = gameConfig.Executable,
+        DisplayName = gameConfig.DisplayName,
+        Enabled = gameConfig.IsEnabled,
+        Hdr = gameConfig.HdrEnabled,
+        Speed = gameConfig.SpeedMultiplier,
+        SpeedAttach = gameConfig.SpeedAttach,
+        SpeedHotkeys = gameConfig.SpeedHotkeys,
+        Launch = gameConfig.Launch,
+        AddedAt = gameConfig.AddedAt?.ToString("O", System.Globalization.CultureInfo.InvariantCulture)
+    };
 
-            public StoredStartupConfig? Startup { get; set; }
+    private sealed class StoredAppConfig
+    {
+        public ProcessMonitorType? Monitor { get; set; }
 
-            public StoredCheatEngineConfig? CheatEngine { get; set; }
+        public StoredStartupConfig? Startup { get; set; }
 
-            public BreakReminderSettings? BreakReminder { get; set; }
+        public StoredCheatEngineConfig? CheatEngine { get; set; }
 
-            public MonitorModeSettings? MonitorMode { get; set; }
+        public BreakReminderSettings? BreakReminder { get; set; }
 
-            public HdrSettings? Hdr { get; set; }
+        public MonitorModeSettings? MonitorMode { get; set; }
 
-            public StoredSyncConfig? Sync { get; set; }
+        public HdrSettings? Hdr { get; set; }
 
-            public List<StoredGameConfig>? Games { get; set; }
-        }
+        public StoredSyncConfig? Sync { get; set; }
 
-        private sealed class StoredCheatEngineConfig
-        {
-            public string? Executable { get; set; }
+        public List<StoredGameConfig>? Games { get; set; }
+    }
 
-            public List<SpeedHotkey>? SpeedHotkeys { get; set; }
-        }
+    private sealed class StoredCheatEngineConfig
+    {
+        public string? Executable { get; set; }
 
-        private sealed class StoredStartupConfig
-        {
-            public bool LaunchOnStartup { get; set; }
-        }
+        public List<SpeedHotkey>? SpeedHotkeys { get; set; }
+    }
 
-        private sealed class StoredSyncConfig
-        {
-            public bool? Enabled { get; set; }
+    private sealed class StoredStartupConfig
+    {
+        public bool LaunchOnStartup { get; set; }
+    }
 
-            public string? Provider { get; set; }
+    private sealed class StoredSyncConfig
+    {
+        public bool? Enabled { get; set; }
 
-            public string? Method { get; set; }
+        public string? Provider { get; set; }
 
-            public string? Repo { get; set; }
+        public string? Method { get; set; }
 
-            public string? Branch { get; set; }
+        public string? Repo { get; set; }
 
-            public string? Token { get; set; }
+        public string? Branch { get; set; }
 
-            public string? Directory { get; set; }
+        public string? Token { get; set; }
 
-            public int? IntervalMinutes { get; set; }
+        public string? Directory { get; set; }
 
-            public bool? IncludeRawCsv { get; set; }
-        }
+        public int? IntervalMinutes { get; set; }
 
-        private sealed class StoredGameConfig
-        {
-            public string? DataKey { get; set; }
+        public bool? IncludeRawCsv { get; set; }
+    }
 
-            public string? Executable { get; set; }
+    private sealed class StoredGameConfig
+    {
+        public string? DataKey { get; set; }
 
-            public string? DisplayName { get; set; }
+        public string? Executable { get; set; }
 
-            public bool? Enabled { get; set; }
+        public string? DisplayName { get; set; }
 
-            public bool? Hdr { get; set; }
+        public bool? Enabled { get; set; }
 
-            public double? Speed { get; set; }
+        public bool? Hdr { get; set; }
 
-            public string? SpeedAttach { get; set; }
+        public double? Speed { get; set; }
 
-            public List<SpeedHotkey>? SpeedHotkeys { get; set; }
+        public string? SpeedAttach { get; set; }
 
-            public GameLaunchOptions? Launch { get; set; }
-            public string? AddedAt { get; set; }
-        }
+        public List<SpeedHotkey>? SpeedHotkeys { get; set; }
+
+        public GameLaunchOptions? Launch { get; set; }
+        public string? AddedAt { get; set; }
     }
 }

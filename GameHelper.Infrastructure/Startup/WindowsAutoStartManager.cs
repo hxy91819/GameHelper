@@ -5,188 +5,187 @@ using GameHelper.Core.Abstractions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 
-namespace GameHelper.Infrastructure.Startup
+namespace GameHelper.Infrastructure.Startup;
+
+/// <summary>
+/// Windows-specific implementation that toggles the HKCU\Software\Microsoft\Windows\CurrentVersion\Run value.
+/// </summary>
+public sealed class WindowsAutoStartManager : IAutoStartManager
 {
-    /// <summary>
-    /// Windows-specific implementation that toggles the HKCU\Software\Microsoft\Windows\CurrentVersion\Run value.
-    /// </summary>
-    public sealed class WindowsAutoStartManager : IAutoStartManager
+    private const string RunKeyPath = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+
+    private readonly ILogger<WindowsAutoStartManager> _logger;
+    private readonly string _appName;
+    private readonly string _executablePath;
+
+    public WindowsAutoStartManager(ILogger<WindowsAutoStartManager> logger)
     {
-        private const string RunKeyPath = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _appName = "GameHelper";
+        _executablePath = ResolveExecutablePath();
+    }
 
-        private readonly ILogger<WindowsAutoStartManager> _logger;
-        private readonly string _appName;
-        private readonly string _executablePath;
+    public bool IsSupported => OperatingSystem.IsWindows();
 
-        public WindowsAutoStartManager(ILogger<WindowsAutoStartManager> logger)
+    public bool IsEnabled()
+    {
+        if (!IsSupported)
         {
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _appName = "GameHelper";
-            _executablePath = ResolveExecutablePath();
+            return false;
         }
 
-        public bool IsSupported => OperatingSystem.IsWindows();
-
-        public bool IsEnabled()
+        try
         {
-            if (!IsSupported)
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
+            var value = key?.GetValue(_appName) as string;
+            if (string.IsNullOrWhiteSpace(value))
             {
                 return false;
             }
 
-            try
-            {
-                using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
-                var value = key?.GetValue(_appName) as string;
-                if (string.IsNullOrWhiteSpace(value))
-                {
-                    return false;
-                }
+            return IsCurrentRegistration(value);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read auto-start registry value");
+            return false;
+        }
+    }
 
-                return IsCurrentRegistration(value);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to read auto-start registry value");
-                return false;
-            }
+    public void SetEnabled(bool enabled)
+    {
+        if (!IsSupported)
+        {
+            throw new PlatformNotSupportedException("Auto-start management is only supported on Windows.");
         }
 
-        public void SetEnabled(bool enabled)
+        try
         {
-            if (!IsSupported)
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true)
+                ?? Registry.CurrentUser.CreateSubKey(RunKeyPath);
+            if (key is null)
             {
-                throw new PlatformNotSupportedException("Auto-start management is only supported on Windows.");
+                throw new InvalidOperationException("Failed to open or create the Run registry key.");
             }
 
-            try
+            if (enabled)
             {
-                using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true)
-                    ?? Registry.CurrentUser.CreateSubKey(RunKeyPath);
-                if (key is null)
+                var currentValue = key.GetValue(_appName) as string;
+                if (IsCurrentRegistration(currentValue))
                 {
-                    throw new InvalidOperationException("Failed to open or create the Run registry key.");
+                    return;
                 }
 
-                if (enabled)
-                {
-                    var currentValue = key.GetValue(_appName) as string;
-                    if (IsCurrentRegistration(currentValue))
-                    {
-                        return;
-                    }
-
-                    key.SetValue(_appName, BuildRegistrationValue());
-                    _logger.LogInformation("已注册开机自启动：{Path}", _executablePath);
-                }
-                else
-                {
-                    if (key.GetValue(_appName) is null)
-                    {
-                        return;
-                    }
-
-                    key.DeleteValue(_appName, false);
-                    _logger.LogInformation("已取消开机自启动");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to update auto-start registry value");
-                throw new InvalidOperationException("Failed to update auto-start registry value.", ex);
-            }
-        }
-
-        private string BuildRegistrationValue()
-        {
-            var desktop = Path.Combine(Path.GetDirectoryName(_executablePath)!, "desktop", "GameHelper.Desktop.exe");
-            return File.Exists(desktop) ? BuildBackgroundRegistration(desktop) : QuotePath(_executablePath);
-        }
-
-        internal static string BuildBackgroundRegistration(string desktop) => $"\"{desktop}\" --background";
-
-        private bool IsCurrentRegistration(string? value) => string.Equals(value?.Trim(), BuildRegistrationValue(), StringComparison.OrdinalIgnoreCase);
-
-        /// <summary>判断注册值是否指向指定可执行文件（允许引号与历史遗留的启动参数）。</summary>
-        internal static bool IsRegistrationFor(string? commandLine, string executablePath)
-        {
-            if (string.IsNullOrWhiteSpace(commandLine) || string.IsNullOrWhiteSpace(executablePath))
-            {
-                return false;
-            }
-
-            var trimmed = commandLine.Trim();
-            if (trimmed.StartsWith('"'))
-            {
-                var closing = trimmed.IndexOf('"', 1);
-                if (closing > 0)
-                {
-                    trimmed = trimmed[1..closing];
-                }
+                key.SetValue(_appName, BuildRegistrationValue());
+                _logger.LogInformation("已注册开机自启动：{Path}", _executablePath);
             }
             else
             {
-                var space = trimmed.IndexOf(' ');
-                if (space > 0)
+                if (key.GetValue(_appName) is null)
                 {
-                    trimmed = trimmed[..space];
+                    return;
                 }
-            }
 
-            return string.Equals(
-                NormalizePath(trimmed),
-                NormalizePath(executablePath),
-                StringComparison.OrdinalIgnoreCase);
+                key.DeleteValue(_appName, false);
+                _logger.LogInformation("已取消开机自启动");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update auto-start registry value");
+            throw new InvalidOperationException("Failed to update auto-start registry value.", ex);
+        }
+    }
+
+    private string BuildRegistrationValue()
+    {
+        var desktop = Path.Combine(Path.GetDirectoryName(_executablePath)!, "desktop", "GameHelper.Desktop.exe");
+        return File.Exists(desktop) ? BuildBackgroundRegistration(desktop) : QuotePath(_executablePath);
+    }
+
+    internal static string BuildBackgroundRegistration(string desktop) => $"\"{desktop}\" --background";
+
+    private bool IsCurrentRegistration(string? value) => string.Equals(value?.Trim(), BuildRegistrationValue(), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>判断注册值是否指向指定可执行文件（允许引号与历史遗留的启动参数）。</summary>
+    internal static bool IsRegistrationFor(string? commandLine, string executablePath)
+    {
+        if (string.IsNullOrWhiteSpace(commandLine) || string.IsNullOrWhiteSpace(executablePath))
+        {
+            return false;
         }
 
-        private static string ResolveExecutablePath()
+        var trimmed = commandLine.Trim();
+        if (trimmed.StartsWith('"'))
         {
-            if (!string.IsNullOrWhiteSpace(Environment.ProcessPath))
+            var closing = trimmed.IndexOf('"', 1);
+            if (closing > 0)
             {
-                return Environment.ProcessPath!;
+                trimmed = trimmed[1..closing];
             }
-
-            using var process = Process.GetCurrentProcess();
-            var path = process.MainModule?.FileName;
-            if (!string.IsNullOrWhiteSpace(path))
+        }
+        else
+        {
+            var space = trimmed.IndexOf(' ');
+            if (space > 0)
             {
-                return path!;
+                trimmed = trimmed[..space];
             }
-
-            return Path.Combine(AppContext.BaseDirectory, "GameHelper.exe");
         }
 
-        private static string QuotePath(string path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                return path;
-            }
+        return string.Equals(
+            NormalizePath(trimmed),
+            NormalizePath(executablePath),
+            StringComparison.OrdinalIgnoreCase);
+    }
 
-            return path.Contains(' ') ? $"\"{path}\"" : path;
+    private static string ResolveExecutablePath()
+    {
+        if (!string.IsNullOrWhiteSpace(Environment.ProcessPath))
+        {
+            return Environment.ProcessPath!;
         }
 
-        private static string NormalizePath(string path)
+        using var process = Process.GetCurrentProcess();
+        var path = process.MainModule?.FileName;
+        if (!string.IsNullOrWhiteSpace(path))
         {
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                return string.Empty;
-            }
+            return path!;
+        }
 
-            path = path.Trim();
-            if (path.Length >= 2 && path[0] == '"' && path[^1] == '"')
-            {
-                path = path[1..^1];
-            }
+        return Path.Combine(AppContext.BaseDirectory, "GameHelper.exe");
+    }
 
-            try
-            {
-                return Path.GetFullPath(path);
-            }
-            catch
-            {
-                return path;
-            }
+    private static string QuotePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return path;
+        }
+
+        return path.Contains(' ') ? $"\"{path}\"" : path;
+    }
+
+    private static string NormalizePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        path = path.Trim();
+        if (path.Length >= 2 && path[0] == '"' && path[^1] == '"')
+        {
+            path = path[1..^1];
+        }
+
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch
+        {
+            return path;
         }
     }
 }

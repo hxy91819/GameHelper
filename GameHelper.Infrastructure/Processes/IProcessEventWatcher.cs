@@ -1,13 +1,12 @@
 using System;
 using GameHelper.Core.Models;
 
-namespace GameHelper.Infrastructure.Processes
+namespace GameHelper.Infrastructure.Processes;
+
+// Simple abstraction to allow testing without depending directly on ManagementEventWatcher
+public interface IProcessEventWatcher
 {
-    // Simple abstraction to allow testing without depending directly on ManagementEventWatcher
-    public interface IProcessEventWatcher
-    {
-        event Action<ProcessEventInfo>? ProcessEvent;
-        void Start();
-        void Stop();
-    }
+    event Action<ProcessEventInfo>? ProcessEvent;
+    void Start();
+    void Stop();
 }
