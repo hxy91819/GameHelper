@@ -16,9 +16,6 @@ namespace GameHelper.Core.Services;
 /// </summary>
 public sealed class GameAutomationService : IGameAutomationService, IGameLaunchCoordinator
 {
-    /// <summary>Minimum gap between repeated in-flight persistence failure logs; a broken data directory must not flood the console.</summary>
-    private static readonly TimeSpan InFlightPersistFailureLogInterval = TimeSpan.FromMinutes(10);
-
     private readonly IProcessMonitor _monitor;
     private readonly IGameConfiguration _gameConfiguration;
     private readonly IHdrController _hdr;
@@ -27,16 +24,12 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     private readonly IProcessPathResolver? _pathResolver;
     private readonly IPlayTimeService _playTime;
     private readonly IBreakReminderService? _breakReminder;
-    private readonly IInFlightSessionStore? _inFlightSessionStore;
-    private readonly IProcessIdentityProbe? _processIdentityProbe;
     private readonly TimeProvider _timeProvider;
     private readonly SpeedAttachmentCoordinator _speedAttachment;
     private readonly MonitorModeCoordinator _monitorMode;
     private readonly LaunchOwnershipCoordinator _launchOwnership;
+    private readonly InFlightSessionRecovery _inFlightRecovery;
     private ITimer? _maintenanceTimer;
-    private readonly Dictionary<string, DateTime> _inFlightStarts = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<int, DateTime> _inFlightProcessStarts = new();
-    private readonly List<InFlightSession> _pendingRecoveredSessions = new();
     private readonly ILogger<GameAutomationService> _logger;
     private readonly object _stateLock = new();
     // Companion I/O stays outside _stateLock. Stop crosses this boundary before invalidation,
@@ -52,8 +45,6 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     private AutomationConfigIndex _configIndex = AutomationConfigIndex.Empty;
     private GameProcessMatcher _processMatcher;
     private bool _started;
-    private bool _inFlightPersistFailureActive;
-    private DateTime _inFlightPersistFailureLoggedAtUtc = DateTime.MinValue;
 
     public GameAutomationService(
         IProcessMonitor monitor,
@@ -82,22 +73,23 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         _pathResolver = pathResolver;
         _playTime = playTime;
         _breakReminder = breakReminder;
-        _inFlightSessionStore = inFlightSessionStore;
-        _processIdentityProbe = processIdentityProbe;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger;
         _launchOwnership = new LaunchOwnershipCoordinator(gameLauncher, hdr, _timeProvider, logger,
             _stateLock, () => _started, () => _configIndex, _sessionTracker, PersistInFlightSnapshot);
         _monitorMode = new MonitorModeCoordinator(monitorModeController, hdr, locationSource, locationCacheStore,
             _timeProvider, logger, _stateLock, CaptureMonitorModeSnapshot);
-        _sessionSuspend = new SessionSuspendHandler(
-            powerEvents, _stateLock, () => _started, _sessionTracker, _inFlightStarts,
-            _playTime, _timeProvider, PersistInFlightSnapshot, _logger);
         _companionPolicy = new Ds4WindowsAutomationPolicy(gameLauncher, logger);
         _processMatcher = new GameProcessMatcher(_configIndex, _pathResolver, _logger);
         _speedAttachment = new SpeedAttachmentCoordinator(
-            speedController, _timeProvider, _logger, _processIdentityProbe,
+            speedController, _timeProvider, _logger, processIdentityProbe,
             speedGatePollInterval, speedGateTimeout);
+        _inFlightRecovery = new InFlightSessionRecovery(monitor, playTime, inFlightSessionStore,
+            processIdentityProbe, _timeProvider, logger, _sessionTracker, _launchOwnership,
+            _speedAttachment, () => _configIndex);
+        _sessionSuspend = new SessionSuspendHandler(
+            powerEvents, _stateLock, () => _started, _sessionTracker, _inFlightRecovery.SessionStarts,
+            _playTime, _timeProvider, _inFlightRecovery.PersistInFlightSnapshot, _logger);
     }
 
     public void Start()
@@ -113,10 +105,10 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             _sessionTracker.Clear();
             _sessionSuspend.Reset();
             _launchOwnership.ResetProvenance();
-            RecoverInFlightSessions();
+            _inFlightRecovery.RecoverInFlightSessions();
             var recoveredHdrLease = _launchOwnership.OwnsEnabledHdr;
             _launchOwnership.UpdateHdrState();
-            if (recoveredHdrLease) PersistInFlightSnapshot();
+            if (recoveredHdrLease) _inFlightRecovery.PersistInFlightSnapshot();
             ConfigureProcessObservation();
 
             _processStartedHandler = info => OnProcessStarted(info, generation);
@@ -128,7 +120,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             try { _breakReminder?.Start(configuration); }
             catch (Exception ex) { _logger.LogWarning(ex, "Failed to start break reminders"); }
 
-            if (_monitorMode.HasController || _inFlightSessionStore is not null || _gameLauncher is not null)
+            if (_monitorMode.HasController || _inFlightRecovery.HasStore || _gameLauncher is not null)
             {
                 try
                 {
@@ -212,7 +204,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Failed to flush session for {DataKey}", dataKey);
-                        Cleanup(() => RetainCompletedSession(dataKey), "retain the failed session flush");
+                        Cleanup(() => _inFlightRecovery.RetainCompletedSession(dataKey), "retain the failed session flush");
                     }
                 }
 
@@ -222,19 +214,11 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 Cleanup(_launchOwnership.ResetProvenance, "_ownLaunchedDataKeys.Clear");
                 try { _launchOwnership.UpdateHdrState(); }
                 catch (Exception ex) { _logger.LogWarning(ex, "Failed to restore HDR during shutdown"); }
-                Cleanup(_inFlightStarts.Clear, "_inFlightStarts.Clear");
-                Cleanup(_inFlightProcessStarts.Clear, "_inFlightProcessStarts.Clear");
+                Cleanup(_inFlightRecovery.ClearSessionStarts, "_inFlightStarts.Clear");
+                Cleanup(_inFlightRecovery.ClearProcessStarts, "_inFlightProcessStarts.Clear");
                 Cleanup(_speedAttachment.ClearRecords, "_speedAttachment.ClearRecords");
 
-                try
-                {
-                    if (_pendingRecoveredSessions.Count > 0 || _launchOwnership.OwnsEnabledHdr) PersistInFlightSnapshot();
-                    else _inFlightSessionStore?.Clear();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to clear the in-flight session snapshot after stopping");
-                }
+                _inFlightRecovery.CompleteStop();
 
                 try
                 {
@@ -288,13 +272,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 normalizedPath,
                 processInfo.ProcessId);
             var isOwnLaunch = _launchOwnership.ObserveStart(config.DataKey);
-            DateTime? processStartedUtc = null;
-            if (processInfo.ProcessId is int startedPid
-                && _processIdentityProbe?.TryGetStartTimeUtc(startedPid, out var processStart) == true)
-            {
-                _inFlightProcessStarts[startedPid] = processStart;
-                processStartedUtc = processStart;
-            }
+            var processStartedUtc = _inFlightRecovery.RecordProcessStart(processInfo.ProcessId);
 
             _logger.LogInformation(
                 "Process start: DataKey={DataKey}, Via={Match}, Own={OwnLaunch}, Executable={Executable}, Path={Path}, PID={ProcessId}",
@@ -321,12 +299,12 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
                 // Persist the in-flight snapshot so a restart (deploy or crash) can
                 // resume this session instead of losing it.
-                _inFlightStarts[config.DataKey] = _timeProvider.GetLocalNow().DateTime;
+                _inFlightRecovery.RecordSessionStart(config.DataKey);
             }
 
             ConfigureProcessObservation();
             try { _launchOwnership.UpdateHdrState(); }
-            finally { PersistInFlightSnapshot(); }
+            finally { _inFlightRecovery.PersistInFlightSnapshot(); }
 
             if (!hadAnyActive && _sessionTracker.ActiveCount > 0)
             {
@@ -348,33 +326,6 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 if (!_started || generation != _generation) return;
             }
             _companionPolicy.Apply(game);
-        }
-    }
-
-    /// <summary>
-    /// 接管会话时补应用变速。游戏进程在重启前就一直跑着，mod loader 早已完成引导，
-    /// 因此仍走 <see cref="SpeedAttachmentCoordinator.ApplyConfiguredSpeed"/>（会命中已存在的 Chainloader 标记或按策略立即附加）。
-    /// </summary>
-    private void ApplyRecoveredSpeed(InFlightSession session)
-    {
-        try
-        {
-            if (!_configIndex.ByDataKey.TryGetValue(session.DataKey, out var config) || !config.SpeedMultiplier.HasValue)
-            {
-                return;
-            }
-
-            _logger.LogInformation(
-                "Re-applying configured speed {Speed} for the resumed session {DataKey} (PID {ProcessId}).",
-                config.SpeedMultiplier.Value,
-                session.DataKey,
-                session.ProcessId);
-
-            _speedAttachment.ApplyConfiguredSpeed(config, session.ProcessId, session.NormalizedPath, session.ProcessStartedAtUtc);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to re-apply speed for the recovered session {DataKey}.", session.DataKey);
         }
     }
 
@@ -402,7 +353,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             stoppedDataKey = entry.DataKey;
             if (entry.ProcessId is int stoppedPid)
             {
-                _inFlightProcessStarts.Remove(stoppedPid);
+                _inFlightRecovery.ReleaseProcess(stoppedPid);
                 speedAttachCandidate = _speedAttachment.CaptureExit(stoppedPid);
             }
             ConfigureProcessObservation();
@@ -432,17 +383,17 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to stop tracking for {DataKey}", entry.DataKey);
-                    RetainCompletedSession(entry.DataKey);
+                    _inFlightRecovery.RetainCompletedSession(entry.DataKey);
                 }
             }
 
             if (isLastForDataKey)
             {
-                _inFlightStarts.Remove(entry.DataKey);
+                _inFlightRecovery.ReleaseSession(entry.DataKey);
                 _launchOwnership.Release(entry.DataKey);
             }
             try { _launchOwnership.UpdateHdrState(); }
-            finally { PersistInFlightSnapshot(); }
+            finally { _inFlightRecovery.PersistInFlightSnapshot(); }
 
             if (_sessionTracker.ActiveCount == 0 && hadAnyActive)
             {
@@ -506,14 +457,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     {
         lock (_stateLock)
         {
-            var starts = new Dictionary<string, DateTime?>(StringComparer.OrdinalIgnoreCase);
-            foreach (var key in _sessionTracker.GetActiveDataKeysSnapshot())
-            {
-                // 用 in-flight 快照的同一来源：跨重启接管时保持原开始时间，休眠调整也同步生效。
-                starts[key] = _inFlightStarts.TryGetValue(key, out var startedAt) ? startedAt : null;
-            }
-
-            return starts;
+            return _inFlightRecovery.GetRunningSessionStarts();
         }
     }
 
@@ -525,6 +469,9 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             && _configIndex.ByDataKey.TryGetValue(key, out var config) && config.HdrEnabled).ToArray(),
             _launchOwnership.OwnsEnabledHdr, _started);
     }
+
+    // Deferred callback for launch ownership; invoked only after construction, under _stateLock.
+    private void PersistInFlightSnapshot() => _inFlightRecovery.PersistInFlightSnapshot();
 
     private void OnMonitorModeTick(long generation)
     {
@@ -538,298 +485,10 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 try { _launchOwnership.UpdateHdrState(); }
                 catch (Exception ex) { _logger.LogWarning(ex, "Failed to reconcile launch HDR state"); }
             }
-            RetryPendingRecoveredSessions();
-            if (_sessionTracker.ActiveCount > 0 || _pendingRecoveredSessions.Count > 0 || _launchOwnership.PendingCount > 0
-                || _launchOwnership.OwnsEnabledHdr || wasOwned || expiredCount > 0) PersistInFlightSnapshot();
+            _inFlightRecovery.RetryPendingRecoveredSessions();
+            if (_sessionTracker.ActiveCount > 0 || _inFlightRecovery.PendingCount > 0 || _launchOwnership.PendingCount > 0
+                || _launchOwnership.OwnsEnabledHdr || wasOwned || expiredCount > 0) _inFlightRecovery.PersistInFlightSnapshot();
         }
         _monitorMode.Update(forced: false);
     }
-
-    /// <summary>
-    /// Persists the current in-flight session snapshot. Callers must hold or be inside
-    /// the state lock so the tracker snapshot is consistent.
-    /// </summary>
-    private void PersistInFlightSnapshot()
-    {
-        var store = _inFlightSessionStore;
-        if (store is null)
-        {
-            return;
-        }
-
-        try
-        {
-            store.Save(BuildInFlightSnapshot());
-
-            if (_inFlightPersistFailureActive)
-            {
-                _inFlightPersistFailureActive = false;
-                _logger.LogInformation("In-flight session snapshot persistence recovered; restart recovery is available again.");
-            }
-        }
-        catch (Exception ex)
-        {
-            // A data directory the running token cannot write (read-only ACL, low integrity
-            // process, antivirus quarantine) fails on every session event. Log the first failure
-            // with its stack, then stay quiet until the interval elapses or persistence recovers.
-            var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
-            if (!_inFlightPersistFailureActive
-                || nowUtc - _inFlightPersistFailureLoggedAtUtc >= InFlightPersistFailureLogInterval)
-            {
-                _inFlightPersistFailureActive = true;
-                _inFlightPersistFailureLoggedAtUtc = nowUtc;
-                _logger.LogWarning(
-                    ex,
-                    "Failed to persist the in-flight session snapshot; restart recovery may be incomplete. Repeated failures are logged at most every {Interval}.",
-                    InFlightPersistFailureLogInterval);
-            }
-        }
-    }
-
-    private InFlightSnapshot BuildInFlightSnapshot()
-    {
-        var snapshot = new InFlightSnapshot
-        {
-            SnapshotAt = _timeProvider.GetLocalNow().DateTime, Sessions = new List<InFlightSession>(),
-            HdrEnabledByGameHelper = _launchOwnership.OwnsEnabledHdr,
-            PendingLaunches = _launchOwnership.CapturePending()
-        };
-        foreach (var entry in _sessionTracker.GetActiveEntriesSnapshot())
-        {
-            snapshot.Sessions.Add(new InFlightSession
-            {
-                DataKey = entry.DataKey,
-                ProcessId = entry.ProcessId,
-                NormalizedName = entry.NormalizedName,
-                NormalizedPath = entry.NormalizedPath,
-                ProcessStartedAtUtc = entry.ProcessId is int pid && _inFlightProcessStarts.TryGetValue(pid, out var created) ? created : null,
-                StartedAt = _inFlightStarts.TryGetValue(entry.DataKey, out var startedAt) ? startedAt : snapshot.SnapshotAt,
-                LaunchedByHelper = _launchOwnership.IsOwnLaunched(entry.DataKey)
-            });
-        }
-        snapshot.Sessions.AddRange(_pendingRecoveredSessions);
-
-        return snapshot;
-    }
-
-    /// <summary>
-    /// Adopts in-flight sessions persisted before a restart: entries whose process is
-    /// still the same executable resume timing with the original start time; sessions
-    /// whose game exited during the downtime are written as interrupted rows so no
-    /// playtime is lost. Runs once during <see cref="Start"/>, under the state lock.
-    /// </summary>
-    private void RecoverInFlightSessions()
-    {
-        var store = _inFlightSessionStore;
-        if (store is null)
-        {
-            return;
-        }
-
-        InFlightSnapshot? snapshot;
-        try
-        {
-            snapshot = store.Load();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to read the in-flight session snapshot; recovery skipped.");
-            return;
-        }
-
-        if (snapshot is null) return;
-        _launchOwnership.AdoptSnapshot(snapshot);
-        if (snapshot.Sessions.Count == 0)
-        {
-            return;
-        }
-
-        var resumedCount = 0;
-        var closedCount = 0;
-        foreach (var group in snapshot.Sessions.GroupBy(session =>
-                     (session.DataKey.ToUpperInvariant(), session.StartedAt, session.RecoveryEndAt)))
-        {
-            var dataKey = group.First().DataKey;
-            var liveSessions = new List<InFlightSession>();
-            foreach (var session in group)
-            {
-                if (!session.RecoveryEndAt.HasValue && session.ProcessId.HasValue && IsPersistedProcessStillSame(session, snapshot.SnapshotAt))
-                {
-                    _sessionTracker.Register(session.DataKey, session.NormalizedName, session.NormalizedPath, session.ProcessId);
-                    if (session.ProcessStartedAtUtc is DateTime created) _inFlightProcessStarts[session.ProcessId.Value] = created;
-                    // 把接管进程登记为监控层的"已观察"进程：它在本会话里没出现过 START 事件,
-                    // 不登记则停止事件与 30 秒漏退出补偿都会无视它,退出即丢时长(曾导致丢失)。
-                    _monitor.AssumeRunning(
-                        new ProcessEventInfo(
-                            session.NormalizedName ?? session.DataKey,
-                            session.NormalizedPath,
-                            session.ProcessId),
-                        snapshot.SnapshotAt.ToUniversalTime());
-                    liveSessions.Add(session);
-                }
-                else
-                {
-                    _logger.LogInformation(
-                        "In-flight session process for {DataKey} did not survive the restart (exited or identity changed).",
-                        session.DataKey);
-                }
-            }
-
-            if (liveSessions.Count > 0)
-            {
-                var startedAt = liveSessions[0].StartedAt;
-                // 库内启动标记在续算中保持连续：旧版快照（未写标记）按库内对待，
-                // 外部启动仅不参与 HDR，变速与配套软件照常恢复。
-                var resumedIsOwn = liveSessions.Any(static session => session.LaunchedByHelper ?? true);
-                _launchOwnership.AdoptSession(dataKey, resumedIsOwn);
-                try
-                {
-                    _playTime.ResumeTracking(dataKey, startedAt);
-                    _inFlightStarts[dataKey] = startedAt;
-                    resumedCount++;
-                    _logger.LogInformation(
-                        "Resumed in-flight session for {DataKey}: start {StartTime:t}, {ProcessCount} live process(es), own={OwnLaunch}.",
-                        dataKey,
-                        startedAt,
-                        liveSessions.Count,
-                        resumedIsOwn);
-
-                    // 变速挂在被注入的游戏进程上：GameHelper 重启（部署/崩溃）后就没了，
-                    // 只在 START 事件里应用会让"重启后仍在跑的这一局"永远没有倍速。
-                    ApplyRecoveredSpeed(liveSessions[0]);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to resume in-flight session for {DataKey}.", dataKey);
-                }
-            }
-            else
-            {
-                var startedAt = group.First().StartedAt;
-                var endTime = group.First().RecoveryEndAt ?? snapshot.SnapshotAt;
-                // When GameHelper stayed down for a long time the true exit time is
-                // unknowable; cap the recovered duration so a stale snapshot cannot
-                // inflate playtime unboundedly.
-                if (endTime - startedAt > MaxRecoveredSessionDuration)
-                {
-                    _logger.LogWarning(
-                        "In-flight session for {DataKey} spans {Span}; capping the recovered duration at {Cap}.",
-                        dataKey,
-                        endTime - startedAt,
-                        MaxRecoveredSessionDuration);
-                    endTime = startedAt + MaxRecoveredSessionDuration;
-                }
-
-                try
-                {
-                    _playTime.WriteRecoveredSession(dataKey, startedAt, endTime);
-                    closedCount++;
-                    _logger.LogInformation(
-                        "Closed interrupted session for {DataKey}: start {StartTime:t}, end {EndTime:t}.",
-                        dataKey,
-                        startedAt,
-                        endTime);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to persist interrupted session for {DataKey}.", dataKey);
-                    foreach (var pending in group)
-                    {
-                        pending.RecoveryEndAt = endTime;
-                        _pendingRecoveredSessions.Add(pending);
-                    }
-                }
-            }
-        }
-
-        _launchOwnership.CompleteRecovery();
-        if (resumedCount > 0 || _pendingRecoveredSessions.Count > 0 || _launchOwnership.PendingCount > 0 || _launchOwnership.OwnsEnabledHdr)
-        {
-            // 关键自愈兜底：接管来的会话必须立即重写为新快照。否则下一次
-            // 强杀/部署重启时磁盘上没有这份会话，它会被第二次丢失。
-            PersistInFlightSnapshot();
-            _logger.LogInformation("In-flight snapshot rewritten after recovery with {Count} adopted session(s).", resumedCount);
-        }
-        else
-        {
-            try
-            {
-                // Replace before deleting: a failed delete must not replay completed rows.
-                store.Save(BuildInFlightSnapshot());
-                store.Clear();
-            }
-            catch (Exception ex) { _logger.LogWarning(ex, "Failed to clear the completed recovery snapshot; monitoring will continue."); }
-        }
-
-        _logger.LogInformation(
-            "In-flight session recovery finished: {Resumed} session(s) resumed, {Closed} session(s) closed.",
-            resumedCount,
-            closedCount);
-    }
-
-    private void RetainCompletedSession(string dataKey)
-    {
-        if (_inFlightStarts.TryGetValue(dataKey, out var start))
-            _pendingRecoveredSessions.Add(new InFlightSession
-            {
-                DataKey = dataKey,
-                StartedAt = start,
-                RecoveryEndAt = _timeProvider.GetLocalNow().DateTime
-            });
-    }
-
-    private void RetryPendingRecoveredSessions()
-    {
-        var completed = new List<InFlightSession>();
-        foreach (var group in _pendingRecoveredSessions.GroupBy(s =>
-                     (s.DataKey.ToUpperInvariant(), s.StartedAt, s.RecoveryEndAt)))
-        {
-            var first = group.First();
-            try
-            {
-                _playTime.WriteRecoveredSession(first.DataKey, first.StartedAt, first.RecoveryEndAt!.Value);
-                completed.AddRange(group);
-            }
-            catch (Exception ex) { _logger.LogWarning(ex, "Still unable to persist interrupted session for {DataKey}; retaining snapshot.", first.DataKey); }
-        }
-        _pendingRecoveredSessions.RemoveAll(completed.Contains);
-        if (completed.Count > 0) PersistInFlightSnapshot();
-    }
-
-    private bool IsPersistedProcessStillSame(InFlightSession session, DateTime snapshotAt)
-    {
-        var probe = _processIdentityProbe;
-        if (probe is null || !session.ProcessId.HasValue)
-        {
-            return false;
-        }
-
-        if (!probe.TryGetImagePath(session.ProcessId.Value, out var imagePath) || string.IsNullOrWhiteSpace(imagePath))
-        {
-            return false;
-        }
-
-        if (probe.TryGetStartTimeUtc(session.ProcessId.Value, out var created)
-            && (created > snapshotAt.ToUniversalTime()
-                || (session.ProcessStartedAtUtc.HasValue && created != session.ProcessStartedAtUtc.Value)))
-            return false;
-
-        var normalizedImage = PathNormalizer.NormalizePath(imagePath);
-        if (session.NormalizedPath is not null && normalizedImage is not null)
-        {
-            return string.Equals(session.NormalizedPath, normalizedImage, StringComparison.OrdinalIgnoreCase);
-        }
-
-        var imageName = PathNormalizer.NormalizeName(imagePath);
-        return session.NormalizedName is not null
-            && imageName is not null
-            && string.Equals(session.NormalizedName, imageName, StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    /// Upper bound for a recovered interrupted session: the true exit time of a game that
-    /// died while GameHelper was down is unknowable, so the last-known-alive timestamp is
-    /// used and pathological spans are capped.
-    /// </summary>
-    private static readonly TimeSpan MaxRecoveredSessionDuration = TimeSpan.FromHours(12);
 }
