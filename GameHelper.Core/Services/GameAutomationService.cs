@@ -23,6 +23,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     private readonly IGameConfiguration _gameConfiguration;
     private readonly IHdrController _hdr;
     private readonly IGameLauncher? _gameLauncher;
+    private readonly Ds4WindowsAutomationPolicy _companionPolicy;
     private readonly Dictionary<string, DateTimeOffset> _pendingLaunches = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _launchFailures = new(StringComparer.OrdinalIgnoreCase);
     private readonly IProcessPathResolver? _pathResolver;
@@ -104,6 +105,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         _timeProvider = timeProvider ?? TimeProvider.System;
         _powerEvents = powerEvents;
         _logger = logger;
+        _companionPolicy = new Ds4WindowsAutomationPolicy(gameLauncher, logger);
         _processMatcher = new GameProcessMatcher(_configIndex, _pathResolver, _logger);
         _speedAttachment = new SpeedAttachmentCoordinator(
             speedController, _timeProvider, _logger, _processIdentityProbe,
@@ -168,7 +170,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         {
             UpdateMonitorModeState(forced: true);
         }
-        foreach (var game in recoveredGames) ApplyConfiguredCompanion(game);
+        foreach (var game in recoveredGames) _companionPolicy.Apply(game);
     }
 
     public void ReloadConfig()
@@ -349,21 +351,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
         // Preset switching performs DDC/CI bus I/O; keep it outside the state lock.
         UpdateMonitorModeState(forced: true);
-        if (externalGame is not null) ApplyConfiguredCompanion(externalGame);
-    }
-
-    private void ApplyConfiguredCompanion(GameConfig game)
-    {
-        if (_gameLauncher is null) return;
-        try
-        {
-            if (game.Launch?.Ds4WindowsPath is { } path) _gameLauncher.EnsureCompanionRunning(path);
-            else _gameLauncher.StopCompanion();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to apply the configured companion state for {DataKey}; playtime and other automation continue.", game.DataKey);
-        }
+        if (externalGame is not null) _companionPolicy.Apply(externalGame);
     }
 
     /// <summary>
