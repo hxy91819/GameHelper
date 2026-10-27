@@ -38,6 +38,7 @@ public sealed class LibraryGameItem : ObservableState
     public LibraryGameItem(LibraryGame row)
     {
         _baseline = row;
+        ActionEditor = new GameActionEditor(row.Config.Actions, ActionsEdited);
         LastPlayedAt = row.LastPlayedAt;
         _installation = row.Installation;
         DataKey = row.Config.DataKey;
@@ -71,6 +72,8 @@ public sealed class LibraryGameItem : ObservableState
         _genres = genres.ToArray();
         Changed(nameof(Genres)); Changed(nameof(GenreLabel));
     }
+    public GameActionEditor ActionEditor { get; private set; }
+    private void ActionsEdited() { Edited(); Changed(nameof(ActionEditor)); }
     public string DataKey { get; }
     public string Revision { get; }
     public DateTimeOffset? LastPlayedAt { get; private set; }
@@ -189,16 +192,18 @@ public sealed class LibraryGameItem : ObservableState
         { if (version == _artworkVersion) PosterStatus = "海报暂不可用，可重新匹配后重试"; }
     }
 
-    internal LibraryDraft ExportDraft() => new(_baseline, Name, Executable, Target, Arguments, Directory, Speed, Hdr, Enabled, UseSpeed, UseDs4Windows, Ds4WindowsPath, SpeedHotkeys);
+    internal LibraryDraft ExportDraft() => new(_baseline, Name, Executable, Target, Arguments, Directory, Speed, Hdr, Enabled, UseSpeed, UseDs4Windows, Ds4WindowsPath, SpeedHotkeys, ActionEditor.Snapshot() ?? []);
     internal static LibraryGameItem RestoreDraft(LibraryDraft draft)
     {
-        return new LibraryGameItem(draft.Baseline)
+        var item = new LibraryGameItem(draft.Baseline)
         {
             _name = draft.Name, _executable = draft.Executable, _target = draft.Target,
             _arguments = draft.Arguments, _directory = draft.Directory, _speed = draft.Speed, _speedHotkeys = draft.SpeedHotkeys,
             _hdr = draft.Hdr, _enabled = draft.Enabled, _useSpeed = draft.UseSpeed, _dirty = true,
             _useDs4Windows = draft.UseDs4Windows, _ds4WindowsPath = draft.Ds4WindowsPath ?? DefaultDs4WindowsPath
         };
+        item.ActionEditor = new GameActionEditor(draft.Actions ?? draft.Baseline.Config.Actions, item.ActionsEdited);
+        return item;
     }
 
     public GameConfig ToConfig()
@@ -216,6 +221,7 @@ public sealed class LibraryGameItem : ObservableState
         return new GameConfig
         {
             DataKey = DataKey, DisplayName = Name.Trim(), Executable = Executable.Trim(),
+            Actions = ActionEditor.Save(),
             IsEnabled = Enabled, HdrEnabled = Hdr, SpeedMultiplier = speed, SpeedHotkeys = hotkeys,
             Launch = string.IsNullOrWhiteSpace(Target) ? null : new GameLaunchOptions
             {

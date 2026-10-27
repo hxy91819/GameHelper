@@ -12,6 +12,20 @@ namespace GameHelper.Desktop;
 
 public partial class MainWindow : Window
 {
+    private void OnAddAction(object sender, RoutedEventArgs e) => _model.Selected?.ActionEditor.Add();
+    private void OnRemoveAction(object sender, RoutedEventArgs e)
+    { if (sender is FrameworkElement { DataContext: GameActionItem item }) _model.Selected?.ActionEditor.Remove(item); }
+    private void OnMoveActionUp(object sender, RoutedEventArgs e)
+    { if (sender is FrameworkElement { DataContext: GameActionItem item }) _model.Selected?.ActionEditor.Move(item, -1); }
+    private void OnMoveActionDown(object sender, RoutedEventArgs e)
+    { if (sender is FrameworkElement { DataContext: GameActionItem item }) _model.Selected?.ActionEditor.Move(item, 1); }
+    private void OnChooseAction(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: GameActionItem item }) return;
+        var dialog = new OpenFileDialog { Filter = "程序 (*.exe)|*.exe" };
+        if (dialog.ShowDialog(this) == true) item.Path = dialog.FileName;
+    }
+
     private readonly LibraryViewModel _model;
     private readonly DispatcherTimer _refreshTimer;
     private bool _showStatistics;

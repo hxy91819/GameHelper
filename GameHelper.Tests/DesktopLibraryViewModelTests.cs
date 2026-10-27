@@ -426,6 +426,40 @@ public sealed class DesktopLibraryViewModelTests
     });
 
     [Fact]
+    public Task Actions_DraftReorderSaveAndDelete_SurviveUiRestart() => OnSta(() =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gh-action-draft", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(root, "config.yml"); var backend = new Backend();
+        try
+        {
+            using (var first = new LibraryViewModel(backend, path))
+            {
+                first.RefreshAsync().GetAwaiter().GetResult();
+                var editor = first.Selected!.ActionEditor;
+                editor.Add().Path = @"C:\Tools\first.exe";
+                var second = editor.Add(); second.Path = @"C:\Tools\second.exe"; second.When = "afterExit";
+                editor.Move(second, -1);
+            }
+            using (var reopened = new LibraryViewModel(backend, path))
+            {
+                reopened.RefreshAsync().GetAwaiter().GetResult();
+                Assert.True(reopened.Selected!.IsDirty);
+                Assert.Equal(new[] { @"C:\Tools\second.exe", @"C:\Tools\first.exe" }, reopened.Selected.ActionEditor.Items.Select(item => item.Path));
+                reopened.SaveCommand.Execute(null);
+                Assert.Equal("afterExit", backend.Game.Actions![0].When);
+                var editor = reopened.Selected!.ActionEditor;
+                foreach (var item in editor.Items.ToArray()) editor.Remove(item);
+            }
+            using var final = new LibraryViewModel(backend, path);
+            final.RefreshAsync().GetAwaiter().GetResult();
+            Assert.Empty(final.Selected!.ActionEditor.Items);
+            final.SaveCommand.Execute(null);
+            Assert.Null(backend.Game.Actions);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    });
+
+    [Fact]
     public Task PassivePolling_DoesNotDisableMenusOrResetUnchangedGameView() => OnSta(() =>
     {
         using var model = new LibraryViewModel(new Backend()); model.RefreshAsync().GetAwaiter().GetResult();

@@ -89,12 +89,30 @@
         <TextBlock Text="启动入口" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,18,0,0" />
         <TextBox Text="{Binding Target, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" ToolTip="游戏 exe、快捷方式完整路径，或 steam://rungameid/数字" AutomationProperties.Name="启动入口" />
         <Button Content="选择程序或快捷方式…" Click="OnChooseEntry" />
-        <CheckBox IsChecked="{Binding UseDs4Windows}"><TextBlock Text="使用 DS4Windows（PS 手柄）；未勾选时启动游戏会关闭它" TextWrapping="Wrap" /></CheckBox>
+        <TextBlock Text="启动前 / 退出后动作" FontWeight="SemiBold" Margin="0,18,0,8" />
+        <CheckBox IsChecked="{Binding UseDs4Windows}"><TextBlock Text="预设：DS4Windows（PS 手柄）；未勾选时启动游戏会关闭它" TextWrapping="Wrap" /></CheckBox>
         <StackPanel Visibility="{Binding UseDs4Windows, Converter={StaticResource BoolVisibility}}">
          <TextBox Text="{Binding Ds4WindowsPath, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" AutomationProperties.Name="DS4Windows 程序路径" />
          <Button Content="选择 DS4Windows 程序…" Click="OnChooseDs4Windows" />
-         <TextBlock Text="先启动手柄兼容程序，再启动游戏；仅从游戏库启动时生效，退出游戏后保持运行。" FontSize="11" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,8,0,0" />
+         <TextBlock Text="先启动手柄兼容程序，再启动游戏；外部启动与恢复也应用此设置，退出游戏后保持运行。" FontSize="11" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,8,0,0" />
         </StackPanel>
+        <TextBlock Text="通用动作按各自时机的列表顺序执行。启动前失败中止游戏启动；退出后失败仅记录警告。" TextWrapping="Wrap" FontSize="11" Margin="0,12,0,4" />
+        <ItemsControl ItemsSource="{Binding ActionEditor.Items}">
+         <ItemsControl.ItemTemplate><DataTemplate><Border BorderBrush="{DynamicResource Muted}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,4">
+          <StackPanel>
+           <StackPanel Orientation="Horizontal">
+            <ComboBox SelectedValue="{Binding When, UpdateSourceTrigger=PropertyChanged}" SelectedValuePath="Tag" Width="136" AutomationProperties.Name="动作时机"><ComboBoxItem Content="启动前" Tag="beforeLaunch" /><ComboBoxItem Content="退出后" Tag="afterExit" /></ComboBox>
+            <ComboBox SelectedValue="{Binding Type, UpdateSourceTrigger=PropertyChanged}" SelectedValuePath="Tag" Width="136" Margin="8,0,0,0" AutomationProperties.Name="动作类型"><ComboBoxItem Content="运行程序" Tag="run" /><ComboBoxItem Content="关闭程序" Tag="close" /></ComboBox>
+           </StackPanel>
+           <TextBox Text="{Binding Path, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="动作 exe 完整路径" ToolTip="exe 完整路径" />
+           <Button Content="选择动作程序…" Click="OnChooseAction" />
+           <TextBox Text="{Binding Arguments, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsRun}" AutomationProperties.Name="动作参数" ToolTip="可选启动参数" />
+           <CheckBox Content="等待退出（最多 30 秒）" IsChecked="{Binding Wait}" IsEnabled="{Binding IsRun}" />
+           <StackPanel Orientation="Horizontal"><Button Content="上移" Click="OnMoveActionUp" /><Button Content="下移" Click="OnMoveActionDown" Margin="8,0" /><Button Content="删除" Click="OnRemoveAction" /></StackPanel>
+          </StackPanel>
+         </Border></DataTemplate></ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button Content="添加通用动作" Click="OnAddAction" Margin="0,8" />
         <Expander Header="启动参数与进程匹配" Foreground="{DynamicResource TextSecondary}" Margin="0,8,0,16">
          <StackPanel Margin="0,10,0,0">
           <TextBlock Text="启动参数" FontSize="12" /><TextBox Text="{Binding Arguments, UpdateSourceTrigger=PropertyChanged}" />
