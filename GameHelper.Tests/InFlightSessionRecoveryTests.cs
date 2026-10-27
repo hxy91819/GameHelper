@@ -143,7 +143,8 @@ public class InFlightSessionRecoveryTests
         Mock<IGameConfiguration> config,
         FakePlayTime playTime,
         FakeInFlightStore store,
-        IProcessIdentityProbe probe) =>
+        IProcessIdentityProbe probe,
+        TimeProvider? timeProvider = null) =>
         new(
             monitor,
             config.Object,
@@ -151,7 +152,8 @@ public class InFlightSessionRecoveryTests
             playTime,
             NullLogger<GameAutomationService>.Instance,
             inFlightSessionStore: store,
-            processIdentityProbe: probe);
+            processIdentityProbe: probe,
+            timeProvider: timeProvider);
 
     [Fact]
     public void Recovery_AliveProcess_ResumesSessionWithOriginalStart()
@@ -430,6 +432,42 @@ public class InFlightSessionRecoveryTests
         Assert.Equal(SnapshotAt, Assert.Single(recovered.Recovered).End);
         first.Stop();
         second.Stop();
+    }
+
+    [Fact]
+    public void Recovery_WriteFails_MaintenanceHeartbeatRetriesOnceAtOriginalEnd()
+    {
+        var store = new FakeInFlightStore
+        {
+            Snapshot = new InFlightSnapshot
+            {
+                SnapshotAt = SnapshotAt,
+                Sessions = { new InFlightSession { DataKey = "g1", ProcessId = 1111, NormalizedName = "game1.exe", StartedAt = SessionStart } }
+            }
+        };
+        var playTime = new FakePlayTime { FailRecovery = true };
+        // 心跳时刻故意离开快照时间，补录若改用当前时钟就会写错结束时间。
+        var clock = new ManualMaintenanceClock(new DateTimeOffset(2026, 10, 17, 12, 0, 0, TimeSpan.Zero));
+        var service = CreateService(
+            new FakeMonitor(), CreateConfig(), playTime, store, new FakeProbe(new Dictionary<int, string?>()), clock);
+        service.Start();
+
+        Assert.Empty(playTime.Recovered);
+        var retainedEnd = Assert.Single(store.Saved[^1].Sessions).RecoveryEndAt;
+        Assert.Equal(SnapshotAt, retainedEnd);
+
+        playTime.FailRecovery = false;
+        clock.Fire();
+
+        var recovered = Assert.Single(playTime.Recovered);
+        Assert.Equal("g1", recovered.Game);
+        Assert.Equal(SessionStart, recovered.Start);
+        Assert.Equal(retainedEnd, recovered.End);
+        Assert.Empty(store.Saved[^1].Sessions);
+
+        clock.Fire();
+        Assert.Single(playTime.Recovered);
+        service.Stop();
     }
 
     [Theory]
@@ -713,5 +751,37 @@ public class InFlightSessionRecoveryTests
         public DateTimeOffset UtcNow { get; private set; } = DateTimeOffset.UnixEpoch.AddYears(55);
         public void Advance(TimeSpan duration) => UtcNow += duration;
         public override DateTimeOffset GetUtcNow() => UtcNow;
+    }
+
+    private sealed class ManualMaintenanceClock : TimeProvider
+    {
+        private TimerCallback? _callback;
+        private object? _state;
+
+        public ManualMaintenanceClock(DateTimeOffset utcNow) => UtcNow = utcNow;
+
+        public DateTimeOffset UtcNow { get; }
+
+        public override DateTimeOffset GetUtcNow() => UtcNow;
+
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            _callback = callback;
+            _state = state;
+            return new IdleTimer();
+        }
+
+        public void Fire() => _callback!.Invoke(_state);
+
+        private sealed class IdleTimer : ITimer
+        {
+            public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+
+            public void Dispose() { }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
     }
 }
