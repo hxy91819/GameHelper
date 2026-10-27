@@ -33,7 +33,11 @@ public sealed class WindowsProcessPathResolver : IProcessPathResolver
         }
     }
 
-    private static string? QueryFullProcessImageName(IntPtr processHandle)
+    /// <summary>
+    /// Queries the full image path for a process handle. Shared with
+    /// <see cref="WindowsProcessIdentityProbe"/> so the P/Invoke signature lives in one place.
+    /// </summary>
+    internal static string? QueryFullProcessImageName(IntPtr processHandle)
     {
         const uint maxPath = 1024;
         uint size = maxPath;
