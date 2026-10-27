@@ -1,3 +1,4 @@
+using GameHelper.Core.Utilities;
 using System;
 using System.Globalization;
 using System.IO;
@@ -78,18 +79,9 @@ public sealed class JsonLocationCacheStore : ILocationCacheStore
             UpdatedAt = _timeProvider.GetLocalNow().DateTime
         };
 
-        var tempPath = _filePath + ".tmp";
-        try
+        AtomicFile.Write(_filePath, tempPath =>
         {
             File.WriteAllText(tempPath, JsonSerializer.Serialize(cached, SerializerOptions), Encoding.UTF8);
-            File.Move(tempPath, _filePath, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(tempPath))
-            {
-                File.Delete(tempPath);
-            }
-        }
+        }, temporaryPath: _filePath + ".tmp");
     }
 }

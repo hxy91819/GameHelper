@@ -1,3 +1,4 @@
+using GameHelper.Core.Utilities;
 using System.Globalization;
 using System.Text;
 
@@ -47,9 +48,7 @@ internal static class PlaytimeCsvCodec
     internal static void WriteAll(string path, IEnumerable<PlaytimeCsvRow> rows)
     {
         EnsureDirectory(path);
-        var tempPath = $"{path}.{Guid.NewGuid():N}.tmp";
-
-        try
+        AtomicFile.Write(path, tempPath =>
         {
             using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             using (var writer = new StreamWriter(stream, Utf8WithoutBom))
@@ -60,23 +59,11 @@ internal static class PlaytimeCsvCodec
                     WriteRow(writer, row);
                 }
             }
-
-            File.Move(tempPath, path, overwrite: false);
-        }
-        finally
+        }, overwrite: false, cleanup: temporary =>
         {
-            try
-            {
-                if (File.Exists(tempPath))
-                {
-                    File.Delete(tempPath);
-                }
-            }
-            catch
-            {
-                // Cleanup must not hide the migration/write failure that caused it.
-            }
-        }
+            try { if (File.Exists(temporary)) File.Delete(temporary); }
+            catch { /* Cleanup must not hide the write failure. */ }
+        });
     }
 
     internal static void ReadRows(string path, Action<PlaytimeCsvRow> handleRow)

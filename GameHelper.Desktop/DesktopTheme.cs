@@ -1,3 +1,4 @@
+using GameHelper.Core.Utilities;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -18,14 +19,11 @@ internal sealed class ThemePreferenceStore(string configPath)
 
     internal void Write(bool light)
     {
-        var temporary = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
+        AtomicFile.Write(_path, temporary =>
         {
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
             File.WriteAllText(temporary, JsonSerializer.Serialize(new Preference(light ? "light" : "dark")));
-            File.Move(temporary, _path, true);
-        }
-        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        });
     }
 
     private sealed record Preference(string Theme);

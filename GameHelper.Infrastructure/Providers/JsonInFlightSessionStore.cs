@@ -1,3 +1,4 @@
+using GameHelper.Core.Utilities;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -70,22 +71,9 @@ public sealed class JsonInFlightSessionStore : IInFlightSessionStore
             Directory.CreateDirectory(directory);
         }
 
-        // Unique temp name per write: a leftover ".tmp" that the current token can no longer
-        // touch (stale ACL, read-only attribute, antivirus quarantine) must never wedge every
-        // later save of the snapshot.
-        var tempPath = Path.Combine(
-            string.IsNullOrEmpty(directory) ? "." : directory,
-            Path.GetFileName(_filePath) + "." + Guid.NewGuid().ToString("N") + ".tmp");
-
-        try
-        {
-            File.WriteAllText(tempPath, JsonSerializer.Serialize(snapshot, SerializerOptions), Encoding.UTF8);
-            File.Move(tempPath, _filePath, overwrite: true);
-        }
-        finally
-        {
-            TryDeleteTempFile(tempPath);
-        }
+        AtomicFile.Write(_filePath, tempPath =>
+            File.WriteAllText(tempPath, JsonSerializer.Serialize(snapshot, SerializerOptions), Encoding.UTF8),
+            cleanup: TryDeleteTempFile);
     }
 
     private static void TryDeleteTempFile(string path)

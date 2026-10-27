@@ -1,3 +1,4 @@
+using GameHelper.Core.Utilities;
 using System.IO;
 using System.Text.Json;
 
@@ -52,14 +53,11 @@ internal sealed class LibraryScanStore
     {
         if (_path is not null)
         {
-            var temporary = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
-            {
+            AtomicFile.Write(_path, temporary =>
+        {
                 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
                 File.WriteAllText(temporary, JsonSerializer.Serialize(next));
-                File.Move(temporary, _path, true);
-            }
-            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            });
         }
         _document = next;
     }

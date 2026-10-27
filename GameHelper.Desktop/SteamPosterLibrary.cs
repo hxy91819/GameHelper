@@ -61,16 +61,13 @@ internal sealed class SteamPosterLibrary
         var next = new Dictionary<string, uint>(_links, StringComparer.OrdinalIgnoreCase);
         if (appId is > 0) next[dataKey] = appId.Value;
         else next.Remove(dataKey);
-        var temporary = _linksPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
+        AtomicFile.Write(_linksPath, temporary =>
         {
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_linksPath))!);
             File.WriteAllText(temporary, JsonSerializer.Serialize(next));
-            File.Move(temporary, _linksPath, true);
-            _links.Clear();
-            foreach (var pair in next) _links.Add(pair.Key, pair.Value);
-        }
-        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        });
+        _links.Clear();
+        foreach (var pair in next) _links.Add(pair.Key, pair.Value);
     }
 
     public async Task<GameArtwork> LoadAsync(string dataKey, string executable, string target, CancellationToken cancellationToken, bool refresh)

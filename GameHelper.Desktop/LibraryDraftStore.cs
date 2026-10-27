@@ -1,3 +1,4 @@
+using GameHelper.Core.Utilities;
 using System.IO;
 using System.Text.Json;
 using GameHelper.Core.Models;
@@ -24,14 +25,11 @@ internal sealed class LibraryDraftStore(string configPath)
     {
         var payload = JsonSerializer.Serialize(drafts);
         if (_lastWritten == payload || (payload == "[]" && !File.Exists(_path))) return;
-        var temp = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
+        AtomicFile.Write(_path, temp =>
         {
             System.IO.Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             File.WriteAllText(temp, payload);
-            File.Move(temp, _path, true);
-            _lastWritten = payload;
-        }
-        finally { if (File.Exists(temp)) File.Delete(temp); }
+        });
+        _lastWritten = payload;
     }
 }
