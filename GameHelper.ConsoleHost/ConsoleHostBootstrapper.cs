@@ -182,14 +182,16 @@ public static class ConsoleHostBootstrapper
                     return SystemTrayLogic.Summary(monitor.IsRunning, sessions, names,
                         sp.GetRequiredService<TimeProvider>().GetLocalNow().DateTime);
                 },
-                () =>
-                {
-                    var config = sp.GetRequiredService<IConfigPathProvider>().ConfigPath;
-                    using var process = Process.Start(SystemTrayLogic.LibraryStartInfo(AppContext.BaseDirectory, config, File.Exists));
-                },
-                // StopApplication invokes cancellation callbacks synchronously; keep shutdown off the native thread.
-                () => System.Threading.ThreadPool.QueueUserWorkItem(_ => sp.GetRequiredService<IHostApplicationLifetime>().StopApplication()),
-                sp.GetRequiredService<IBreakReminderService>(), sp.GetRequiredService<ILogger<WindowsSystemTrayService>>()));
+                new TrayMenuService(sp.GetRequiredService<IGameLibrary>(),
+                    new TrayHdrControl(sp.GetRequiredService<IHdrController>()),
+                    sp.GetRequiredService<IBreakReminderService>(), sp.GetRequiredService<TimeProvider>(),
+                    () =>
+                    {
+                        var config = sp.GetRequiredService<IConfigPathProvider>().ConfigPath;
+                        using var process = Process.Start(SystemTrayLogic.LibraryStartInfo(AppContext.BaseDirectory, config, File.Exists));
+                    },
+                    () => sp.GetRequiredService<IHostApplicationLifetime>().StopApplication()),
+                sp.GetRequiredService<ILogger<WindowsSystemTrayService>>()));
         }
 
         services.AddHostedService<Worker>();

@@ -2,11 +2,13 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using GameHelper.Core.Abstractions;
+using GameHelper.Core.Models;
+using GameHelper.Core.Services;
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 
 namespace GameHelper.Infrastructure.Notifications;
 
-internal enum SystemTrayAction : uint { OpenLibrary = 1, Snooze, ResetCycle, Exit }
 
 /// <summary>Formatting and command routing independent of the Windows message pump.</summary>
 public static class SystemTrayLogic
@@ -34,19 +36,6 @@ public static class SystemTrayLogic
         return text[..length] + "…";
     }
 
-    internal static bool Dispatch(uint command, IBreakReminderService reminders, Action openLibrary, Action exit)
-    {
-        switch ((SystemTrayAction)command)
-        {
-            case SystemTrayAction.OpenLibrary: openLibrary(); break;
-            case SystemTrayAction.Snooze: reminders.Snooze(TimeSpan.FromMinutes(15)); break;
-            case SystemTrayAction.ResetCycle: reminders.ResetCycle(); break;
-            case SystemTrayAction.Exit: exit(); break;
-            default: return false;
-        }
-        return true;
-    }
-
     /// <summary>Start the WPF library beside the host; a null config lets the library use its default path.</summary>
     public static ProcessStartInfo LibraryStartInfo(string baseDirectory, string? config, Func<string, bool> exists)
     {
@@ -66,9 +55,15 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
     private const uint CallbackMessage = 0x8001;
     private readonly object _gate = new();
     private readonly Func<string> _summary;
-    private readonly Action _openLibrary;
-    private readonly Action _exit;
-    private readonly IBreakReminderService _reminders;
+    private readonly TrayMenuService _menus;
+    private readonly ConcurrentQueue<Action> _updates = new();
+    private readonly SemaphoreSlim _operations = new(1, 1);
+    private string _cachedSummary = "GameHelper";
+    private int _refreshing;
+    private int _openingMenu;
+    private long _generation;
+    private CancellationTokenSource _lifetime = new();
+    private const uint UpdateMessage = 0x8002;
     private readonly ILogger<WindowsSystemTrayService> _logger;
     private readonly ManualResetEventSlim _ready = new(false);
     private readonly string _className = "GameHelper.SystemTray." + Guid.NewGuid().ToString("N");
@@ -81,13 +76,11 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
     private uint _taskbarCreated;
     private bool _hasIcon;
 
-    public WindowsSystemTrayService(Func<string> summary, Action openLibrary, Action exit,
-        IBreakReminderService reminders, ILogger<WindowsSystemTrayService> logger)
+    public WindowsSystemTrayService(Func<string> summary, TrayMenuService menus,
+        ILogger<WindowsSystemTrayService> logger)
     {
         _summary = summary;
-        _openLibrary = openLibrary;
-        _exit = exit;
-        _reminders = reminders;
+        _menus = menus;
         _logger = logger;
     }
 
@@ -100,6 +93,10 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (IsRunning) return;
             if (_thread?.IsAlive == true) throw new InvalidOperationException("Previous tray thread is still stopping.");
+            _lifetime.Dispose();
+            _lifetime = new();
+            Interlocked.Increment(ref _generation);
+            Volatile.Write(ref _openingMenu, 0);
             _ready.Reset();
             _startupError = null;
             _stopRequested = false;
@@ -121,6 +118,8 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
         lock (_gate)
         {
             _stopRequested = true;
+            SafeCleanup(_lifetime.Cancel);
+            Interlocked.Increment(ref _generation);
             SafeCleanup(() =>
             {
                 var window = Volatile.Read(ref _window);
@@ -141,6 +140,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             if (_disposed) return;
             Stop();
             _disposed = true;
+            _lifetime.Dispose();
             if (_thread?.IsAlive != true) _ready.Dispose();
         }
     }
@@ -164,6 +164,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             Volatile.Write(ref _window, window);
             _ready.Set();
+            RefreshSummary(window);
             if (_stopRequested) return;
             NativeMessageWindow.PumpMessages();
         }
@@ -195,42 +196,126 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             }
             switch (message)
             {
-                case 0x0113: UpdateIcon(window); return IntPtr.Zero; // WM_TIMER
+                case UpdateMessage:
+                    while (_updates.TryDequeue(out var update)) update();
+                    return IntPtr.Zero;
+                case 0x0113: RefreshSummary(window); return IntPtr.Zero; // WM_TIMER
                 case CallbackMessage:
                     var eventId = unchecked((uint)lParam.ToInt64()) & 0xffff;
-                    if (eventId == 0x0203) Dispatch((uint)SystemTrayAction.OpenLibrary); // WM_LBUTTONDBLCLK
-                    else if (eventId is 0x0205 or 0x007b) ShowMenu(window); // WM_RBUTTONUP / WM_CONTEXTMENU
+                    if (eventId == 0x0203) Dispatch(new("打开游戏库", TrayMenuAction.OpenLibrary, true), window); // WM_LBUTTONDBLCLK
+                    else if (eventId is 0x0205 or 0x007b) RequestMenu(window); // WM_RBUTTONUP / WM_CONTEXTMENU
                     return IntPtr.Zero;
                 case 0x0010: NativeMessageWindow.DestroyWindow(window); return IntPtr.Zero;
                 case 0x0002: NativeMessageWindow.PostQuitMessage(0); return IntPtr.Zero;
             }
         }
-        catch (Exception ex) { _logger.LogWarning(ex, "Tray interaction failed"); return IntPtr.Zero; }
+        catch (Exception ex) { ReportFailure(window, ex); return IntPtr.Zero; }
         return NativeMessageWindow.DefWindowProc(window, message, wParam, lParam);
     }
 
-    private void Dispatch(uint command) => SystemTrayLogic.Dispatch(command, _reminders, _openLibrary, _exit);
+    private void RefreshSummary(IntPtr window)
+    {
+        if (Interlocked.Exchange(ref _refreshing, 1) != 0) return;
+        var generation = Volatile.Read(ref _generation);
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var summary = _summary();
+                PostUpdate(window, generation, () => { _cachedSummary = summary; UpdateIcon(window); });
+            }
+            catch (Exception ex) { ReportFailure(window, ex, generation); }
+            finally { Volatile.Write(ref _refreshing, 0); }
+        });
+    }
 
-    private void ShowMenu(IntPtr window)
+    private void RequestMenu(IntPtr window)
+    {
+        if (Interlocked.Exchange(ref _openingMenu, 1) != 0) return;
+        var generation = Volatile.Read(ref _generation);
+        var token = _lifetime.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var items = await _menus.GetMenuAsync(token).ConfigureAwait(false);
+                PostUpdate(window, generation, () =>
+                {
+                    try { ShowMenu(window, items); }
+                    finally { Volatile.Write(ref _openingMenu, 0); }
+                });
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+            catch (Exception ex)
+            {
+                ReportFailure(window, ex, generation);
+                Volatile.Write(ref _openingMenu, 0);
+            }
+        });
+    }
+
+    private void Dispatch(TrayMenuItem item, IntPtr window)
+    {
+        var generation = Volatile.Read(ref _generation);
+        var token = _lifetime.Token;
+        _ = Task.Run(async () =>
+        {
+            await _operations.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (_stopRequested || window != Volatile.Read(ref _window) || generation != Volatile.Read(ref _generation)) return;
+                await _menus.DispatchAsync(item, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+            catch (Exception ex) { ReportFailure(window, ex, generation); }
+            finally { _operations.Release(); }
+        });
+    }
+
+    private void PostUpdate(IntPtr window, long generation, Action action)
+    {
+        if (_stopRequested || window != Volatile.Read(ref _window) || generation != Volatile.Read(ref _generation)) return;
+        _updates.Enqueue(() =>
+        {
+            if (!_stopRequested && window == Volatile.Read(ref _window) && generation == Volatile.Read(ref _generation)) action();
+        });
+        NativeMethods.PostMessage(window, UpdateMessage, 0, IntPtr.Zero);
+    }
+
+    private void ReportFailure(IntPtr window, Exception exception, long? generation = null)
+    {
+        var origin = generation ?? Volatile.Read(ref _generation);
+        _ = Task.Run(() =>
+        {
+            _logger.LogWarning(exception, "Tray operation failed");
+            PostUpdate(window, origin, () =>
+            {
+                var data = IconData(window);
+                data.Flags = 0x10; // NIF_INFO
+                data.Title = "GameHelper 操作失败";
+                data.Text = exception.Message.Length > 255 ? exception.Message[..255] : exception.Message;
+                data.InfoFlags = 3;
+                NativeMethods.ShellNotifyIcon(1, ref data);
+            });
+        });
+    }
+
+    private void ShowMenu(IntPtr window, IReadOnlyList<TrayMenuItem> items)
     {
         var menu = NativeMethods.CreatePopupMenu();
         if (menu == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
         try
         {
-            // Each summary row is disabled; escape ampersands so game names remain literal.
-            foreach (var line in _summary().Split('\n'))
-                Append(menu, 0x0001, 0, line.Replace("&", "&&"));
-            Append(menu, 0x0800, 0, null);
-            Append(menu, 0, (uint)SystemTrayAction.OpenLibrary, "打开 GameHelper 游戏库");
-            Append(menu, _reminders.IsRunning ? 0u : 1u, (uint)SystemTrayAction.Snooze, "推迟休息提醒 15 分钟");
-            Append(menu, _reminders.IsRunning ? 0u : 1u, (uint)SystemTrayAction.ResetCycle, "重置本轮休息计时");
-            Append(menu, 0x0800, 0, null);
-            Append(menu, 0, (uint)SystemTrayAction.Exit, "退出 GameHelper 后台监控");
+            for (var index = 0; index < items.Count; index++)
+            {
+                var item = items[index];
+                Append(menu, item.Enabled ? 0u : 1u, (uint)index + 1, item.Text.Replace("&", "&&"));
+            }
             if (!NativeMethods.GetCursorPos(out var point)) throw new Win32Exception(Marshal.GetLastWin32Error());
             NativeMethods.SetForegroundWindow(window);
             var command = NativeMethods.TrackPopupMenuEx(menu, 0x0100 | 0x0002, point.X, point.Y, window, IntPtr.Zero);
-            NativeMethods.PostMessage(window, 0, 0, IntPtr.Zero); // Required for notification-area menu dismissal.
-            Dispatch(command);
+            NativeMethods.PostMessage(window, 0, 0, IntPtr.Zero);
+            if (command > 0 && command <= items.Count) Dispatch(items[(int)command - 1], window);
         }
         finally { NativeMethods.DestroyMenu(menu); }
     }
@@ -245,7 +330,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
         Size = (uint)Marshal.SizeOf<NativeMethods.IconData>(), Window = window, Id = 1,
         Flags = 1 | 2 | 4, Callback = CallbackMessage,
         Icon = NativeMethods.LoadIcon(IntPtr.Zero, new IntPtr(32512)),
-        Tip = SystemTrayLogic.Tooltip(_summary()), Text = string.Empty, Title = string.Empty
+        Tip = SystemTrayLogic.Tooltip(_cachedSummary), Text = string.Empty, Title = string.Empty
     };
 
     private void UpdateIcon(IntPtr window)

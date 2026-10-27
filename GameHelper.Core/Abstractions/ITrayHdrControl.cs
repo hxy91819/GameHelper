@@ -6,4 +6,3 @@ public interface ITrayHdrControl
     TrayHdrState Read();
     void Toggle();
 }
-

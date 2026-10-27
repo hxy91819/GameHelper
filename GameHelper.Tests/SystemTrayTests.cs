@@ -55,29 +55,6 @@ public sealed class SystemTrayTests
     }
 
     [Theory]
-    [InlineData(1, 1, 0, 0, 0)]
-    [InlineData(2, 0, 1, 0, 0)]
-    [InlineData(3, 0, 0, 1, 0)]
-    [InlineData(4, 0, 0, 0, 1)]
-    [InlineData(0, 0, 0, 0, 0)]
-    [InlineData(99, 0, 0, 0, 0)]
-    public void MenuDispatchesExactlyOneAction(uint command, int opens, int snoozes, int resets, int exits)
-    {
-        var reminders = new Mock<IBreakReminderService>(MockBehavior.Strict);
-        reminders.Setup(service => service.Snooze(TimeSpan.FromMinutes(15)));
-        reminders.Setup(service => service.ResetCycle());
-        var openCount = 0;
-        var exitCount = 0;
-        Assert.Equal(command is >= 1 and <= 4,
-            SystemTrayLogic.Dispatch(command, reminders.Object, () => openCount++, () => exitCount++));
-        Assert.Equal(opens, openCount);
-        Assert.Equal(exits, exitCount);
-        reminders.Verify(service => service.Snooze(TimeSpan.FromMinutes(15)), Times.Exactly(snoozes));
-        reminders.Verify(service => service.ResetCycle(), Times.Exactly(resets));
-        reminders.VerifyNoOtherCalls();
-    }
-
-    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public void OpenLibraryUsesCurrentConfigAndPublishedDesktopLayout(bool besideHost)

@@ -129,6 +129,8 @@ dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release
 - `validate-config`、`stats` 等一次性命令不会修改系统开机启动项；使用 `GAMEHELPER_DATA_DIR` 的隔离实例也不会修改该启动项。
 - 监听失败时只降级热重载（日志有提示），监控本身不受影响。
 
+后台托盘支持查看当前游戏与本局时长、切换主显示器 HDR、临时暂停／恢复休息提醒，以及一键启动最近 5 款游戏。HDR 租约期间禁用手动切换，最近游戏复用游戏库启动流程。详见[托盘快捷操作](docs/guides/startup.md#托盘快捷操作)。
+
 ### 连续游戏休息提醒
 
 在 `config.yml` 添加 `breakReminder: { enabled: true }`，启动监控后累计前台游戏40分钟提醒休息，之后每10分钟再提醒；跨游戏累计，连续离开游戏满5分钟清零。默认关闭，使用系统通知及提示音，时间可配置。详情见[休息提醒指南](docs/guides/break-reminder.md)。
