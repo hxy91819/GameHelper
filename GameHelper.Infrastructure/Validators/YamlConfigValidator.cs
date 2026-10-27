@@ -14,10 +14,8 @@ public static class YamlConfigValidator
         {
             if (!File.Exists(path)) throw new FileNotFoundException($"Config file not found: {path}");
             var config = YamlConfigCodec.Deserialize(File.ReadAllText(path), result);
-            if (result.Errors.Count > 0) return result;
             var validation = AppConfigValidator.Validate(config);
             result.Errors.AddRange(validation.Errors);
-            result.GameCount = validation.GameCount;
             result.DuplicateCount = validation.DuplicateCount;
         }
         catch (YamlException ex)

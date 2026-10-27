@@ -61,16 +61,19 @@ internal static class YamlConfigCodec
                 if (mapping.Children.TryGetValue(new YamlScalarNode("launchOnStartup"), out var launch))
                     root.Add("launchOnSystemStartup", launch);
             }
-            else if (diagnostics is not null || !IsNull(startup))
+            else if (diagnostics is not null)
+                diagnostics.Errors.Add("startup must be a mapping (object).");
+            else if (!IsNull(startup))
                 throw new InvalidDataException("startup must be a mapping (object).");
         }
         if (diagnostics is not null)
         {
             if (!root.Children.ContainsKey(new YamlScalarNode("games")))
                 diagnostics.Warnings.Add("Missing 'games' section. Nothing to validate.");
+            if (root.Children.TryGetValue(new YamlScalarNode("games"), out var games) && games is YamlSequenceNode sequence)
+                diagnostics.GameCount = sequence.Children.Count;
             CheckShape(root, typeof(AppConfig), "", diagnostics);
         }
-        if (diagnostics?.Errors.Count > 0) return new AppConfig();
         if (diagnostics is null) RestoreLegacyNullDefaults(root, typeof(AppConfig));
         using var writer = new StringWriter();
         stream.Save(writer, false);
@@ -114,44 +117,59 @@ internal static class YamlConfigCodec
     }
 
     // Only YAML shape/type diagnostics live here. Values and required fields are checked in Core.
-    private static void CheckShape(YamlNode node, Type type, string path, ValidationResult result)
+    // Remove only malformed nodes from the diagnostic copy so other sections can still be checked.
+    private static bool CheckShape(YamlNode node, Type type, string path, ValidationResult result)
     {
+        var nullable = Nullable.GetUnderlyingType(type) is not null;
         type = Nullable.GetUnderlyingType(type) ?? type;
+        bool Invalid(string message) { result.Errors.Add(message); return false; }
         if (type == typeof(string) || type.IsValueType)
         {
-            if (node is not YamlScalarNode scalar) { result.Errors.Add($"{path} must be a scalar."); return; }
+            if (node is not YamlScalarNode scalar) return Invalid($"{path} must be a scalar.");
+            if (nullable && IsNull(node)) return true;
             if (type == typeof(bool) && !bool.TryParse(scalar.Value, out _))
-                result.Errors.Add($"{(path == "launchOnSystemStartup" ? "startup.launchOnStartup" : path)} must be a boolean.");
+                return Invalid($"{(path == "launchOnSystemStartup" ? "startup.launchOnStartup" : path)} must be a boolean.");
             if (type.IsEnum)
             {
-                try { Enum.Parse(type, scalar.Value ?? "", true); }
-                catch (ArgumentException) { result.Errors.Add($"{path} must be {string.Join(" or ", Enum.GetNames(type).Order(StringComparer.Ordinal))}."); }
+                if (!Enum.TryParse(type, scalar.Value, true, out var value) || !Enum.IsDefined(type, value!))
+                    return Invalid($"{path} must be {string.Join(" or ", Enum.GetNames(type).Order(StringComparer.Ordinal))}.");
+            }
+            else if (type == typeof(DateTimeOffset))
+            {
+                if (!DateTimeOffset.TryParse(scalar.Value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out _))
+                    return Invalid($"{path} must be a valid timestamp.");
             }
             else if (type.IsPrimitive && type != typeof(bool))
             {
                 try { Convert.ChangeType(scalar.Value, type, CultureInfo.InvariantCulture); }
                 catch (Exception ex) when (ex is FormatException or OverflowException or InvalidCastException)
-                { result.Errors.Add($"{path} has an invalid {type.Name} value."); }
+                { return Invalid($"{path} has an invalid {type.Name} value."); }
             }
-            return;
+            return true;
         }
         if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
         {
-            if (node is not YamlSequenceNode list) { result.Errors.Add($"{path} must be a sequence."); return; }
-            for (var index = 0; index < list.Children.Count; index++)
-                CheckShape(list.Children[index], type.GetGenericArguments()[0], $"{path}[{index + 1}]", result);
-            return;
+            if (node is not YamlSequenceNode list) return Invalid($"{path} must be a sequence.");
+            var index = 0;
+            foreach (var item in list.Children.ToList())
+                if (!CheckShape(item, type.GetGenericArguments()[0], $"{path}[{++index}]", result))
+                    list.Children.Remove(item);
+            return true;
         }
-        if (node is not YamlMappingNode mapping) { result.Errors.Add($"{path} must be a mapping (object)."); return; }
+        if (node is not YamlMappingNode mapping) return Invalid($"{path} must be a mapping (object).");
         var properties = Properties(type).ToDictionary(WireName);
-        foreach (var entry in mapping.Children)
+        foreach (var entry in mapping.Children.ToList())
         {
             var key = entry.Key.ToString();
             var childPath = string.IsNullOrEmpty(path) ? key : $"{path}.{key}";
-            if (properties.TryGetValue(key, out var property)) CheckShape(entry.Value, property.PropertyType, childPath, result);
+            if (properties.TryGetValue(key, out var property))
+            {
+                if (!CheckShape(entry.Value, property.PropertyType, childPath, result)) mapping.Children.Remove(entry.Key);
+            }
             else if (type == typeof(SpeedHotkey)) result.Errors.Add($"{childPath} is an unknown field.");
             else if (type != typeof(AppConfig)) result.Warnings.Add($"{childPath} is an unknown field.");
         }
+        return true;
     }
 
     private sealed class TimestampConverter : IYamlTypeConverter

@@ -170,6 +170,52 @@ games:
         }
     }
 
+    [Fact]
+    public void Validate_MultipleNullErrors_CollectsAllFiveAndCountsGames()
+    {
+        File.WriteAllText(ConfigPath, """
+startup: null
+hdr: null
+breakReminder: null
+games:
+  - dataKey: sample
+    executable: sample.exe
+    enabled: null
+    hdr: null
+""");
+        var result = YamlConfigValidator.Validate(ConfigPath);
+        Assert.False(result.IsValid);
+        Assert.Equal(5, result.Errors.Count);
+        Assert.Contains(result.Errors, error => error.Contains("startup"));
+        Assert.Contains(result.Errors, error => error.StartsWith("hdr"));
+        Assert.Contains(result.Errors, error => error.Contains("breakReminder"));
+        Assert.Contains(result.Errors, error => error.Contains("enabled"));
+        Assert.Contains(result.Errors, error => error.Contains("games[1].hdr"));
+        Assert.Equal(1, result.GameCount);
+    }
+
+    [Theory]
+    [InlineData("monitor: invalid")]
+    [InlineData("startup: false")]
+    public void Validate_InvalidGlobalShape_StillCollectsGameErrorsAndCounts(string globals)
+    {
+        File.WriteAllText(ConfigPath, globals + "\ngames:\n  - dataKey: sample\n    executable: sample.exe\n    launch: {}\n");
+        var result = YamlConfigValidator.Validate(ConfigPath);
+        Assert.False(result.IsValid);
+        Assert.Equal(1, result.GameCount);
+        Assert.Equal(2, result.Errors.Count);
+        Assert.Contains("Game 'sample': launch.target is required.", result.Errors);
+    }
+
+    [Theory]
+    [InlineData("speedAttach: nonsense")]
+    [InlineData("addedAt: yesterday")]
+    public void Validate_StrongerValueChecks_RemainInvalid(string field)
+    {
+        File.WriteAllText(ConfigPath, "games:\n  - dataKey: sample\n    executable: sample.exe\n    " + field + "\n");
+        Assert.False(YamlConfigValidator.Validate(ConfigPath).IsValid);
+    }
+
     private const string LegacyConfig = """
 # addedAt 为工具新增游戏时记录的可选 ISO 8601 时间；旧条目无需补填，编辑或重复导入不会重置。
 # GameHelper debug configuration
