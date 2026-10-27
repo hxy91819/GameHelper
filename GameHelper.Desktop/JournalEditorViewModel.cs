@@ -30,7 +30,7 @@ public sealed class JournalEditorViewModel : ObservableState
             Changed(nameof(IsCompleted));
         }
     }
-    public bool IsCompleted => Status == "已通关";
+    public bool IsCompleted => Status is "已通关" or "全成就";
     public DateTime? CompletedOn { get => _completedOn; set => Set(ref _completedOn, value); }
     public string Note { get => _note; set { if (Set(ref _note, value)) Changed(nameof(NoteCount)); } }
     public string NoteCount => $"{Note.Length} / {LibraryJournalStore.NoteLimit}";

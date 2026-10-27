@@ -37,12 +37,14 @@ public sealed class JournalTests : IDisposable
         Assert.Equal(new JournalRecord(), new LibraryJournalStore(Config).Read("a"));
     }
 
-    [Fact]
-    public void Editor_UsesInjectedLocalDateAndRetainsDraftUntilSave()
+    [Theory]
+    [InlineData("已通关")]
+    [InlineData("全成就")]
+    public void Editor_UsesInjectedLocalDateAndRetainsDraftUntilSave(string status)
     {
         var store = new LibraryJournalStore(Config);
         var clock = new Clock();
-        var editor = new JournalEditorViewModel(store, "a", "游戏", clock) { Status = "已通关", Note = "完成" };
+        var editor = new JournalEditorViewModel(store, "a", "游戏", clock) { Status = status, Note = "完成" };
         Assert.Equal(new DateTime(2032, 3, 1), editor.CompletedOn);
         Assert.Equal(new JournalRecord(), store.Read("a"));
         Assert.True(editor.Save());
@@ -52,16 +54,38 @@ public sealed class JournalTests : IDisposable
         reopened.Status = "在玩";
         Assert.True(reopened.Save());
         Assert.Null(store.Read("a").CompletedOn);
-        reopened.Status = "已通关";
+        reopened.Status = status;
         reopened.CompletedOn = null;
         Assert.True(reopened.Save());
         Assert.Null(store.Read("a").CompletedOn);
+    }
+
+    [Fact]
+    public void AllAchievements_RetainsCompletionDateAcrossReopenAndStatusChanges()
+    {
+        var store = new LibraryJournalStore(Config);
+        var completedOn = new DateOnly(2031, 12, 24);
+        store.Save("a", new("已通关", completedOn, "完成"));
+        var editor = new JournalEditorViewModel(store, "a", "游戏", new Clock()) { Status = "全成就" };
+        Assert.True(editor.IsCompleted);
+        Assert.True(editor.Save());
+        var reopenedStore = new LibraryJournalStore(Config);
+        Assert.Equal(new JournalRecord("全成就", completedOn, "完成"), reopenedStore.Read("a"));
+        Assert.True(reopenedStore.Matches("a", "全成就"));
+        Assert.False(reopenedStore.Matches("a", "已通关"));
+        var reopened = new JournalEditorViewModel(reopenedStore, "a", "游戏", new Clock()) { Status = "已通关" };
+        Assert.True(reopened.Save());
+        Assert.Equal(completedOn, reopenedStore.Read("a").CompletedOn);
+        reopened.Status = "搁置";
+        Assert.True(reopened.Save());
+        Assert.Null(reopenedStore.Read("a").CompletedOn);
     }
 
     [Theory]
     [InlineData("未开始")]
     [InlineData("在玩")]
     [InlineData("已通关")]
+    [InlineData("全成就")]
     [InlineData("搁置")]
     public void Filter_IncludesOnlyRequestedStatusAndSupportsEmptyResults(string status)
     {

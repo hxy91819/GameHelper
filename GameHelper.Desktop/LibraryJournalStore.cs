@@ -5,7 +5,7 @@ public sealed record JournalRecord(string Status = "未开始", DateOnly? Comple
 
 internal sealed class LibraryJournalStore
 {
-    internal static readonly string[] Statuses = ["未开始", "在玩", "已通关", "搁置"];
+    internal static readonly string[] Statuses = ["未开始", "在玩", "已通关", "全成就", "搁置"];
     internal const int NoteLimit = 80;
     private readonly string? _path;
     private Dictionary<string, JournalRecord> _records;
