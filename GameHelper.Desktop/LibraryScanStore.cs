@@ -1,6 +1,4 @@
-using GameHelper.Core.Utilities;
 using System.IO;
-using System.Text.Json;
 
 namespace GameHelper.Desktop;
 
@@ -16,12 +14,7 @@ internal sealed class LibraryScanStore
     internal LibraryScanStore(string? configPath)
     {
         _path = configPath is null ? null : configPath + ".desktop-scan.json";
-        try
-        {
-            _document = _path is not null && File.Exists(_path)
-                ? JsonSerializer.Deserialize<Document>(File.ReadAllText(_path)) ?? new() : new();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { _document = new(); }
+        _document = DesktopDocumentStore.Read(_path, () => new Document());
     }
     internal IReadOnlyList<string> Directories => _document.Directories;
     internal IReadOnlyCollection<string> Ignored => _document.Ignored;
@@ -53,11 +46,7 @@ internal sealed class LibraryScanStore
     {
         if (_path is not null)
         {
-            AtomicFile.Write(_path, temporary =>
-        {
-                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
-                File.WriteAllText(temporary, JsonSerializer.Serialize(next));
-            });
+            DesktopDocumentStore.Write(_path, next);
         }
         _document = next;
     }

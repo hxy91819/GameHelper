@@ -30,9 +30,7 @@ internal sealed class SteamPosterLibrary
         _linksPath = configPath is null ? null : configPath + ".desktop-artwork.json";
         _client = client;
         _localPoster = localPoster;
-        try { _links = _linksPath is not null && File.Exists(_linksPath)
-            ? JsonSerializer.Deserialize<Dictionary<string, uint>>(File.ReadAllText(_linksPath)) ?? [] : []; }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { _links = []; }
+        _links = DesktopDocumentStore.Read(_linksPath, () => new Dictionary<string, uint>());
     }
 
     internal bool AllowNetwork => _allowNetwork;
@@ -61,11 +59,7 @@ internal sealed class SteamPosterLibrary
         var next = new Dictionary<string, uint>(_links, StringComparer.OrdinalIgnoreCase);
         if (appId is > 0) next[dataKey] = appId.Value;
         else next.Remove(dataKey);
-        AtomicFile.Write(_linksPath, temporary =>
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_linksPath))!);
-            File.WriteAllText(temporary, JsonSerializer.Serialize(next));
-        });
+        DesktopDocumentStore.Write(_linksPath, next);
         _links.Clear();
         foreach (var pair in next) _links.Add(pair.Key, pair.Value);
     }

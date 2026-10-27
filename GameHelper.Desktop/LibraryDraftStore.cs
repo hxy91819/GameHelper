@@ -1,4 +1,3 @@
-using GameHelper.Core.Utilities;
 using System.IO;
 using System.Text.Json;
 using GameHelper.Core.Models;
@@ -17,19 +16,15 @@ internal sealed class LibraryDraftStore(string configPath)
 
     public IReadOnlyList<LibraryDraft> Read()
     {
-        if (!File.Exists(_path)) return [];
-        return JsonSerializer.Deserialize<List<LibraryDraft>>(File.ReadAllText(_path)) ?? [];
+        // Keep the caller's read-failure status message instead of silently dropping drafts.
+        return DesktopDocumentStore.Read(_path, () => new List<LibraryDraft>(), recoverReadFailure: false);
     }
 
     public void Write(IEnumerable<LibraryDraft> drafts)
     {
         var payload = JsonSerializer.Serialize(drafts);
         if (_lastWritten == payload || (payload == "[]" && !File.Exists(_path))) return;
-        AtomicFile.Write(_path, temp =>
-        {
-            System.IO.Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-            File.WriteAllText(temp, payload);
-        });
+        DesktopDocumentStore.WriteJson(_path, () => payload, resolveDirectory: false);
         _lastWritten = payload;
     }
 }
