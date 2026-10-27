@@ -63,3 +63,5 @@ Remove-Item Env:GAMEHELPER_VERIFY_BREAK_NOTIFICATIONS
 原生检查验证提交、取消和资源清理；实际游戏全屏下的显示和声音仍需目视、听觉确认。实机监控验证必须使用 `GAMEHELPER_DATA_DIR` 沙盒和 `GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE=1`，并保持用户实例运行，详见[验证部署流程](verify-and-deploy-workflow.md)。
 
 托盘状态摘要、动作分发及推迟／重置由虚拟时间单测覆盖。Windows 实机还需检查双击和右键菜单、Explorer 重启后图标恢复、退出后会话保存；常驻图标仅在未隔离的后台模式出现，不应通过取消沙盒隔离影响正在运行的用户实例。
+
+托盘提供“暂停 30 分钟”“暂停到明天（本地次日零点）”“恢复”。暂停只抑制通知，仍累计前台游戏时间；到期或恢复后，达到阈值会在下次采样提醒。临时暂停不写配置，普通配置重载保留，禁用提醒、停止监控或重启后清除。未启用提醒时不显示这些菜单项。

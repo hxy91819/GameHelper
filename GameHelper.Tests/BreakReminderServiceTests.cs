@@ -293,6 +293,43 @@ public sealed class BreakReminderServiceTests
         Assert.False(test.Service.IsRunning);
     }
 
+    [Fact]
+    public void TemporaryPause_ExpiresAndResumeRetainsForegroundTime()
+    {
+        using var test = new Harness();
+        test.Service.PauseUntil(test.Clock.GetUtcNow().AddMinutes(45));
+        test.Clock.AdvanceSeconds(2400);
+        Assert.Empty(test.Notifier.Messages);
+        Assert.NotNull(test.Service.PausedUntil);
+        test.Clock.AdvanceSeconds(300);
+        Assert.Null(test.Service.PausedUntil);
+        Assert.Single(test.Notifier.Messages);
+        test.Service.PauseUntil(test.Clock.GetUtcNow().AddDays(1));
+        test.Clock.AdvanceSeconds(600);
+        Assert.Single(test.Notifier.Messages);
+        test.Service.Resume();
+        test.Clock.AdvanceSeconds(1);
+        Assert.Equal(2, test.Notifier.Messages.Count);
+    }
+
+    [Fact]
+    public void Pause_IsClearedByStopAndDisableButSurvivesOrdinaryReload()
+    {
+        using var test = new Harness();
+        test.Service.PauseUntil(test.Clock.GetUtcNow().AddDays(1));
+        test.Service.ReloadConfig(test.Configuration);
+        Assert.NotNull(test.Service.PausedUntil);
+        test.Configuration.BreakReminder = new() { Enabled = false };
+        test.Service.ReloadConfig(test.Configuration);
+        Assert.Null(test.Service.PausedUntil);
+        test.Configuration.BreakReminder = new() { Enabled = true };
+        test.Service.ReloadConfig(test.Configuration);
+        test.Service.PauseUntil(test.Clock.GetUtcNow().AddDays(1));
+        test.Service.Stop();
+        test.Service.Start(test.Configuration);
+        Assert.Null(test.Service.PausedUntil);
+    }
+
     private sealed class Harness : IDisposable
     {
         public static ForegroundActivity Game { get; } = new(true, new ProcessEventInfo("game.exe", null, 1), 100);
@@ -355,6 +392,7 @@ public sealed class BreakReminderServiceTests
     {
         private long _timestamp;
         public List<ManualTimer> Timers { get; } = new();
+        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UnixEpoch.AddTicks(_timestamp);
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
         public override long GetTimestamp() => _timestamp;
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)

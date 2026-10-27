@@ -12,5 +12,11 @@ public interface IBreakReminderService : IDisposable
     void Snooze(TimeSpan duration);
     /// <summary>Clears the current foreground-play cycle and any visible reminder.</summary>
     void ResetCycle();
+    /// <summary>Current temporary notification pause; null after expiry or resume.</summary>
+    DateTimeOffset? PausedUntil { get; }
+    /// <summary>Suppresses notifications until an absolute instant, without changing configuration.</summary>
+    void PauseUntil(DateTimeOffset until);
+    /// <summary>Resumes notifications, retaining accumulated foreground play.</summary>
+    void Resume();
     void Stop();
 }
