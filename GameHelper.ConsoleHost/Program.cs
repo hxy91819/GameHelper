@@ -17,7 +17,9 @@ if (!parsedArgs.Background) ConsoleEncoding.EnsureUtf8();
 var isFileDropRequest = FileDropHandler.LooksLikeFilePaths(parsedArgs.EffectiveArgs);
 
 // No command: open the WPF library, which connects to (or starts) the background runtime itself.
-if (!parsedArgs.Background && parsedArgs.EffectiveArgs.Length == 0)
+// Only a bare invocation (optionally with --config) takes this path; any other global option or
+// sub-command keeps the console behavior below so it is not silently swallowed.
+if (StartupModeResolver.ShouldOpenLibrary(parsedArgs))
 {
     try
     {
@@ -77,6 +79,7 @@ try
     try
     {
         var persistentHost = !isFileDropRequest
+            && parsedArgs.EffectiveArgs.Length > 0
             && parsedArgs.EffectiveArgs[0].Equals("monitor", StringComparison.OrdinalIgnoreCase);
         if (persistentHost)
         {
