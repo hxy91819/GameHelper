@@ -261,6 +261,41 @@ public sealed class MonitorModeAutomationTests
         automation.Stop();
     }
 
+    [Fact]
+    public async Task AutoLocation_CacheReadDoesNotBlockSessionStateReads()
+    {
+        var source = new Mock<IGameConfiguration>();
+        source.Setup(c => c.Read()).Returns(new AppConfig
+        {
+            MonitorMode = new MonitorModeSettings { Enabled = true, Location = "auto" }
+        });
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var cache = new Mock<ILocationCacheStore>();
+        cache.Setup(c => c.Load()).Returns(() =>
+        {
+            entered.TrySetResult();
+            Assert.True(release.Wait(TimeSpan.FromSeconds(10)));
+            return null;
+        });
+        var automation = new GameAutomationService(Mock.Of<IProcessMonitor>(), source.Object,
+            new Hdr(), Mock.Of<IPlayTimeService>(), NullLogger<GameAutomationService>.Instance,
+            monitorModeController: new Controller(), locationCacheStore: cache.Object, timeProvider: new Clock());
+        var start = Task.Run(automation.Start);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var states = await Task.Run(automation.GetGameStates).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Empty(states);
+        }
+        finally
+        {
+            release.Set();
+            await start.WaitAsync(TimeSpan.FromSeconds(5));
+            automation.Stop();
+        }
+    }
+
     private sealed class Controller : IMonitorModeController
     {
         public int Touches { get; private set; }
