@@ -182,6 +182,11 @@ public partial class MainWindow : Window
         _model.SetGenre((string)((Button)sender).Tag);
         SetInstallationGroup("installed");
     }
+    private void OnEditJournal(object sender, RoutedEventArgs e)
+    {
+        if (_model.EditSelectedJournal() is { } editor) new JournalEditor(editor) { Owner = this }.ShowDialog();
+    }
+
     private void OnEditGenres(object sender, RoutedEventArgs e)
     {
         if (_model.Selected is not { } game) return;

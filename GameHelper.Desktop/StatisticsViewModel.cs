@@ -35,6 +35,10 @@ public sealed class StatisticsGameRow : ObservableState
     public double Share { get; }
     public string Initial { get; }
     public ImageSource? Artwork { get => _artwork; set => Set(ref _artwork, value); }
+    private string _journalSummary = string.Empty;
+    private string _note = string.Empty;
+    public string JournalSummary { get => _journalSummary; internal set => Set(ref _journalSummary, value); }
+    public string Note { get => _note; internal set => Set(ref _note, value); }
     public string RankLabel => Rank.ToString("00", CultureInfo.InvariantCulture);
     public string Time => StatisticsViewModel.Duration(Minutes);
     public string ShareLabel => Share.ToString("P0", CultureInfo.CurrentCulture);
@@ -70,11 +74,14 @@ public sealed class StatisticsSessionRow : ObservableState
     public string Detail => $"{Start:yyyy/MM/dd HH:mm} → {End:yyyy/MM/dd HH:mm}";
 }
 
-/// <summary>Independent read-only dashboard state; changing pages never touches game drafts or monitoring.</summary>
+/// <summary>Dashboard presentation with private desktop journal metadata; changing pages never touches game drafts or monitoring.</summary>
 public sealed class StatisticsViewModel : ObservableState, IDisposable
 {
     private const string PolicyNote = "仅统计已结束的会话 · 含已移出游戏库的历史";
     private readonly IGameLibrary _library;
+    private readonly LibraryJournalStore _journal;
+    private readonly TimeProvider _clock;
+    private string _journalStatus = string.Empty;
     private readonly Func<string, ImageSource?>? _artwork;
     private readonly CancellationTokenSource _lifetime = new();
     private CancellationTokenSource? _pending;
@@ -96,12 +103,17 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
     private PlaytimeDashboardQuery _appliedQuery = new();
 
     public StatisticsViewModel(IGameLibrary library, Func<string, ImageSource?>? artwork = null)
+        : this(library, artwork, new LibraryJournalStore(null), TimeProvider.System) { }
+
+    internal StatisticsViewModel(IGameLibrary library, Func<string, ImageSource?>? artwork, LibraryJournalStore journal, TimeProvider clock)
     {
         _library = library;
+        _journal = journal; _clock = clock;
+        _journal.Saved += OnJournalSaved;
         _artwork = artwork;
         Games = CollectionViewSource.GetDefaultView(_games);
-        Games.Filter = value => ((StatisticsGameRow)value).Name.Contains(Search.Trim(), StringComparison.OrdinalIgnoreCase)
-            || ((StatisticsGameRow)value).DataKey.Contains(Search.Trim(), StringComparison.OrdinalIgnoreCase);
+        Games.Filter = value => value is StatisticsGameRow row && _journal.Matches(row.DataKey, _journalStatus)
+            && (row.Name.Contains(Search.Trim(), StringComparison.OrdinalIgnoreCase) || row.DataKey.Contains(Search.Trim(), StringComparison.OrdinalIgnoreCase));
         RefreshCommand = Command(RefreshAsync, () => !IsBusy);
         WeekCommand = Command(() => SetRangeAsync(7), () => true);
         MonthCommand = Command(() => SetRangeAsync(30), () => true);
@@ -125,7 +137,23 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
     public bool HasHistory => _data.Sessions > 0;
     internal bool HasLoaded => _loaded;
     public string Status { get => _status; private set => Set(ref _status, value); }
-    public string Search { get => _search; set { if (Set(ref _search, value)) Games.Refresh(); } }
+    public string Search { get => _search; set { if (Set(ref _search, value)) RefreshFilter(); } }
+    public IReadOnlyList<string> JournalStatuses { get; } = ["所有状态", .. LibraryJournalStore.Statuses];
+    public string SelectedJournalStatus { get => string.IsNullOrEmpty(_journalStatus) ? "所有状态" : _journalStatus; set { if (Set(ref _journalStatus, value == "所有状态" ? string.Empty : value)) RefreshFilter(); } }
+    public bool HasMatchingGames => !Games.IsEmpty;
+    internal JournalEditorViewModel EditJournal(StatisticsGameRow row) => new(_journal, row.DataKey, row.Name, _clock);
+    private void RefreshFilter() { Games.Refresh(); Changed(nameof(HasMatchingGames)); }
+    private void OnJournalSaved(object? sender, EventArgs e)
+    {
+        foreach (var row in _games) ApplyJournal(row);
+        RefreshFilter();
+    }
+    private void ApplyJournal(StatisticsGameRow row)
+    {
+        var record = _journal.Read(row.DataKey);
+        row.JournalSummary = record.Status + (record.CompletedOn is { } date ? $"\n{date:yyyy/MM/dd}" : string.Empty);
+        row.Note = record.Note.Length == 0 ? "还没有留下短评" : record.Note;
+    }
     public int Days => _days;
     public string TotalHours => (_data.Minutes / 60d).ToString("N1", CultureInfo.CurrentCulture);
     public string SessionCount => _data.Sessions.ToString("N0", CultureInfo.CurrentCulture);
@@ -226,6 +254,8 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
                 _games.Add(new StatisticsGameRow(index + 1, game.DataKey, game.Name, game.Minutes, game.Sessions, game.LastPlayed,
                     _data.Minutes == 0 ? 0 : game.Minutes / (double)_data.Minutes, ArtworkFor(game.DataKey)));
             _recent = _data.Recent.Select(row => new StatisticsSessionRow(row.DataKey, row.Name, row.Start, row.End, row.Minutes, ArtworkFor(row.DataKey))).ToList();
+            foreach (var row in _games) ApplyJournal(row);
+            RefreshFilter();
             _favouriteArtwork = ArtworkFor(_data.Games.FirstOrDefault()?.DataKey);
             Status = PolicyNote;
             foreach (var property in new[] { nameof(FocusClearLabel), nameof(RangeSummary), nameof(CalendarWidth), nameof(RankingHeight), nameof(FavouriteShareLabel), nameof(FavouriteBarWidth), nameof(HasHistory), nameof(TotalHours), nameof(SessionCount), nameof(ActiveDays), nameof(GamesPlayed), nameof(Average),
@@ -262,6 +292,7 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _journal.Saved -= OnJournalSaved;
         _pending?.Cancel(); _pending?.Dispose(); _pending = null;
         _lifetime.Cancel(); _lifetime.Dispose();
     }

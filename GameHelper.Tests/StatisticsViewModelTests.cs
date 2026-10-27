@@ -8,6 +8,42 @@ namespace GameHelper.Tests;
 
 public sealed class StatisticsViewModelTests
 {
+    [Theory]
+    [InlineData("已通关")]
+    [InlineData("全成就")]
+    public Task JournalFilterAndEditor_UpdateBothSearchAndEmptyStateWithoutIpc(string status) => OnSta(async () =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gh-journal-ui-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new LibraryJournalStore(Path.Combine(root, "config.yml"));
+            var backend = new Backend((query, _) => Task.FromResult(Response(query.Days, 600)));
+            using var model = new StatisticsViewModel(backend, null, store, TimeProvider.System);
+            await model.RefreshAsync();
+            var row = model.Games.Cast<StatisticsGameRow>().Single();
+            model.SelectedJournalStatus = status;
+            Assert.True(model.Games.IsEmpty);
+            Assert.False(model.HasMatchingGames);
+            var editor = model.EditJournal(row);
+            editor.Status = status;
+            editor.CompletedOn = new DateTime(2032, 2, 29);
+            editor.Note = "完成旅程";
+            Assert.True(editor.Save());
+            Assert.True(model.HasMatchingGames);
+            Assert.Equal("完成旅程", model.Games.Cast<StatisticsGameRow>().Single().Note);
+            Assert.Contains("2032/02/29", row.JournalSummary);
+            Assert.Contains(status, row.JournalSummary);
+            model.Search = "missing";
+            Assert.False(model.HasMatchingGames);
+            model.Search = "A";
+            Assert.True(model.HasMatchingGames);
+            model.SelectedJournalStatus = "所有状态";
+            Assert.True(model.HasMatchingGames);
+            Assert.Single(backend.Requests);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    });
+
     [Fact]
     public Task LatestRangeWinsWhenServerIgnoresCancellation() => OnSta(async () =>
     {
