@@ -26,6 +26,28 @@
 沙盒实例默认只允许一个在跑：跳过全局单实例互斥是为了和用户实例共存，不是为了无限多开；需要并行跑多个测试实例（如 E2E 套件）时显式设置 `GAMEHELPER_ALLOW_MULTIPLE_INSTANCES=1`。
 设置 `GAMEHELPER_DATA_DIR` 的实例使用无操作开机启动适配器，不会修改用户 HKCU Run 项；一次性 CLI 命令也不会应用开机启动偏好。
 
+## Windows CI 的隔离实例验收
+
+CI 的 `Isolated Runtime Verify (Windows)` job 在 `windows-latest` 上运行：
+
+```powershell
+./scripts/verify-on-machine.ps1 -SkipDeploy -VerifyRuntime -DiagnosticsDirectory "$env:RUNNER_TEMP/runtime-verify"
+```
+
+`-VerifyRuntime` 是可选扩展，不改变本地默认验证行为。它在 CLI 配置校验后，复用部署的
+WPF 后台启动和健康探针，验证无可见控制台、沙盒数据目录可写且运行时已写日志、监控就绪、
+本实例拥有 ETW 会话，以及游戏库 `--check` 命名管道能连到同一 PID。
+实例通过 `GAMEHELPER_DATA_DIR` 和 `GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE=1` 隔离，
+结束时仅停止临时发布目录中的进程并删除数据沙盒；不部署、不重启用户实例、不修改快捷方式。
+失败时上传 `isolated-runtime-diagnostics` artifact（沙盒配置、运行时日志、IPC 结果及发布错误日志）。
+现有测试 job 构建整个 `GameHelper.sln`，包含 Desktop；测试命令保持不变。
+
+CI 默认严格要求 ETW，不主动降级。如果 runner 确认不能创建 ETW 会话，可使用已有
+`-AllowDegradedMonitor`，但必须在 job 摘要记录实际失败原因，不能用它掩盖运行时回归。
+
+仍需 Windows 真机验收：HDR 显示切换、DDC 显示器控制、CE 注入与热键、实际发布目录交换、
+用户实例重启及在途游戏会话续算。CI 的隔离验收不替代这些硬件和真实部署检查。
+
 ## 跨重启会话续算（in-flight sessions）
 
 部署的强制重启（或异常崩溃）不再中断游戏时长统计，机制如下：

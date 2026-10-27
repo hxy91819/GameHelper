@@ -217,6 +217,8 @@ dotnet test GameHelper.sln
 .\scripts\publish-console-smoke.ps1
 ```
 
+Windows CI 构建整个解决方案，并自动验证隔离后台实例的无控制台启动、沙盒写入、ETW 与游戏库 IPC；硬件与真实部署仍按[实机验证流程](docs/guides/verify-and-deploy-workflow.md)验收。
+
 更完整的架构、规范和计划见：
 - `docs/architecture/index.md`
 - `docs/prd/index.md`

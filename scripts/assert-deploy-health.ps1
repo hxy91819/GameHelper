@@ -175,7 +175,8 @@ if ($null -ne $instance) {
         Write-Warning "Could not read the integrity level of PID $ProcessId; skipping that check."
     }
 
-    $dataDirectory = Join-Path $env:APPDATA 'GameHelper'
+    $dataRoot = if ([string]::IsNullOrWhiteSpace($env:GAMEHELPER_DATA_DIR)) { $env:APPDATA } else { $env:GAMEHELPER_DATA_DIR }
+    $dataDirectory = Join-Path $dataRoot 'GameHelper'
     $probe = Join-Path $dataDirectory ('.deploy-probe-' + [guid]::NewGuid().ToString('N'))
     try {
         if (-not (Test-Path -LiteralPath $dataDirectory)) {
