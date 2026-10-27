@@ -81,6 +81,8 @@ dotnet test GameHelper.sln
 
 ## Supporting Standards
 
+- 修改配置读写、校验或保存入口时，遵循[配置重构兼容契约](./configuration-compatibility.md)。
+- 修改服务生命周期、后台回调或锁时，遵循 [Coding Standards 的并发规范](./coding-standards.md#6-异步与多线程)；重构与失败溯源按 [Testing Strategy](./testing-strategy.md) 验证。
 - [Coding Standards](./coding-standards.md)
 - [Encoding](./encoding.md)
 - [Tech Stack](./tech-stack.md)
