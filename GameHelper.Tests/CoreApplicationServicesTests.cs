@@ -1,4 +1,4 @@
-﻿using GameHelper.Core.Abstractions;
+using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
 using GameHelper.Core.Services;
 
@@ -6,6 +6,8 @@ namespace GameHelper.Tests;
 
 public sealed class CoreApplicationServicesTests
 {
+    private static readonly TimeProvider Clock = new FixedClock(new DateTimeOffset(2026, 10, 17, 12, 0, 0, TimeSpan.Zero));
+
     [Fact]
     public void GameCatalogService_IntakeUpdateRemove_CommitOncePerOperation()
     {
@@ -150,7 +152,7 @@ public sealed class CoreApplicationServicesTests
             }]
         });
 
-        var now = DateTime.Now;
+        var now = Clock.GetLocalNow().DateTime;
         var snapshot = new FakePlaytimeSnapshotProvider
         {
             Records = new List<GamePlaytimeRecord>
@@ -167,7 +169,7 @@ public sealed class CoreApplicationServicesTests
             }
         };
 
-        var service = new StatisticsService(snapshot, provider);
+        var service = new StatisticsService(snapshot, provider, Clock);
         var overview = service.GetOverview();
 
         Assert.Single(overview);
@@ -189,7 +191,7 @@ public sealed class CoreApplicationServicesTests
             }]
         });
 
-        var now = DateTime.Now;
+        var now = Clock.GetLocalNow().DateTime;
         var snapshot = new FakePlaytimeSnapshotProvider
         {
             Records = new List<GamePlaytimeRecord>
@@ -205,7 +207,7 @@ public sealed class CoreApplicationServicesTests
             }
         };
 
-        var service = new StatisticsService(snapshot, provider);
+        var service = new StatisticsService(snapshot, provider, Clock);
         var overview = service.GetOverview();
 
         Assert.Single(overview);
@@ -226,6 +228,7 @@ public sealed class CoreApplicationServicesTests
             }]
         });
 
+        var now = Clock.GetLocalNow().DateTime;
         var snapshot = new FakePlaytimeSnapshotProvider
         {
             Records = new List<GamePlaytimeRecord>
@@ -235,13 +238,13 @@ public sealed class CoreApplicationServicesTests
                     GameName = "game-key",
                     Sessions =
                     {
-                        new PlaySession("game-key", DateTime.Now.AddMinutes(-30), DateTime.Now, TimeSpan.FromMinutes(30), 30)
+                        new PlaySession("game-key", now.AddMinutes(-30), now, TimeSpan.FromMinutes(30), 30)
                     }
                 }
             }
         };
 
-        var service = new StatisticsService(snapshot, provider);
+        var service = new StatisticsService(snapshot, provider, Clock);
         var details = service.GetDetails("game-key");
 
         Assert.NotNull(details);
@@ -260,7 +263,7 @@ public sealed class CoreApplicationServicesTests
             ]
         });
 
-        var now = DateTime.Now;
+        var now = Clock.GetLocalNow().DateTime;
         var snapshot = new FakePlaytimeSnapshotProvider
         {
             Records = new List<GamePlaytimeRecord>
@@ -288,7 +291,7 @@ public sealed class CoreApplicationServicesTests
             }
         };
 
-        var service = new StatisticsService(snapshot, provider);
+        var service = new StatisticsService(snapshot, provider, Clock);
         var overview = service.GetOverview();
 
         Assert.Equal(2, overview.Count);
@@ -410,5 +413,12 @@ public sealed class CoreApplicationServicesTests
         {
             StopCalled = true;
         }
+    }
+
+    private sealed class FixedClock(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
     }
 }

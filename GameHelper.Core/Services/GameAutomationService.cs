@@ -352,7 +352,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
                 // Persist the in-flight snapshot so a restart (deploy or crash) can
                 // resume this session instead of losing it.
-                _inFlightStarts[config.DataKey] = DateTime.Now;
+                _inFlightStarts[config.DataKey] = _timeProvider.GetLocalNow().DateTime;
             }
 
             ConfigureProcessObservation();
@@ -1023,7 +1023,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     {
         var snapshot = new InFlightSnapshot
         {
-            SnapshotAt = DateTime.Now, Sessions = new List<InFlightSession>(),
+            SnapshotAt = _timeProvider.GetLocalNow().DateTime, Sessions = new List<InFlightSession>(),
             HdrEnabledByGameHelper = _hdrScheduler.OwnsEnabledHdr,
             PendingLaunches = new Dictionary<string, DateTimeOffset>(_pendingLaunches, StringComparer.OrdinalIgnoreCase)
         };
@@ -1296,7 +1296,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 {
                     _logger.LogInformation(
                         "monitorMode location=auto could not refresh coordinates (cache age {Age}); using the cached coordinate.",
-                        DateTime.Now - cached.UpdatedAt);
+                        _timeProvider.GetLocalNow().DateTime - cached.UpdatedAt);
                 }
 
                 publish = new UserCoordinate(cached.Latitude, cached.Longitude);
@@ -1334,7 +1334,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             {
                 DataKey = dataKey,
                 StartedAt = start,
-                RecoveryEndAt = DateTime.Now
+                RecoveryEndAt = _timeProvider.GetLocalNow().DateTime
             });
     }
 

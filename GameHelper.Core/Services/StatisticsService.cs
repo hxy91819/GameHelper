@@ -7,17 +7,22 @@ public sealed class StatisticsService : IStatisticsService
 {
     private readonly IPlaytimeSnapshotProvider _playtimeSnapshotProvider;
     private readonly IGameConfiguration _gameConfiguration;
+    private readonly TimeProvider _timeProvider;
 
-    public StatisticsService(IPlaytimeSnapshotProvider playtimeSnapshotProvider, IGameConfiguration gameConfiguration)
+    public StatisticsService(
+        IPlaytimeSnapshotProvider playtimeSnapshotProvider,
+        IGameConfiguration gameConfiguration,
+        TimeProvider? timeProvider = null)
     {
         _playtimeSnapshotProvider = playtimeSnapshotProvider;
         _gameConfiguration = gameConfiguration;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public IReadOnlyList<GameStatsSummary> GetOverview()
     {
         var configIndex = LoadConfigIndex();
-        var cutoff = DateTime.Now.AddDays(-14);
+        var cutoff = _timeProvider.GetLocalNow().DateTime.AddDays(-14);
         var records = _playtimeSnapshotProvider.GetPlaytimeOverview(cutoff);
         if (records.Count == 0)
         {
@@ -46,7 +51,7 @@ public sealed class StatisticsService : IStatisticsService
         }
 
         var configIndex = LoadConfigIndex();
-        var cutoff = DateTime.Now.AddDays(-14);
+        var cutoff = _timeProvider.GetLocalNow().DateTime.AddDays(-14);
         var match = records.FirstOrDefault(record =>
             string.Equals(record.GameName, dataKeyOrGameName, StringComparison.OrdinalIgnoreCase));
 
