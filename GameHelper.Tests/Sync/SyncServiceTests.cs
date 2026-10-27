@@ -87,6 +87,23 @@ public class SyncServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SyncNowAsync_WithReportCredentials_DoesNotUploadConfigOrSecrets()
+    {
+        EnableSync(); WriteCsv();
+        _config.Config.Report = new() { Llm = new() { BaseUrl = "https://private.example/v1", Model = "private-model", ApiKey = "report-secret" } };
+        File.WriteAllText(_config.ConfigPath!, "report: secret config content");
+        var outcome = await _service.SyncNowAsync();
+        Assert.Equal(SyncOutcomeStatus.Uploaded, outcome.Status);
+        Assert.Equal(new[] { "README.md", "daily.csv" }, _channels.Channel.LastFiles.Select(file => file.RelativePath));
+        Assert.All(_channels.Channel.LastFiles, file =>
+        {
+            Assert.DoesNotContain("report-secret", file.Content ?? "");
+            Assert.DoesNotContain("private.example", file.Content ?? "");
+            Assert.DoesNotContain("secret config content", file.Content ?? "");
+        });
+    }
+
+    [Fact]
     public async Task SyncNowAsync_WithinInterval_SkipsEvenWithNewData()
     {
         EnableSync();
@@ -344,6 +361,7 @@ public class SyncServiceTests : IDisposable
 
     private sealed class FakeChannel : IStatsUploadChannel
     {
+        public IReadOnlyList<StatsUploadFile> LastFiles { get; private set; } = [];
         public int UploadCalls { get; private set; }
 
         public int ValidateCalls { get; private set; }
@@ -356,6 +374,7 @@ public class SyncServiceTests : IDisposable
             string commitMessage,
             CancellationToken cancellationToken = default)
         {
+            LastFiles = files;
             UploadCalls++;
             if (Throw is not null)
             {

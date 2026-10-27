@@ -104,6 +104,7 @@ public sealed class YamlConfigProvider : IGameConfiguration, IConfigPathProvider
     private AppConfig Normalize(AppConfig appConfig, bool forSave = false)
     {
         appConfig.Hdr?.Validate();
+        if (forSave) appConfig.Report?.Validate();
         if (forSave) appConfig.BreakReminder?.Validate();
         if (forSave) appConfig.MonitorMode?.Validate();
 
