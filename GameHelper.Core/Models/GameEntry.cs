@@ -24,5 +24,8 @@ public sealed record GameEntry
 
     public string? SpeedAttach { get; init; }
 
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<GameAction>? Actions { get; init; }
+
     public GameLaunchOptions? Launch { get; init; }
 }
