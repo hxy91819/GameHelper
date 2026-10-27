@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using GameHelper.Core.Utilities;
 
 namespace GameHelper.Infrastructure.Processes
 {
@@ -416,32 +417,11 @@ namespace GameHelper.Infrastructure.Processes
 
         private static bool NamesEqual(string? left, string? right)
         {
-            var normalizedLeft = NormalizeName(left);
-            var normalizedRight = NormalizeName(right);
+            var normalizedLeft = PathNormalizer.NormalizeName(left);
+            var normalizedRight = PathNormalizer.NormalizeName(right);
             return normalizedLeft is not null &&
                 normalizedRight is not null &&
                 string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static string? NormalizeName(string? processName)
-        {
-            if (string.IsNullOrWhiteSpace(processName))
-            {
-                return null;
-            }
-
-            var name = Path.GetFileName(processName.Trim());
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return null;
-            }
-
-            if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-            {
-                name += ".exe";
-            }
-
-            return name;
         }
 
         private static WmiProcessDetails? ResolveProcessDetails(int processId)

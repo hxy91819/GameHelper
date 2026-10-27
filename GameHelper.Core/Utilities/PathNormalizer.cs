@@ -10,7 +10,7 @@ namespace GameHelper.Core.Utilities;
 /// 处理驱动器路径、UNC 路径、相对路径、尾部斜杠、大小写等变体，
 /// 使 L1 精确路径匹配能正确工作。
 /// </summary>
-internal static class PathNormalizer
+public static class PathNormalizer
 {
     /// <summary>
     /// 把可执行文件名归一化为标准形式（含 .exe 扩展名）。
