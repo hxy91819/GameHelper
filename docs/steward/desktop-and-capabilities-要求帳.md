@@ -15,4 +15,4 @@
 | 10-27 | 不带参数启动 ConsoleHost：不需要兼容历史；migrate 可以清理 | 採納 | 无参数直接拉起 WPF 游戏库；migrate 与 PlaytimeMigrationMatcher 已删除 | 分支 refactor/remove-console-ui（ff4878b） |
 | 10-27 | 以管家身份安排后续工作，不直接动手 | 採納 | 后续改动经 BB 子线程派发，管家只做判断、验收与工作簿维护 | 會話回覆 10-27 |
 | 10-27 | 所有的都是你自己合并就行 | 採納 | 管家验收后直接合并 PR 与整合分支进 main；PR #44 与 refactor/tidy 已合入 1b41fbc；阶段 10、11 并行开工 | 會話回覆 10-27 |
-| 10-27 | 做 Windows CI 验证（开源项目无额外费用） | 進行中 | 已有 Windows CI，整理合并提交 901 测试全过；新增隔离实例运行验证 job | 分支 chore/ci-runtime-verify |
+| 10-27 | 做 Windows CI 验证（开源项目无额外费用） | 完成 | 已有 Windows 测试 CI；新增隔离实例运行验证 job（严格 ETW、库 IPC），首轮全绿 | main 已合并 |
