@@ -7,9 +7,9 @@
 - [x] 阶段 1–4、6–8：手帐原型、CE 多档热键、按显示器 HDR、WPF 闭环与 Windows 验收、默认热键、扫描改进
 - [ ] 阶段 5：按手帐原型反馈落地选中能力 ← 等用户
 - [x] 阶段 9.1–9.2、9.5：删旧 Console 界面（ADR-0003）、注入时钟、重复函数合一、命名空间、修空断言测试（refactor/tidy ce9f94f）
-- [ ] 阶段 9.3a：配置单一事实源（AppConfigValidator、SettingsService 归层） ← 进行中 thr_qg2yuzr62z
-- [ ] 阶段 9.3b：公共件（AtomicFile、Win32 消息窗口、Desktop 侧存储） ← 排在 9.3a 后：配置读写收敛
-- [ ] 阶段 9.6a：拆出倍速附加、DS4Windows 联动、睡眠暂停三个协作者 ← 进行中 thr_8ywwn7iijx
+- [ ] 阶段 9.3a：配置单一事实源（AppConfigValidator、SettingsService 归层；已提交，兼容性审查中） ← 进行中 thr_x4dmvmp7r4
+- [ ] 阶段 9.3b：公共件（AtomicFile、Win32 消息窗口、Desktop 侧存储） ← 排在 9.3a 后：兼容性审查通过的配置读写
+- [ ] 阶段 9.6a：拆出倍速附加、DS4Windows 联动、睡眠暂停三个协作者（已提交，并发审查中） ← 进行中 thr_r7vsuqep2v
 - [ ] 阶段 9.6b：拆显示器预设、启动所有权与在途恢复（锁敏感） ← 排在 9.6a 后：拆分后的服务骨架
 - [ ] 阶段 10：启动前/退出后通用动作（DS4Windows 并入预设） ← 排在 9.3a 后：配置单一事实源
 - [ ] 阶段 11：托盘快捷操作（当前游戏与时长、HDR 开关、暂停提醒、最近游戏） ← 排在 9.3b 后：Win32 消息窗口
