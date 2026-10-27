@@ -43,6 +43,12 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     private readonly List<InFlightSession> _pendingRecoveredSessions = new();
     private readonly ILogger<GameAutomationService> _logger;
     private readonly object _stateLock = new();
+    // Companion I/O stays outside _stateLock. Stop crosses this boundary before invalidation,
+    // so a validated operation cannot begin after Stop has completed.
+    private readonly object _companionLock = new();
+    private long _generation;
+    private Action<ProcessEventInfo>? _processStartedHandler;
+    private Action<ProcessEventInfo>? _processStoppedHandler;
 
     private readonly SessionTracker _sessionTracker = new();
     private readonly SessionSuspendHandler _sessionSuspend;
@@ -99,9 +105,11 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     public void Start()
     {
         GameConfig[] recoveredGames;
+        long generation;
         lock (_stateLock)
         {
             if (_started) return;
+            generation = ++_generation;
             var configuration = LoadAndBuildIndexes();
             _speedAttachment.Start();
             _sessionTracker.Clear();
@@ -113,8 +121,10 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             if (recoveredHdrLease) PersistInFlightSnapshot();
             ConfigureProcessObservation();
 
-            _monitor.ProcessStarted += OnProcessStarted;
-            _monitor.ProcessStopped += OnProcessStopped;
+            _processStartedHandler = info => OnProcessStarted(info, generation);
+            _processStoppedHandler = info => OnProcessStopped(info, generation);
+            _monitor.ProcessStarted += _processStartedHandler;
+            _monitor.ProcessStopped += _processStoppedHandler;
             _sessionSuspend.Subscribe();
             _started = true;
             try { _breakReminder?.Start(configuration); }
@@ -124,7 +134,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             {
                 try
                 {
-                    _maintenanceTimer = _timeProvider.CreateTimer(OnMonitorModeTick, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+                    _maintenanceTimer = _timeProvider.CreateTimer(_ => OnMonitorModeTick(generation), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
                 }
                 catch (Exception ex)
                 {
@@ -148,7 +158,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         {
             _monitorMode.Update(forced: true);
         }
-        foreach (var game in recoveredGames) _companionPolicy.Apply(game);
+        foreach (var game in recoveredGames) ApplyCompanion(game, generation);
     }
 
     public void ReloadConfig()
@@ -173,10 +183,12 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     {
         TimeoutException? attachmentTimeout = null;
         lock (_monitorMode.UpdateLock)
+        lock (_companionLock)
         {
             lock (_stateLock)
             {
                 _started = false;
+                ++_generation;
                 if (_maintenanceTimer is not null)
                 {
                     try { _maintenanceTimer.Dispose(); }
@@ -187,8 +199,10 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
                 try { _breakReminder?.Stop(); }
                 catch (Exception ex) { _logger.LogWarning(ex, "Failed to stop break reminders"); }
-                Cleanup(() => _monitor.ProcessStarted -= OnProcessStarted, "unsubscribe process starts");
-                Cleanup(() => _monitor.ProcessStopped -= OnProcessStopped, "unsubscribe process stops");
+                Cleanup(() => _monitor.ProcessStarted -= _processStartedHandler, "unsubscribe process starts");
+                Cleanup(() => _monitor.ProcessStopped -= _processStoppedHandler, "unsubscribe process stops");
+                _processStartedHandler = null;
+                _processStoppedHandler = null;
                 Cleanup(_sessionSuspend.Unsubscribe, "unsubscribe power events");
                 Cleanup(() =>
                 {
@@ -253,12 +267,12 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         catch (Exception ex) { _logger.LogWarning(ex, "Failed to {Operation} during shutdown", operation); }
     }
 
-    private void OnProcessStarted(ProcessEventInfo processInfo)
+    private void OnProcessStarted(ProcessEventInfo processInfo, long generation)
     {
         GameConfig? externalGame = null;
         lock (_stateLock)
         {
-            if (!_started) return;
+            if (!_started || generation != _generation) return;
             var normalizedName = PathNormalizer.NormalizeName(processInfo.ExecutableName);
             var config = _processMatcher.Match(processInfo, normalizedName, out var normalizedPath, out var matchLabel);
 
@@ -337,7 +351,19 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
         // Preset switching performs DDC/CI bus I/O; keep it outside the state lock.
         _monitorMode.Update(forced: true);
-        if (externalGame is not null) _companionPolicy.Apply(externalGame);
+        if (externalGame is not null) ApplyCompanion(externalGame, generation);
+    }
+
+    private void ApplyCompanion(GameConfig game, long generation)
+    {
+        lock (_companionLock)
+        {
+            lock (_stateLock)
+            {
+                if (!_started || generation != _generation) return;
+            }
+            _companionPolicy.Apply(game);
+        }
     }
 
     /// <summary>
@@ -367,14 +393,14 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         }
     }
 
-    private void OnProcessStopped(ProcessEventInfo processInfo)
+    private void OnProcessStopped(ProcessEventInfo processInfo, long generation)
     {
         SpeedAttachmentCoordinator.SpeedAttachRecord? speedAttachCandidate = null;
         string? stoppedDataKey = null;
 
         lock (_stateLock)
         {
-            if (!_started) return;
+            if (!_started || generation != _generation) return;
             var hadAnyActive = _sessionTracker.ActiveCount > 0;
 
             if (!_sessionTracker.TryResolve(processInfo, out var entry))
@@ -588,11 +614,11 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             _hdrScheduler.OwnsEnabledHdr, _started);
     }
 
-    private void OnMonitorModeTick(object? state)
+    private void OnMonitorModeTick(long generation)
     {
         lock (_stateLock)
         {
-            if (!_started) return;
+            if (!_started || generation != _generation) return;
             var wasOwned = _hdrScheduler.OwnsEnabledHdr;
             var expired = _pendingLaunches.Where(pair => pair.Value <= _timeProvider.GetUtcNow()).Select(pair => pair.Key).ToList();
             foreach (var key in expired)

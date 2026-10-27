@@ -24,6 +24,9 @@ internal sealed class SessionSuspendHandler
     private readonly Action _persistInFlightSnapshot;
     private readonly ILogger _logger;
     private DateTime? _suspendStartedAtUtc;
+    private long _generation;
+    private EventHandler? _suspendingHandler;
+    private EventHandler? _resumedHandler;
 
     internal SessionSuspendHandler(
         ISystemPowerEvents? powerEvents,
@@ -53,22 +56,25 @@ internal sealed class SessionSuspendHandler
     internal void Subscribe()
     {
         if (_powerEvents is null) return;
-        // 先取消再订阅，保持重复启动不会重复挂接的约定。
-        _powerEvents.Suspending -= OnSystemSuspending;
-        _powerEvents.Resumed -= OnSystemResumed;
-        _powerEvents.Suspending += OnSystemSuspending;
-        _powerEvents.Resumed += OnSystemResumed;
+        var generation = ++_generation;
+        _suspendingHandler = (sender, args) => OnSystemSuspending(sender, args, generation);
+        _resumedHandler = (sender, args) => OnSystemResumed(sender, args, generation);
+        _powerEvents.Suspending += _suspendingHandler;
+        _powerEvents.Resumed += _resumedHandler;
     }
 
     internal void Unsubscribe()
     {
+        ++_generation;
         if (_powerEvents is not null)
         {
-            try { _powerEvents.Suspending -= OnSystemSuspending; }
+            try { _powerEvents.Suspending -= _suspendingHandler; }
             catch (Exception ex) { _logger.LogWarning(ex, "Failed to unsubscribe system suspend events"); }
-            try { _powerEvents.Resumed -= OnSystemResumed; }
+            try { _powerEvents.Resumed -= _resumedHandler; }
             catch (Exception ex) { _logger.LogWarning(ex, "Failed to unsubscribe system resume events"); }
         }
+        _suspendingHandler = null;
+        _resumedHandler = null;
         Reset();
     }
 
@@ -76,10 +82,11 @@ internal sealed class SessionSuspendHandler
     /// 系统即将睡眠或休眠：只登记时刻。会话继续持有，唤醒时把暂停跨度从时长里剔除，
     /// 这样睡眠期间既不丢会话，也不把休眠时间计入游玩时长。
     /// </summary>
-    private void OnSystemSuspending(object? sender, EventArgs e)
+    private void OnSystemSuspending(object? sender, EventArgs e, long generation)
     {
         lock (_stateLock)
         {
+            if (generation != _generation) return;
             if (!_isStarted())
             {
                 _suspendStartedAtUtc = null;
@@ -96,11 +103,12 @@ internal sealed class SessionSuspendHandler
     /// 系统唤醒：把刚过去的时间暂停跨度整体加回各活跃会话的开始时间（等价于剔除休眠时长），
     /// 并把调整后的开始时间写进 in-flight 快照，重启恢复路径保持一致。
     /// </summary>
-    private void OnSystemResumed(object? sender, EventArgs e)
+    private void OnSystemResumed(object? sender, EventArgs e, long generation)
     {
         var resumeUtc = _timeProvider.GetUtcNow().UtcDateTime;
         lock (_stateLock)
         {
+            if (generation != _generation) return;
             if (!_isStarted())
             {
                 _suspendStartedAtUtc = null;

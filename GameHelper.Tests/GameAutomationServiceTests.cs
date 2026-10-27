@@ -484,7 +484,7 @@ namespace GameHelper.Tests
                 powerEvents: power.Object);
             service.Start();
             monitor.Raise(m => m.ProcessStarted += null, new ProcessEventInfo("game.exe", null, 17));
-            // Configure throwing removers after Start, whose subscription also removes power handlers.
+            // Configure throwing removers after the initial subscription.
             if (failingEvent == "process-start") monitor.SetupRemove(m => m.ProcessStarted -= It.IsAny<Action<ProcessEventInfo>>()).Throws(new InvalidOperationException());
             if (failingEvent == "process-stop") monitor.SetupRemove(m => m.ProcessStopped -= It.IsAny<Action<ProcessEventInfo>>()).Throws(new InvalidOperationException());
             if (failingEvent == "suspend") power.SetupRemove(p => p.Suspending -= It.IsAny<EventHandler>()).Throws(new InvalidOperationException());
@@ -494,8 +494,8 @@ namespace GameHelper.Tests
 
             monitor.VerifyRemove(m => m.ProcessStarted -= It.IsAny<Action<ProcessEventInfo>>(), Times.Once);
             monitor.VerifyRemove(m => m.ProcessStopped -= It.IsAny<Action<ProcessEventInfo>>(), Times.Once);
-            power.VerifyRemove(p => p.Suspending -= It.IsAny<EventHandler>(), Times.Exactly(2));
-            power.VerifyRemove(p => p.Resumed -= It.IsAny<EventHandler>(), Times.Exactly(2));
+            power.VerifyRemove(p => p.Suspending -= It.IsAny<EventHandler>(), Times.Once);
+            power.VerifyRemove(p => p.Resumed -= It.IsAny<EventHandler>(), Times.Once);
             reminder.Verify(r => r.Stop(), Times.Once);
             store.Verify(s => s.Clear(), Times.Once);
             Assert.Equal(new[] { "game" }, playTime.Stopped);
@@ -506,6 +506,94 @@ namespace GameHelper.Tests
             Assert.Single(playTime.Started);
             Assert.Single(speed.Applied);
             Assert.Empty(service.GetGameStates());
+        }
+
+        [Fact]
+        public void Restart_AfterStartUnsubscribeFailure_RegistersAndEndsSessionOnce()
+        {
+            var monitor = new Mock<IProcessMonitor>();
+            var play = new FakePlayTime();
+            var service = new GameAutomationService(monitor.Object, new FakeConfig(Dict(("game.exe", true, false))),
+                new FakeHdr(), play, NullLogger<GameAutomationService>.Instance);
+            service.Start();
+            monitor.SetupRemove(m => m.ProcessStarted -= It.IsAny<Action<ProcessEventInfo>>())
+                .Throws(new InvalidOperationException("unsubscribe failed"));
+            service.Stop();
+            service.Start();
+            try
+            {
+                monitor.Raise(m => m.ProcessStarted += null, new ProcessEventInfo("game.exe", null, 17));
+                monitor.Raise(m => m.ProcessStopped += null, new ProcessEventInfo("game.exe", null, 17));
+                Assert.Equal(1, play.StartCalls);
+                Assert.Equal(1, play.StopCalls);
+                Assert.Empty(service.GetGameStates());
+                Assert.Empty(service.GetRunningSessionStarts());
+            }
+            finally { service.Stop(); }
+        }
+
+        [Fact]
+        public void Restart_RetainedPowerDelegates_CannotAlterNewSuspendSpan()
+        {
+            var monitor = new FakeMonitor();
+            var power = new Mock<ISystemPowerEvents>();
+            var suspendHandlers = new List<EventHandler>();
+            var resumeHandlers = new List<EventHandler>();
+            power.SetupAdd(p => p.Suspending += It.IsAny<EventHandler>()).Callback<EventHandler>(suspendHandlers.Add);
+            power.SetupAdd(p => p.Resumed += It.IsAny<EventHandler>()).Callback<EventHandler>(resumeHandlers.Add);
+            power.SetupRemove(p => p.Suspending -= It.IsAny<EventHandler>()).Throws(new InvalidOperationException());
+            power.SetupRemove(p => p.Resumed -= It.IsAny<EventHandler>()).Throws(new InvalidOperationException());
+            var clock = new PowerClock(new DateTimeOffset(2026, 10, 22, 20, 0, 0, TimeSpan.Zero));
+            var play = new FakePlayTime();
+            var service = new GameAutomationService(monitor, new FakeConfig(Dict(("game.exe", true, false))),
+                new FakeHdr(), play, NullLogger<GameAutomationService>.Instance, timeProvider: clock, powerEvents: power.Object);
+            service.Start();
+            service.Stop();
+            service.Start();
+            try
+            {
+                monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 17));
+                suspendHandlers[1](null, EventArgs.Empty);
+                clock.Advance(TimeSpan.FromMinutes(30));
+                suspendHandlers[0](null, EventArgs.Empty);
+                resumeHandlers[0](null, EventArgs.Empty);
+                Assert.Empty(play.ShiftedStarts);
+                clock.Advance(TimeSpan.FromMinutes(30));
+                resumeHandlers[1](null, EventArgs.Empty);
+                Assert.Equal(TimeSpan.FromHours(1), Assert.Single(play.ShiftedStarts));
+            }
+            finally { service.Stop(); }
+        }
+
+        [Fact]
+        public void Restart_BetweenSessionRegistrationAndCompanion_DiscardsOldCompanionOperation()
+        {
+            var monitor = new FakeMonitor();
+            var launcher = new FakeLauncher();
+            var controller = new Mock<IMonitorModeController>();
+            controller.SetupGet(c => c.IsAvailable).Returns(true);
+            Action? onApply = null;
+            controller.Setup(c => c.Apply(It.IsAny<IReadOnlyList<MonitorModeWrite>>())).Callback(() => onApply?.Invoke());
+            var service = new GameAutomationService(monitor,
+                new FakeConfig(Dict(("game.exe", true, false)), AlwaysDaylightPresets()),
+                new FakeHdr(), new FakePlayTime(), NullLogger<GameAutomationService>.Instance,
+                monitorModeController: controller.Object, gameLauncher: launcher);
+            service.Start();
+            onApply = () =>
+            {
+                onApply = null;
+                service.Stop();
+                service.Start();
+            };
+            try
+            {
+                monitor.RaiseStart(new ProcessEventInfo("game.exe", null, 17));
+                Assert.Null(onApply); // The preset update actually crossed Stop -> Start.
+                Assert.Equal(0, launcher.CompanionStops);
+                Assert.Empty(launcher.Companions);
+                Assert.Empty(service.GetGameStates());
+            }
+            finally { service.Stop(); }
         }
 
         private static IReadOnlyDictionary<string, CoreGameConfig> Dict(params (string name, bool enabled, bool hdrEnabled)[] items)
