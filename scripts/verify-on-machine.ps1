@@ -158,7 +158,6 @@ if (-not $SkipVerify) {
     @"
 monitor: ETW
 startup:
-  autoStartMonitor: false
   launchOnStartup: false
 games:
   - dataKey: verify_smoke

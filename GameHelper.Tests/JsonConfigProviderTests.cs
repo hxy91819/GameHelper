@@ -116,7 +116,6 @@ public class JsonConfigProviderTests : IDisposable
         provider.Change(config =>
         {
             config.ProcessMonitorType = ProcessMonitorType.WMI;
-            config.AutoStartInteractiveMonitor = true;
             config.LaunchOnSystemStartup = true;
             config.Games =
             [
@@ -126,7 +125,6 @@ public class JsonConfigProviderTests : IDisposable
 
         var result = provider.Read();
         Assert.Equal(ProcessMonitorType.WMI, result.ProcessMonitorType);
-        Assert.True(result.AutoStartInteractiveMonitor);
         Assert.True(result.LaunchOnSystemStartup);
         Assert.Single(result.Games);
     }
@@ -164,7 +162,6 @@ public class JsonConfigProviderTests : IDisposable
         File.WriteAllText(_configPath, """
 {
   "processMonitorType": "WMI",
-  "autoStartInteractiveMonitor": "not-a-boolean",
   "games": [
     { "dataKey": "game", "executable": "game.exe" }
   ]
@@ -176,7 +173,6 @@ public class JsonConfigProviderTests : IDisposable
 
         Assert.Single(result.Games);
         Assert.Equal(ProcessMonitorType.WMI, result.ProcessMonitorType);
-        Assert.False(result.AutoStartInteractiveMonitor);
     }
 
     public void Dispose()

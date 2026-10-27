@@ -9,7 +9,6 @@ namespace GameHelper.ConsoleHost.Commands
         {
             Console.WriteLine("GameHelper Console");
             Console.WriteLine("Usage:");
-            Console.WriteLine("  interactive         Start the interactive console shell (default when no command)");
             Console.WriteLine("  monitor [--config <path>] [--monitor-type <type>] [--debug]");
             Console.WriteLine("  config list [--config <path>] [--debug]");
             Console.WriteLine("  config add <exe|path-to-exe> [--config <path>] [--debug]");
@@ -28,7 +27,6 @@ namespace GameHelper.ConsoleHost.Commands
             Console.WriteLine("                     ETW provides lower latency but may require admin privileges");
             Console.WriteLine("  --monitor-dry-run  Dry-run monitor flow without starting background services");
             Console.WriteLine("  --debug, -v        Enable verbose debug logging");
-            Console.WriteLine("  --interactive      Force interactive mode (equivalent to the interactive command)");
             Console.WriteLine();
             Console.WriteLine("Migrate command options:");
             Console.WriteLine("  --config <path>    Config file path (default: %AppData%\\GameHelper\\config.yml)");

@@ -53,7 +53,6 @@ try {
     @"
 monitor: ETW
 startup:
-  autoStartMonitor: false
   launchOnStartup: false
 games:
   - dataKey: smoke_granblue

@@ -1,6 +1,5 @@
 monitor: ETW
 startup:
-  autoStartMonitor: bool
   launchOnStartup: bool
 breakReminder:
   enabled: bool

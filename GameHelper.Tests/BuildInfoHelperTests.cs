@@ -9,14 +9,6 @@ namespace GameHelper.Tests
     public class BuildInfoHelperTests
     {
         [Fact]
-        public void GetVersionDescription_ReturnsNonEmptyString()
-        {
-            var version = BuildInfoHelper.GetVersionDescription();
-            Assert.False(string.IsNullOrWhiteSpace(version));
-            Assert.NotEqual("unknown", version);
-        }
-
-        [Fact]
         public void GetBuildTimeDescription_ReturnsParsableDateTime()
         {
             var buildTime = BuildInfoHelper.GetBuildTimeDescription();

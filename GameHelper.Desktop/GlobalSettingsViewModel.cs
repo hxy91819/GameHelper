@@ -56,7 +56,6 @@ public sealed class GlobalSettingsViewModel
         return new UpdateAppSettingsRequest
         {
             ProcessMonitorType = ProcessMonitorType, LaunchOnSystemStartup = LaunchOnSystemStartup,
-            AutoStartInteractiveMonitor = _snapshot.AutoStartInteractiveMonitor,
             Hdr = new HdrSettings { AllowedDisplays = allowed, DisabledDisplays = disabled },
             BreakReminder = new BreakReminderSettings { Enabled = ReminderEnabled, PlayMinutes = PlayMinutes,
                 BreakMinutes = BreakMinutes, RepeatMinutes = RepeatMinutes, Sound = Sound },

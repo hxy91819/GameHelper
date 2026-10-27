@@ -31,7 +31,6 @@ namespace GameHelper.ConsoleHost.Commands
                 yamlProvider.Change(config =>
                 {
                     config.ProcessMonitorType = data.ProcessMonitorType;
-                    config.AutoStartInteractiveMonitor = data.AutoStartInteractiveMonitor;
                     config.LaunchOnSystemStartup = data.LaunchOnSystemStartup;
                     config.Games = data.Games;
                 });

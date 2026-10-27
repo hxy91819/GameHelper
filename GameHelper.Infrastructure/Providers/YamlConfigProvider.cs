@@ -192,7 +192,6 @@ namespace GameHelper.Infrastructure.Providers
             return new AppConfig
             {
                 ProcessMonitorType = storedConfig.Monitor ?? ProcessMonitorType.ETW,
-                AutoStartInteractiveMonitor = storedConfig.Startup?.AutoStartMonitor ?? false,
                 LaunchOnSystemStartup = storedConfig.Startup?.LaunchOnStartup ?? false,
                 CheatEngine = ToCheatEngineSettings(storedConfig.CheatEngine),
                 BreakReminder = storedConfig.BreakReminder,
@@ -261,7 +260,6 @@ namespace GameHelper.Infrastructure.Providers
             Monitor = appConfig.ProcessMonitorType,
             Startup = new StoredStartupConfig
             {
-                AutoStartMonitor = appConfig.AutoStartInteractiveMonitor,
                 LaunchOnStartup = appConfig.LaunchOnSystemStartup
             },
             CheatEngine = ToStoredCheatEngine(appConfig.CheatEngine),
@@ -347,8 +345,6 @@ namespace GameHelper.Infrastructure.Providers
 
         private sealed class StoredStartupConfig
         {
-            public bool AutoStartMonitor { get; set; }
-
             public bool LaunchOnStartup { get; set; }
         }
 

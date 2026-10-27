@@ -2,7 +2,6 @@
 # Test configuration with ETW monitor
 monitor: ETW
 startup:
-  autoStartMonitor: false
   launchOnStartup: false
 # Optional; required only when a game entry sets speed.
 # cheatEngine:

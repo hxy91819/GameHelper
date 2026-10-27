@@ -20,11 +20,6 @@ namespace GameHelper.Core.Models
         public ProcessMonitorType ProcessMonitorType { get; set; } = ProcessMonitorType.ETW;
 
         /// <summary>
-        /// When enabled, the interactive shell will automatically start the monitor after launch.
-        /// </summary>
-        public bool AutoStartInteractiveMonitor { get; set; }
-
-        /// <summary>
         /// When enabled, GameHelper will register itself to launch automatically on system startup.
         /// </summary>
         public bool LaunchOnSystemStartup { get; set; }

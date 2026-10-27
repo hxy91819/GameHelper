@@ -91,7 +91,6 @@ namespace GameHelper.Infrastructure.Providers
                 {
                     Games = configs,
                     ProcessMonitorType = ReadProcessMonitorType(root),
-                    AutoStartInteractiveMonitor = ReadBoolean(root, "autoStartInteractiveMonitor"),
                     LaunchOnSystemStartup = ReadBoolean(root, "launchOnSystemStartup"),
                     CheatEngine = ReadCheatEngineSettings(root),
                     BreakReminder = TryGetProperty(root, "breakReminder", out var reminder) && reminder.ValueKind == JsonValueKind.Object
@@ -124,7 +123,6 @@ namespace GameHelper.Infrastructure.Providers
                     .OrderBy(cfg => cfg.DataKey, StringComparer.OrdinalIgnoreCase)
                     .ToList(),
                 ProcessMonitorType = appConfig.ProcessMonitorType,
-                AutoStartInteractiveMonitor = appConfig.AutoStartInteractiveMonitor,
                 LaunchOnSystemStartup = appConfig.LaunchOnSystemStartup,
                 CheatEngine = appConfig.CheatEngine,
                 BreakReminder = appConfig.BreakReminder

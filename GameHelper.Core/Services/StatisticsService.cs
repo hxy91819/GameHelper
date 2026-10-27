@@ -5,9 +5,6 @@ namespace GameHelper.Core.Services;
 
 public sealed class StatisticsService : IStatisticsService
 {
-    /// <summary>历史记录预览覆盖的最近自然日数量（含今天）。</summary>
-    public const int PreviewWindowDays = 60;
-
     private readonly IPlaytimeSnapshotProvider _playtimeSnapshotProvider;
     private readonly IGameConfiguration _gameConfiguration;
 
@@ -54,128 +51,6 @@ public sealed class StatisticsService : IStatisticsService
             string.Equals(record.GameName, dataKeyOrGameName, StringComparison.OrdinalIgnoreCase));
 
         return match is null ? null : ToSummary(match, configIndex, cutoff);
-    }
-
-    public SessionActivitySnapshot GetSessionActivitySnapshot()
-    {
-        var snapshot = _playtimeSnapshotProvider.GetSnapshot();
-        var source = snapshot.SourcePath ?? string.Empty;
-        if (snapshot.Records.Count == 0)
-        {
-            return new SessionActivitySnapshot(
-                new HashSet<SessionActivityKey>(),
-                Array.Empty<SessionActivityRecord>(),
-                source);
-        }
-
-        var configIndex = LoadConfigIndex();
-        var keys = new HashSet<SessionActivityKey>();
-        var records = new List<SessionActivityRecord>();
-
-        foreach (var item in snapshot.Records)
-        {
-            var displayName = configIndex.ResolveDisplayName(item.GameName);
-            foreach (var session in item.Sessions)
-            {
-                var record = new SessionActivityRecord(
-                    item.GameName,
-                    displayName,
-                    session.StartTime,
-                    session.EndTime,
-                    session.DurationMinutes);
-                keys.Add(record.Key);
-                records.Add(record);
-            }
-        }
-
-        return new SessionActivitySnapshot(keys, records, source);
-    }
-
-    public SessionActivityPreview GetSessionActivityPreview()
-    {
-        return GetSessionActivityPreview(GetSessionActivitySnapshot());
-    }
-
-    public SessionActivityPreview GetSessionActivityPreview(SessionActivitySnapshot snapshot)
-    {
-        var today = DateTime.Now.Date;
-        var windowStart = today.AddDays(-(PreviewWindowDays - 1));
-
-        // 窗口过滤后再聚合；单遍分桶避免对同一集合做 O(窗口) 次全量扫描。
-        var windowMinutes = new long[PreviewWindowDays];
-        var games = new Dictionary<string, SessionGameSummary>(StringComparer.OrdinalIgnoreCase);
-        var windowSessionCount = 0;
-        // 半窗游玩游戏数：划分须与渲染端 DailyTrendChartRenderer.CompareHalves（窗口天数对半）一致，
-        // 会话按结束日期归属其所在半窗，用于"游戏数量"趋势状态。
-        var previousHalfDays = PreviewWindowDays / 2;
-        var previousHalfGames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var recentHalfGames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var record in snapshot.Records)
-        {
-            var endLocal = ToLocalTime(record.End);
-            if (endLocal < windowStart)
-            {
-                continue;
-            }
-
-            windowSessionCount++;
-            var dayIndex = (endLocal.Date - windowStart).Days;
-            if (dayIndex >= 0 && dayIndex < PreviewWindowDays)
-            {
-                windowMinutes[dayIndex] += record.DurationMinutes;
-            }
-
-            if (dayIndex >= previousHalfDays && dayIndex < PreviewWindowDays)
-            {
-                recentHalfGames.Add(record.Key.Game);
-            }
-            else if (dayIndex >= 0 && dayIndex < previousHalfDays)
-            {
-                previousHalfGames.Add(record.Key.Game);
-            }
-
-            if (games.TryGetValue(record.Key.Game, out var summary))
-            {
-                games[record.Key.Game] = summary with
-                {
-                    SessionCount = summary.SessionCount + 1,
-                    TotalMinutes = summary.TotalMinutes + record.DurationMinutes,
-                    LastEnd = endLocal > summary.LastEnd ? endLocal : summary.LastEnd
-                };
-            }
-            else
-            {
-                games[record.Key.Game] = new SessionGameSummary(
-                    record.Key.Game,
-                    record.DisplayName,
-                    1,
-                    record.DurationMinutes,
-                    endLocal);
-            }
-        }
-
-        var dailyTrend = new List<DailyPlaytimeSummary>(PreviewWindowDays);
-        for (var i = 0; i < PreviewWindowDays; i++)
-        {
-            dailyTrend.Add(new DailyPlaytimeSummary(windowStart.AddDays(i), windowMinutes[i]));
-        }
-
-        return new SessionActivityPreview(
-            games.Values
-                .OrderByDescending(item => item.LastEnd)
-                .ThenByDescending(item => item.TotalMinutes)
-                .ToList(),
-            dailyTrend,
-            windowSessionCount,
-            PreviewWindowDays,
-            snapshot.Source,
-            previousHalfGames.Count,
-            recentHalfGames.Count);
-    }
-
-    private static DateTime ToLocalTime(DateTime timestamp)
-    {
-        return timestamp.Kind == DateTimeKind.Utc ? timestamp.ToLocalTime() : timestamp;
     }
 
     private StatisticsConfigIndex LoadConfigIndex()

@@ -30,7 +30,6 @@ public class YamlConfigValidatorTests : IDisposable
     [Theory]
     [InlineData("monitor: Invalid", "monitor must be ETW or WMI.")]
     [InlineData("startup: { launchOnStartup: maybe }", "startup.launchOnStartup must be a boolean.")]
-    [InlineData("startup: { autoStartMonitor: [true] }", "startup.autoStartMonitor must be a boolean.")]
     [InlineData("startup: true", "startup must be a mapping (object).")]
     public void Validate_PersistedGlobalKeys_RejectInvalidValues(string yaml, string expectedError)
     {

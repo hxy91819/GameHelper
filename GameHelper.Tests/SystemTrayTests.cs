@@ -91,4 +91,13 @@ public sealed class SystemTrayTests
         Assert.True(start.UseShellExecute);
         Assert.Equal(Path.GetDirectoryName(start.FileName), start.WorkingDirectory);
     }
+
+    [Fact]
+    public void OpenLibraryWithoutConfigOverride_LetsDesktopUseItsDefaultPath()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "GameHelper published");
+        var start = SystemTrayLogic.LibraryStartInfo(directory, null, _ => true);
+        Assert.Equal(Path.Combine(directory, "GameHelper.Desktop.exe"), start.FileName);
+        Assert.Empty(start.ArgumentList);
+    }
 }

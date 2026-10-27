@@ -47,11 +47,13 @@ public static class SystemTrayLogic
         return true;
     }
 
-    public static ProcessStartInfo LibraryStartInfo(string baseDirectory, string config, Func<string, bool> exists)
+    /// <summary>Start the WPF library beside the host; a null config lets the library use its default path.</summary>
+    public static ProcessStartInfo LibraryStartInfo(string baseDirectory, string? config, Func<string, bool> exists)
     {
         var executable = Path.Combine(baseDirectory, "GameHelper.Desktop.exe");
         if (!exists(executable)) executable = Path.Combine(baseDirectory, "desktop", "GameHelper.Desktop.exe");
         var start = new ProcessStartInfo(executable) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(executable)! };
+        if (config is null) return start;
         start.ArgumentList.Add("--config");
         start.ArgumentList.Add(config);
         return start;

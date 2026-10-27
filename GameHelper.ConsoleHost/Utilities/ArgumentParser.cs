@@ -10,7 +10,6 @@ namespace GameHelper.ConsoleHost.Utilities
         public bool EnableDebug { get; set; }
         public string? MonitorType { get; set; }
         public bool MonitorDryRun { get; set; }
-        public bool UseInteractiveShell { get; set; }
         public bool Background { get; set; }
         public string[] EffectiveArgs { get; set; } = Array.Empty<string>();
     }
@@ -18,7 +17,7 @@ namespace GameHelper.ConsoleHost.Utilities
     public static class ArgumentParser
     {
         // Extract optional global flags from args and build an effective argument list for commands
-        // Supported: --config <path> | -c <path>, --debug | -v | --verbose, --monitor-type <type>, and --interactive/--menu
+        // Supported: --config <path> | -c <path>, --debug | -v | --verbose, --monitor-type <type>, --monitor-dry-run and --background
         public static ParsedArguments Parse(string[] args)
         {
             var result = new ParsedArguments();
@@ -85,24 +84,6 @@ namespace GameHelper.ConsoleHost.Utilities
                     {
                         result.MonitorDryRun = true;
                         list.RemoveAt(dryRunIdx);
-                    }
-
-                    // Handle --interactive/--menu (boolean flag)
-                    int iidx = list.FindIndex(s =>
-                        string.Equals(s, "--interactive", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(s, "--menu", StringComparison.OrdinalIgnoreCase));
-                    if (iidx >= 0)
-                    {
-                        result.UseInteractiveShell = true;
-                        list.RemoveAt(iidx);
-                    }
-
-                    // 宿主转移时追加的内部标记参数，不属于用户可见的命令行选项。
-                    int relaunchIdx;
-                    while ((relaunchIdx = list.FindIndex(s =>
-                               string.Equals(s, WindowsTerminalHost.RelaunchedArgument, StringComparison.OrdinalIgnoreCase))) >= 0)
-                    {
-                        list.RemoveAt(relaunchIdx);
                     }
 
                     result.EffectiveArgs = list.ToArray();

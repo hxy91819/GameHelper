@@ -38,6 +38,23 @@ public class YamlConfigProviderTests : IDisposable
         Assert.Equal(previous, File.ReadAllText(_configPath));
     }
 
+    [Theory]
+    [InlineData("", "game.exe", null, null)]
+    [InlineData("game", "", null, null)]
+    [InlineData("game", "game.exe", 0d, null)]
+    [InlineData("game", "game.exe", null, "later")]
+    public void GameEntry_InvalidSave_ThrowsAndDoesNotOverwriteDocument(string dataKey, string executable, double? speed, string? speedAttach)
+    {
+        var provider = new YamlConfigProvider(_configPath);
+        provider.Change(config => config.Games = [new GameConfig { DataKey = "kept", Executable = "kept.exe" }]);
+        var previous = File.ReadAllText(_configPath);
+        Assert.Throws<InvalidDataException>(() => provider.Change(config => config.Games.Add(new GameConfig
+        {
+            DataKey = dataKey, Executable = executable, SpeedMultiplier = speed, SpeedAttach = speedAttach
+        })));
+        Assert.Equal(previous, File.ReadAllText(_configPath));
+    }
+
     [Fact]
     public void LoadAppConfig_WhenFileMissing_ReturnsEmpty()
     {
@@ -259,7 +276,6 @@ games:
         provider.Change(config =>
         {
             config.ProcessMonitorType = ProcessMonitorType.WMI;
-            config.AutoStartInteractiveMonitor = true;
             config.LaunchOnSystemStartup = true;
             config.Games = new List<GameConfig>
             {
@@ -286,7 +302,6 @@ games:
 
         var appConfig = provider.Read();
         Assert.Equal(ProcessMonitorType.WMI, appConfig.ProcessMonitorType);
-        Assert.True(appConfig.AutoStartInteractiveMonitor);
         Assert.True(appConfig.LaunchOnSystemStartup);
 
         var game = Assert.Single(appConfig.Games!);
@@ -300,17 +315,17 @@ games:
     public void Change_WhenMutationThrows_DoesNotCommitPartialDocument()
     {
         var provider = new YamlConfigProvider(_configPath);
-        provider.Change(config => config.AutoStartInteractiveMonitor = true);
+        provider.Change(config => config.ProcessMonitorType = ProcessMonitorType.WMI);
 
         Assert.Throws<InvalidOperationException>(() => provider.Change(config =>
         {
-            config.AutoStartInteractiveMonitor = false;
+            config.ProcessMonitorType = ProcessMonitorType.ETW;
             config.LaunchOnSystemStartup = true;
             throw new InvalidOperationException("abort");
         }));
 
         var snapshot = provider.Read();
-        Assert.True(snapshot.AutoStartInteractiveMonitor);
+        Assert.Equal(ProcessMonitorType.WMI, snapshot.ProcessMonitorType);
         Assert.False(snapshot.LaunchOnSystemStartup);
     }
 
@@ -320,11 +335,11 @@ games:
         var provider = new YamlConfigProvider(_configPath);
 
         Parallel.Invoke(
-            () => provider.Change(config => config.AutoStartInteractiveMonitor = true),
+            () => provider.Change(config => config.ProcessMonitorType = ProcessMonitorType.WMI),
             () => provider.Change(config => config.LaunchOnSystemStartup = true));
 
         var snapshot = provider.Read();
-        Assert.True(snapshot.AutoStartInteractiveMonitor);
+        Assert.Equal(ProcessMonitorType.WMI, snapshot.ProcessMonitorType);
         Assert.True(snapshot.LaunchOnSystemStartup);
     }
 

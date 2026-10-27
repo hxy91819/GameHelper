@@ -22,7 +22,6 @@ public sealed class SettingsService(IGameConfiguration gameConfiguration,
             var config = gameConfiguration.Change(current =>
             {
                 current.ProcessMonitorType = request.ProcessMonitorType ?? current.ProcessMonitorType;
-                current.AutoStartInteractiveMonitor = request.AutoStartInteractiveMonitor;
                 current.LaunchOnSystemStartup = request.LaunchOnSystemStartup;
                 if (request.Hdr is not null) current.Hdr = Clone(request.Hdr);
                 if (request.BreakReminder is not null) current.BreakReminder = Clone(request.BreakReminder);
@@ -50,11 +49,9 @@ public sealed class SettingsService(IGameConfiguration gameConfiguration,
         var available = hdr is not null && hdr.TryGetDisplays(out displays);
         var restart = new List<string>();
         if (config.ProcessMonitorType != _startup.ProcessMonitorType) restart.Add(nameof(config.ProcessMonitorType));
-        if (config.AutoStartInteractiveMonitor != _startup.AutoStartInteractiveMonitor) restart.Add(nameof(config.AutoStartInteractiveMonitor));
         return new AppSettingsSnapshot
         {
             ProcessMonitorType = config.ProcessMonitorType,
-            AutoStartInteractiveMonitor = config.AutoStartInteractiveMonitor,
             LaunchOnSystemStartup = config.LaunchOnSystemStartup,
             Hdr = Clone(config.Hdr), BreakReminder = Clone(config.BreakReminder),
             MonitorMode = Clone(config.MonitorMode), CheatEngine = Clone(config.CheatEngine),

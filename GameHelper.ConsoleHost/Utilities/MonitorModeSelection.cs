@@ -50,16 +50,4 @@ internal sealed class MonitorModeSelection
             ? new MonitorModeSelection(configuredMonitorType.Value, MonitorModeSource.Config, null)
             : new MonitorModeSelection(ProcessMonitorType.ETW, MonitorModeSource.Default, null);
     }
-
-    public string GetDisplayText()
-    {
-        return Source switch
-        {
-            MonitorModeSource.DryRun => "Dry-run (rehearsal only)",
-            MonitorModeSource.CommandLine => $"{MonitorType} (from command line)",
-            MonitorModeSource.Config => $"{MonitorType} (from config)",
-            MonitorModeSource.InvalidCommandLine => $"{MonitorType} (invalid command line, using default)",
-            _ => $"{MonitorType} (default)"
-        };
-    }
 }

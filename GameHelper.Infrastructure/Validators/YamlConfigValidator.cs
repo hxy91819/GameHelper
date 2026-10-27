@@ -24,10 +24,6 @@ namespace GameHelper.Infrastructure.Validators
     {
         private static void ValidateGlobals(YamlMappingNode root, ValidationResult result)
         {
-            foreach (var name in new[] { "autoStartInteractiveMonitor", "launchOnSystemStartup" })
-                if (root.Children.TryGetValue(new YamlScalarNode(name), out var value) &&
-                    (value is not YamlScalarNode scalar || !bool.TryParse(scalar.Value, out _)))
-                    result.Errors.Add($"{name} must be a boolean.");
             // The provider persists the monitor type as the top-level `monitor` key.
             if (root.Children.TryGetValue(new YamlScalarNode("monitor"), out var monitorNode))
             {
@@ -45,17 +41,16 @@ namespace GameHelper.Infrastructure.Validators
                 }
                 else
                 {
-                    foreach (var name in new[] { "autoStartMonitor", "launchOnStartup" })
-                        if (startup.Children.TryGetValue(new YamlScalarNode(name), out var value) &&
-                            (value is not YamlScalarNode scalar || !bool.TryParse(scalar.Value, out _)))
-                            result.Errors.Add($"startup.{name} must be a boolean.");
+                    if (startup.Children.TryGetValue(new YamlScalarNode("launchOnStartup"), out var value) &&
+                        (value is not YamlScalarNode scalar || !bool.TryParse(scalar.Value, out _)))
+                        result.Errors.Add("startup.launchOnStartup must be a boolean.");
                 }
             }
             try
             {
                 // Reuse the same domain validation as SettingsService; the persisted sync key is `sync`.
                 var globals = new YamlMappingNode();
-                foreach (var name in new[] { "processMonitorType", "hdr", "breakReminder", "monitorMode", "cheatEngine", "sync" })
+                foreach (var name in new[] { "hdr", "breakReminder", "monitorMode", "cheatEngine", "sync" })
                     if (root.Children.TryGetValue(new YamlScalarNode(name), out var node))
                         globals.Add(new YamlScalarNode(name == "sync" ? "syncSettings" : name), node);
                 var document = new YamlStream(new YamlDocument(globals));

@@ -31,7 +31,7 @@ public sealed class GlobalSettingsTests : IDisposable
         var service = new SettingsService(Provider, autoStart.Object, automation.Object, hdr.Object);
         var request = new UpdateAppSettingsRequest
         {
-            ProcessMonitorType = ProcessMonitorType.WMI, AutoStartInteractiveMonitor = true, LaunchOnSystemStartup = true,
+            ProcessMonitorType = ProcessMonitorType.WMI, LaunchOnSystemStartup = true,
             Hdr = new() { AllowedDisplays = ["tv-path"], DisabledDisplays = ["desk-path"] },
             BreakReminder = new() { Enabled = true, PlayMinutes = 30, BreakMinutes = 4, RepeatMinutes = 8, Sound = false },
             MonitorMode = new() { Enabled = true, DaylightStart = "08:00" },
@@ -66,7 +66,7 @@ public sealed class GlobalSettingsTests : IDisposable
     [InlineData("monitor")] [InlineData("reminder")] [InlineData("ddc")] [InlineData("ce")] [InlineData("ce-hotkeys")] [InlineData("sync")] [InlineData("hdr")] [InlineData("ddc-null")]
     public void InvalidSettings_DoNotCommitOrApply(string field)
     {
-        Provider.Change(config => config.AutoStartInteractiveMonitor = true);
+        Provider.Change(config => config.ProcessMonitorType = ProcessMonitorType.WMI);
         var before = File.ReadAllText(Path.Combine(_root, "config.yml"));
         var autoStart = new Mock<IAutoStartManager>(); var automation = new Mock<IGameAutomationService>();
         var service = new SettingsService(Provider, autoStart.Object, automation.Object);
@@ -99,9 +99,6 @@ public sealed class GlobalSettingsTests : IDisposable
     }
 
     [Theory]
-    [InlineData("processMonitorType: Unknown")]
-    [InlineData("launchOnSystemStartup: maybe")]
-    [InlineData("autoStartInteractiveMonitor: [true]")]
     [InlineData("monitorMode:\n  daylightStart: invalid")]
     [InlineData("monitorMode:\n  gamePresets: []")]
     [InlineData("cheatEngine:\n  executable: relative.exe")]

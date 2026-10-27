@@ -12,30 +12,6 @@ namespace GameHelper.ConsoleHost.Utilities
     public static class BuildInfoHelper
     {
         /// <summary>
-        /// Returns the application version, preferring AssemblyInformationalVersionAttribute.
-        /// Falls back to AssemblyName.Version, then "unknown".
-        /// </summary>
-        public static string GetVersionDescription()
-        {
-            try
-            {
-                var assembly = Assembly.GetEntryAssembly() ?? typeof(BuildInfoHelper).Assembly;
-                var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-                if (!string.IsNullOrWhiteSpace(informational))
-                {
-                    var plusIndex = informational.IndexOf('+');
-                    return plusIndex > 0 ? informational[..plusIndex] : informational;
-                }
-
-                return assembly.GetName().Version?.ToString() ?? "unknown";
-            }
-            catch
-            {
-                return "unknown";
-            }
-        }
-
-        /// <summary>
         /// Returns the commit SHA embedded in AssemblyInformationalVersionAttribute (after the '+').
         /// Falls back to "unknown".
         /// </summary>

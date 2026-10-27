@@ -108,7 +108,7 @@ sync:
     public void Save_WithoutSyncSettings_DoesNotWriteSyncSection()
     {
         var provider = new YamlConfigProvider(_configPath);
-        provider.Change(config => config.AutoStartInteractiveMonitor = true);
+        provider.Change(config => config.ProcessMonitorType = ProcessMonitorType.WMI);
 
         var yaml = File.ReadAllText(_configPath);
         Assert.DoesNotContain("sync:", yaml);
