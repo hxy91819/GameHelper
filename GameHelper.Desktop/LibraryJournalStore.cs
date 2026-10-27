@@ -22,6 +22,7 @@ internal sealed class LibraryJournalStore
     }
 
     internal JournalRecord Read(string key) => _records.GetValueOrDefault(key) ?? new();
+    internal IEnumerable<KeyValuePair<string, JournalRecord>> Entries => _records;
     internal event EventHandler? Saved;
     internal void Save(string key, JournalRecord record)
     {

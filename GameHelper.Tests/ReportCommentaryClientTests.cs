@@ -24,15 +24,18 @@ public sealed class ReportCommentaryClientTests
             using var summary = JsonDocument.Parse(json.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
             Assert.Equal(120, summary.RootElement.GetProperty("Minutes").GetInt64());
             Assert.Equal("game-key", summary.RootElement.GetProperty("topGames")[0].GetProperty("DataKey").GetString());
+            Assert.Equal(1, summary.RootElement.GetProperty("clearedGames").GetInt32());
+            Assert.Equal("Cleared Game", summary.RootElement.GetProperty("clearedGameNames")[0].GetString());
             return new(HttpStatusCode.OK) { Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"简短点评\"}}]}") };
         }));
         var result = await new ReportCommentaryClient(http).GenerateAsync(new()
         {
             Minutes = 120, TopGames = [new("game-key", @"C:\Private\DisplayName", 120, 2, new(2026, 1, 1, 14, 32, 0))],
-            LongestSession = new("game-key", "private-name", 60, 1, new(2026, 1, 1, 14, 32, 0))
+            LongestSession = new("game-key", "private-name", 60, 1, new(2026, 1, 1, 14, 32, 0)),
+            ClearedGames = [new("cleared-key", "Cleared Game", new(2026, 3, 2), "已通关", "私有短评不得上传")]
         }, Settings);
         Assert.Equal("简短点评", result);
-        foreach (var sensitive in new[] { "Private", "private-name", "LastPlayed", "StartTime", "EndTime", "secret-test", "14:32", "ConfigPath" })
+        foreach (var sensitive in new[] { "Private", "private-name", "LastPlayed", "StartTime", "EndTime", "secret-test", "14:32", "ConfigPath", "Note", "私有短评" })
             Assert.DoesNotContain(sensitive, body!);
     }
 

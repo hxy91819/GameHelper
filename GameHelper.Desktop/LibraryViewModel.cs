@@ -452,6 +452,9 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     }
     private ImageSource? FindArtwork(string dataKey)
         => _gameIndex.TryGetValue(dataKey, out var game) && game.ArtworkIsCover ? game.Artwork : null;
+    internal PlaytimeReport ReportWithJournal(PlaytimeReport report) =>
+        ReportJournalMerge.Apply(report, _journalStore.Entries, FindDisplayName);
+    private string? FindDisplayName(string dataKey) => _gameIndex.TryGetValue(dataKey, out var game) ? game.Name : null;
     private void PersistDrafts()
     {
         try { _draftStore?.Write(_games.Where(game => game.IsDirty).Select(game => game.ExportDraft())); }

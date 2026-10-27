@@ -16,6 +16,7 @@ public partial class PlaytimeReportView : UserControl
 {
     private static readonly HttpClient Http = new(new SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
     private IGameLibrary? _library;
+    private Func<PlaytimeReport, PlaytimeReport>? _enrichReport;
     private PlaytimeReport? _report;
     private CancellationTokenSource? _pending;
     private string? _commentary;
@@ -26,7 +27,8 @@ public partial class PlaytimeReportView : UserControl
         Year.Text = TimeProvider.System.GetLocalNow().Year.ToString();
         Unloaded += (_, _) => _pending?.Cancel();
     }
-    public void Connect(IGameLibrary library) => _library = library;
+    public void Connect(IGameLibrary library, Func<PlaytimeReport, PlaytimeReport>? enrichReport = null)
+    { _library = library; _enrichReport = enrichReport; }
 
     private async Task RunAsync(Func<CancellationToken, Task> action)
     {
@@ -48,7 +50,7 @@ public partial class PlaytimeReportView : UserControl
         var response = await _library!.ExecuteAsync(new() { Operation = GameLibraryOperation.Report, ReportPeriod = period }, token);
         token.ThrowIfCancellationRequested();
         if (!response.Success || response.Report is null) throw new InvalidOperationException(response.Error ?? "无法生成报告。");
-        _report = response.Report; _commentary = null;
+        _report = _enrichReport?.Invoke(response.Report) ?? response.Report; _commentary = null;
         Body.Text = PlaytimeReportMarkdown.Render(_report);
         BodyPanel.Visibility = Visibility.Visible; BodyPanel.IsExpanded = true;
         CommentButton.IsEnabled = ExportButton.IsEnabled = true;

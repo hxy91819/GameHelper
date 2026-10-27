@@ -13,6 +13,8 @@ public static class PlaytimeReportMarkdown
             .Replace("\r", " ").Replace("\n", " ").Replace("<", "&lt;").Replace(">", "&gt;")
             .Replace("[", "\\[").Replace("]", "\\]").Replace("*", "\\*").Replace("_", "\\_").Replace("`", "\\`");
         static string Hours(long minutes) => (minutes / 60d).ToString("0.0", CultureInfo.InvariantCulture) + " 小时";
+        static string Signed(int value) => value > 0 ? "+" + value.ToString(CultureInfo.InvariantCulture)
+            : value.ToString(CultureInfo.InvariantCulture);
         var text = new StringBuilder();
         text.AppendLine($"# {report.Period}游玩报告").AppendLine();
         text.AppendLine($"{report.Period.Start:yyyy-MM-dd} 至 {report.Period.EndExclusive.AddDays(-1):yyyy-MM-dd}" +
@@ -21,6 +23,15 @@ public static class PlaytimeReportMarkdown
         text.AppendLine($"上一期（{report.Period.Previous}）：{Hours(report.PreviousMinutes)} · {report.PreviousActiveDays} 天 · {report.PreviousGamesPlayed} 款");
         text.AppendLine($"时长变化：{report.MinutesChange:+0;-0;0} 分钟（" +
             (report.MinutesChangePercent is { } percent ? percent.ToString("+0.0;-0.0;0", CultureInfo.InvariantCulture) + "%" : "上期为零，无百分比") + "）").AppendLine();
+        if (report.ClearedGames.Count > 0)
+        {
+            text.AppendLine("## 本期通关").AppendLine();
+            text.AppendLine($"本期通关 {report.ClearedGames.Count} 款 · 上一期 {report.PreviousClearedGames} 款（变化 {Signed(report.ClearedChange)} 款）").AppendLine();
+            foreach (var game in report.ClearedGames)
+                text.AppendLine($"- {game.CompletedOn:yyyy-MM-dd} · {Escape(game.Name)} · {Escape(game.Status)}" +
+                    (string.IsNullOrWhiteSpace(game.Note) ? string.Empty : $" · {Escape(game.Note)}"));
+            text.AppendLine();
+        }
         text.AppendLine("## Top 5").AppendLine();
         foreach (var game in report.TopGames) text.AppendLine($"- {Escape(game.Name)}：{Hours(game.Minutes)} · {game.Sessions} 次");
         if (report.TopGames.Count == 0) text.AppendLine("本期没有已结束的游玩记录。");
