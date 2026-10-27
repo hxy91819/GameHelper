@@ -45,6 +45,7 @@ public partial class GlobalSettingsView : UserControl
     {
         DataContext = new GlobalSettingsViewModel(settings);
         Token.Password = settings.SyncSettings?.Token ?? string.Empty;
+        ReportApiKey.Password = settings.Report?.Llm?.ApiKey ?? string.Empty;
         UpdateRecipeSummary();
     }
     private void UpdateRecipeSummary() => Recipes.Text = Draft is null ? "" :
@@ -64,6 +65,7 @@ public partial class GlobalSettingsView : UserControl
         await RunAsync(async () =>
         {
             var request = Draft.ToRequest(); request.SyncSettings!.Token = string.IsNullOrEmpty(Token.Password) ? null : Token.Password;
+            request.Report = Draft.BuildReportSettings(ReportApiKey.Password);
             var response = await SendAsync(GameLibraryOperation.UpdateSettings, request);
             var settings = response.Settings!; Apply(settings);
             Result.Text = "全局设置已保存。" + (settings.RestartRequired.Count > 0 ? "监控方式等启动项需重启后台后生效。" : "") + settings.ApplyWarning;

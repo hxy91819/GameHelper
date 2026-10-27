@@ -41,7 +41,7 @@ internal static class YamlConfigCodec
     private static T Configure<T>(T builder) where T : BuilderSkeleton<T>
     {
         // Computed views never belong in YAML; discover new writable fields automatically.
-        foreach (var type in new[] { typeof(AppConfig), typeof(GameConfig), typeof(SyncSettings) })
+        foreach (var type in new[] { typeof(AppConfig), typeof(GameConfig), typeof(SyncSettings), typeof(ReportLlmSettings) })
             foreach (var property in type.GetProperties())
                 builder.WithAttributeOverride(type, property.Name, property.CanWrite
                     ? new YamlMemberAttribute { Alias = WireName(property), ApplyNamingConventions = false, Order = LegacyOrder(property) }
@@ -106,6 +106,7 @@ internal static class YamlConfigCodec
             config.MonitorMode,
             config.Hdr,
             Sync = config.SyncSettings,
+            config.Report,
             config.Games
         };
         return Configure(new SerializerBuilder()).ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)

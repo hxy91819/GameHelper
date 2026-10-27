@@ -28,6 +28,7 @@ public sealed class SettingsService(IGameConfiguration gameConfiguration,
                 if (request.MonitorMode is not null) current.MonitorMode = Clone(request.MonitorMode);
                 if (request.CheatEngine is not null) current.CheatEngine = Clone(request.CheatEngine);
                 if (request.SyncSettings is not null) current.SyncSettings = Clone(request.SyncSettings);
+                if (request.Report is not null) current.Report = Clone(request.Report);
                 var validation = AppConfigValidator.ValidateGlobals(current);
                 if (!validation.IsValid) throw new ArgumentException(string.Join("\n", validation.Errors));
             });
@@ -55,7 +56,7 @@ public sealed class SettingsService(IGameConfiguration gameConfiguration,
             LaunchOnSystemStartup = config.LaunchOnSystemStartup,
             Hdr = Clone(config.Hdr), BreakReminder = Clone(config.BreakReminder),
             MonitorMode = Clone(config.MonitorMode), CheatEngine = Clone(config.CheatEngine),
-            SyncSettings = Clone(config.SyncSettings), DisplaysAvailable = available,
+            Report = Clone(config.Report), SyncSettings = Clone(config.SyncSettings), DisplaysAvailable = available,
             Displays = displays, RestartRequired = restart
         };
     }

@@ -116,3 +116,5 @@ dotnet run --project .\GameHelper.ConsoleHost -- sync status
 - 默认推送内容为聚合数据（按日/按游戏的分钟数），不含精确作息时间。
 - 公开仓库前请确认游戏列表本身不敏感；`daily.csv` 中的 `game` 列为 `dataKey`。
 - 需要完整备份原始明细时再开启 `includeRawCsv`，并把仓库设为私有。
+
+年度／季度报告的 `report.llm.apiKey` 保存在本机 config.yml；sync 不上传配置文件，因此不会同步此密钥。模型点评与手动导出的 Markdown 也不进入自动同步文件集合。

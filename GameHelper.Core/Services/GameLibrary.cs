@@ -33,6 +33,13 @@ public sealed class GameLibrary(
             case GameLibraryOperation.SyncValidate:
             case GameLibraryOperation.SyncPush:
                 return ExecuteSyncAsync(request.Operation, cancellationToken);
+            case GameLibraryOperation.Report:
+                var reportSnapshot = history.GetSnapshot();
+                if (reportSnapshot.ReadFailed)
+                    return Task.FromResult(new GameLibraryResponse { Error = "无法读取历史文件，请稍后重试。" });
+                return Task.FromResult(new GameLibraryResponse { Success = true,
+                    Report = PlaytimeReportBuilder.Build(reportSnapshot.Records, configuration.Read().Games,
+                        request.ReportPeriod ?? throw new ArgumentException("缺少报告期间。"), timeProvider ?? TimeProvider.System) });
             case GameLibraryOperation.Statistics:
                 var snapshot = history.GetSnapshot();
                 if (snapshot.ReadFailed)

@@ -11,4 +11,5 @@ public sealed class UpdateAppSettingsRequest
     public MonitorModeSettings? MonitorMode { get; set; }
     public CheatEngineSettings? CheatEngine { get; set; }
     public SyncSettings? SyncSettings { get; set; }
+    public ReportSettings? Report { get; set; }
 }

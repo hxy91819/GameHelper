@@ -11,6 +11,7 @@ public sealed class AppSettingsSnapshot
     public MonitorModeSettings? MonitorMode { get; set; }
     public CheatEngineSettings? CheatEngine { get; set; }
     public SyncSettings? SyncSettings { get; set; }
+    public ReportSettings? Report { get; set; }
     public IReadOnlyList<GameHelper.Core.Abstractions.HdrDisplayInfo> Displays { get; set; } = [];
     public bool DisplaysAvailable { get; set; }
     public IReadOnlyList<string> RestartRequired { get; set; } = [];

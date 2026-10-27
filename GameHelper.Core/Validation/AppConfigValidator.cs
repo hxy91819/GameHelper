@@ -20,6 +20,7 @@ public static class AppConfigValidator
         var result = new ValidationResult();
         void Check(Action action) { try { action(); } catch (ArgumentException ex) { result.Errors.Add(ex.Message); } }
         if (!Enum.IsDefined(config.ProcessMonitorType)) result.Errors.Add("monitor must be ETW or WMI.");
+        Check(() => config.Report?.Validate());
         Check(() => config.Hdr?.Validate());
         Check(() => config.BreakReminder?.Validate());
         Check(() => config.MonitorMode?.Validate());

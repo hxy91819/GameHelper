@@ -45,4 +45,7 @@ public class AppConfig
     /// 统计自动推送配置；null 表示未配置（config.yml 无 sync 段）。
     /// </summary>
     public SyncSettings? SyncSettings { get; set; }
+
+    /// <summary>Optional annual/quarterly report commentary.</summary>
+    public ReportSettings? Report { get; set; }
 }
