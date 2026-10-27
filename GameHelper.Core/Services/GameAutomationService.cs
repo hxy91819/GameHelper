@@ -32,7 +32,9 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     private ITimer? _maintenanceTimer;
     private readonly ILogger<GameAutomationService> _logger;
     private readonly object _stateLock = new();
-    // Companion I/O stays outside _stateLock. Stop crosses this boundary before invalidation,
+    // Global lock order: monitor update → companion/action execution → state.
+    // Companion/action I/O stays outside _stateLock. Dependencies must not re-enter lifecycle methods.
+    // Stop crosses this boundary before invalidation,
     // so a validated operation cannot begin after Stop has completed.
     private readonly object _companionLock = new();
     private long _generation;
@@ -333,6 +335,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     {
         SpeedAttachmentCoordinator.SpeedAttachRecord? speedAttachCandidate = null;
         string? stoppedDataKey = null;
+        GameAction[] exitActions = [];
 
         lock (_stateLock)
         {
@@ -389,6 +392,8 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
             if (isLastForDataKey)
             {
+                if (_configIndex.All.TryGetValue(entry.DataKey, out var endedGame))
+                    exitActions = (endedGame.Actions ?? []).Where(action => action.When == "afterExit").ToArray();
                 _inFlightRecovery.ReleaseSession(entry.DataKey);
                 _launchOwnership.Release(entry.DataKey);
             }
@@ -400,6 +405,8 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 _logger.LogDebug("Stop events disabled (none active)");
             }
         }
+
+        ExecuteActions(exitActions, generation, failLaunch: false);
 
         // File I/O (WER report lookup) stays outside the state lock; see the correlation record
         // captured under it in OnProcessStopped.
@@ -444,7 +451,47 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     }
 
     /// <inheritdoc />
-    public void Launch(string dataKey) => _launchOwnership.Launch(dataKey);
+    public void Launch(string dataKey)
+    {
+        long generation;
+        lock (_stateLock) generation = _generation;
+        lock (_companionLock)
+        {
+            lock (_stateLock)
+                if (!_started || generation != _generation) throw new InvalidOperationException("启动已取消。");
+            _launchOwnership.Launch(dataKey,
+                game => ExecuteActions((game.Actions ?? []).Where(action => action.When == "beforeLaunch").ToArray(), generation, failLaunch: true),
+                () => _started && generation == _generation);
+        }
+    }
+
+    private void ExecuteActions(IReadOnlyList<GameAction> actions, long generation, bool failLaunch)
+    {
+        foreach (var action in actions)
+        {
+            lock (_companionLock)
+            {
+                lock (_stateLock)
+                {
+                    if (!_started || generation != _generation)
+                    {
+                        if (failLaunch) throw new InvalidOperationException("启动已取消。");
+                        return;
+                    }
+                }
+                try
+                {
+                    if (_gameLauncher is null) throw new InvalidOperationException("动作执行器不可用。");
+                    _gameLauncher.ExecuteAction(action);
+                }
+                catch (Exception ex)
+                {
+                    if (failLaunch) throw new InvalidOperationException($"启动前动作失败：{action.Path}：{ex.Message}", ex);
+                    _logger.LogWarning(ex, "After-exit action failed: {Path}", action.Path);
+                }
+            }
+        }
+    }
 
     /// <inheritdoc />
     public IReadOnlyDictionary<string, string> GetGameStates()

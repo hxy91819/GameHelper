@@ -6,11 +6,12 @@ namespace GameHelper.Core.Services;
 
 /// <summary>
 /// Owns pending library launches, launch provenance, failures and the HDR lease.
-/// Launch borrows the service state lock at the original two launch boundaries;
-/// all other members require that lock from the caller. No new lock is introduced.
-/// Lock order remains UpdateLock → companion → state; this coordinator never enters
-/// the first two locks. Launcher/HDR I/O and persistence callbacks retain their
-/// existing state-lock scope; external dependencies must not re-enter lifecycle calls.
+/// The caller holds the companion/action execution boundary and supplies the captured
+/// lifecycle check. Launch borrows the service state lock for preparation and process
+/// creation; beforeStart executes between those boundaries, outside the state lock.
+/// Lock order is UpdateLock → companion/actions → state; no new lock is introduced.
+/// Launcher/HDR I/O retains its existing state-lock scope; external dependencies must
+/// not synchronously re-enter lifecycle methods or monitor updates.
 /// </summary>
 internal sealed class LaunchOwnershipCoordinator
 {
@@ -110,9 +111,10 @@ internal sealed class LaunchOwnershipCoordinator
 
     internal bool IsOwnLaunched(string dataKey) => _ownLaunchedDataKeys.Contains(dataKey);
 
-    internal void Launch(string dataKey)
+    internal void Launch(string dataKey, Action<GameConfig> beforeStart, Func<bool> isCurrent)
     {
         GameLaunchOptions options;
+        GameConfig launchGame;
         lock (_stateLock)
         {
             if (!_isStarted() || _gameLauncher is null) throw new InvalidOperationException("请先启动游戏监控。");
@@ -121,33 +123,33 @@ internal sealed class LaunchOwnershipCoordinator
                 throw new InvalidOperationException("该游戏正在启动，请稍候。");
             if (_sessionTracker.GetActiveDataKeysSnapshot().Contains(dataKey, StringComparer.OrdinalIgnoreCase))
                 throw new InvalidOperationException("该游戏已经运行；外部启动不支持运行中切换 HDR。");
+            launchGame = game;
             options = game.Launch ?? new GameLaunchOptions { Target = game.ExecutablePath ?? string.Empty };
             _gameLauncher.Validate(options);
-            if (!game.IsEnabled)
+            if (game.IsEnabled)
             {
-                _gameLauncher.Start(options);
-                return;
-            }
-            _pendingLaunches[dataKey] = _timeProvider.GetUtcNow().AddMinutes(2);
-            _launchFailures.Remove(dataKey);
-            try
-            {
-                if (game.HdrEnabled) _hdrScheduler.PrepareForLaunch(_hdr, _logger);
-                _persistInFlightSnapshot();
-            }
-            catch
-            {
-                _pendingLaunches.Remove(dataKey);
-                UpdateHdrState();
-                _persistInFlightSnapshot();
-                throw;
+                _pendingLaunches[dataKey] = _timeProvider.GetUtcNow().AddMinutes(2);
+                _launchFailures.Remove(dataKey);
+                try
+                {
+                    if (game.HdrEnabled) _hdrScheduler.PrepareForLaunch(_hdr, _logger);
+                    _persistInFlightSnapshot();
+                }
+                catch
+                {
+                    _pendingLaunches.Remove(dataKey);
+                    UpdateHdrState();
+                    _persistInFlightSnapshot();
+                    throw;
+                }
             }
         }
         try
         {
+            beforeStart(launchGame);
             lock (_stateLock)
             {
-                if (!_isStarted() || !_pendingLaunches.ContainsKey(dataKey) || !_getConfigIndex().ByDataKey.ContainsKey(dataKey))
+                if (!isCurrent() || (launchGame.IsEnabled && (!_pendingLaunches.ContainsKey(dataKey) || !_getConfigIndex().ByDataKey.ContainsKey(dataKey))))
                     throw new InvalidOperationException("启动已取消，或该游戏已经运行。");
                 _gameLauncher.Start(options);
             }
@@ -156,9 +158,13 @@ internal sealed class LaunchOwnershipCoordinator
         {
             lock (_stateLock)
             {
-                _pendingLaunches.Remove(dataKey);
-                UpdateHdrState();
-                _persistInFlightSnapshot();
+                // Reentrant Stop/Start must not let an old launch clear a new lifecycle's state.
+                if (isCurrent())
+                {
+                    _pendingLaunches.Remove(dataKey);
+                    UpdateHdrState();
+                    _persistInFlightSnapshot();
+                }
             }
             throw;
         }

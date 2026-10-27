@@ -226,6 +226,7 @@ public sealed class GameLaunchCoordinatorTests
     {
         public int Starts { get; private set; }
         public Action? OnStart { get; set; }
+        public void ExecuteAction(GameAction action) { }
         public void StopCompanion() { }
         public void EnsureCompanionRunning(string path) { }
             public void Validate(GameLaunchOptions options) { }

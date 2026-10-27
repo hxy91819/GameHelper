@@ -28,13 +28,15 @@ internal static class Ds4WindowsProcess
         }
     }
 
-    internal static void StopRunning()
+    internal static void StopRunning() => StopRunning(null);
+
+    internal static void StopRunning(string? executable)
     {
         lock (Gate)
         {
             using var current = Process.GetCurrentProcess();
             var sessionId = current.SessionId;
-            var candidates = Process.GetProcessesByName("DS4Windows");
+            var candidates = Process.GetProcessesByName(executable is null ? "DS4Windows" : Path.GetFileNameWithoutExtension(executable));
             var failures = new List<Exception>();
             try
             {
@@ -44,6 +46,8 @@ internal static class Ds4WindowsProcess
                     {
                         // Elevated monitoring must not stop another Windows login session's companion.
                         if (process.HasExited || process.SessionId != sessionId) continue;
+                        if (executable is not null && (process.MainModule?.FileName is not { } image ||
+                            !Path.GetFullPath(image).Equals(Path.GetFullPath(executable), StringComparison.OrdinalIgnoreCase))) continue;
                         var sandbox = Environment.GetEnvironmentVariable(GameHelper.Core.Utilities.AppDataPath.DataDirectoryEnvironmentVariable);
                         if (!string.IsNullOrWhiteSpace(sandbox))
                         {
@@ -62,7 +66,7 @@ internal static class Ds4WindowsProcess
             }
             finally { foreach (var process in candidates) process.Dispose(); }
             if (failures.Count > 0) throw new InvalidOperationException(
-                "未能关闭 DS4Windows，请检查进程权限或手动退出后重试。", new AggregateException(failures));
+                (executable is null ? "未能关闭 DS4Windows，请检查进程权限或手动退出后重试。" : $"未能关闭程序：{executable}，请检查进程权限或手动退出后重试。"), new AggregateException(failures));
         }
     }
 
@@ -78,7 +82,7 @@ internal static class Ds4WindowsProcess
             if (process.CloseMainWindow() && process.WaitForExit(1500)) return;
             if (process.HasExited) return;
             process.Kill();
-            if (!process.WaitForExit(3000)) throw new TimeoutException("DS4Windows 未能及时退出。");
+            if (!process.WaitForExit(3000)) throw new TimeoutException("程序未能及时退出。");
         }
         catch (InvalidOperationException) when (process.HasExited) { }
         catch (Win32Exception) when (process.HasExited) { }
