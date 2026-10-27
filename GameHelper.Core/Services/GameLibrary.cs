@@ -53,6 +53,7 @@ public sealed class GameLibrary(
                     IsEnabled = game.IsEnabled, HdrEnabled = game.HdrEnabled,
                     SpeedMultiplier = game.SpeedMultiplier, ClearSpeedMultiplier = game.SpeedMultiplier is null,
                     SpeedHotkeys = game.SpeedHotkeys, ClearSpeedHotkeys = game.SpeedHotkeys is null,
+                    Actions = game.Actions, ClearActions = game.Actions is null,
                     Launch = game.Launch, ClearLaunch = game.Launch is null, ExpectedRevision = request.ExpectedRevision
                 });
                 automation.ReloadConfig();

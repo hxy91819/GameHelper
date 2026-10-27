@@ -20,6 +20,11 @@ public sealed record GameCatalogUpdateRequest
 
     public bool ClearSpeedMultiplier { get; init; }
 
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<GameAction>? Actions { get; init; }
+
+    public bool ClearActions { get; init; }
+
     public GameLaunchOptions? Launch { get; init; }
 
     public bool ClearLaunch { get; init; }

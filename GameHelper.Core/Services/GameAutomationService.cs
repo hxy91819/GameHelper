@@ -21,6 +21,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     private readonly IHdrController _hdr;
     private readonly IGameLauncher? _gameLauncher;
     private readonly Ds4WindowsAutomationPolicy _companionPolicy;
+    private readonly AfterExitActionQueue _afterExitActions;
     private readonly IProcessPathResolver? _pathResolver;
     private readonly IPlayTimeService _playTime;
     private readonly IBreakReminderService? _breakReminder;
@@ -32,7 +33,10 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     private ITimer? _maintenanceTimer;
     private readonly ILogger<GameAutomationService> _logger;
     private readonly object _stateLock = new();
-    // Companion I/O stays outside _stateLock. Stop crosses this boundary before invalidation,
+    // Global lock order: monitor update → companion/before-launch execution → state.
+    // Queued after-exit admission borrows only state; its I/O and bounded drain hold no locks.
+    // Companion/before-launch I/O stays outside _stateLock. Dependencies must not re-enter lifecycle methods.
+    // Stop crosses this boundary before invalidation,
     // so a validated operation cannot begin after Stop has completed.
     private readonly object _companionLock = new();
     private long _generation;
@@ -80,6 +84,9 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         _monitorMode = new MonitorModeCoordinator(monitorModeController, hdr, locationSource, locationCacheStore,
             _timeProvider, logger, _stateLock, CaptureMonitorModeSnapshot);
         _companionPolicy = new Ds4WindowsAutomationPolicy(gameLauncher, logger);
+        _afterExitActions = new AfterExitActionQueue(_stateLock, generation => _started && generation == _generation,
+            action => (_gameLauncher ?? throw new InvalidOperationException("动作执行器不可用。")).ExecuteAction(action),
+            _timeProvider, logger);
         _processMatcher = new GameProcessMatcher(_configIndex, _pathResolver, _logger);
         _speedAttachment = new SpeedAttachmentCoordinator(
             speedController, _timeProvider, _logger, processIdentityProbe,
@@ -117,6 +124,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             _monitor.ProcessStopped += _processStoppedHandler;
             _sessionSuspend.Subscribe();
             _started = true;
+            _afterExitActions.Start(generation);
             try { _breakReminder?.Start(configuration); }
             catch (Exception ex) { _logger.LogWarning(ex, "Failed to start break reminders"); }
 
@@ -171,6 +179,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
     public void Stop()
     {
+        AfterExitActionQueue.DrainRequest actionDrain;
         lock (_monitorMode.UpdateLock)
         lock (_companionLock)
         {
@@ -178,6 +187,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             {
                 _started = false;
                 ++_generation;
+                actionDrain = _afterExitActions.Stop();
                 if (_maintenanceTimer is not null)
                 {
                     try { _maintenanceTimer.Dispose(); }
@@ -232,6 +242,9 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 _logger.LogInformation("GameAutomationService stopped");
             }
         }
+        // An admitted action may call back into read-only service APIs. Never drain it
+        // while holding state, companion or monitor-update locks.
+        Cleanup(() => _afterExitActions.Drain(actionDrain), "drain after-exit actions");
     }
 
     private void Cleanup(Action cleanup, string operation)
@@ -333,6 +346,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     {
         SpeedAttachmentCoordinator.SpeedAttachRecord? speedAttachCandidate = null;
         string? stoppedDataKey = null;
+        GameAction[] exitActions = [];
 
         lock (_stateLock)
         {
@@ -389,12 +403,15 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
             if (isLastForDataKey)
             {
+                if (_configIndex.All.TryGetValue(entry.DataKey, out var endedGame))
+                    exitActions = (endedGame.Actions ?? []).Where(action => action.When == "afterExit").ToArray();
                 _inFlightRecovery.ReleaseSession(entry.DataKey);
                 _launchOwnership.Release(entry.DataKey);
             }
             try { _launchOwnership.UpdateHdrState(); }
             finally { _inFlightRecovery.PersistInFlightSnapshot(); }
 
+            _afterExitActions.Enqueue(exitActions, generation);
             if (_sessionTracker.ActiveCount == 0 && hadAnyActive)
             {
                 _logger.LogDebug("Stop events disabled (none active)");
@@ -444,7 +461,45 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     }
 
     /// <inheritdoc />
-    public void Launch(string dataKey) => _launchOwnership.Launch(dataKey);
+    public void Launch(string dataKey)
+    {
+        long generation;
+        lock (_stateLock) generation = _generation;
+        lock (_companionLock)
+        {
+            lock (_stateLock)
+                if (!_started || generation != _generation) throw new InvalidOperationException("启动已取消。");
+            _launchOwnership.Launch(dataKey,
+                game => ExecuteActions((game.Actions ?? []).Where(action => action.When == "beforeLaunch").ToArray(), generation),
+                () => _started && generation == _generation);
+        }
+    }
+
+    private void ExecuteActions(IReadOnlyList<GameAction> actions, long generation)
+    {
+        foreach (var action in actions)
+        {
+            lock (_companionLock)
+            {
+                lock (_stateLock)
+                {
+                    if (!_started || generation != _generation)
+                    {
+                        throw new InvalidOperationException("启动已取消。");
+                    }
+                }
+                try
+                {
+                    if (_gameLauncher is null) throw new InvalidOperationException("动作执行器不可用。");
+                    _gameLauncher.ExecuteAction(action);
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException($"启动前动作失败：{action.Path}：{ex.Message}", ex);
+                }
+            }
+        }
+    }
 
     /// <inheritdoc />
     public IReadOnlyDictionary<string, string> GetGameStates()

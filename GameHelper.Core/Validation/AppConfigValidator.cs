@@ -65,6 +65,15 @@ public static class AppConfigValidator
         if (!IsValidSpeedAttach(game.SpeedAttach)) errors.Add("speedAttach must be auto or immediate.");
         try { SpeedHotkey.Validate(game.SpeedHotkeys); }
         catch (ArgumentException ex) { errors.Add("speedHotkeys: " + ex.Message); }
+        foreach (var (action, index) in (game.Actions ?? []).Select((action, index) => (action, index)))
+        {
+            try
+            {
+                if (action is null) throw new ArgumentException("action is required.");
+                action.Validate();
+            }
+            catch (ArgumentException ex) { errors.Add($"actions[{index + 1}]: {ex.Message}"); }
+        }
         // Launch targets may refer to an unmounted Windows drive; validate stored shape without probing installation.
         if (game.Launch is { } launch && string.IsNullOrWhiteSpace(launch.Target)) errors.Add("launch.target is required.");
         return errors.Select(error => $"Game '{game.DataKey}': {error}").ToList();

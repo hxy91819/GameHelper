@@ -53,6 +53,15 @@ games:
     #   arguments: -windowed
     #   workingDirectory: C:\Games
     #   ds4WindowsPath: C:\Tools\DS4Windows\DS4Windows.exe # 可选，启动前运行，已运行时复用
+    # actions:
+    #   - when: beforeLaunch
+    #     type: run
+    #     path: C:\Tools\prepare.exe
+    #     arguments: --game project-plague
+    #     wait: true # 可选，默认 false；最多等待退出 30 秒
+    #   - when: afterExit
+    #     type: close
+    #     path: C:\Tools\overlay.exe # 仅当前登录会话、完整路径一致的进程
   - dataKey: talesofarise
     executable: Tales of Arise.exe
     displayName: Tales of Arise

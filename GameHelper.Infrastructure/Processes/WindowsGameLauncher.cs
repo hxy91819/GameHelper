@@ -22,6 +22,19 @@ public sealed class WindowsGameLauncher : IGameLauncher
         _startEntry(options);
     }
 
+    public void ExecuteAction(GameAction action)
+    {
+        action.Validate();
+        if (action.Type == "close") { Ds4WindowsProcess.StopRunning(action.Path); return; }
+        if (!File.Exists(action.Path)) throw new ArgumentException($"动作程序不存在：{action.Path}");
+        var start = Ds4WindowsProcess.CreateStartInfo(action.Path);
+        start.Arguments = action.Arguments ?? string.Empty;
+        using var process = Process.Start(start) ?? throw new InvalidOperationException($"未能启动：{action.Path}");
+        if (action.Wait != true) return;
+        if (!process.WaitForExit(30000)) throw new TimeoutException($"动作等待退出超过 30 秒：{action.Path}");
+        if (process.ExitCode != 0) throw new InvalidOperationException($"动作退出码 {process.ExitCode}：{action.Path}");
+    }
+
     public void StopCompanion() => _stopCompanion();
 
     public void EnsureCompanionRunning(string executablePath)

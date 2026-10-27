@@ -66,6 +66,10 @@ public class GameConfig
     /// <summary>Optional launch entry; legacy absolute executable paths remain launchable.</summary>
     public GameLaunchOptions? Launch { get; set; }
 
+    /// <summary>Ordered executable actions; absent preserves legacy configuration output.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<GameAction>? Actions { get; set; }
+
     /// <summary>Catalog intake time; legacy entries remain unknown instead of inventing a date.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTimeOffset? AddedAt { get; set; }

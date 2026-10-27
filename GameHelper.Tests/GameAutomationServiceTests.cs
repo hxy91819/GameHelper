@@ -98,6 +98,7 @@ namespace GameHelper.Tests
 
     file sealed class FakeLauncher : IGameLauncher
     {
+        public void ExecuteAction(GameAction action) { }
         public int Starts { get; private set; }
         public List<string> Companions { get; } = [];
         public Action? OnCompanion { get; set; }

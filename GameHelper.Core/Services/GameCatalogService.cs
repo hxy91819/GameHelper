@@ -129,6 +129,12 @@ public sealed class GameCatalogService : IGameCatalogService
             updated.HdrEnabled = request.HdrEnabled ?? existing.HdrEnabled;
             updated.SpeedMultiplier = request.ClearSpeedMultiplier ? null : request.SpeedMultiplier ?? existing.SpeedMultiplier;
             updated.SpeedHotkeys = request.ClearSpeedHotkeys ? null : request.SpeedHotkeys ?? existing.SpeedHotkeys;
+            updated.Actions = request.ClearActions ? null : request.Actions?.ToList() ?? existing.Actions;
+            foreach (var action in updated.Actions ?? [])
+            {
+                if (action is null) throw new ArgumentException("actions: action is required.");
+                action.Validate();
+            }
             updated.Launch = request.ClearLaunch ? null : request.Launch ?? existing.Launch;
 
             SpeedHotkey.Validate(updated.SpeedHotkeys);
@@ -248,6 +254,7 @@ public sealed class GameCatalogService : IGameCatalogService
         SpeedMultiplier = config.SpeedMultiplier,
         SpeedAttach = config.SpeedAttach,
         SpeedHotkeys = config.SpeedHotkeys,
+        Actions = config.Actions?.ToList(),
         Launch = config.Launch
     };
 

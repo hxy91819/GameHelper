@@ -83,12 +83,23 @@ internal static class ConfigEntryNormalizer
             hotkeys = null;
         }
 
+        // Actions are new executable instructions: malformed instructions must never reach callbacks.
+        foreach (var action in source.Actions ?? [])
+        {
+            try
+            {
+                if (action is null) throw new ArgumentException("action is required.");
+                action.Validate();
+            }
+            catch (ArgumentException ex) { throw new InvalidDataException($"Invalid actions for '{dataKey}': {ex.Message}", ex); }
+        }
         var normalized = source.Copy();
         normalized.DataKey = dataKey;
         normalized.Executable = executable;
         normalized.DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName;
         normalized.SpeedMultiplier = speedMultiplier;
         normalized.SpeedHotkeys = hotkeys?.ToList();
+        normalized.Actions = source.Actions?.ToList();
         normalized.SpeedAttach = NormalizeSpeedAttach(source.SpeedAttach, dataKey, logger, rejectInvalidSpeed);
         return normalized;
     }
