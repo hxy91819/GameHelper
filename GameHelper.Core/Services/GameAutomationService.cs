@@ -181,7 +181,6 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
     public void Stop()
     {
-        TimeoutException? attachmentTimeout = null;
         lock (_monitorMode.UpdateLock)
         lock (_companionLock)
         {
@@ -204,11 +203,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 _processStartedHandler = null;
                 _processStoppedHandler = null;
                 Cleanup(_sessionSuspend.Unsubscribe, "unsubscribe power events");
-                Cleanup(() =>
-                {
-                    try { _speedAttachment.CancelAll(); }
-                    catch (TimeoutException ex) { attachmentTimeout = ex; throw; }
-                }, "cancel and drain speed attachments");
+                Cleanup(_speedAttachment.CancelAll, "cancel and drain speed attachments");
 
                 foreach (var dataKey in _sessionTracker.GetActiveDataKeysSnapshot())
                 {
@@ -252,13 +247,9 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                     _logger.LogDebug(ex, "Failed to disable stop events during shutdown");
                 }
 
-                if (attachmentTimeout is null) _logger.LogInformation("GameAutomationService stopped");
-                else _logger.LogWarning("GameAutomationService cleanup completed with an outstanding speed attachment");
+                _logger.LogInformation("GameAutomationService stopped");
             }
         }
-        // Cleanup still completes on timeout, but do not claim a successful stop while an
-        // uninterruptible external controller call remains in progress.
-        if (attachmentTimeout is not null) throw attachmentTimeout;
     }
 
     private void Cleanup(Action cleanup, string operation)

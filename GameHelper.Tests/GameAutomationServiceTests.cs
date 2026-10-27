@@ -367,7 +367,7 @@ namespace GameHelper.Tests
             {
                 monitor.RaiseStart(new ProcessEventInfo("OldGeneration.exe", exePath, 155));
                 await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-                await Task.Run(() => Assert.Throws<TimeoutException>(service.Stop)).WaitAsync(TimeSpan.FromSeconds(8));
+                await Task.Run(service.Stop).WaitAsync(TimeSpan.FromSeconds(8));
                 service.Start();
                 release.Set();
                 await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -384,7 +384,7 @@ namespace GameHelper.Tests
         }
 
         [Fact]
-        public async Task Stop_BlockedController_TimesOutAfterCleanup_AndLateCompletionCannotRestoreRecords()
+        public async Task Stop_BlockedController_WarnsAfterDrainTimeout_AndLateCompletionCannotRestoreRecords()
         {
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             using var release = new ManualResetEventSlim();
@@ -396,16 +396,18 @@ namespace GameHelper.Tests
                 return true;
             });
             var exePath = CreateModdedGameDirectory("Blocked.exe");
+            var logger = new ListLogger<GameAutomationService>();
             var coordinator = new SpeedAttachmentCoordinator(speed.Object, TimeProvider.System,
-                NullLogger.Instance, null, TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(30));
+                logger, null, TimeSpan.FromMilliseconds(10), TimeSpan.FromSeconds(30));
             try
             {
                 coordinator.ApplyConfiguredSpeed(new CoreGameConfig { DataKey = "blocked", SpeedMultiplier = 2 },
                     152, exePath, DateTime.UtcNow.AddMinutes(-1));
                 AppendChainloaderMarker(exePath);
                 await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-                var stop = Task.Run(() => Assert.Throws<TimeoutException>(coordinator.CancelAll));
+                var stop = Task.Run(coordinator.CancelAll);
                 await stop.WaitAsync(TimeSpan.FromSeconds(8));
+                Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("five-second shutdown limit"));
                 coordinator.ClearRecords();
                 release.Set();
                 // A second drain waits for the previously blocked controller and record publication.
@@ -432,6 +434,7 @@ namespace GameHelper.Tests
                 Assert.True(release.Wait(TimeSpan.FromSeconds(15)));
                 return true;
             });
+            var logger = new ListLogger<GameAutomationService>();
             var monitor = new FakeMonitor();
             var playTime = new FakePlayTime();
             var store = new Mock<IInFlightSessionStore>();
@@ -440,7 +443,7 @@ namespace GameHelper.Tests
                 new FakeConfig(new Dictionary<string, CoreGameConfig>
                 {
                     ["blocked"] = new() { DataKey = "blocked", Executable = "Blocked.exe", IsEnabled = true, SpeedMultiplier = 2 }
-                }), new FakeHdr(), playTime, NullLogger<GameAutomationService>.Instance,
+                }), new FakeHdr(), playTime, logger,
                 speedController: speed.Object, inFlightSessionStore: store.Object,
                 speedGatePollInterval: TimeSpan.FromMilliseconds(10), speedGateTimeout: TimeSpan.Zero);
             try
@@ -448,7 +451,8 @@ namespace GameHelper.Tests
                 service.Start();
                 monitor.RaiseStart(new ProcessEventInfo("Blocked.exe", exePath, 154));
                 await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-                await Task.Run(() => Assert.Throws<TimeoutException>(service.Stop)).WaitAsync(TimeSpan.FromSeconds(8));
+                await Task.Run(service.Stop).WaitAsync(TimeSpan.FromSeconds(8));
+                Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("five-second shutdown limit"));
                 Assert.Equal(new[] { "blocked" }, playTime.Stopped);
                 Assert.Empty(service.GetGameStates());
                 Assert.Empty(service.GetRunningSessionStarts());

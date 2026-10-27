@@ -117,7 +117,7 @@ public sealed class SpeedAttachScheduler
 
     /// <summary>
     /// Cancels queued work and waits at most five seconds for callbacks already executing.
-    /// A timeout is reported to the owner: a controller call cannot safely be interrupted.
+    /// A timeout is logged and cleanup may continue: a controller call cannot safely be interrupted.
     /// </summary>
     internal void CancelAllAndWait()
     {
@@ -125,12 +125,15 @@ public sealed class SpeedAttachScheduler
         try
         {
             if (!_executionBoundary.TryEnterWriteLock(StopDrainTimeout))
-                throw new TimeoutException("Speed attachment did not finish within the five-second shutdown limit.");
+            {
+                _logger.LogWarning("Speed attachment did not finish within the five-second shutdown limit; cleanup continues with an outstanding attachment.");
+                return;
+            }
             _executionBoundary.ExitWriteLock();
         }
         catch (LockRecursionException ex)
         {
-            throw new TimeoutException("Cannot drain speed attachment from inside its own callback.", ex);
+            _logger.LogWarning(ex, "Cannot drain speed attachment from inside its own callback; cleanup continues with an outstanding attachment.");
         }
     }
 
