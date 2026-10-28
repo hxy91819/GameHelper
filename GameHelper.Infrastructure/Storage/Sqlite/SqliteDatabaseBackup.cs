@@ -18,7 +18,7 @@ public sealed class SqliteDatabaseBackup
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    /// <summary>Creates a daily backup only after data changes, at most once per UTC date. No scheduler is installed.</summary>
+    /// <summary>Creates a daily backup only after data changes, at most once per UTC date. The background worker owns scheduling.</summary>
     public async Task<string?> CreateDailyBackupAsync(CancellationToken cancellationToken = default)
     {
         using var lease = await SqliteDirectoryLock.AcquireAsync(_factory.DataDirectory, cancellationToken).ConfigureAwait(false);

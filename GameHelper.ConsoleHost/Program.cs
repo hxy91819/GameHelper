@@ -60,7 +60,7 @@ if (startupMode == StartupMode.ForwardFileDropToRunningInstance)
 if (startupMode == StartupMode.ExitAlreadyRunning)
 {
     Console.WriteLine("GameHelper is already running; please do not start it again.");
-    if (parsedArgs.EffectiveArgs.FirstOrDefault() == "storage") Environment.ExitCode = 1;
+    if (string.Equals(parsedArgs.EffectiveArgs.FirstOrDefault(), "storage", StringComparison.OrdinalIgnoreCase)) Environment.ExitCode = 1;
     return;
 }
 

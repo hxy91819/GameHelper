@@ -117,11 +117,13 @@ public sealed class SessionStorage : IDisposable
         catch { /* Projection worker reports and retains its own warning. */ }
         try
         {
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
             var maintenance = new SqliteStorageMaintenance(_factory, _clock);
             var backup = await maintenance.RunAsync(cancellationToken).ConfigureAwait(false);
             if (maintenance.Completed) Volatile.Write(ref _maintenanceFailure, null);
             if (backup is not null)
-                _logs.CreateLogger<SessionStorage>().LogInformation("SQLite daily backup published: {Backup}", backup);
+                _logs.CreateLogger<SessionStorage>().LogInformation("SQLite daily backup published: {Backup}; health/backup elapsed {ElapsedMilliseconds} ms",
+                    backup, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
