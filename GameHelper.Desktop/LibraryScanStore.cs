@@ -12,10 +12,10 @@ internal sealed class LibraryScanStore
     private readonly string? _path;
     private Document _document;
     private readonly DesktopDocument<Document> _storage;
-    internal LibraryScanStore(string? configPath)
+    internal LibraryScanStore(string? configPath, IDesktopDocumentReader? reader = null)
     {
         _path = configPath is null ? null : configPath + ".desktop-scan.json";
-        _storage = new(_path, () => new());
+        _storage = new(_path, () => new(), reader: reader);
         _document = _storage.Read();
     }
     internal IReadOnlyList<string> Directories => _document.Directories;

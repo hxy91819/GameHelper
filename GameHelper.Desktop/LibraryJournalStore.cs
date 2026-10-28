@@ -11,22 +11,27 @@ internal sealed class LibraryJournalStore
     private Dictionary<string, JournalRecord> _records;
     private readonly DesktopDocument<Dictionary<string, JournalRecord>> _document;
 
-    internal LibraryJournalStore(string? configPath)
+    internal LibraryJournalStore(string? configPath, IDesktopDocumentReader? reader = null)
     {
         _path = configPath is null ? null : configPath + ".desktop-journal.json";
-        _document = new(_path, () => new());
+        _document = new(_path, () => new(), reader: reader);
         _records = new(StringComparer.OrdinalIgnoreCase);
         Reload();
     }
 
     internal void Reload()
     {
-        var saved = _document.Read();
-        _records = new(StringComparer.OrdinalIgnoreCase);
+        ApplyRecords(_document.Read());
+    }
+    internal async Task ReloadAsync() => ApplyRecords(await Task.Run(_document.Read));
+    private void ApplyRecords(Dictionary<string, JournalRecord> saved)
+    {
+        var next = new Dictionary<string, JournalRecord>(StringComparer.OrdinalIgnoreCase);
         foreach (var (key, value) in saved)
             if (!string.IsNullOrWhiteSpace(key) && value is not null && Statuses.Contains(value.Status)
                 && value.Note is not null && value.Note.Length <= NoteLimit && !value.Note.Contains('\r') && !value.Note.Contains('\n'))
-                _records[key] = value;
+                next[key] = value;
+        _records = next;
     }
 
     internal JournalRecord Read(string key) => _records.GetValueOrDefault(key) ?? new();

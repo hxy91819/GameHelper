@@ -47,10 +47,11 @@ public partial class App : Application
             if (snapshot is null && !e.Args.Contains("--no-start-host", StringComparer.Ordinal))
                 await RuntimeConnection.EnsureAsync(config);
             await Task.Run(() => GameHelper.Infrastructure.Storage.Sqlite.SqliteDesktopStore.PrepareAsync(new(), config));
-            Theme = new DesktopTheme(Resources, new ThemePreferenceStore(config));
-            Theme.Load();
+            var sideData = await DesktopSideData.LoadAsync(config, readOnly: snapshot is not null);
+            Theme = new DesktopTheme(Resources, sideData.ThemePreferences);
+            Theme.Load(sideData.IsLight);
             if (snapshot is null && !ClaimInstance(config, activate: !restore)) { Shutdown(0); return; }
-            var model = new LibraryViewModel(new GameLibraryPipe(config), snapshot is null ? config : null, metadataConfigPath: config);
+            var model = new LibraryViewModel(new GameLibraryPipe(config), snapshot is null ? config : null, null, metadataConfigPath: config, sideData: sideData);
             var window = new MainWindow(model);
             window.ShowActivated = snapshot is null && !restore;
             if (snapshot is not null || (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GAMEHELPER_DATA_DIR"))

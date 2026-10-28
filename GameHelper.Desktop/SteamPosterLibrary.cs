@@ -22,17 +22,18 @@ internal sealed class SteamPosterLibrary
     private readonly DesktopDocument<Dictionary<string, uint>> _document;
     private readonly Func<uint, string?> _localPoster;
 
-    public SteamPosterLibrary(string? configPath, bool allowNetwork) : this(configPath, allowNetwork,
-        new SteamArtworkClient(Http, Path.Combine(AppDataPath.GetGameHelperDirectory(), "cache", "steam-posters"), LocalGameArtwork.IsValidPoster), LocalPoster) { }
+    public SteamPosterLibrary(string? configPath, bool allowNetwork, IDesktopDocumentReader? reader = null) : this(configPath, allowNetwork,
+        new SteamArtworkClient(Http, Path.Combine(AppDataPath.GetGameHelperDirectory(), "cache", "steam-posters"), LocalGameArtwork.IsValidPoster), LocalPoster, reader) { }
 
-    internal SteamPosterLibrary(string? configPath, bool allowNetwork, SteamArtworkClient client, Func<uint, string?> localPoster)
+    internal SteamPosterLibrary(string? configPath, bool allowNetwork, SteamArtworkClient client, Func<uint, string?> localPoster, IDesktopDocumentReader? reader = null)
     {
         _allowNetwork = allowNetwork;
         _linksPath = configPath is null ? null : configPath + ".desktop-artwork.json";
         _client = client;
         _localPoster = localPoster;
-        _document = new(_linksPath, () => new());
-        _links = new(_document.Read(), StringComparer.OrdinalIgnoreCase);
+        _document = new(_linksPath, () => new(), reader: reader);
+        var saved = _document.Read();
+        _links = _document.UsesSqlite ? new(saved, StringComparer.OrdinalIgnoreCase) : saved;
     }
 
     internal bool AllowNetwork => _allowNetwork;
@@ -59,6 +60,10 @@ internal sealed class SteamPosterLibrary
     {
         lock (_saveGate) SaveCore(dataKey, appId);
     }
+    // Order: _saveGate -> SQLite writer; release writer before taking the projection admission gate.
+    // The worker releases admission before directory lease -> SQLite writer, and never takes _saveGate.
+    // Never take this gate under a SQLite transaction, directory lease or projection gate. Storage/queue admission must not
+    // synchronously call back into Associate/this store; no UI dispatch, network, or user callbacks under the gate.
     private readonly object _saveGate = new();
     private void SaveCore(string dataKey, uint? appId)
     {

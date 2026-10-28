@@ -13,11 +13,15 @@ public sealed class JournalEditorViewModel : ObservableState
     internal JournalEditorViewModel(LibraryJournalStore store, string key, string name, TimeProvider clock)
     {
         _store = store; _key = key; _clock = clock; Name = name;
-        store.Reload();
         var record = store.Read(key);
         _status = record.Status;
         _completedOn = record.CompletedOn?.ToDateTime(TimeOnly.MinValue);
         _note = record.Note;
+    }
+    internal static async Task<JournalEditorViewModel> LoadAsync(LibraryJournalStore store, string key, string name, TimeProvider clock)
+    {
+        await store.ReloadAsync();
+        return new(store, key, name, clock);
     }
     public string Name { get; }
     public IReadOnlyList<string> Statuses => LibraryJournalStore.Statuses;

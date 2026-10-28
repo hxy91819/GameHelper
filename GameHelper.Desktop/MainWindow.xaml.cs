@@ -198,9 +198,13 @@ public partial class MainWindow : Window
         _model.SetGenre((string)((Button)sender).Tag);
         SetInstallationGroup("installed");
     }
-    private void OnEditJournal(object sender, RoutedEventArgs e)
+    private async void OnEditJournal(object sender, RoutedEventArgs e)
     {
-        if (_model.EditSelectedJournal() is { } editor) new JournalEditor(editor) { Owner = this }.ShowDialog();
+        var control = (FrameworkElement)sender;
+        control.IsEnabled = false;
+        try { if (await _model.EditSelectedJournalAsync() is { } editor) new JournalEditor(editor) { Owner = this }.ShowDialog(); }
+        catch (Exception ex) { _model.Status = "手帐未能读取：" + ex.Message; }
+        finally { control.IsEnabled = true; }
     }
 
     private void OnEditGenres(object sender, RoutedEventArgs e)

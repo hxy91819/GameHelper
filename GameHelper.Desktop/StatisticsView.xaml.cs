@@ -12,11 +12,15 @@ public partial class StatisticsView : UserControl
         => ReportPage.Connect(library, enrichReport);
     internal void FocusSearch() { RankingSearch.Focus(); RankingSearch.SelectAll(); }
 
-    private void OnEditJournal(object sender, RoutedEventArgs e)
+    private async void OnEditJournal(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        if (DataContext is StatisticsViewModel model && ((FrameworkElement)sender).DataContext is StatisticsGameRow row)
-            new JournalEditor(model.EditJournal(row)) { Owner = Window.GetWindow(this) }.ShowDialog();
+        var control = (FrameworkElement)sender;
+        if (DataContext is not StatisticsViewModel model || control.DataContext is not StatisticsGameRow row) return;
+        control.IsEnabled = false;
+        try { new JournalEditor(await model.EditJournalAsync(row)) { Owner = Window.GetWindow(this) }.ShowDialog(); }
+        catch (Exception ex) { MessageBox.Show(Window.GetWindow(this), "手帐未能读取：" + ex.Message, "GameHelper"); }
+        finally { control.IsEnabled = true; }
     }
 
     private async void OnGameClicked(object sender, MouseButtonEventArgs e)

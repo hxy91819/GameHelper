@@ -54,24 +54,25 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
 
     public LibraryViewModel(IGameLibrary library, string? configPath = null, string? metadataConfigPath = null) : this(library, configPath, null, metadataConfigPath: metadataConfigPath) { }
 
-    internal LibraryViewModel(IGameLibrary library, string? configPath, SteamPosterLibrary? posters, TimeProvider? timeProvider = null, string? metadataConfigPath = null, GameHelper.Infrastructure.Artwork.SteamGenreClient? genreClient = null)
+    internal LibraryViewModel(IGameLibrary library, string? configPath, SteamPosterLibrary? posters, TimeProvider? timeProvider = null, string? metadataConfigPath = null, GameHelper.Infrastructure.Artwork.SteamGenreClient? genreClient = null, DesktopSideData? sideData = null)
     {
         _library = library;
-        _genreStore = new LibraryGenreStore(configPath ?? metadataConfigPath);
-        _scanStore = new LibraryScanStore(configPath);
+        _genreStore = sideData?.Genres ?? new LibraryGenreStore(configPath ?? metadataConfigPath);
+        _scanStore = sideData?.Scan ?? new LibraryScanStore(configPath);
         _allowGenreNetwork = configPath is not null && (posters?.AllowNetwork ?? true);
         _genreClient = genreClient ?? new(GenreHttp, Path.Combine(GameHelper.Core.Utilities.AppDataPath.GetGameHelperDirectory(), "cache", "steam-genres"));
         _timeProvider = timeProvider ?? TimeProvider.System;
-        _journalStore = new LibraryJournalStore(configPath ?? metadataConfigPath);
+        _journalStore = sideData?.Journal ?? new LibraryJournalStore(configPath ?? metadataConfigPath);
         _journalStore.Saved += OnJournalSaved;
         Statistics = new StatisticsViewModel(library, FindArtwork, _journalStore, _timeProvider);
-        _posters = posters ?? new SteamPosterLibrary(configPath ?? metadataConfigPath, allowNetwork: configPath is not null);
+        _posters = posters ?? sideData?.Posters ?? new SteamPosterLibrary(configPath ?? metadataConfigPath, allowNetwork: configPath is not null);
         if (configPath is not null)
         {
-            _draftStore = new LibraryDraftStore(configPath);
-            try { _restoredDrafts = _draftStore.Read().ToDictionary(draft => draft.Baseline.Config.DataKey, StringComparer.OrdinalIgnoreCase); }
+            _draftStore = sideData?.DraftStore ?? new LibraryDraftStore(configPath);
+            try { _restoredDrafts = (sideData?.Drafts ?? _draftStore.Read()).ToDictionary(draft => draft.Baseline.Config.DataKey, StringComparer.OrdinalIgnoreCase); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
             { _status = "上次未保存的修改未能读取，已忽略。"; }
+            if (sideData?.DraftError is { } draftError) _status = draftError;
         }
         Games = CollectionViewSource.GetDefaultView(_games);
         Games.Filter = Matches;
@@ -119,6 +120,13 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public string Search { get => _search; set { if (Set(ref _search, value)) Filter(); } }
     public LibraryGameItem? Selected { get => _selected; set { if (Set(ref _selected, value)) { ActionError = string.Empty; Changed(nameof(SelectedJournalSummary)); } RefreshCommands(); } }
     public string SelectedJournalSummary => Selected is null ? string.Empty : JournalSummary(_journalStore.Read(Selected.DataKey));
+    internal Task<JournalEditorViewModel?> EditSelectedJournalAsync()
+    {
+        var selected = Selected;
+        return selected is null ? Task.FromResult<JournalEditorViewModel?>(null) : LoadJournalAsync(selected);
+    }
+    private async Task<JournalEditorViewModel?> LoadJournalAsync(LibraryGameItem selected) =>
+        await JournalEditorViewModel.LoadAsync(_journalStore, selected.DataKey, selected.Name, _timeProvider);
     internal JournalEditorViewModel? EditSelectedJournal() => Selected is null ? null : new(_journalStore, Selected.DataKey, Selected.Name, _timeProvider);
     private void OnJournalSaved(object? sender, EventArgs e) => Changed(nameof(SelectedJournalSummary));
     internal static string JournalSummary(JournalRecord record) => record.Status
@@ -216,8 +224,17 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             await RunAsync(async () =>
             {
                 await _draftWrite;
-                await Task.Run(() => _draftStore?.Read()); // Explicit discard accepts the latest collection revision.
-                Apply(await _library.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.List }, _lifetime.Token), true);
+                var response = await _library.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.List }, _lifetime.Token);
+                if (!response.Success) throw new InvalidOperationException(response.Error);
+                var discardCurrent = HasUnsavedChanges;
+                var latest = await Task.Run(() =>
+                {
+                    // Delete only with the editor's original expectation; never refresh the version before deleting.
+                    if (discardCurrent) _draftStore?.Write([]);
+                    return _draftStore?.Read() ?? [];
+                });
+                _restoredDrafts = latest.ToDictionary(d => d.Baseline.Config.DataKey, StringComparer.OrdinalIgnoreCase);
+                Apply(response, true);
             });
             return;
         }
@@ -296,7 +313,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             .ThenByDescending(item => item.Index).Select(item => item.Game))
         {
             LibraryGameItem item;
-            if (!discardDrafts && _restoredDrafts.Remove(row.Config.DataKey, out var restored))
+            if (_restoredDrafts.Remove(row.Config.DataKey, out var restored))
             {
                 item = LibraryGameItem.RestoreDraft(restored);
                 item.RefreshRuntime(row);
@@ -335,11 +352,10 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         Changed(nameof(ContinueGame)); Changed(nameof(HasContinueGame));
         Changed(nameof(Count)); Changed(nameof(InstallationSummary));
         Selected = Games.Cast<LibraryGameItem>().FirstOrDefault(game => game.DataKey == key) ?? Games.Cast<LibraryGameItem>().FirstOrDefault();
-        if (discardDrafts) _restoredDrafts.Clear();
         Connected = true;
         ConfigPath = response.ConfigPath;
         Status = response.Message ?? (response.MonitorRunning ? "监控已就绪 · 关闭游戏库后继续监控" : "监控未运行 · 启动游戏时会先开启监控");
-        PersistDrafts();
+        if (!discardDrafts) PersistDrafts();
     }
 
     private static DateTimeOffset Activity(LibraryGame game)
@@ -480,7 +496,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     }
     private void PersistDrafts()
     {
-        var drafts = _games.Where(game => game.IsDirty).Select(game => game.ExportDraft()).ToList();
+        var drafts = _games.Where(game => game.IsDirty).Select(game => game.ExportDraft()).Concat(_restoredDrafts.Values).ToList();
         if (_draftStore?.UsesSqlite != true)
         {
             try { _draftStore?.Write(drafts); }

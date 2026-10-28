@@ -5,9 +5,9 @@ using System.Windows.Media;
 namespace GameHelper.Desktop;
 
 /// <summary>Per-configuration appearance preference, independent of runtime configuration and drafts.</summary>
-internal sealed class ThemePreferenceStore(string configPath)
+internal sealed class ThemePreferenceStore(string configPath, IDesktopDocumentReader? reader = null)
 {
-    private readonly DesktopDocument<Preference> _document = new(configPath + ".desktop-theme.json", () => new("dark"));
+    private readonly DesktopDocument<Preference> _document = new(configPath + ".desktop-theme.json", () => new("dark"), reader: reader);
 
     internal bool ReadLight()
     {
@@ -30,6 +30,7 @@ internal sealed class DesktopTheme(ResourceDictionary resources, ThemePreference
     private int _revision;
     internal bool IsLight { get; private set; }
 
+    internal void Load(bool light) => Set(light, persist: false);
     internal void Load() => Set(preferences.ReadLight(), persist: false);
 
     internal async Task SetAsync(bool light)

@@ -67,9 +67,40 @@ internal static class DesktopDocumentStore
         });
 }
 
-/// <summary>One editor baseline; an activated database never falls back after a read/write failure.</summary>
-internal sealed class DesktopDocument<T>(string? path, Func<T> empty, bool recoverReadFailure = true) where T : class
+/// <summary>Replaceable synchronous I/O boundary; production callers load it on a worker.</summary>
+internal interface IDesktopDocumentReader
 {
+    T Read<T>(string? path, Func<T> empty, bool recoverReadFailure,
+        out GameHelper.Infrastructure.Storage.Sqlite.SqliteDesktopStore? database,
+        out GameHelper.Infrastructure.Storage.Sqlite.DesktopDocumentSnapshot? baseline) where T : class;
+}
+internal sealed class DesktopDocumentReader : IDesktopDocumentReader
+{
+    internal static readonly DesktopDocumentReader Instance = new();
+    public T Read<T>(string? path, Func<T> empty, bool recoverReadFailure,
+        out GameHelper.Infrastructure.Storage.Sqlite.SqliteDesktopStore? database,
+        out GameHelper.Infrastructure.Storage.Sqlite.DesktopDocumentSnapshot? baseline) where T : class
+    {
+        database = null; baseline = null;
+        if (path is not null)
+        {
+            var marker = path.LastIndexOf(".desktop-", StringComparison.Ordinal);
+            var factory = new GameHelper.Infrastructure.Storage.Sqlite.SqliteConnectionFactory();
+            if (marker >= 0 && GameHelper.Infrastructure.Storage.Sqlite.SqliteDesktopStore.IsActivated(factory))
+            {
+                database = new(factory, path[..marker]);
+                baseline = database.Read(path[(marker + 9)..^5]);
+                return JsonSerializer.Deserialize<T>(baseline.Json) ?? empty();
+            }
+        }
+        return DesktopDocumentStore.Read(path, empty, recoverReadFailure);
+    }
+}
+
+/// <summary>One editor baseline; an activated database never falls back after a read/write failure.</summary>
+internal sealed class DesktopDocument<T>(string? path, Func<T> empty, bool recoverReadFailure = true, IDesktopDocumentReader? reader = null) where T : class
+{
+    private readonly IDesktopDocumentReader _reader = reader ?? DesktopDocumentReader.Instance;
     private GameHelper.Infrastructure.Storage.Sqlite.SqliteDesktopStore? _database;
     private GameHelper.Infrastructure.Storage.Sqlite.DesktopDocumentSnapshot? _baseline;
     private string? _kind;
@@ -77,23 +108,13 @@ internal sealed class DesktopDocument<T>(string? path, Func<T> empty, bool recov
     internal T Read()
     {
         _read = true;
+        var result = _reader.Read(path, empty, recoverReadFailure, out _database, out _baseline);
         if (path is not null)
         {
             var marker = path.LastIndexOf(".desktop-", StringComparison.Ordinal);
-            var factory = new GameHelper.Infrastructure.Storage.Sqlite.SqliteConnectionFactory();
-            if (marker >= 0 && File.Exists(factory.DatabasePath))
-            {
-                // Startup completed the shared initializer and scope import on a worker before creating views.
-                if (GameHelper.Infrastructure.Storage.Sqlite.SqliteDesktopStore.IsActivated(factory))
-                {
-                    _database = new(factory, path[..marker]);
-                    _kind = path[(marker + 9)..^5];
-                    _baseline = _database.Read(_kind);
-                    return JsonSerializer.Deserialize<T>(_baseline.Json) ?? empty();
-                }
-            }
+            _kind = path[(marker + 9)..^5];
         }
-        return DesktopDocumentStore.Read(path, empty, recoverReadFailure);
+        return result;
     }
     internal bool UsesSqlite { get { if (!_read) Read(); return _database is not null; } }
     internal void Write(T document)

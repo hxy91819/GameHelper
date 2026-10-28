@@ -1,3 +1,4 @@
+using Moq;
 using GameHelper.Core.Models;
 using GameHelper.Desktop;
 using GameHelper.Infrastructure.Storage.Sqlite;
@@ -33,7 +34,7 @@ public sealed class SqliteDesktopUiTests : IDisposable
         Assert.Equal(new DateTime(2025, 1, 3), editor.CompletedOn);
         Assert.Contains("另一窗口", editor.Error);
         Assert.Equal("另一进程", new LibraryJournalStore(Config).Read("game").Note);
-        Assert.Equal("另一进程", new JournalEditorViewModel(local, "game", "游戏", new Clock()).Note);
+        Assert.Equal("另一进程", (await JournalEditorViewModel.LoadAsync(local, "game", "游戏", new Clock())).Note);
     }
 
     [Fact]
@@ -87,6 +88,129 @@ public sealed class SqliteDesktopUiTests : IDisposable
         command.CommandText = "DROP TRIGGER fail_journal;"; command.ExecuteNonQuery();
         Assert.True(await editor.SaveAsync());
         Assert.Equal("不能丢失", new LibraryJournalStore(Config).Read("game").Note);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public Task CleanWindowReload_ReceivesOtherProcessDraftWithoutDeletingIt(bool inCatalog) => OnDispatcher(async () =>
+    {
+        await Seed();
+        var baseline = new LibraryGame { Config = new() { DataKey = "game", Executable = "game.exe" }, Revision = "baseline" };
+        var backend = new Moq.Mock<GameHelper.Core.Abstractions.IGameLibrary>();
+        backend.Setup(b => b.ExecuteAsync(Moq.It.IsAny<GameLibraryRequest>(), Moq.It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GameLibraryResponse { Success = true, Games = inCatalog ? [baseline] : [], ConfigPath = Config });
+        using var model = new LibraryViewModel(backend.Object, Config);
+        await model.RefreshAsync(); await model.FlushDraftsAsync();
+        Assert.False(model.HasUnsavedChanges);
+        var other = new LibraryDraftStore(Config); other.Read();
+        var draft = new LibraryDraft(baseline, "另一进程草稿", "game.exe", "target", "--edit", "work", "2.", false, true, true, SpeedHotkeys: "Ctrl+F1=", Actions: []);
+        other.Write([draft]);
+        await model.RefreshAsync(discardDrafts: true);
+        await model.FlushDraftsAsync();
+        var preserved = Assert.Single(new LibraryDraftStore(Config).Read());
+        Assert.Equal("另一进程草稿", preserved.Name); Assert.Equal("Ctrl+F1=", preserved.SpeedHotkeys);
+        if (inCatalog) Assert.Equal("另一进程草稿", model.Selected!.Name);
+        // A subsequent normal refresh must retain drafts whose game isn't currently in the catalog, too.
+        await model.RefreshAsync(); await model.FlushDraftsAsync();
+        Assert.Equal("另一进程草稿", Assert.Single(new LibraryDraftStore(Config).Read()).Name);
+    });
+
+    [Fact]
+    public Task DiscardCurrentDraft_UsesOriginalExpectation_ConcurrentEditConflictsAndIsRetained() => OnDispatcher(async () =>
+    {
+        await Seed();
+        var baseline = new LibraryGame { Config = new() { DataKey = "game", Executable = "game.exe" }, Revision = "baseline" };
+        var backend = new Moq.Mock<GameHelper.Core.Abstractions.IGameLibrary>();
+        backend.Setup(b => b.ExecuteAsync(Moq.It.IsAny<GameLibraryRequest>(), Moq.It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GameLibraryResponse { Success = true, Games = [baseline], ConfigPath = Config });
+        using var model = new LibraryViewModel(backend.Object, Config);
+        await model.RefreshAsync();
+        model.Selected!.Name = "本窗口编辑"; await model.FlushDraftsAsync();
+        var other = new LibraryDraftStore(Config); var draft = Assert.Single(other.Read());
+        other.Write([draft with { Name = "并发编辑" }]);
+        await model.RefreshAsync(discardDrafts: true);
+        Assert.Equal("本窗口编辑", model.Selected.Name);
+        Assert.Contains("另一窗口", model.Status);
+        Assert.Equal("并发编辑", Assert.Single(new LibraryDraftStore(Config).Read()).Name);
+    });
+
+    [Fact]
+    public async Task UnactivatedFallback_ArtworkKeepsLegacyCaseSensitiveEntries()
+    {
+        Environment.SetEnvironmentVariable("GAMEHELPER_DATA_DIR", _root);
+        Directory.CreateDirectory(Path.GetDirectoryName(Config)!);
+        File.WriteAllText(Config + ".desktop-artwork.json", "{\"game\":123,\"GAME\":456}");
+        using var storage = new SessionStorage(Factory, new Clock(), Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance);
+        await storage.InitializeAsync(Config, []);
+        Assert.False(storage.UsesSqlite);
+        var artwork = new SteamPosterLibrary(Config, allowNetwork: false);
+        Assert.Equal(123u, artwork.AssociatedAppId("game"));
+        Assert.Equal(456u, artwork.AssociatedAppId("GAME"));
+        Assert.Null(artwork.AssociatedAppId("Game"));
+    }
+
+    [Fact]
+    public void UnactivatedFallback_OtherFiveDocumentsKeepLegacyReadRules()
+    {
+        Environment.SetEnvironmentVariable("GAMEHELPER_DATA_DIR", _root);
+        Directory.CreateDirectory(Path.GetDirectoryName(Config)!);
+        File.WriteAllText(Config + ".desktop-journal.json", "{\"game\":{\"Status\":\"在玩\"},\"GAME\":{\"Status\":\"搁置\"}}");
+        Assert.Equal("搁置", new LibraryJournalStore(Config).Read("game").Status);
+        File.WriteAllText(Config + ".desktop-genres.json", "{\"game\":[]}");
+        Assert.True(new LibraryGenreStore(Config).TryRead("GAME", out var genres)); Assert.Empty(genres);
+        var directories = Enumerable.Range(0, 8).Select(i => "root-" + i).ToArray();
+        File.WriteAllText(Config + ".desktop-scan.json", System.Text.Json.JsonSerializer.Serialize(new { Directories = directories, Ignored = new[] { "same.exe", "same.exe" } }));
+        var scan = new LibraryScanStore(Config);
+        Assert.Equal(directories, scan.Directories); Assert.Equal(2, scan.Ignored.Count);
+        File.WriteAllText(Config + ".desktop-theme.json", "{\"Theme\":\"LIGHT\"}");
+        Assert.False(new ThemePreferenceStore(Config).ReadLight());
+        File.WriteAllText(Config + ".desktop-drafts.json", "null");
+        Assert.Empty(new LibraryDraftStore(Config).Read());
+    }
+
+    [Fact]
+    public Task StartupAndJournalOpen_ReadThroughReplaceableBoundaryOnWorkers() => OnDispatcher(async () =>
+    {
+        await Seed();
+        var reader = new WorkerOnlyReader(Environment.CurrentManagedThreadId);
+        var sideData = await DesktopSideData.LoadAsync(Config, reader: reader);
+        Assert.Equal(6, reader.Paths.Count);
+        using var model = new LibraryViewModel(Moq.Mock.Of<GameHelper.Core.Abstractions.IGameLibrary>(), Config, null, sideData: sideData);
+        Assert.Equal(6, reader.Paths.Count); // The view constructor consumes preloaded data; no hidden connection/query.
+        var editor = await JournalEditorViewModel.LoadAsync(sideData.Journal, "game", "游戏", new Clock());
+        Assert.Equal(7, reader.Paths.Count);
+        Assert.Equal("未开始", editor.Status);
+    });
+
+    private sealed class WorkerOnlyReader(int uiThreadId) : IDesktopDocumentReader
+    {
+        internal readonly System.Collections.Concurrent.ConcurrentBag<string?> Paths = [];
+        public T Read<T>(string? path, Func<T> empty, bool recoverReadFailure,
+            out SqliteDesktopStore? database, out DesktopDocumentSnapshot? baseline) where T : class
+        {
+            Assert.NotEqual(uiThreadId, Environment.CurrentManagedThreadId);
+            Paths.Add(path);
+            return DesktopDocumentReader.Instance.Read(path, empty, recoverReadFailure, out database, out baseline);
+        }
+    }
+    private static Task OnDispatcher(Func<Task> action)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext(dispatcher));
+            dispatcher.BeginInvoke(new Action(async () =>
+            {
+                try { await action(); completion.SetResult(); }
+                catch (Exception ex) { completion.SetException(ex); }
+                finally { dispatcher.BeginInvokeShutdown(System.Windows.Threading.DispatcherPriority.Background); }
+            }));
+            System.Windows.Threading.Dispatcher.Run();
+        }) { IsBackground = true };
+        thread.SetApartmentState(ApartmentState.STA); thread.Start();
+        return completion.Task.WaitAsync(TimeSpan.FromSeconds(30));
     }
 
     public void Dispose()

@@ -141,6 +141,7 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
     public IReadOnlyList<string> JournalStatuses { get; } = ["所有状态", .. LibraryJournalStore.Statuses];
     public string SelectedJournalStatus { get => string.IsNullOrEmpty(_journalStatus) ? "所有状态" : _journalStatus; set { if (Set(ref _journalStatus, value == "所有状态" ? string.Empty : value)) RefreshFilter(); } }
     public bool HasMatchingGames => !Games.IsEmpty;
+    internal Task<JournalEditorViewModel> EditJournalAsync(StatisticsGameRow row) => JournalEditorViewModel.LoadAsync(_journal, row.DataKey, row.Name, _clock);
     internal JournalEditorViewModel EditJournal(StatisticsGameRow row) => new(_journal, row.DataKey, row.Name, _clock);
     private void RefreshFilter() { Games.Refresh(); Changed(nameof(HasMatchingGames)); }
     private void OnJournalSaved(object? sender, EventArgs e)
