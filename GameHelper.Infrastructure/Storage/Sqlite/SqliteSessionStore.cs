@@ -119,6 +119,7 @@ public sealed class SqliteSessionStore : IInFlightSessionStore, IPlaytimeSnapsho
                     session.LaunchedByHelper is null ? "unknown" : session.LaunchedByHelper.Value ? "library" : "external",
                     completionSource, _clock.GetUtcNow().ToString("O"));
                 Execute(c, tx, "UPDATE storage_meta SET history_revision=history_revision+1,data_revision=data_revision+1;");
+                if (completionSource == "observed") result = result with { RatingInvitationId = session.SessionId };
             }
             Execute(c, tx, "DELETE FROM inflight_processes WHERE session_id=$0; DELETE FROM inflight_sessions WHERE session_id=$0;", id);
             var nextRevision = _revision + Execute(c, tx, "UPDATE runtime_snapshot SET revision=revision+1;");
@@ -157,7 +158,8 @@ public sealed class SqliteSessionStore : IInFlightSessionStore, IPlaytimeSnapsho
         using var reader = command.ExecuteReader();
         while (reader.Read()) journal.Add(new(reader.GetString(0), reader.GetString(0),
             DateOnly.Parse(reader.GetString(2), System.Globalization.CultureInfo.InvariantCulture), reader.GetString(1), reader.GetString(3)));
-        return new PlaytimeSnapshot(history, null, HistoryVersion: version, Journal: journal);
+        reader.Close();
+        return new PlaytimeSnapshot(history, null, HistoryVersion: version, Journal: journal, Ratings: SqliteSessionRatingStore.ReadRatings(c, tx));
     });
 
     private PlaytimeSnapshot GetSnapshotCore()

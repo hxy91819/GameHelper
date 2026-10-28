@@ -23,7 +23,7 @@ public sealed class ReportCommentaryClient(HttpClient http, TimeProvider? timePr
             longestSession = report.LongestSession is { } longest ? new { longest.DataKey, longest.Minutes } : null,
             months = report.Months.Select(bucket => new { bucket.Label, bucket.Minutes }),
             weeks = report.Weeks.Select(bucket => new { bucket.Label, bucket.Minutes }),
-            report.HourMinutes, report.NewGameKeys,
+            report.HourMinutes, report.NewGameKeys, report.AverageRating, report.RatingSamples,
             clearedGames = report.ClearedGames.Count,
             clearedGameNames = report.ClearedGames.Select(game => game.Name)
         };

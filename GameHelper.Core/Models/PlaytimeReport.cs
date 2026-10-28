@@ -9,6 +9,12 @@ public sealed record PlaytimeReport
     public int ActiveDays { get; init; }
     public int GamesPlayed { get; init; }
     public int Sessions { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public double? AverageRating { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int RatingSamples { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public RatedSession? HighestRatedSession { get; init; }
     public long PreviousMinutes { get; init; }
     public int PreviousActiveDays { get; init; }
     public int PreviousGamesPlayed { get; init; }

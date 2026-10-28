@@ -22,6 +22,10 @@ public sealed class ReportCommentaryClientTests
             using var json = JsonDocument.Parse(body);
             Assert.Equal("model-test", json.RootElement.GetProperty("model").GetString());
             using var summary = JsonDocument.Parse(json.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
+            Assert.Equal(new[] { "year", "quarter", "partial", "Minutes", "ActiveDays", "GamesPlayed", "Sessions", "PreviousMinutes", "PreviousActiveDays", "PreviousGamesPlayed", "topGames", "longestSession", "months", "weeks", "HourMinutes", "NewGameKeys", "AverageRating", "RatingSamples", "clearedGames", "clearedGameNames" }.Order(),
+                summary.RootElement.EnumerateObject().Select(p => p.Name).Order());
+            Assert.Equal(4.5, summary.RootElement.GetProperty("AverageRating").GetDouble());
+            Assert.Equal(2, summary.RootElement.GetProperty("RatingSamples").GetInt32());
             Assert.Equal(120, summary.RootElement.GetProperty("Minutes").GetInt64());
             Assert.Equal("game-key", summary.RootElement.GetProperty("topGames")[0].GetProperty("DataKey").GetString());
             Assert.Equal(1, summary.RootElement.GetProperty("clearedGames").GetInt32());
@@ -30,12 +34,15 @@ public sealed class ReportCommentaryClientTests
         }));
         var result = await new ReportCommentaryClient(http).GenerateAsync(new()
         {
+            AverageRating = 4.5, RatingSamples = 2,
+            HighestRatedSession = new(Guid.NewGuid(), "secret-rating-key", new(2025, 1, 1), new(2025, 1, 2), 15,
+                new(5, "private-thought", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, 1), 1),
             Minutes = 120, TopGames = [new("game-key", @"C:\Private\DisplayName", 120, 2, new(2026, 1, 1, 14, 32, 0))],
             LongestSession = new("game-key", "private-name", 60, 1, new(2026, 1, 1, 14, 32, 0)),
             ClearedGames = [new("cleared-key", "Cleared Game", new(2026, 3, 2), "已通关", "私有短评不得上传")]
         }, Settings);
         Assert.Equal("简短点评", result);
-        foreach (var sensitive in new[] { "Private", "private-name", "LastPlayed", "StartTime", "EndTime", "secret-test", "14:32", "ConfigPath", "Note", "私有短评" })
+        foreach (var sensitive in new[] { "Private", "private-name", "LastPlayed", "StartTime", "EndTime", "secret-test", "14:32", "ConfigPath", "Note", "私有短评", "private-thought", "secret-rating-key", "Thought", "HighestRatedSession" })
             Assert.DoesNotContain(sensitive, body!);
     }
 
