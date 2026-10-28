@@ -9,6 +9,7 @@ internal sealed class SqliteEventWriteBudget(DateTime eventTime)
 {
     private readonly long _started = Stopwatch.GetTimestamp();
     internal DateTime EventTime { get; } = eventTime;
+    internal TimeSpan Remaining => TimeSpan.FromMilliseconds(4900) - Stopwatch.GetElapsedTime(_started);
 
     internal SqliteTransaction BeginWrite(SqliteConnection connection)
     {

@@ -26,6 +26,7 @@ public sealed class SqliteConnectionFactory
     /// <summary>Opens an initialized database, rejecting unsupported versions before returning a writer.</summary>
     public SqliteConnection OpenConnection()
     {
+        ThrowIfUnhealthy();
         var connection = OpenFile(DatabasePath, SqliteOpenMode.ReadWrite);
         try
         {
@@ -39,6 +40,16 @@ public sealed class SqliteConnectionFactory
         }
         catch { connection.Dispose(); throw; }
     }
+
+    internal string HealthFailurePath => Path.Combine(DataDirectory, ".userdata.unhealthy");
+
+    internal void ThrowIfUnhealthy()
+    {
+        if (File.Exists(HealthFailurePath))
+            throw new InvalidDataException("SQLite 完整性检查失败，已停止写入与同步；请停止所有实例后显式恢复：" + File.ReadAllText(HealthFailurePath));
+    }
+
+    internal void Quarantine(Exception exception) => File.WriteAllText(HealthFailurePath, exception.Message);
 
     internal static SqliteConnection OpenFile(string path, SqliteOpenMode mode)
     {

@@ -5,7 +5,7 @@ using Microsoft.Data.Sqlite;
 
 namespace GameHelper.Infrastructure.Storage.Sqlite;
 
-/// <summary>Verified local backup primitives. Scheduling and production activation belong to later ADR batches.</summary>
+/// <summary>Verified local backup primitives. Daily scheduling is owned by the background maintenance service.</summary>
 public sealed class SqliteDatabaseBackup
 {
     private readonly SqliteConnectionFactory _factory;
@@ -23,13 +23,18 @@ public sealed class SqliteDatabaseBackup
     {
         using var lease = await SqliteDirectoryLock.AcquireAsync(_factory.DataDirectory, cancellationToken).ConfigureAwait(false);
         using var source = _factory.OpenConnection();
+        cancellationToken.ThrowIfCancellationRequested();
+        return CreateDailyUnderLock(source);
+    }
+
+    internal string? CreateDailyUnderLock(SqliteConnection source)
+    {
         var current = ReadMetadata(source, "daily", _timeProvider.GetUtcNow(), 0);
         var previous = ReadBackups(_factory.DataDirectory, "daily").FirstOrDefault();
         if (current.DataRevision == 0 && previous.Manifest is null) return null;
         if (previous.Manifest is { } prior && prior.DatabaseId == current.DatabaseId &&
             (prior.CreatedAtUtc.UtcDateTime.Date == current.CreatedAtUtc.UtcDateTime.Date || prior.DataRevision == current.DataRevision))
             return null;
-        cancellationToken.ThrowIfCancellationRequested();
         return CreateUnderLock(_factory, source, "daily", _timeProvider);
     }
 
@@ -66,6 +71,7 @@ public sealed class SqliteDatabaseBackup
             }
             cancellationToken.ThrowIfCancellationRequested();
             PublishRestore(candidate);
+            File.Delete(_factory.HealthFailurePath);
         }
         finally { DeleteCandidate(candidate); }
     }

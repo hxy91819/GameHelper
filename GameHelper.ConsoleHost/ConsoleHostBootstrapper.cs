@@ -167,6 +167,7 @@ public static class ConsoleHostBootstrapper
             sp.GetRequiredService<IStatsUploadChannelProvider>(), sp.GetRequiredService<StatsReportBuilder>(),
             sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<SyncService>>()));
         services.AddSingleton<IHostedService, SyncBackgroundService>();
+        services.AddHostedService<StorageMaintenanceBackgroundService>();
 
         services.AddSingleton<IConfigPathProvider>(sp => (IConfigPathProvider)sp.GetRequiredService<IGameConfiguration>());
         services.AddSingleton<FileDropIntake>();

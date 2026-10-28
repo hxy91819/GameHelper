@@ -35,10 +35,10 @@ public sealed class SqliteSessionStore : IInFlightSessionStore, IPlaytimeSnapsho
 
     public DateTime? EventTime => _event.Value?.EventTime;
 
-    private SqliteTransaction BeginWrite(SqliteConnection connection)
+    private SqliteTransaction BeginWrite(SqliteConnection connection, SqliteEventWriteBudget budget)
     {
         _checkpoint?.Invoke("write.acquire.before");
-        return (_event.Value ?? new SqliteEventWriteBudget(_clock.GetLocalNow().DateTime)).BeginWrite(connection);
+        return budget.BeginWrite(connection);
     }
 
     private sealed class EventScope(Action restore) : IDisposable
@@ -61,8 +61,10 @@ public sealed class SqliteSessionStore : IInFlightSessionStore, IPlaytimeSnapsho
 
     private void SaveCore(InFlightSnapshot snapshot)
     {
+        var budget = _event.Value ?? new SqliteEventWriteBudget(_clock.GetLocalNow().DateTime);
+        using var admission = SqliteMaintenanceAdmission.EnterWrite(_factory.DataDirectory, () => budget.Remaining);
         using (var c = _factory.OpenConnection())
-        using (var tx = BeginWrite(c))
+        using (var tx = BeginWrite(c, budget))
         {
             CheckRevision(c, tx);
             // Never resurrect a completed ID from an old in-memory snapshot after a lost commit response.
@@ -98,8 +100,10 @@ public sealed class SqliteSessionStore : IInFlightSessionStore, IPlaytimeSnapsho
     {
         var duration = end > session.StartedAt ? end - session.StartedAt : TimeSpan.Zero;
         var result = new PlaySession(session.DataKey, session.StartedAt, end, duration, (long)duration.TotalMinutes);
+        var budget = _event.Value ?? new SqliteEventWriteBudget(_clock.GetLocalNow().DateTime);
+        using var admission = SqliteMaintenanceAdmission.EnterWrite(_factory.DataDirectory, () => budget.Remaining);
         using (var c = _factory.OpenConnection())
-        using (var tx = BeginWrite(c))
+        using (var tx = BeginWrite(c, budget))
         {
             CheckRevision(c, tx);
             var id = session.SessionId.ToString("D");
