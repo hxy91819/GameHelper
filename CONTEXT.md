@@ -16,7 +16,19 @@ The workflow that inspects an executable candidate, resolves duplicate identity 
 
 ## Playtime History
 
-The persisted sequence of completed play sessions keyed by DataKey. The current format is CSV; legacy JSON is import-only.
+The persisted sequence of completed play sessions keyed by DataKey. The current format is CSV; legacy JSON is import-only. [ADR-0004](docs/adr/0004-sqlite-user-data-and-session-ratings.md) records the planned storage migration.
+
+## Play Session
+
+One period of tracked play for a DataKey, from the first matching process entering tracking to the last matching process leaving. Several processes can belong to one session. Restart continuity and adjustments that exclude sleep do not create a new session.
+
+## Session Rating
+
+The user's optional assessment of one completed Play Session: one to five stars and an optional thought. An unrated session has no rating; it is not a zero-star session. The time of rating does not change when the play occurred.
+
+## Game Journal
+
+The user's per-game progress status, optional completion date and short note in a selected library. It describes the game as a whole, independently of ratings of individual Play Sessions.
 
 ## Process Observation
 

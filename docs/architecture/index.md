@@ -63,6 +63,7 @@ Monitor preset automation calls `IHdrController.TryGetEnabled` before any DDC av
 
 ## Persistence Model
 
+- [ADR-0004: SQLite user data and session ratings](../adr/0004-sqlite-user-data-and-session-ratings.md) records the target storage design, migration/rollback contract and staged implementation. The file-backed adapters described below remain the current implementation until those stages land.
 - `config.yml` is the primary configuration file under `%AppData%\GameHelper\`.
 - `dataKey` is the single stable game identity in configuration and the statistics key written to playtime records.
 - Each game stores one `executable` value. It can be a full path for path-first matching or a process file name for name-only matching; `ExecutableIdentity` derives read-only path and name views from that value. An optional positive `speed` value requests Cheat Engine speed control on first process activation; the `speedAttach` policy (default `auto`) defers that attach behind the mod loader's chainloader completion marker when a loader is detected beside the executable, falling back to a timed attach and guarding against PID reuse during the wait. Game exits shortly after an attach are correlated with WER crash reports in the automation log.
