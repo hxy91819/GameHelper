@@ -39,6 +39,8 @@ CI runs the same script on Windows to publish ConsoleHost and execute the publis
 - **Published console artifact**: `scripts/publish-console-smoke.ps1` covers the process-level path for the published executable, embedded YAML validator resources, and config values requiring YAML quoting.
 - **Documentation navigation**: local Markdown links must stay valid while docs are archived or rewritten.
 
+SQLite 内核的真实磁盘与并发验收见 [SQLite 存储内核](./sqlite-storage-kernel.md)。CI 另运行 `scripts/sqlite-publish-smoke.ps1`，验证 win-x64 两种发布布局的原生 SQLite 和四子进程初始化竞争。
+
 ## Windows-Specific Tests
 
 - WMI and ETW integration tests are Windows-only.

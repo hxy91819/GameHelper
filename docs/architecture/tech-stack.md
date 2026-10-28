@@ -18,6 +18,7 @@
 | --- | --- | --- | --- |
 | 依赖注入 & 宿主 | `Microsoft.Extensions.Hosting` | 9.0.8 | 构建通用 Host、注册后台服务。|
 | 桌面游戏库 | WPF / MVVM | .NET 8 Windows Desktop | 原生界面、视图模型和本地命名管道；复用 ConsoleHost 自动化，见 [游戏库](../guides/game-library.md)。|
+| SQLite 内核 | `Microsoft.Data.Sqlite` | 8.0.33 | Infrastructure 显式 SQL，传递依赖 SQLitePCLRaw.bundle_e_sqlite3 携带原生库；ADR-0004 批次 1 未接入生产。|
 | 配置解析 | `YamlDotNet` | 13.7.1 | 解析 `config.yml`，兼容旧字段。|
 | 进程监控 (ETW) | `Microsoft.Diagnostics.Tracing.TraceEvent` | 3.1.8 | 低延迟内核事件监控。|
 | 进程监控 (WMI) | `System.Management` | 8.0.0 | 兼容性更高的 WMI 事件订阅。|
@@ -31,7 +32,8 @@
 | --- | --- | --- |
 | 配置存储 | YAML (`config.yml`) | `YamlConfigProvider` 负责解析与验证，支持路径/名称混合匹配字段。|
 | 游玩时长 | CSV (`playtime.csv`) | `CsvBackedPlayTimeService` 写入会话，`FilePlaytimeSnapshotProvider` 读取统计；二者共享内部 CSV codec。旧 JSON 仅作为导入来源，不再保留独立写入器；迁移测试直接使用历史格式样本。|
-| 临时数据/缓存 | 本地文件系统 | 暂无额外数据库；未来 HDR/自动化扩展再评估。|
+| SQLite 基础能力（未启用） | Microsoft.Data.Sqlite / WAL | [存储内核](./sqlite-storage-kernel.md)：建库、编号迁移、Unicode collation、备份与离线恢复；生产仍用旧存储。|
+| 临时数据/缓存 | 本地文件系统 | 图片、定位等可重建缓存继续留文件。|
 
 ## 4. Tooling & Automation
 
