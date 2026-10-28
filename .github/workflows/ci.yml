@@ -47,6 +47,18 @@ jobs:
         shell: pwsh
         run: ./scripts/publish-console-smoke.ps1
 
+  sqlite-publish-smoke:
+    name: SQLite Publish Smoke (both layouts)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Verify native SQLite and concurrent initialization in published artifacts
+        shell: pwsh
+        run: ./scripts/sqlite-publish-smoke.ps1
+
   isolated-runtime-verify:
     name: Isolated Runtime Verify (Windows)
     runs-on: windows-latest
