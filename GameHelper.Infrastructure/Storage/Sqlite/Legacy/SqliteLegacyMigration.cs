@@ -142,17 +142,30 @@ public sealed class SqliteLegacyMigration
         var (manifest, manifestPath) = Capture(Inventory([config]).Where(s => s.ConfigPath is not null).ToList());
         var decoded = Decode(manifest, Path.GetDirectoryName(manifestPath)!);
         EnsureSourcesUnchanged(manifest);
-        using var tx = connection.BeginTransaction(deferred: false);
+        var expectedSides = manifest.Sources.Where(s => s.Exists).ToDictionary(s => s.SourceId,
+            s => LegacyImportValidation.ExpectedSide(s.Kind, decoded[s.SourceId]));
+        using var tx = new SqliteEventWriteBudget(default).BeginWrite(connection);
+        using var deadline = new SqliteWriteDeadline(connection);
+        void Deadline() => deadline.Check();
         var scope = LegacyRelationalWriter.Scope(connection, tx, config);
         foreach (var source in manifest.Sources)
         {
             LegacyRelationalWriter.Source(connection, tx, source, scope);
-            foreach (var item in decoded[source.SourceId]) LegacyRelationalWriter.Item(connection, tx, source, scope, item, manifest.CreatedAtUtc);
+            foreach (var item in decoded[source.SourceId]) LegacyRelationalWriter.Item(connection, tx, source, scope, item, manifest.CreatedAtUtc, Deadline);
             Execute(connection, tx, "UPDATE import_sources SET status=$1 WHERE source_id=$0;", source.SourceId, source.Exists ? "complete" : "missing");
-            if (source.Exists) LegacyImportValidation.EqualBytes(LegacyImportValidation.ExpectedSide(source.Kind, decoded[source.SourceId]),
-                LegacyDatabaseReader.Side(connection, tx, scope!.Value, source.Kind), source.Path);
+            Deadline();
+            if (source.Exists) LegacyImportValidation.EqualBytes(expectedSides[source.SourceId],
+                LegacyDatabaseReader.Side(connection, tx, scope!.Value, source.Kind, Deadline), source.Path);
+            Deadline();
         }
         Execute(connection, tx, "UPDATE storage_meta SET data_revision=data_revision+1; UPDATE compatibility_exports SET dirty=1;");
+        foreach (var kind in LegacyDecoder.SideKinds)
+            Execute(connection, tx, """
+                INSERT INTO compatibility_exports
+                SELECT $0,data_revision,0,'','',1 FROM storage_meta WHERE singleton=1
+                ON CONFLICT(target) DO UPDATE SET dirty=1;
+                """, config + ".desktop-" + kind + ".json");
+        Deadline();
         Commit(tx, "scope.complete");
     }
 

@@ -2,7 +2,7 @@ using GameHelper.Core.Models;
 
 namespace GameHelper.Desktop;
 
-/// <summary>Joins desktop-only journal completions into the report view; journal data never enters configuration or IPC.</summary>
+/// <summary>Legacy fallback only: joins file journal completions when the report provider has no scoped journal snapshot.</summary>
 internal static class ReportJournalMerge
 {
     internal static bool IsCompleted(string status) => status is "已通关" or "全成就";

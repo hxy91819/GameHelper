@@ -179,6 +179,9 @@ games:
     $legacyHistory = Join-Path (Join-Path $sandbox 'GameHelper') 'playtime.csv'
     [IO.File]::WriteAllText($legacyHistory, "game,start_time,end_time,duration_minutes`r`nverify_smoke,2025-01-01T10:00:00,2025-01-01T10:17:00,17`r`n", [Text.UTF8Encoding]::new($false))
     $legacyHash = (Get-FileHash $legacyHistory -Algorithm SHA256).Hash
+    $legacyTheme = $configPath + '.desktop-theme.json'
+    [IO.File]::WriteAllText($legacyTheme, '{"Theme":"light"}', [Text.UTF8Encoding]::new($false))
+    $legacyThemeHash = (Get-FileHash $legacyTheme -Algorithm SHA256).Hash
     $previousDataDirectory = $env:GAMEHELPER_DATA_DIR
     $previousDisableSingleInstance = $env:GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE
     $env:GAMEHELPER_DATA_DIR = $sandbox
@@ -205,10 +208,24 @@ games:
             $receipt = Join-Path (Join-Path $sandbox 'GameHelper') 'migration-complete.json'
             if (-not (Test-Path $database) -or -not (Test-Path $receipt)) { throw 'SQLite session storage did not activate.' }
             $manifestFiles = @(Get-ChildItem (Join-Path (Join-Path $sandbox 'GameHelper') 'migration-backups') -Filter 'manifest.json' -Recurse)
-            if ($manifestFiles.Count -ne 1) { throw 'Expected one immutable migration inventory.' }
-            $manifest = Get-Content $manifestFiles[0].FullName -Raw | ConvertFrom-Json
+            $inventories = @($manifestFiles | ForEach-Object { [pscustomobject]@{ File = $_; Manifest = (Get-Content $_.FullName -Raw | ConvertFrom-Json) } })
+            $historyInventories = @($inventories | Where-Object { @($_.Manifest.Sources | Where-Object { $_.Kind -eq 'csv' }).Count -eq 1 })
+            $scopeInventories = @($inventories | Where-Object { @($_.Manifest.Sources | Where-Object { $_.Kind -eq 'csv' }).Count -eq 0 })
+            if ($inventories.Count -ne 2 -or $historyInventories.Count -ne 1 -or $scopeInventories.Count -ne 1) {
+                throw 'Expected one shared-history inventory and one incremental Desktop scope inventory.'
+            }
+            $scopeSources = @($scopeInventories[0].Manifest.Sources)
+            if ($scopeSources.Count -ne 6 -or @($scopeSources | Where-Object { $_.ConfigPath -ne $configPath }).Count) {
+                throw 'Incremental Desktop inventory must contain exactly this scope and six side documents.'
+            }
+            $themeSource = @($scopeSources | Where-Object { $_.Kind -eq 'theme' })[0]
+            $themeOriginal = Join-Path $scopeInventories[0].File.DirectoryName $themeSource.BackupName
+            if (-not $themeSource.Exists -or (Get-FileHash $themeOriginal -Algorithm SHA256).Hash -ne $legacyThemeHash) {
+                throw 'Scope import did not preserve original Desktop theme bytes.'
+            }
+            $manifest = $historyInventories[0].Manifest
             $csvSource = @($manifest.Sources | Where-Object { $_.Kind -eq 'csv' })[0]
-            $original = Join-Path $manifestFiles[0].DirectoryName $csvSource.BackupName
+            $original = Join-Path $historyInventories[0].File.DirectoryName $csvSource.BackupName
             if ((Get-FileHash $original -Algorithm SHA256).Hash -ne $legacyHash) { throw 'Migration changed original history bytes.' }
             $runtimeLog = $configPath + '.runtime.log'
             if (-not (Test-Path -LiteralPath $runtimeLog) -or (Get-Item -LiteralPath $runtimeLog).Length -eq 0) {

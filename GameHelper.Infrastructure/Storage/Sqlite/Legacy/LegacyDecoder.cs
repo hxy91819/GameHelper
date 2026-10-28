@@ -20,11 +20,16 @@ internal static class LegacyDecoder
         if (LegacySql.Hash(File.ReadAllBytes(path)) != source.Sha256) throw new InvalidDataException("Source backup hash mismatch: " + source.Path);
         var text = File.ReadAllText(path, Encoding.UTF8);
         if (source.Kind == "csv") return Csv(text);
+        return DecodeJson(source.Kind, text);
+    }
+
+    internal static List<LegacyItem> DecodeJson(string kind, string text)
+    {
         using var document = JsonDocument.Parse(text); // Never use the stores' read-failure-to-empty fallback.
         var root = document.RootElement;
         var items = new List<LegacyItem>();
         void Add(string key, object? value, string reason = "") => items.Add(new(items.Count + 1, key, value, reason));
-        switch (source.Kind)
+        switch (kind)
         {
             case "json":
                 if (root.ValueKind == JsonValueKind.Null) break;
@@ -90,7 +95,7 @@ internal static class LegacyDecoder
                 Add("", scan);
                 break;
             case "theme": Add("", new LegacyTheme(root.Deserialize<LegacyTheme>()?.Theme == "light" ? "light" : "dark")); break;
-            default: throw new InvalidDataException("Unknown legacy codec: " + source.Kind);
+            default: throw new InvalidDataException("Unknown legacy codec: " + kind);
         }
         return items;
     }

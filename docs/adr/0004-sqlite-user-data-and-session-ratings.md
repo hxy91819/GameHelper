@@ -156,3 +156,10 @@ sync 脏检查从 CSV mtime 改为 `database_id + history_revision` 加既有配
   的手帐及后续评分加入同一个报告读事务；本批保留现有 Desktop 文件合并行为。
 - WAL 读事务仅覆盖取数，聚合和上传在释放后执行；不新增维护调度或强制 checkpoint。
   PASSIVE 可暂留被长读固定的帧，读事务结束后维护可完成 checkpoint，具体见[会话存储](../architecture/sqlite-session-storage.md#统计读取与-wal-checkpoint)。
+
+## 批次 5 实施澄清
+
+- 六类侧数据按首次实际打开配置补导入。后台存储初始化与 Desktop 启动均复用同一初始化器和 `ImportScopeAsync`；已有 scope 不重导，共享历史不参与 scope 导入。未激活库仍使用旧文件。
+- 手帐、类型和关联按修改的 DataKey 检查期望版本并增量提交；草稿集合、扫描选择和主题按整个文档检查版本。`migration_state` 中的 `desktop:<scope>:<kind>:<key>` 保留修改版本（含删除墓碑），防止删除再创建绕过冲突；行 revision 同步写入数据修订。草稿集合冲突保留整个编辑，不自动合并同一集合；保留已有 draft_id，新草稿使用 UUID。
+- Desktop 写操作在工作线程执行，写锁沿用单次五秒争用预算；取得锁后的逐项工作采用 250 ms 协作式执行预算，超出则整个事务回滚。该预算不是磁盘 I/O 的硬实时上限；后台事件仍最多等待原五秒，不叠加 Desktop 的等待时间，耗尽后保留固定终点待补录。详见 [Desktop 数据存储](../architecture/sqlite-desktop-storage.md)。
+- 报告由后台在一个读事务取历史与当前 scope 手帐，Core 聚合后返回完整结果；未激活库保留旧文件合并。评分未提前启用。所有已导入 scope 的六类 JSON 在兼容窗口由串行投影器完整输出，事务内标脏、事务外投影。

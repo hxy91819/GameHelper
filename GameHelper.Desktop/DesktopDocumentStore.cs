@@ -7,6 +7,41 @@ namespace GameHelper.Desktop;
 /// <summary>JSON side documents only; runtime configuration is owned by its configuration provider.</summary>
 internal static class DesktopDocumentStore
 {
+    private static readonly object ProjectionGate = new();
+    private static readonly Dictionary<string, ProjectionWork> Projections = new(StringComparer.OrdinalIgnoreCase);
+    private sealed class ProjectionWork
+    {
+        internal bool Pending;
+        internal bool Active;
+        internal Task Running = Task.CompletedTask;
+    }
+    internal static void RequestProjection()
+    {
+        var factory = new GameHelper.Infrastructure.Storage.Sqlite.SqliteConnectionFactory();
+        lock (ProjectionGate)
+        {
+            if (!Projections.TryGetValue(factory.DataDirectory, out var work))
+                Projections[factory.DataDirectory] = work = new();
+            work.Pending = true;
+            if (work.Active) return;
+            work.Active = true;
+            work.Running = Task.Run(async () =>
+            {
+                while (true)
+                {
+                    lock (ProjectionGate) { if (!work.Pending) { work.Active = false; return; } work.Pending = false; }
+                    try { await new GameHelper.Infrastructure.Storage.Sqlite.Legacy.SqliteLegacyCompatibility(factory,
+                        TimeProvider.System, preserveHistoryKinds: true).ExportAsync(); }
+                    catch (Exception ex) { System.Diagnostics.Trace.TraceError("Desktop 兼容投影失败：{0}", ex); }
+                }
+            });
+        }
+    }
+    internal static Task DrainProjectionsAsync()
+    {
+        lock (ProjectionGate) return Task.WhenAll(Projections.Values.Select(w => w.Running));
+    }
+
     internal static T Read<T>(string? path, Func<T> empty, bool recoverReadFailure = true) where T : class
     {
         try
@@ -30,4 +65,68 @@ internal static class DesktopDocumentStore
             Directory.CreateDirectory(Path.GetDirectoryName(resolveDirectory ? Path.GetFullPath(path) : path)!);
             File.WriteAllText(temporary, serialize());
         });
+}
+
+/// <summary>Replaceable synchronous I/O boundary; production callers load it on a worker.</summary>
+internal interface IDesktopDocumentReader
+{
+    T Read<T>(string? path, Func<T> empty, bool recoverReadFailure,
+        out GameHelper.Infrastructure.Storage.Sqlite.SqliteDesktopStore? database,
+        out GameHelper.Infrastructure.Storage.Sqlite.DesktopDocumentSnapshot? baseline) where T : class;
+}
+internal sealed class DesktopDocumentReader : IDesktopDocumentReader
+{
+    internal static readonly DesktopDocumentReader Instance = new();
+    public T Read<T>(string? path, Func<T> empty, bool recoverReadFailure,
+        out GameHelper.Infrastructure.Storage.Sqlite.SqliteDesktopStore? database,
+        out GameHelper.Infrastructure.Storage.Sqlite.DesktopDocumentSnapshot? baseline) where T : class
+    {
+        database = null; baseline = null;
+        if (path is not null)
+        {
+            var marker = path.LastIndexOf(".desktop-", StringComparison.Ordinal);
+            var factory = new GameHelper.Infrastructure.Storage.Sqlite.SqliteConnectionFactory();
+            if (marker >= 0 && GameHelper.Infrastructure.Storage.Sqlite.SqliteDesktopStore.IsActivated(factory))
+            {
+                database = new(factory, path[..marker]);
+                baseline = database.Read(path[(marker + 9)..^5]);
+                return JsonSerializer.Deserialize<T>(baseline.Json) ?? empty();
+            }
+        }
+        return DesktopDocumentStore.Read(path, empty, recoverReadFailure);
+    }
+}
+
+/// <summary>One editor baseline; an activated database never falls back after a read/write failure.</summary>
+internal sealed class DesktopDocument<T>(string? path, Func<T> empty, bool recoverReadFailure = true, IDesktopDocumentReader? reader = null) where T : class
+{
+    private readonly IDesktopDocumentReader _reader = reader ?? DesktopDocumentReader.Instance;
+    private GameHelper.Infrastructure.Storage.Sqlite.SqliteDesktopStore? _database;
+    private GameHelper.Infrastructure.Storage.Sqlite.DesktopDocumentSnapshot? _baseline;
+    private string? _kind;
+    private bool _read;
+    internal T Read()
+    {
+        _read = true;
+        var result = _reader.Read(path, empty, recoverReadFailure, out _database, out _baseline);
+        if (path is not null)
+        {
+            var marker = path.LastIndexOf(".desktop-", StringComparison.Ordinal);
+            _kind = path[(marker + 9)..^5];
+        }
+        return result;
+    }
+    internal bool UsesSqlite { get { if (!_read) Read(); return _database is not null; } }
+    internal void Write(T document)
+    {
+        if (!_read) Read();
+        if (_database is not null)
+        {
+            try { _baseline = _database.Save(_kind!, _baseline!, JsonSerializer.Serialize(document)); }
+            catch (Microsoft.Data.Sqlite.SqliteException ex) { throw new IOException("数据库未保存，编辑已保留：" + ex.Message, ex); }
+            // Projection failure cannot turn a committed edit into a failed save. Dirty receipt remains for retry.
+            DesktopDocumentStore.RequestProjection();
+        }
+        else DesktopDocumentStore.Write(path ?? throw new InvalidOperationException("只读界面不能保存。"), document);
+    }
 }

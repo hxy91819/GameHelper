@@ -11,10 +11,12 @@ internal sealed class LibraryScanStore
     internal const int MaxDirectories = 6;
     private readonly string? _path;
     private Document _document;
-    internal LibraryScanStore(string? configPath)
+    private readonly DesktopDocument<Document> _storage;
+    internal LibraryScanStore(string? configPath, IDesktopDocumentReader? reader = null)
     {
         _path = configPath is null ? null : configPath + ".desktop-scan.json";
-        _document = DesktopDocumentStore.Read(_path, () => new Document());
+        _storage = new(_path, () => new(), reader: reader);
+        _document = _storage.Read();
     }
     internal IReadOnlyList<string> Directories => _document.Directories;
     internal IReadOnlyCollection<string> Ignored => _document.Ignored;
@@ -46,7 +48,7 @@ internal sealed class LibraryScanStore
     {
         if (_path is not null)
         {
-            DesktopDocumentStore.Write(_path, next);
+            _storage.Write(next);
         }
         _document = next;
     }

@@ -261,16 +261,17 @@ public sealed class SqliteSessionStorageTests(ITestOutputHelper output) : IDispo
     }
 
     [Fact]
-    public async Task Activation_DesktopFilesRemainAuthoritativeAndAreNeverProjectedByRuntime()
+    public async Task Activation_DesktopScopeImportsOnce_RuntimeProjectsDatabaseValues()
     {
         Directory.CreateDirectory(_directory);
         var side = Config + ".desktop-theme.json";
         File.WriteAllText(side, "{\"Theme\":\"light\"}");
         var storage = Storage(); await storage.InitializeAsync(Config, [Game]);
-        Assert.True(storage.UsesSqlite); Assert.Equal(0L, Count("config_scopes"));
+        Assert.True(storage.UsesSqlite); Assert.Equal(1L, Count("config_scopes"));
         File.WriteAllText(side, "{\"Theme\":\"dark\"}");
         storage.InFlight.Load(); storage.InFlight.Save(new() { SnapshotAt = _clock.Now });
-        Assert.Equal("{\"Theme\":\"dark\"}", File.ReadAllText(side));
+        storage.FlushProjection();
+        Assert.Equal("{\"Theme\":\"light\"}", File.ReadAllText(side));
     }
 
     [Theory]

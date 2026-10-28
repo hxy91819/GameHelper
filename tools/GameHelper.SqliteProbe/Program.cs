@@ -2,6 +2,36 @@ using System.Text.Json;
 using GameHelper.Infrastructure.Storage.Sqlite;
 using GameHelper.Core.Models;
 
+// Real Desktop two-process optimistic-save driver; no production CLI surface.
+if (args.Length >= 2 && args[0].StartsWith("desktop-", StringComparison.Ordinal))
+{
+    var desktopFactory = new SqliteConnectionFactory(args[1]);
+    var config = Path.Combine(args[1], "config.yml");
+    if (args[0] == "desktop-prepare")
+    {
+        var migration = new GameHelper.Infrastructure.Storage.Sqlite.Legacy.SqliteLegacyMigration(desktopFactory, new ProbeClock());
+        var candidate = await migration.PrepareAsync([config], sessionsOnly: true);
+        await migration.ActivateAsync(candidate.ManifestPath);
+        await migration.ImportScopeAsync(config);
+        return;
+    }
+    var desktop = new SqliteDesktopStore(desktopFactory, config);
+    var baseline = desktop.Read("journal");
+    if (args[0] == "desktop-save")
+    {
+        using var start = EventWaitHandle.OpenExisting(args[3]);
+        using var ready = Semaphore.OpenExisting(args[4]);
+        ready.Release();
+        if (!start.WaitOne(TimeSpan.FromSeconds(30))) throw new TimeoutException("Desktop save barrier.");
+        var document = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(baseline.Json)!;
+        document[args[2]] = JsonSerializer.SerializeToElement(new { Status = "在玩", CompletedOn = (string?)null, Note = args[2] });
+        try { desktop.Save("journal", baseline, JsonSerializer.Serialize(document)); }
+        catch (InvalidOperationException) { Environment.ExitCode = 20; }
+    }
+    else Console.WriteLine(baseline.Json);
+    return;
+}
+
 // Session crash driver runs against the production managed/native SQLite assemblies.
 if (args.Length >= 2 && args[0].StartsWith("session-", StringComparison.Ordinal))
 {

@@ -1,6 +1,6 @@
 namespace GameHelper.Core.Models;
 
-/// <summary>Program-generated report. Desktop-side providers join local journal completions by DataKey.</summary>
+/// <summary>Program-generated report; scoped providers capture local journal completions together with history.</summary>
 public sealed record PlaytimeReport
 {
     public ReportPeriod Period { get; init; } = new(2000);
@@ -24,6 +24,9 @@ public sealed record PlaytimeReport
     public IReadOnlyList<string> NewGameKeys { get; init; } = [];
     /// <summary>Completed games joined from the local desktop journal, ordered by completion date.</summary>
     public IReadOnlyList<ReportClearedGame> ClearedGames { get; init; } = [];
+    /// <summary>True when journal completions were captured together with history by the report provider.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool JournalIncluded { get; init; }
     public int PreviousClearedGames { get; init; }
     public int ClearedChange => ClearedGames.Count - PreviousClearedGames;
 }

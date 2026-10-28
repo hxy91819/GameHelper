@@ -73,7 +73,7 @@ sync 从同一 SQLite 历史快照通过原 `StatsReportBuilder` 导出 daily.cs
 脏判断使用 `database_id + history_revision` 和配置 mtime；成功只确认实际导出的修订，上传中的新会话不会被误确认。
 快照读取失败返回 ReadFailed，metadata 读取失败抛出并由 sync 记录失败；均不更新成功书签、不上传空结果。
 兼容投影故障只影响旧版交接，已提交历史仍可读可同步。未激活时保持旧文件读取及 mtime 门控。
-侧文档读写、评分与自动备份调度尚未切换。
+侧文档已在批次 5 切库，详见 [Desktop 数据存储](sqlite-desktop-storage.md)；评分与自动备份调度尚未启用。
 
 ## 统计读取与 WAL checkpoint
 
@@ -81,7 +81,7 @@ sync 从同一 SQLite 历史快照通过原 `StatsReportBuilder` 导出 daily.cs
 play_sessions.sequence 读取历史；修订与会话来自同一视图。事务结束并释放连接后才做 Core 聚合、Markdown 渲染或上传，
 不进入自动化状态锁，不持有目录协调锁，也不等待兼容投影。保留各行原始拼写、Kind、分钟数与重复记录，
 按首次分组与组内顺序还原，维持 raw 同开始时间的稳定排序。档案的未来／逆序过滤不用于 sync。
-本阶段只有历史已迁库，Desktop 手帐仍按原文件边界工作；批次 5 再扩展当前 scope 的同事务报告数据。
+批次 5 的报告入口在同一读事务追加当前 scope 手帐，释放连接后才在 Core 聚合；Desktop 不再合并第二份手帐。
 
 WAL 中读者固定自己的 end mark，长读事务不阻止另一个连接提交会话。
 SQLite 默认自动 checkpoint（通常阈值 1000 页）可能在提交时做可完成的工作；活跃读者可能阻止回收全部 WAL 帧。

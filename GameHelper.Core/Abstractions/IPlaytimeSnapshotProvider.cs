@@ -26,6 +26,9 @@ public interface IPlaytimeSnapshotProvider
     /// <summary>Cheap history bookmark; null retains legacy file change detection. Read errors must throw.</summary>
     PlaytimeHistoryVersion? GetHistoryVersion() => null;
 
+    /// <summary>Report history and optional scoped journal from the same read transaction.</summary>
+    PlaytimeSnapshot GetReportSnapshot() => GetSnapshot();
+
     PlaytimeSnapshot GetSnapshot()
     {
         return new PlaytimeSnapshot(GetPlaytimeRecords(), null);

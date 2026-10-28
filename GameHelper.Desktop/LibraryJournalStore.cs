@@ -9,16 +9,29 @@ internal sealed class LibraryJournalStore
     internal const int NoteLimit = 80;
     private readonly string? _path;
     private Dictionary<string, JournalRecord> _records;
+    private readonly DesktopDocument<Dictionary<string, JournalRecord>> _document;
 
-    internal LibraryJournalStore(string? configPath)
+    internal LibraryJournalStore(string? configPath, IDesktopDocumentReader? reader = null)
     {
         _path = configPath is null ? null : configPath + ".desktop-journal.json";
-        var saved = DesktopDocumentStore.Read(_path, () => new Dictionary<string, JournalRecord>());
+        _document = new(_path, () => new(), reader: reader);
         _records = new(StringComparer.OrdinalIgnoreCase);
+        Reload();
+    }
+
+    internal void Reload()
+    {
+        ApplyRecords(_document.Read());
+    }
+    internal async Task ReloadAsync() => ApplyRecords(await Task.Run(_document.Read));
+    private void ApplyRecords(Dictionary<string, JournalRecord> saved)
+    {
+        var next = new Dictionary<string, JournalRecord>(StringComparer.OrdinalIgnoreCase);
         foreach (var (key, value) in saved)
             if (!string.IsNullOrWhiteSpace(key) && value is not null && Statuses.Contains(value.Status)
                 && value.Note is not null && value.Note.Length <= NoteLimit && !value.Note.Contains('\r') && !value.Note.Contains('\n'))
-                _records[key] = value;
+                next[key] = value;
+        _records = next;
     }
 
     internal JournalRecord Read(string key) => _records.GetValueOrDefault(key) ?? new();
@@ -31,7 +44,19 @@ internal sealed class LibraryJournalStore
         if (record.Note.Length > NoteLimit || record.Note.Contains('\r') || record.Note.Contains('\n'))
             throw new ArgumentException("短评限单行 80 字。");
         var next = new Dictionary<string, JournalRecord>(_records, StringComparer.OrdinalIgnoreCase) { [key] = record };
-        DesktopDocumentStore.Write(_path, next);
+        _document.Write(next);
+        _records = next;
+        Saved?.Invoke(this, EventArgs.Empty);
+    }
+
+    internal async Task SaveAsync(string key, JournalRecord record)
+    {
+        if (_path is null) throw new InvalidOperationException("只读界面不能保存手帐。");
+        if (string.IsNullOrWhiteSpace(key) || !Statuses.Contains(record.Status)) throw new ArgumentException("请选择归档状态。");
+        if (record.Note.Length > NoteLimit || record.Note.Contains('\r') || record.Note.Contains('\n'))
+            throw new ArgumentException("短评限单行 80 字。");
+        var next = new Dictionary<string, JournalRecord>(_records, StringComparer.OrdinalIgnoreCase) { [key] = record };
+        await Task.Run(() => _document.Write(next));
         _records = next;
         Saved?.Invoke(this, EventArgs.Empty);
     }

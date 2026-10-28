@@ -94,6 +94,40 @@ try {
             }
             Write-Host "Real SQLite child kill and repeated recovery passed: $layout $boundary"
         }
+        $desktopData = Join-Path $temp "desktop-$layout"
+        $driver = Join-Path $publish 'GameHelper.SqliteProbe.exe'
+        & $driver desktop-prepare $desktopData
+        if ($LASTEXITCODE -ne 0) { throw 'Desktop scope fixture failed.' }
+        foreach ($sameRow in @($false, $true)) {
+            $startName = 'Local\GH.DesktopStart.' + [Guid]::NewGuid().ToString('N')
+            $readyName = 'Local\GH.DesktopReady.' + [Guid]::NewGuid().ToString('N')
+            $start = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, $startName)
+            $ready = [Threading.Semaphore]::new(0, 2, $readyName)
+            $children = @()
+            try {
+                for ($i = 0; $i -lt 2; $i++) {
+                    $key = if ($sameRow) { 'conflict' } else { "game-$i" }
+                    $children += Start-Process $driver -ArgumentList @('desktop-save', "`"$desktopData`"", $key, $startName, $readyName) -PassThru -NoNewWindow
+                }
+                for ($i = 0; $i -lt 2; $i++) { if (-not $ready.WaitOne(30000)) { throw 'Desktop readers did not reach barrier.' } }
+                $start.Set() | Out-Null
+                $codes = @()
+                foreach ($child in $children) {
+                    if (-not $child.WaitForExit(30000)) { throw 'Desktop save timed out.' }
+                    $codes += $child.ExitCode
+                }
+                if ($sameRow) {
+                    if (@($codes | Where-Object { $_ -eq 0 }).Count -ne 1 -or @($codes | Where-Object { $_ -eq 20 }).Count -ne 1) { throw 'Same-row stale Desktop save did not conflict.' }
+                } elseif (@($codes | Where-Object { $_ -ne 0 }).Count) { throw 'Independent Desktop saves failed.' }
+                $document = & $driver desktop-inspect $desktopData | ConvertFrom-Json
+                if ($LASTEXITCODE -ne 0 -or $document.'game-0'.Note -ne 'game-0' -or $document.'game-1'.Note -ne 'game-1') { throw 'Desktop processes overwrote independent rows.' }
+            }
+            finally {
+                foreach ($child in $children) { if (-not $child.HasExited) { $child.Kill(); $child.WaitForExit() }; $child.Dispose() }
+                $start.Dispose(); $ready.Dispose()
+            }
+        }
+        Write-Host "Desktop real two-process saves preserve independent rows and reject stale same-row saves: $layout"
         Write-Host "SQLite production artifact and four-process initialization passed: self-contained=$layout"
         if ($env:GITHUB_STEP_SUMMARY) {
             "SQLite win-x64 self-contained=$layout : native e_sqlite3.dll SHA256=$nativeHash; real SQL and four-process initialization passed." >> $env:GITHUB_STEP_SUMMARY
