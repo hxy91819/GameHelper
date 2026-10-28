@@ -21,8 +21,9 @@ internal static class LegacyRelationalWriter
             source.SourceId, scope, source.Path, source.Sha256, source.SizeBytes);
     }
 
-    internal static void Item(SqliteConnection c, SqliteTransaction tx, ImportSource source, long? scope, LegacyItem item, DateTimeOffset now)
+    internal static void Item(SqliteConnection c, SqliteTransaction tx, ImportSource source, long? scope, LegacyItem item, DateTimeOffset now, Action? checkBudget = null)
     {
+        checkBudget?.Invoke();
         if (Scalar(c, tx, "SELECT 1 FROM import_records WHERE source_id=$0 AND record_ordinal=$1;", source.SourceId, item.Ordinal) is not null) return;
         string? sessionId = null;
         if (item.Accepted)
@@ -42,7 +43,10 @@ internal static class LegacyRelationalWriter
                 case string[] genres:
                     Execute(c, tx, "INSERT INTO genre_overrides(scope_id,data_key,revision,position) VALUES($0,$1,1,$2);", scope, item.Key, item.Ordinal);
                     for (var i = 0; i < genres.Length; i++)
+                    {
+                        checkBudget?.Invoke();
                         Execute(c, tx, "INSERT INTO genre_override_items VALUES($0,$1,$2,$3);", scope, item.Key, genres[i], i);
+                    }
                     break;
                 case uint appId:
                     Execute(c, tx, "INSERT INTO artwork_links(scope_id,data_key,steam_app_id,revision,position) VALUES($0,$1,$2,1,$3);", scope, item.Key, (long)appId, item.Ordinal);
@@ -52,7 +56,7 @@ internal static class LegacyRelationalWriter
                     break;
                 case LegacyScan scan:
                     for (var i = 0; i < scan.Directories.Count; i++) Execute(c, tx, "INSERT INTO scan_roots VALUES($0,$1,$2);", scope, scan.Directories[i], i);
-                    for (var i = 0; i < scan.Ignored.Count; i++) Execute(c, tx, "INSERT INTO scan_ignored(scope_id,executable,position) VALUES($0,$1,$2);", scope, scan.Ignored[i], i);
+                    for (var i = 0; i < scan.Ignored.Count; i++) { checkBudget?.Invoke(); Execute(c, tx, "INSERT INTO scan_ignored(scope_id,executable,position) VALUES($0,$1,$2);", scope, scan.Ignored[i], i); }
                     break;
                 case LegacyTheme theme:
                     Execute(c, tx, "INSERT INTO desktop_preferences VALUES($0,$1,1);", scope, theme.Theme);

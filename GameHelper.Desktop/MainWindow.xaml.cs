@@ -104,8 +104,10 @@ public partial class MainWindow : Window
         {
             if (closingAfterSave) return;
             args.Cancel = true;
+            IsEnabled = false;
+            _refreshTimer.Stop();
             try { await _model.FlushDraftsAsync(); closingAfterSave = true; Dispatcher.BeginInvoke(new Action(Close)); }
-            catch (InvalidOperationException ex) { MessageBox.Show(this, ex.Message, "草稿未保存"); }
+            catch (InvalidOperationException ex) { IsEnabled = true; _refreshTimer.Start(); MessageBox.Show(this, ex.Message, "草稿未保存"); }
         };
         Closed += (_, _) => { _refreshTimer.Stop(); _refreshTimer.Tick -= OnTick; _model.Dispose(); };
     }

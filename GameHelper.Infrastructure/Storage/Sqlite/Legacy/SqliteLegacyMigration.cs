@@ -153,7 +153,7 @@ public sealed class SqliteLegacyMigration
         foreach (var source in manifest.Sources)
         {
             LegacyRelationalWriter.Source(connection, tx, source, scope);
-            foreach (var item in decoded[source.SourceId]) { Deadline(); LegacyRelationalWriter.Item(connection, tx, source, scope, item, manifest.CreatedAtUtc); }
+            foreach (var item in decoded[source.SourceId]) LegacyRelationalWriter.Item(connection, tx, source, scope, item, manifest.CreatedAtUtc, Deadline);
             Execute(connection, tx, "UPDATE import_sources SET status=$1 WHERE source_id=$0;", source.SourceId, source.Exists ? "complete" : "missing");
             if (source.Exists) LegacyImportValidation.EqualBytes(LegacyImportValidation.ExpectedSide(source.Kind, decoded[source.SourceId]),
                 LegacyDatabaseReader.Side(connection, tx, scope!.Value, source.Kind), source.Path);
