@@ -1,0 +1,85 @@
+# SQLite 会话与在途恢复（ADR-0004 批次 3）
+
+ConsoleHost 首次执行 `monitor`、`stats`、`sync` 或本地文件导入时，在开放监控、IPC、上传前初始化
+`SessionStorage`。主库位置复用 `AppDataPath`：`GAMEHELPER_DATA_DIR` 是 base，数据库仍在其
+`GameHelper/userdata.db` 下。没有主库时调用批次 2 的候选导入、旧读路径逐项统计与字节校验、
+完整性/FK 检查、checkpoint 和原子改名；有激活事实的库直接沿用，不因外部诊断文件缺失而重导。
+
+## 首次激活与回退
+
+生产调用 `PrepareAsync(..., sessionsOnly: true)`。manifest 标明此模式；正式历史、在途文件与当前配置的
+六种 Desktop 文档全部先备份原始字节并严格解码。Desktop 的无法无损表达值同样阻断激活，
+但它们尚不写入关系侧表、不登记已导入 scope，也不输出侧文档投影，防止覆盖批次 5 前的旧写入者。
+批次 5 第一次打开配置时，仍须按当时最新文档执行 scope 导入。
+
+ConsoleHost 现有单实例互斥排除旧后台；启动前检查当前配置的 Desktop 实例互斥体，旧游戏库仍开着时，
+不捕获来源，继续旧存储并提示关闭游戏库再重启后台。新版 Desktop 先等待后台存储/IPC 就绪，再打开侧文档
+和登记 UI 实例。来源捕获、校验及激活继续核对每份源哈希，旧进程不认识 SQLite 协调锁，不能用锁代替停机。
+仅处理实际打开的配置，不扫描其他配置。
+
+激活前任何失败：记录具体原因、保留候选和原件、使用 CSV/JSON 继续运行，托盘显示原因。
+回退服务的构造不执行旧 JSON→CSV 迁移，因此初始化失败不改变源文件；后续真实结束会话时才执行旧写入行为。
+激活改名后即使响应或诊断文件写入中断，也只沿用已激活库。已有主库无激活记录、版本过高、完整性错误
+均拒绝继续，绝不悄悄写回 CSV。运行中库写失败保留固定结束时间的待补录状态，并记录日志/托盘存储故障。
+
+## 稳定身份和事务
+
+第一条真实进程观察分配 UUID。同 DataKey 的多个进程共享 ID、有效起点与启动来源；休眠偏移只改起点。
+SQLite 在途读路径返回 ID；旧 JSON 投影省略 ID 和数据库 revision，保持旧 codec 字节格式。
+旧快照导入仍按 DataKey/起点/固定终点分组；与既有 CSV 匹配时保留最早 sequence 的 ID 和其余合法重复行。
+未知启动来源在库中仍为 unknown，恢复 HDR 时沿用旧版把未知视作库内的资格规则。
+
+`SqliteSessionStore.Complete` 在提前取得写锁的单一事务中：按 ID 判断历史是否已提交；未提交则插入历史，
+递增 history/data revision；删除该 ID 的在途进程和会话；更新快照 revision；将兼容目标标脏。
+提交前失败全部回滚；提交后响应丢失，重试相同 ID 不重复插入、不重复递增历史修订。
+快照整体替换包含 HDR、待启动截止时间和进程身份；已有历史 ID 不会被旧内存快照复活。
+快照写入核对存储实例在读取/上次提交时持有的 revision，拒绝陈旧写入者。
+
+保留 PID+创建时间+executable 核验、每十秒与状态变化持久化、最后存活快照封口、十二小时上限、
+连续恢复和固定失败终点。恢复不重放启动/退出动作。后台停止仍即时完成活跃会话。
+
+## 锁边界的有意选择
+
+本批保留既有同步自动化执行边界：`UpdateLock → _companionLock → _stateLock`。
+存储调用和进程探测沿用 `_stateLock` 内串行路径，避免仅把 I/O 移出锁后引入旧 generation 越过 Stop 的窗口；
+这是批次 3 对“数据库 I/O 不进状态锁”的明确例外。事件/定时器在进入时核对捕获的 generation，
+Stop 在同一锁下失效代际；校验、事务、结果发布之间没有放锁，所以旧结果不能进入下一次 Start。
+
+存储适配器不取得任何自动化锁，也不在事务中调用生产回调、进程探测、通知、网络或投影。
+每个操作创建私有短连接，`BEGIN IMMEDIATE`，采用统一五秒争用预算，不叠加重试。
+完成/快照事务释放 SQLite writer 后才取得目录协调锁并生成兼容文件；从不在 SQLite 事务内等待目录锁。
+投影器取得目录锁后只访问 SQLite/文件，不反向取得状态锁。故障提示也在存储操作展开、连接释放之后发布。
+锁等待五秒不代表磁盘 I/O 或整个 Stop 的耗时上限。
+
+## 兼容窗口、统计和 sync
+
+首个 SQLite 版本在启动、每次库提交、正常停止时重试完整 `playtime.csv` 和旧在途 JSON 投影。
+每个目标临时文件+原子替换，跨目标不承诺原子性；失败留 dirty/failure，不撤销库提交，也不让会话重写。
+内容相同的文件不替换，因此快照心跳不改变 CSV mtime，不触发新的 sync 上传。
+
+ConsoleHost 统计/档案/报告经基础 SQLite snapshot adapter 读取同一短读事务的完整历史，在内存计算。
+sync 仍读完整兼容 CSV、沿用 mtime/指纹/退避；读取前排空投影，失败返回 ReadFailed，阻止上传陈旧文件。
+尚未修改 sync 修订门控、侧文档读写、评分与自动备份调度。
+
+降级前停止后台和游戏库，运行：
+
+```powershell
+GameHelper.ConsoleHost.exe storage prepare-downgrade --config <config.yml>
+# 成功输出降级 manifest 路径；失败不得启动旧版。
+GameHelper.ConsoleHost.exe storage reupgrade <downgrade-manifest.json> --config <config.yml>
+```
+
+准备降级调用已有固定修订完整投影、哈希/旧统计检查和整库封存原语，包含当前旧快照，旧版可接管正在运行的游戏。
+再升级在离线入口核对旧 CSV 有序前缀及 occurrence，仅追加旧版新增行，不覆盖原 ID/Kind/来源。
+手工覆盖安装未经过准备降级不提供自动合并保证。
+
+## 验证
+
+`SqliteSessionStorageTests` 在真实临时磁盘库验证提交前后故障、重复停止、多进程、PID 复用、休眠、
+两次恢复、固定失败终点与运行中心跳重试、HDR/待启动、陈旧 revision、激活前后故障、原件字节、
+不可表达文档阻断、激活沿用、旧版接管和投影失败拒绝上传。时间使用注入时钟与手动定时器。
+
+`sqlite-publish-smoke.ps1` 在两种 win-x64 发布布局强杀停在真实提交前/后屏障的子进程，重新打开 WAL 检查
+历史/在途二者原子性，再重复恢复两次检查同一 ID 仅一行、历史修订仅增一次。
+`verify-on-machine.ps1 -SkipDeploy -VerifyRuntime` 先放入旧 CSV，验证迁移备份哈希、主库激活、
+后台无控制台、监控就绪与库 IPC 返回导入的 17 分钟；保持用户实例与数据隔离。

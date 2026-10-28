@@ -1,7 +1,8 @@
 # SQLite 旧数据导入与兼容工具（ADR-0004 批次 2）
 
-这些是尚未接入生产的 Infrastructure API，不提供 UI/CLI，不注册 DI，不切换历史、快照或 Desktop 的读写。
-批次 3 才负责停机协调与自动激活；本批不部署或切换用户实例。正常运行仍沿用原 CSV/JSON。
+这些 API 在批次 2 作为离线能力实现；批次 3 已将历史和快照接入生产自动激活，
+并提供 `storage prepare-downgrade` / `storage reupgrade` 离线 CLI。Desktop 侧文档仍沿用旧路径。
+生产选择、回退、锁边界与兼容窗口见[会话存储](./sqlite-session-storage.md)。
 
 ## 显式调用边界
 
@@ -63,3 +64,6 @@ StatsReportBuilder 比较含 raw CSV 的完整文件内容与指纹，核对每�
 激活事实/诊断、投影 dirty/替换/clean、降级归档/manifest 和再升级备份/提交边界中断。它是同步故障注入点，
 不安装调度器。测试枚举实际路径上的每次事件中断并重跑，包括同内容重复行、缺失源、源变代、scope 补导、
 离线降级和再升级，不使用墙钟或 sleep。Windows CI 运行完整解决方案测试与现有发布/隔离实例探针。
+
+批次 3 的 `sessionsOnly` 清单模式备份并严格解码当前配置侧文档，但只导入历史/在途，不登记 scope；
+后续 scope 导入读取最新文件。运行时 `ExportSessions()` 只投影历史与在途，完整离线导出 API 保持原行为。

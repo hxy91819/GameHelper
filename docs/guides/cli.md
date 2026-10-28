@@ -120,3 +120,9 @@ games:
 - 游玩时长：`%AppData%\GameHelper\playtime.csv`
 
 `stats` 命令按 `dataKey` 聚合，优先显示 `displayName`。
+
+### SQLite 兼容窗口维护
+
+停止后台和游戏库后执行 `GameHelper.ConsoleHost.exe storage prepare-downgrade --config <path>`，成功后才启动旧版。
+重新升级先离线执行 `storage reupgrade <manifest-path> --config <path>`，再启动新版监控。
+原件备份、固定修订验证与失败处理见[会话存储](../architecture/sqlite-session-storage.md)。

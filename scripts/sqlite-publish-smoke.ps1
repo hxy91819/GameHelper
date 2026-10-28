@@ -62,6 +62,38 @@ try {
             $ready.Dispose()
             $start.Dispose()
         }
+        foreach ($boundary in @('completion.commit.before', 'completion.commit.after')) {
+            $crashData = Join-Path $temp "crash-$layout-$boundary"
+            $driver = Join-Path $publish 'GameHelper.SqliteProbe.exe'
+            & $driver session-prepare $crashData
+            if ($LASTEXITCODE -ne 0) { throw 'Session crash fixture failed.' }
+            $reachedName = 'Local\GH.SqliteCommit.' + [Guid]::NewGuid().ToString('N')
+            $reached = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, $reachedName)
+            $victim = $null
+            try {
+                $victim = Start-Process $driver -ArgumentList @('session-crash', "`"$crashData`"", $boundary, $reachedName) -PassThru -NoNewWindow
+                if (-not $reached.WaitOne(30000)) { throw "Child did not reach SQLite boundary $boundary" }
+                $victim.Kill()
+                $victim.WaitForExit()
+                $state = & $driver session-inspect $crashData | ConvertFrom-Json
+                if ($LASTEXITCODE -ne 0) { throw 'Post-kill inspect failed.' }
+                $expectedRows = if ($boundary.EndsWith('before')) { 0 } else { 1 }
+                if ($state.Sessions -ne $expectedRows -or $state.Inflight -ne (1 - $expectedRows)) {
+                    throw "Non-atomic completion after kill at $boundary"
+                }
+                for ($retry = 0; $retry -lt 2; $retry++) {
+                    $result = & $driver session-recover $crashData | ConvertFrom-Json
+                    if ($LASTEXITCODE -ne 0 -or $result.Sessions -ne 1 -or $result.Inflight -ne 0 -or $result.Revision -ne 1) {
+                        throw "Session duplicated/lost after recovery at $boundary"
+                    }
+                }
+            }
+            finally {
+                if ($null -ne $victim) { if (-not $victim.HasExited) { $victim.Kill(); $victim.WaitForExit() }; $victim.Dispose() }
+                $reached.Dispose()
+            }
+            Write-Host "Real SQLite child kill and repeated recovery passed: $layout $boundary"
+        }
         Write-Host "SQLite production artifact and four-process initialization passed: self-contained=$layout"
         if ($env:GITHUB_STEP_SUMMARY) {
             "SQLite win-x64 self-contained=$layout : native e_sqlite3.dll SHA256=$nativeHash; real SQL and four-process initialization passed." >> $env:GITHUB_STEP_SUMMARY
