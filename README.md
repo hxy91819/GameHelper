@@ -241,3 +241,5 @@ SQLite 存储内核与[导入／兼容工具](docs/architecture/sqlite-import-to
 手帐、手动类型、海报关联、完整草稿、扫描选择和主题首次打开各配置时独立导入 SQLite，共享时长不重复导入；保存冲突或失败保留编辑。报告在后台同一读事务读取历史与该配置的手帐，兼容窗口继续输出六类旧 JSON。数据库尚未激活时保留旧文件路径。详见 [Desktop 数据存储](docs/architecture/sqlite-desktop-storage.md)。
 
 Desktop 启动预读与手帐打开在后台线程读取侧数据；重新载入草稿会保留另一窗口的新编辑，丢弃本窗口草稿仍检查原版本。扫描大列表与长 SQL 同样受短事务预算约束。
+
+每日健康检查和自动本机备份已启用（每日成功版本保留 7 份、升级前保留 3 份）；投影／备份失败有托盘提示，完整性失败停止写入与同步。首个 SQLite 正式版保留一个发布周期的旧格式投影；安全退回旧版必须先停止后台和游戏库，再用新版 `storage prepare-downgrade` 并通过 `storage check-downgrade`，重新升级先执行 `storage reupgrade <manifest>`。恢复与完整步骤见[SQLite 维护与恢复](docs/guides/sqlite-recovery.md)。

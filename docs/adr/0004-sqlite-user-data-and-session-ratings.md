@@ -163,3 +163,13 @@ sync 脏检查从 CSV mtime 改为 `database_id + history_revision` 加既有配
 - 手帐、类型和关联按修改的 DataKey 检查期望版本并增量提交；草稿集合、扫描选择和主题按整个文档检查版本。`migration_state` 中的 `desktop:<scope>:<kind>:<key>` 保留修改版本（含删除墓碑），防止删除再创建绕过冲突；行 revision 同步写入数据修订。草稿集合冲突保留整个编辑，不自动合并同一集合；保留已有 draft_id，新草稿使用 UUID。
 - Desktop 写操作在工作线程执行，写锁沿用单次五秒争用预算；取得锁后的逐项工作采用 250 ms 协作式执行预算，超出则整个事务回滚。该预算不是磁盘 I/O 的硬实时上限；后台事件仍最多等待原五秒，不叠加 Desktop 的等待时间，耗尽后保留固定终点待补录。详见 [Desktop 数据存储](../architecture/sqlite-desktop-storage.md)。
 - 报告由后台在一个读事务取历史与当前 scope 手帐，Core 聚合后返回完整结果；未激活库保留旧文件合并。评分未提前启用。所有已导入 scope 的六类 JSON 在兼容窗口由串行投影器完整输出，事务内标脏、事务外投影。
+
+## 批次 6 实施澄清
+
+- 后台每分钟在状态锁外重试投影、健康维护和每日备份；每日健康成功日期持久在 maintenance 状态，不递增用户数据修订。
+- 维护与业务写入以数据目录文件租约作准入；已有业务写入直接跳过维护，业务等待维护仍共用五秒事件预算。
+  `BackupDatabase` 和磁盘 I/O 本身不是硬实时操作，超时的完成写入继续保留固定终点待补录。
+- 日常 checkpoint 使用 PASSIVE，长读固定的帧留待后续维护；候选发布／恢复仍要求完整 checkpoint。
+- 完整性失败持久故障标记，跨工厂拒绝新业务连接与 sync 读取，显式校验恢复后才清除。
+- 发布既有准备降级／再升级 CLI，补充只读 `storage check-downgrade` 和 `storage restore <backup-directory>`；所有离线操作必须先停止全部后台与游戏库。
+  本批不关闭实时投影；下一正式版本的关闭条件见[维护与恢复](../guides/sqlite-recovery.md)。

@@ -73,7 +73,7 @@ sync 从同一 SQLite 历史快照通过原 `StatsReportBuilder` 导出 daily.cs
 脏判断使用 `database_id + history_revision` 和配置 mtime；成功只确认实际导出的修订，上传中的新会话不会被误确认。
 快照读取失败返回 ReadFailed，metadata 读取失败抛出并由 sync 记录失败；均不更新成功书签、不上传空结果。
 兼容投影故障只影响旧版交接，已提交历史仍可读可同步。未激活时保持旧文件读取及 mtime 门控。
-侧文档已在批次 5 切库，详见 [Desktop 数据存储](sqlite-desktop-storage.md)；评分与自动备份调度尚未启用。
+侧文档已在批次 5 切库，详见 [Desktop 数据存储](sqlite-desktop-storage.md)；自动维护已启用，见[维护与恢复](../guides/sqlite-recovery.md)；评分在后续批次启用。
 
 ## 统计读取与 WAL checkpoint
 

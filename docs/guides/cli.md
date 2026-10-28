@@ -126,3 +126,5 @@ games:
 停止后台和游戏库后执行 `GameHelper.ConsoleHost.exe storage prepare-downgrade --config <path>`，成功后才启动旧版。
 重新升级先离线执行 `storage reupgrade <manifest-path> --config <path>`，再启动新版监控。
 原件备份、固定修订验证与失败处理见[会话存储](../architecture/sqlite-session-storage.md)。
+
+`storage check-downgrade` 离线核对固定修订的完整投影，失败不会自动修复；`storage restore <backup-directory>` 校验备份后整体恢复并使 sync 书签失效。所有命令必须先停止后台及全部游戏库，详见[维护与恢复](sqlite-recovery.md)。
