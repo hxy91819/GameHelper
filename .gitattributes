@@ -16,3 +16,6 @@
 *.csv text working-tree-encoding=UTF-8 eol=lf
 .editorconfig text working-tree-encoding=UTF-8 eol=lf
 .gitattributes text working-tree-encoding=UTF-8 eol=lf
+
+# Frozen codec outputs must survive checkout byte-for-byte (including BOM/CRLF).
+GameHelper.Tests/Resources/LegacyUserData/*.bin -text
