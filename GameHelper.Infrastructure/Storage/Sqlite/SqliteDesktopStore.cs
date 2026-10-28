@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using GameHelper.Infrastructure.Storage.Sqlite.Legacy;
@@ -109,13 +108,9 @@ public sealed class SqliteDesktopStore(SqliteConnectionFactory factory, string c
         }
         using var c = factory.OpenConnection();
         using var tx = new SqliteEventWriteBudget(default).BeginWrite(c);
-        var started = Stopwatch.GetTimestamp();
+        using var deadline = new SqliteWriteDeadline(c);
         checkpoint?.Invoke("desktop.write.acquired");
-        void Deadline()
-        {
-            if (Stopwatch.GetElapsedTime(started) > TimeSpan.FromMilliseconds(250))
-                throw new InvalidOperationException("保存事务超时，请重试；编辑已保留。");
-        }
+        void Deadline() => deadline.Check();
         var scope = Scope(c, tx);
         var revision = Convert.ToInt64(Scalar(c, tx, "SELECT data_revision+1 FROM storage_meta;"));
         foreach (var key in changes)
@@ -169,8 +164,8 @@ public sealed class SqliteDesktopStore(SqliteConnectionFactory factory, string c
             case LegacyDraft draft:
                 Execute(c, tx, "INSERT INTO desktop_drafts VALUES($0,$1,$2,$3,1,$4,$5);", scope, draftId, draft.Baseline.Config.DataKey, item.Ordinal, payload, revision); break;
             case LegacyScan scan:
-                for (var i = 0; i < scan.Directories.Count; i++) Execute(c, tx, "INSERT INTO scan_roots VALUES($0,$1,$2);", scope, scan.Directories[i], i);
-                for (var i = 0; i < scan.Ignored.Count; i++) Execute(c, tx, "INSERT INTO scan_ignored VALUES($0,$1,$2);", scope, scan.Ignored[i], i);
+                for (var i = 0; i < scan.Directories.Count; i++) { deadline(); Execute(c, tx, "INSERT INTO scan_roots VALUES($0,$1,$2);", scope, scan.Directories[i], i); }
+                for (var i = 0; i < scan.Ignored.Count; i++) { deadline(); Execute(c, tx, "INSERT INTO scan_ignored VALUES($0,$1,$2);", scope, scan.Ignored[i], i); }
                 break;
             case LegacyTheme theme:
                 Execute(c, tx, "INSERT INTO desktop_preferences VALUES($0,$1,$2);", scope, theme.Theme, revision); break;

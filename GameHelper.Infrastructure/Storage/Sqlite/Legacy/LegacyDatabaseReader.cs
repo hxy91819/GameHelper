@@ -43,47 +43,52 @@ internal static class LegacyDatabaseReader
         return Encoding.UTF8.GetBytes(output.ToString());
     }
 
-    internal static byte[] Side(SqliteConnection c, SqliteTransaction tx, long scope, string kind)
+    internal static byte[] Side(SqliteConnection c, SqliteTransaction tx, long scope, string kind, Action? checkBudget = null)
     {
+        checkBudget?.Invoke();
         object document;
         switch (kind)
         {
             case "journal":
                 var journals = new Dictionary<string, LegacyJournal>();
                 Read(c, tx, "SELECT data_key,status,completed_on,note FROM journals WHERE scope_id=$0 ORDER BY position,data_key;", scope, r =>
-                    journals.Add(r.GetString(0), new(r.GetString(1), r.IsDBNull(2) ? null : DateOnly.Parse(r.GetString(2), System.Globalization.CultureInfo.InvariantCulture), r.GetString(3))));
+                    journals.Add(r.GetString(0), new(r.GetString(1), r.IsDBNull(2) ? null : DateOnly.Parse(r.GetString(2), System.Globalization.CultureInfo.InvariantCulture), r.GetString(3))), checkBudget);
                 document = journals; break;
             case "genres":
                 var genres = new Dictionary<string, string[]>();
                 var keys = new List<string>();
-                Read(c, tx, "SELECT data_key FROM genre_overrides WHERE scope_id=$0 ORDER BY position,data_key;", scope, r => keys.Add(r.GetString(0)));
+                Read(c, tx, "SELECT data_key FROM genre_overrides WHERE scope_id=$0 ORDER BY position,data_key;", scope, r => keys.Add(r.GetString(0)), checkBudget);
                 foreach (var key in keys)
                 {
+                    checkBudget?.Invoke();
                     using var command = Command(c, tx, "SELECT genre FROM genre_override_items WHERE scope_id=$0 AND data_key=$1 ORDER BY position;", scope, key);
                     using var reader = command.ExecuteReader();
                     var values = new List<string>();
-                    while (reader.Read()) values.Add(reader.GetString(0));
+                    while (reader.Read()) { checkBudget?.Invoke(); values.Add(reader.GetString(0)); }
                     genres.Add(key, values.ToArray());
                 }
                 document = genres; break;
             case "artwork":
                 var artwork = new Dictionary<string, uint>();
-                Read(c, tx, "SELECT data_key,steam_app_id FROM artwork_links WHERE scope_id=$0 ORDER BY position,data_key;", scope, r => artwork.Add(r.GetString(0), checked((uint)r.GetInt64(1))));
+                Read(c, tx, "SELECT data_key,steam_app_id FROM artwork_links WHERE scope_id=$0 ORDER BY position,data_key;", scope, r => artwork.Add(r.GetString(0), checked((uint)r.GetInt64(1))), checkBudget);
                 document = artwork; break;
             case "drafts":
                 var drafts = new List<LegacyDraft>();
                 Read(c, tx, "SELECT payload_json FROM desktop_drafts WHERE scope_id=$0 ORDER BY position,draft_id;", scope, r =>
-                    drafts.Add(JsonSerializer.Deserialize<LegacyDraft>(r.GetString(0)) ?? throw new InvalidDataException("Null draft payload.")));
+                    drafts.Add(JsonSerializer.Deserialize<LegacyDraft>(r.GetString(0)) ?? throw new InvalidDataException("Null draft payload.")), checkBudget);
                 document = drafts; break;
             case "scan":
                 var scan = new LegacyScan();
-                Read(c, tx, "SELECT directory FROM scan_roots WHERE scope_id=$0 ORDER BY position;", scope, r => scan.Directories.Add(r.GetString(0)));
-                Read(c, tx, "SELECT executable FROM scan_ignored WHERE scope_id=$0 ORDER BY position,executable;", scope, r => scan.Ignored.Add(r.GetString(0)));
+                Read(c, tx, "SELECT directory FROM scan_roots WHERE scope_id=$0 ORDER BY position;", scope, r => scan.Directories.Add(r.GetString(0)), checkBudget);
+                Read(c, tx, "SELECT executable FROM scan_ignored WHERE scope_id=$0 ORDER BY position,executable;", scope, r => scan.Ignored.Add(r.GetString(0)), checkBudget);
                 document = scan; break;
             case "theme": document = new LegacyTheme(Scalar(c, tx, "SELECT theme FROM desktop_preferences WHERE scope_id=$0;", scope) as string ?? "dark"); break;
             default: throw new InvalidDataException("Unknown side codec.");
         }
-        return JsonSerializer.SerializeToUtf8Bytes(document, document.GetType());
+        checkBudget?.Invoke();
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(document, document.GetType());
+        checkBudget?.Invoke();
+        return bytes;
     }
 
     internal static InFlightSnapshot? Snapshot(SqliteConnection c, SqliteTransaction tx)
@@ -118,10 +123,10 @@ internal static class LegacyDatabaseReader
     internal static byte[] SnapshotBytes(InFlightSnapshot snapshot) =>
         [.. Encoding.UTF8.GetPreamble(), .. JsonSerializer.SerializeToUtf8Bytes(snapshot, new JsonSerializerOptions { WriteIndented = true })];
 
-    private static void Read(SqliteConnection c, SqliteTransaction tx, string sql, long scope, Action<SqliteDataReader> item)
+    private static void Read(SqliteConnection c, SqliteTransaction tx, string sql, long scope, Action<SqliteDataReader> item, Action? checkBudget = null)
     {
         using var command = Command(c, tx, sql, scope);
         using var reader = command.ExecuteReader();
-        while (reader.Read()) item(reader);
+        while (reader.Read()) { checkBudget?.Invoke(); item(reader); }
     }
 }

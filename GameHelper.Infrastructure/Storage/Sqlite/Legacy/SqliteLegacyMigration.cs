@@ -142,21 +142,21 @@ public sealed class SqliteLegacyMigration
         var (manifest, manifestPath) = Capture(Inventory([config]).Where(s => s.ConfigPath is not null).ToList());
         var decoded = Decode(manifest, Path.GetDirectoryName(manifestPath)!);
         EnsureSourcesUnchanged(manifest);
+        var expectedSides = manifest.Sources.Where(s => s.Exists).ToDictionary(s => s.SourceId,
+            s => LegacyImportValidation.ExpectedSide(s.Kind, decoded[s.SourceId]));
         using var tx = new SqliteEventWriteBudget(default).BeginWrite(connection);
-        var started = System.Diagnostics.Stopwatch.GetTimestamp();
-        void Deadline()
-        {
-            if (System.Diagnostics.Stopwatch.GetElapsedTime(started) > TimeSpan.FromMilliseconds(250))
-                throw new InvalidOperationException("Scope 导入事务超时；原件与备份已保留，请重试。");
-        }
+        using var deadline = new SqliteWriteDeadline(connection);
+        void Deadline() => deadline.Check();
         var scope = LegacyRelationalWriter.Scope(connection, tx, config);
         foreach (var source in manifest.Sources)
         {
             LegacyRelationalWriter.Source(connection, tx, source, scope);
             foreach (var item in decoded[source.SourceId]) LegacyRelationalWriter.Item(connection, tx, source, scope, item, manifest.CreatedAtUtc, Deadline);
             Execute(connection, tx, "UPDATE import_sources SET status=$1 WHERE source_id=$0;", source.SourceId, source.Exists ? "complete" : "missing");
-            if (source.Exists) LegacyImportValidation.EqualBytes(LegacyImportValidation.ExpectedSide(source.Kind, decoded[source.SourceId]),
-                LegacyDatabaseReader.Side(connection, tx, scope!.Value, source.Kind), source.Path);
+            Deadline();
+            if (source.Exists) LegacyImportValidation.EqualBytes(expectedSides[source.SourceId],
+                LegacyDatabaseReader.Side(connection, tx, scope!.Value, source.Kind, Deadline), source.Path);
+            Deadline();
         }
         Execute(connection, tx, "UPDATE storage_meta SET data_revision=data_revision+1; UPDATE compatibility_exports SET dirty=1;");
         foreach (var kind in LegacyDecoder.SideKinds)

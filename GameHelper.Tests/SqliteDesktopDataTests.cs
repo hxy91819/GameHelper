@@ -149,6 +149,62 @@ public sealed class SqliteDesktopDataTests : IDisposable
         Assert.Single(Assert.Single(sessions.GetSnapshot().Records).Sessions);
     }
 
+    [Fact]
+    public async Task MillionIgnoredItems_RollsBackWithinCooperativeBudget_ConcurrentStopCommits()
+    {
+        await Seed();
+        var baseline = Store.Read("scan");
+        var json = JsonSerializer.Serialize(new LegacyScan { Ignored = Enumerable.Range(0, 1_000_000).Select(i => "ignored-" + i).ToList() });
+        using var acquired = new ManualResetEventSlim(); using var attempted = new ManualResetEventSlim();
+        var held = new Stopwatch();
+        var desktop = Task.Run(() =>
+        {
+            try
+            {
+                return Record.Exception(() => new SqliteDesktopStore(Factory, Config, _ =>
+                {
+                    held.Start(); acquired.Set();
+                    if (!attempted.Wait(TimeSpan.FromSeconds(15))) throw new TimeoutException();
+                }).Save("scan", baseline, json));
+            }
+            finally { held.Stop(); }
+        });
+        Assert.True(acquired.Wait(TimeSpan.FromSeconds(30)));
+        var elapsed = Stopwatch.StartNew();
+        var sessions = new SqliteSessionStore(Factory, _clock, () => { }, point => { if (point == "write.acquire.before") attempted.Set(); });
+        using (sessions.BeginEvent(_clock.GetLocalNow().DateTime))
+            sessions.Complete(new() { SessionId = Guid.NewGuid(), DataKey = "游戏", StartedAt = _clock.GetLocalNow().DateTime.AddMinutes(-20) }, _clock.GetLocalNow().DateTime, "observed");
+        Assert.NotNull(await desktop);
+        Assert.True(held.Elapsed < TimeSpan.FromMilliseconds(1500), "250 ms cooperative budget plus one-second scheduling/disk margin: " + held.Elapsed);
+        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(5), elapsed.Elapsed.ToString());
+        Assert.Equal(baseline.Json, Store.Read("scan").Json);
+        Assert.Single(Assert.Single(sessions.GetSnapshot().Records).Sessions);
+    }
+
+    [Fact]
+    public async Task LongSingleDelete_IsInterruptedAndRolledBackBySqliteProgressDeadline()
+    {
+        await Seed();
+        Store.Save("scan", Store.Read("scan"), JsonSerializer.Serialize(new LegacyScan { Ignored = ["old.exe"] }));
+        var baseline = Store.Read("scan");
+        using (var connection = Factory.OpenConnection())
+        using (var command = connection.CreateCommand())
+        {
+            // Forces a long VM statement inside DELETE, independent of disk speed or the input loop.
+            command.CommandText = """
+                CREATE TRIGGER slow_delete BEFORE DELETE ON scan_ignored BEGIN
+                  SELECT sum(n) FROM (WITH RECURSIVE numbers(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM numbers WHERE n<100000000) SELECT n FROM numbers);
+                END;
+                """;
+            command.ExecuteNonQuery();
+        }
+        var elapsed = Stopwatch.StartNew();
+        var failure = Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(() => Store.Save("scan", baseline, JsonSerializer.Serialize(new LegacyScan())));
+        Assert.Equal(9, failure.SqliteErrorCode); // SQLITE_INTERRUPT, not a post-hoc timeout after DELETE finished.
+        Assert.True(elapsed.Elapsed < TimeSpan.FromMilliseconds(1500), elapsed.Elapsed.ToString());
+        Assert.Equal(baseline.Json, Store.Read("scan").Json);
+    }
+
     public void Dispose() { if (Directory.Exists(_root)) Directory.Delete(_root, true); }
     private sealed class Clock : TimeProvider
     {
