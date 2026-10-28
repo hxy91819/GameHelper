@@ -11,7 +11,7 @@
 - [x] 阶段 13：Windows CI 加隔离实例运行验证（严格 ETW、库 IPC），已合入 main
 - [x] 阶段 9：删旧 Console 界面（ADR-0003）、注入时钟、重复函数合一、修空断言测试、自动化服务拆为 6 个协作者（1395→494 行，代际隔离修复）、配置单一事实源（写回逐字节同旧版）、公共件；教训成规则（PR #44），已合入 main 1b41fbc
 - [x] 阶段 12：年度/季度报告（程序统计、Markdown 导出、可选 OpenAI 兼容点评、本期通关），CI 1008 过，main faf377e
-- [ ] 阶段 14：按 [ADR-0004](../adr/0004-sqlite-user-data-and-session-ratings.md) 七批迁 SQLite，第 7 批本局 5 星打分；批次 1–2 已合入 292c345，批次 3 会话切库审查为修后可合，修复中 ← 进行中 thr_iau2iyrjt9
+- [ ] 阶段 14：按 [ADR-0004](../adr/0004-sqlite-user-data-and-session-ratings.md) 七批迁 SQLite，第 7 批本局 5 星打分；批次 1–3 已合入（会话已切库 e288a68），当前批次 4 统计与 sync 读库 ← 进行中 thr_rjcgvf75rz
 - [x] 阶段 15：双击海报启动、启动后放开前台锁并最小化游戏库，CI 绿，main 6c19353
 
 ## 关键决策
@@ -32,5 +32,5 @@
 | 状态 | 事项 | 为什么只能用户做 | 挡住 | 提出 |
 | --- | --- | --- | --- | --- |
 | 已完成 | 拍板手帐原型保留项：只要 A | 用户保留：产品方向取舍 | 阶段 5 | 2026-10-26 |
-| 待办 | Windows 本机 `verify-on-machine.ps1 -SkipVerify -Restart` 部署；核对托盘、HDR、重启续算、双击海报后游戏能否置前（测试与隔离实例已由 CI 覆盖） | 真机线下：HDR、DDC、CE 与本机部署 | 不挡 | 2026-10-26 |
+| 待办 | Windows 本机 `verify-on-machine.ps1 -SkipVerify -Restart` 部署；核对首次启动迁移 SQLite 是否成功（托盘无回退提示）、重启续算、双击海报置前（测试与隔离实例已由 CI 覆盖） | 真机线下：HDR、DDC、CE 与本机部署 | 不挡 | 2026-10-26 |
 | 已完成 | 阶段 6 Windows 实机验收与部署 | 真机线下：Windows 实机 | 阶段 6 | 2026-10-26 |
