@@ -55,7 +55,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - name: Verify native SQLite and concurrent initialization in published artifacts
+      - name: Verify native SQLite, real child concurrency, crash recovery and contention budgets
         shell: pwsh
         run: ./scripts/sqlite-publish-smoke.ps1
 
@@ -77,7 +77,7 @@ jobs:
         run: |
           ./scripts/verify-on-machine.ps1 -SkipDeploy -VerifyRuntime -DiagnosticsDirectory "$env:RUNNER_TEMP/runtime-verify"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "Background launch without console, sandbox data writes, ETW session and library IPC passed. No deployment performed." >> $env:GITHUB_STEP_SUMMARY
+          "Background launch without console, SQLite migration, sandbox writes, ETW, library IPC, two-crash session recovery and offline downgrade preflight passed. No deployment performed." >> $env:GITHUB_STEP_SUMMARY
 
       - name: Upload isolated instance diagnostics on failure
         if: failure()

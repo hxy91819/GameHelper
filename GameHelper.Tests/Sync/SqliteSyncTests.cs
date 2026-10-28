@@ -33,6 +33,24 @@ public sealed class SqliteSyncTests : IDisposable
     private SyncState State => JsonSerializer.Deserialize<SyncState>(File.ReadAllText(StatePath), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
 
     [Fact]
+    public async Task ActualBackupRestore_InvalidatesPersistedSyncBookmark()
+    {
+        await Seed();
+        var service = Service;
+        await service.SyncNowAsync();
+        var prior = State.HistoryVersion;
+        var backup = (await new SqliteDatabaseBackup(Factory, _clock).CreateDailyBackupAsync())!;
+        await new SqliteDatabaseBackup(Factory, _clock).RestoreAsync(backup);
+        await new SqliteDatabaseInitializer(Factory, _clock).InitializeAsync();
+        _clock.Advance();
+        Assert.NotEqual(prior, Store.GetHistoryVersion());
+        Assert.True(service.GetStatus().HasPendingData);
+        await service.SyncNowAsync();
+        Assert.Equal(Store.GetHistoryVersion(), State.HistoryVersion);
+        Assert.False(service.GetStatus().HasPendingData);
+    }
+
+    [Fact]
     public async Task UploadInProgress_NewSessionRemainsPendingAndNextUploadContainsIt()
     {
         await Seed();

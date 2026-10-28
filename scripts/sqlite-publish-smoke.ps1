@@ -94,6 +94,41 @@ try {
             }
             Write-Host "Real SQLite child kill and repeated recovery passed: $layout $boundary"
         }
+        # Pin a WAL reader in one process, commit in another, then verify checkpoint after release.
+        $walData = Join-Path $temp "wal-$layout"
+        $driver = Join-Path $publish 'GameHelper.SqliteProbe.exe'
+        & $driver $walData
+        if ($LASTEXITCODE -ne 0) { throw 'WAL fixture initialization failed.' }
+        foreach ($mode in @('reader', 'writer')) {
+            $reachedName = 'Local\GH.WAL.Reached.' + [Guid]::NewGuid().ToString('N')
+            $releaseName = 'Local\GH.WAL.Release.' + [Guid]::NewGuid().ToString('N')
+            $reached = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, $reachedName)
+            $release = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, $releaseName)
+            $holder = $null
+            try {
+                $holder = Start-Process $driver -ArgumentList @("ops-hold-$mode", "`"$walData`"", $reachedName, $releaseName) -PassThru -NoNewWindow
+                if (-not $reached.WaitOne(30000)) { throw "WAL $mode did not reach barrier." }
+                $write = & $driver ops-write $walData | ConvertFrom-Json
+                $writeCode = $LASTEXITCODE
+                if ($mode -eq 'reader') {
+                    if ($writeCode -ne 0) { throw 'Reader blocked the child writer.' }
+                    $checkpoint = & $driver ops-checkpoint $walData | ConvertFrom-Json
+                    if ($LASTEXITCODE -ne 0 -or $checkpoint.Frames -le $checkpoint.Checkpointed) { throw 'Reader did not pin WAL frames.' }
+                } else {
+                    if ($writeCode -ne 20 -or $write.ElapsedMilliseconds -gt 5500) { throw 'Writer contention exceeded five-second event budget or unexpectedly committed.' }
+                }
+                $release.Set() | Out-Null
+                if (-not $holder.WaitForExit(30000) -or $holder.ExitCode -ne 0) { throw 'WAL holder failed.' }
+                $checkpoint = & $driver ops-checkpoint $walData truncate | ConvertFrom-Json
+                if ($LASTEXITCODE -ne 0 -or $checkpoint.Busy -ne 0 -or $checkpoint.Frames -ne 0) { throw 'Checkpoint did not finish after reader release.' }
+            }
+            finally {
+                $release.Set() | Out-Null
+                if ($null -ne $holder) { if (-not $holder.HasExited) { $holder.Kill(); $holder.WaitForExit() }; $holder.Dispose() }
+                $reached.Dispose(); $release.Dispose()
+            }
+        }
+        Write-Host "Real child reader/writer, contention deadline and checkpoint after release passed: $layout"
         $desktopData = Join-Path $temp "desktop-$layout"
         $driver = Join-Path $publish 'GameHelper.SqliteProbe.exe'
         & $driver desktop-prepare $desktopData
