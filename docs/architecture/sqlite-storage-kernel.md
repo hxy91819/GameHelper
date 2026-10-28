@@ -30,4 +30,4 @@
 
 `SqliteStorageTests` 使用真实临时磁盘、独立连接及屏障覆盖建库、升级、事务回滚、高版本拒写、Unicode 键、约束、备份恢复、保留策略和并发初始化。测试时钟固定，不依赖实际日期。
 
-`scripts/sqlite-publish-smoke.ps1` 在 Windows 发布 ConsoleHost win-x64 的框架依赖和自包含布局，先检查生产产物的 `e_sqlite3.dll` 与 managed assembly，再仅加入测试 driver 的四个入口文件，使用生产依赖执行真实 SQL；4 个子进程由命名事件/信号量同时放行初始化同一目录，核对唯一 database_id 与主库。driver 不进入生产发布项目、DI 或 CLI。CI 保留原有全量测试和隔离后台运行验证。
+`scripts/sqlite-publish-smoke.ps1` 在 Windows 发布 ConsoleHost win-x64 的框架依赖和自包含布局，先检查生产产物及 desktop 子目录的 `e_sqlite3.dll` 与 managed assembly（原生库哈希必须一致），再仅加入测试 driver 的四个入口文件，使用生产依赖执行真实 SQL；4 个子进程由命名事件/信号量同时放行初始化同一目录，核对唯一 database_id 与主库。driver 引用 ConsoleHost 以保持完整依赖图一致，仅入口文件进入临时冒烟目录；不进入生产发布项目、DI 或 CLI。CI 保留原有全量测试和隔离后台运行验证。

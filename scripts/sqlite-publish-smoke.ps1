@@ -13,6 +13,11 @@ try {
         $native = Join-Path $publish 'e_sqlite3.dll'
         if (-not (Test-Path $native)) { throw "Missing SQLite native library in self-contained=$layout" }
         $nativeHash = (Get-FileHash $native -Algorithm SHA256).Hash
+        $desktopNative = Join-Path $publish 'desktop/e_sqlite3.dll'
+        if (-not (Test-Path $desktopNative) -or -not (Test-Path (Join-Path $publish 'desktop/Microsoft.Data.Sqlite.dll'))) {
+            throw "Desktop SQLite dependencies missing in self-contained=$layout"
+        }
+        if ((Get-FileHash $desktopNative -Algorithm SHA256).Hash -ne $nativeHash) { throw 'Desktop and host SQLite native libraries differ.' }
         if (-not (Test-Path (Join-Path $publish 'Microsoft.Data.Sqlite.dll'))) { throw 'Missing SQLite managed assembly.' }
         $probeBuild = Join-Path $temp "probe-$layout"
         & dotnet publish (Join-Path $repoRoot 'tools/GameHelper.SqliteProbe/GameHelper.SqliteProbe.csproj') -c Release -r $Runtime --self-contained $layout -o $probeBuild

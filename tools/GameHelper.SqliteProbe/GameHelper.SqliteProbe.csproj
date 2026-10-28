@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../GameHelper.Infrastructure/GameHelper.Infrastructure.csproj" />
+    <!-- Match the host dependency graph so the driver can run against the untouched production assemblies. -->
+    <ProjectReference Include="../../GameHelper.ConsoleHost/GameHelper.ConsoleHost.csproj" />
   </ItemGroup>
 </Project>
