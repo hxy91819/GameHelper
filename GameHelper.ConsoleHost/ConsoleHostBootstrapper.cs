@@ -158,7 +158,7 @@ public static class ConsoleHostBootstrapper
         services.AddSingleton<IMonitorControlService, MonitorControlService>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IGameCatalogService, GameCatalogService>();
-        services.AddSingleton<IPlaytimeSnapshotProvider>(sp => sp.GetRequiredService<SessionStorage>().Snapshot);
+        services.AddSingleton<IPlaytimeSnapshotProvider, CompatibilityPlaytimeSnapshotProvider>();
         services.AddSingleton<IStatisticsService, StatisticsService>();
         services.AddSingleton<ISteamGameResolver, SteamGameResolver>();
         services.AddSingleton<ILocalGameDiscovery, LocalGameDiscovery>();

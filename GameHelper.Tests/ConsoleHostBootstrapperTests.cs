@@ -3,6 +3,9 @@ using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Services;
+using GameHelper.Core.Models;
+using GameHelper.Infrastructure.Storage.Sqlite;
+using Moq;
 using GameHelper.Infrastructure.Processes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -77,6 +80,37 @@ public sealed class ConsoleHostBootstrapperTests : IDisposable
         ConsoleHostBootstrapper.ConfigureServices(services, new ParsedArguments { Background = true });
         var expected = OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GAMEHELPER_DATA_DIR"));
         Assert.Equal(expected, services.Any(descriptor => descriptor.ServiceType == typeof(ISystemTrayService)));
+    }
+
+    [Fact]
+    public async Task ProductionLibraryRegistration_ReportIncludesScopedJournalAndRatings()
+    {
+        var services = new ServiceCollection(); services.AddLogging();
+        ConsoleHostBootstrapper.ConfigureServices(services, new ParsedArguments { ConfigOverride = _configPath, MonitorDryRun = true });
+        var clock = new ReportClock();
+        services.AddSingleton(new SqliteConnectionFactory(_tempDir));
+        services.AddSingleton<TimeProvider>(clock);
+        services.AddSingleton(Mock.Of<IGameAutomationService>());
+        services.AddSingleton(Mock.Of<IGameLaunchCoordinator>());
+        services.AddSingleton(Mock.Of<IMonitorControlService>());
+        using var provider = services.BuildServiceProvider();
+        var storage = provider.GetRequiredService<SessionStorage>();
+        await storage.InitializeAsync(_configPath, []);
+        var play = (IIdentifiedPlayTimeService)storage.PlayTime;
+        var id = Guid.NewGuid();
+        play.ResumeTracking("g", clock.GetLocalNow().DateTime.AddMinutes(-20), id, false);
+        play.StopTracking("g");
+        provider.GetRequiredService<SessionRatings>().Save(new(id, 4, "不进入模型", 0));
+        var library = provider.GetRequiredService<IGameLibrary>();
+        var response = await library.ExecuteAsync(new() { Operation = GameLibraryOperation.Report, ReportPeriod = new(2026) });
+        Assert.True(response.Success); Assert.True(response.Report!.JournalIncluded);
+        Assert.Equal(4d, response.Report.AverageRating); Assert.Equal(1, response.Report.RatingSamples);
+        Assert.Equal(id, response.Report.HighestRatedSession!.SessionId);
+    }
+    private sealed class ReportClock : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => new(2026, 10, 28, 12, 0, 0, TimeSpan.Zero);
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
     }
 
     public void Dispose()
