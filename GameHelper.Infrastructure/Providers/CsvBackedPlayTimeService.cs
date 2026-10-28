@@ -37,7 +37,7 @@ public sealed class CsvBackedPlayTimeService : IPlayTimeService
     }
 
     // For tests: deterministic clock (start/stop/shift times must not depend on the wall clock)
-    public CsvBackedPlayTimeService(string configDirectory, ILogger<CsvBackedPlayTimeService>? logger, TimeProvider timeProvider)
+    public CsvBackedPlayTimeService(string configDirectory, ILogger<CsvBackedPlayTimeService>? logger, TimeProvider timeProvider, bool migrateLegacyJson = true)
     {
         if (string.IsNullOrWhiteSpace(configDirectory))
             throw new ArgumentException("configDirectory required", nameof(configDirectory));
@@ -61,7 +61,7 @@ public sealed class CsvBackedPlayTimeService : IPlayTimeService
         // Perform one-time migration from JSON to CSV if needed
         try
         {
-            MigrateFromJsonIfNeeded();
+            if (migrateLegacyJson) MigrateFromJsonIfNeeded();
         }
         catch (Exception ex)
         {
@@ -190,6 +190,7 @@ private void AppendSessionToCsv(string gameName, DateTime startTime, DateTime en
                         });
                         if (alreadyWritten) return;
                     }
+                    MigrateFromJsonIfNeeded();
                     PlaytimeCsvCodec.Append(
                         _csvFilePath,
                         new PlaytimeCsvRow(gameName, startTime, endTime, durationMinutes));

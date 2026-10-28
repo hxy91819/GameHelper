@@ -300,7 +300,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             {
                 try
                 {
-                    _playTime.StartTracking(config.DataKey);
+                    _inFlightRecovery.RecordSessionStart(config.DataKey, isOwnLaunch);
                 }
                 catch (Exception ex)
                 {
@@ -312,7 +312,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
                 // Persist the in-flight snapshot so a restart (deploy or crash) can
                 // resume this session instead of losing it.
-                _inFlightRecovery.RecordSessionStart(config.DataKey);
+
             }
 
             ConfigureProcessObservation();

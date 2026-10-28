@@ -22,7 +22,7 @@ public sealed class SqliteLegacyMigration
     { _factory = factory; _clock = clock; _configs = configs ?? []; _checkpoint = checkpoint; }
 
     /// <summary>Inventories only the supplied configs. Changed sources invalidate the candidate, retaining originals.</summary>
-    public async Task<CandidateImport> PrepareAsync(IEnumerable<string> configPaths, int batchSize = 500, CancellationToken cancellationToken = default)
+    public async Task<CandidateImport> PrepareAsync(IEnumerable<string> configPaths, int batchSize = 500, CancellationToken cancellationToken = default, bool sessionsOnly = false)
     {
         if (batchSize < 1) throw new ArgumentOutOfRangeException(nameof(batchSize));
         using var lease = await SqliteDirectoryLock.AcquireAsync(_factory.DataDirectory, cancellationToken).ConfigureAwait(false);
@@ -31,10 +31,10 @@ public sealed class SqliteLegacyMigration
         string manifestPath;
         ImportManifest manifest;
         if (File.Exists(Pointer) && File.Exists(manifestPath = ReadJson<string>(Pointer)) &&
-            SameSources(manifest = ReadJson<ImportManifest>(manifestPath), inventory)) { }
+            SameSources(manifest = ReadJson<ImportManifest>(manifestPath), inventory) && manifest.SessionsOnly == sessionsOnly) { }
         else
         {
-            (manifest, manifestPath) = Capture(inventory);
+            (manifest, manifestPath) = Capture(inventory, sessionsOnly);
             Hit("manifest.publish.before");
             WriteJson(Pointer, manifestPath);
             Hit("manifest.publish.after");
@@ -58,6 +58,7 @@ public sealed class SqliteLegacyMigration
         var decoded = Decode(manifest, backupDirectory);
         foreach (var source in manifest.Sources)
         {
+            if (manifest.SessionsOnly && source.ConfigPath is not null) continue;
             var items = decoded[source.SourceId];
             using (var tx = connection.BeginTransaction(deferred: false))
             {
@@ -167,7 +168,7 @@ public sealed class SqliteLegacyMigration
         return sources;
     }
 
-    private (ImportManifest Manifest, string Path) Capture(List<ImportSource> inventory)
+    private (ImportManifest Manifest, string Path) Capture(List<ImportSource> inventory, bool sessionsOnly = false)
     {
         var id = Guid.NewGuid().ToString("D");
         var root = Path.Combine(_factory.DataDirectory, "migration-backups");
@@ -186,7 +187,7 @@ public sealed class SqliteLegacyMigration
                 sources.Add(source with { SourceId = Id(id, sources.Count), Exists = bytes is not null,
                     Sha256 = bytes is null ? "" : Hash(bytes), SizeBytes = bytes?.LongLength ?? 0, BackupName = name });
             }
-            var manifest = new ImportManifest(id, 1, typeof(SqliteLegacyMigration).Assembly.GetName().Version!.ToString(), _clock.GetUtcNow(), sources);
+            var manifest = new ImportManifest(id, 1, typeof(SqliteLegacyMigration).Assembly.GetName().Version!.ToString(), _clock.GetUtcNow(), sources, sessionsOnly);
             Hit("backup.manifest.before");
             WriteJson(Path.Combine(temporary, "manifest.json"), manifest);
             Hit("backup.manifest.after");

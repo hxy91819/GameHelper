@@ -11,7 +11,8 @@ namespace GameHelper.Core.Services;
 /// Every member borrows the service state lock; no lock or asynchronous entry is added.
 /// Callers keep generation validation before event/timer mutations. Lock order remains
 /// UpdateLock → companion → state; callbacks never enter the first two locks.
-/// Store/probe/playtime/speed I/O keeps its original state-lock scope, with no new I/O.
+/// Store/probe/playtime/speed I/O retains the serialized state-lock scope. SQLite transactions
+/// acquire no automation locks and never invoke callbacks; see sqlite-session-storage.md.
 /// </summary>
 internal sealed class InFlightSessionRecovery
 {
@@ -29,6 +30,9 @@ internal sealed class InFlightSessionRecovery
     private readonly Dictionary<string, DateTime> _inFlightStarts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<int, DateTime> _inFlightProcessStarts = new();
     private readonly List<InFlightSession> _pendingRecoveredSessions = new();
+    private readonly Dictionary<string, Guid> _sessionIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, bool?> _sessionSources = new(StringComparer.OrdinalIgnoreCase);
+    private long _snapshotRevision;
     private bool _inFlightPersistFailureActive;
     private DateTime _inFlightPersistFailureLoggedAtUtc = DateTime.MinValue;
 
@@ -68,10 +72,19 @@ internal sealed class InFlightSessionRecovery
         return null;
     }
 
-    internal void RecordSessionStart(string dataKey) => _inFlightStarts[dataKey] = _timeProvider.GetLocalNow().DateTime;
-    internal void ReleaseSession(string dataKey) => _inFlightStarts.Remove(dataKey);
+    internal void RecordSessionStart(string dataKey, bool ownLaunch)
+    {
+        var start = _timeProvider.GetLocalNow().DateTime;
+        var id = Guid.NewGuid();
+        _inFlightStarts[dataKey] = start;
+        _sessionIds[dataKey] = id;
+        _sessionSources[dataKey] = ownLaunch;
+        if (_playTime is IIdentifiedPlayTimeService identified) identified.ResumeTracking(dataKey, start, id, ownLaunch);
+        else _playTime.StartTracking(dataKey);
+    }
+    internal void ReleaseSession(string dataKey) { _inFlightStarts.Remove(dataKey); _sessionIds.Remove(dataKey); _sessionSources.Remove(dataKey); }
     internal void ReleaseProcess(int processId) => _inFlightProcessStarts.Remove(processId);
-    internal void ClearSessionStarts() => _inFlightStarts.Clear();
+    internal void ClearSessionStarts() { _inFlightStarts.Clear(); _sessionIds.Clear(); _sessionSources.Clear(); }
     internal void ClearProcessStarts() => _inFlightProcessStarts.Clear();
 
     internal IReadOnlyDictionary<string, DateTime?> GetRunningSessionStarts()
@@ -139,7 +152,9 @@ internal sealed class InFlightSessionRecovery
 
         try
         {
-            store.Save(BuildInFlightSnapshot());
+            var snapshot = BuildInFlightSnapshot();
+            store.Save(snapshot);
+            _snapshotRevision = snapshot.Revision;
 
             if (_inFlightPersistFailureActive)
             {
@@ -170,6 +185,7 @@ internal sealed class InFlightSessionRecovery
     {
         var snapshot = new InFlightSnapshot
         {
+            Revision = _snapshotRevision,
             SnapshotAt = _timeProvider.GetLocalNow().DateTime, Sessions = new List<InFlightSession>(),
             HdrEnabledByGameHelper = _launchOwnership.OwnsEnabledHdr,
             PendingLaunches = _launchOwnership.CapturePending()
@@ -178,13 +194,15 @@ internal sealed class InFlightSessionRecovery
         {
             snapshot.Sessions.Add(new InFlightSession
             {
+                SessionId = _sessionIds.GetValueOrDefault(entry.DataKey),
                 DataKey = entry.DataKey,
                 ProcessId = entry.ProcessId,
                 NormalizedName = entry.NormalizedName,
                 NormalizedPath = entry.NormalizedPath,
                 ProcessStartedAtUtc = entry.ProcessId is int pid && _inFlightProcessStarts.TryGetValue(pid, out var created) ? created : null,
                 StartedAt = _inFlightStarts.TryGetValue(entry.DataKey, out var startedAt) ? startedAt : snapshot.SnapshotAt,
-                LaunchedByHelper = _launchOwnership.IsOwnLaunched(entry.DataKey)
+                LaunchedByHelper = _playTime is IIdentifiedPlayTimeService
+                    ? _sessionSources.GetValueOrDefault(entry.DataKey) : _launchOwnership.IsOwnLaunched(entry.DataKey)
             });
         }
         snapshot.Sessions.AddRange(_pendingRecoveredSessions);
@@ -218,6 +236,7 @@ internal sealed class InFlightSessionRecovery
         }
 
         if (snapshot is null) return;
+        _snapshotRevision = snapshot.Revision;
         _launchOwnership.AdoptSnapshot(snapshot);
         if (snapshot.Sessions.Count == 0)
         {
@@ -227,7 +246,7 @@ internal sealed class InFlightSessionRecovery
         var resumedCount = 0;
         var closedCount = 0;
         foreach (var group in snapshot.Sessions.GroupBy(session =>
-                     (session.DataKey.ToUpperInvariant(), session.StartedAt, session.RecoveryEndAt)))
+                     (session.SessionId, session.DataKey.ToUpperInvariant(), session.StartedAt, session.RecoveryEndAt)))
         {
             var dataKey = group.First().DataKey;
             var liveSessions = new List<InFlightSession>();
@@ -264,7 +283,13 @@ internal sealed class InFlightSessionRecovery
                 _launchOwnership.AdoptSession(dataKey, resumedIsOwn);
                 try
                 {
-                    _playTime.ResumeTracking(dataKey, startedAt);
+                    var id = liveSessions[0].SessionId;
+                    if (id == Guid.Empty) id = Guid.NewGuid();
+                    _sessionIds[dataKey] = id;
+                    _sessionSources[dataKey] = liveSessions[0].LaunchedByHelper;
+                    if (_playTime is IIdentifiedPlayTimeService identified)
+                        identified.ResumeTracking(dataKey, startedAt, id, liveSessions[0].LaunchedByHelper);
+                    else _playTime.ResumeTracking(dataKey, startedAt);
                     _inFlightStarts[dataKey] = startedAt;
                     resumedCount++;
                     _logger.LogInformation(
@@ -302,7 +327,7 @@ internal sealed class InFlightSessionRecovery
 
                 try
                 {
-                    _playTime.WriteRecoveredSession(dataKey, startedAt, endTime);
+                    WriteRecovered(group.First(), endTime);
                     closedCount++;
                     _logger.LogInformation(
                         "Closed interrupted session for {DataKey}: start {StartTime:t}, end {EndTime:t}.",
@@ -335,7 +360,9 @@ internal sealed class InFlightSessionRecovery
             try
             {
                 // Replace before deleting: a failed delete must not replay completed rows.
-                store.Save(BuildInFlightSnapshot());
+                var cleared = BuildInFlightSnapshot();
+                store.Save(cleared);
+                _snapshotRevision = cleared.Revision;
                 store.Clear();
             }
             catch (Exception ex) { _logger.LogWarning(ex, "Failed to clear the completed recovery snapshot; monitoring will continue."); }
@@ -349,9 +376,15 @@ internal sealed class InFlightSessionRecovery
 
     internal void RetainCompletedSession(string dataKey)
     {
+        if (_playTime is IIdentifiedPlayTimeService identified && identified.GetPendingCompletion(dataKey) is { } failed)
+        {
+            _pendingRecoveredSessions.Add(failed);
+            return;
+        }
         if (_inFlightStarts.TryGetValue(dataKey, out var start))
             _pendingRecoveredSessions.Add(new InFlightSession
             {
+                SessionId = _sessionIds.GetValueOrDefault(dataKey),
                 DataKey = dataKey,
                 StartedAt = start,
                 RecoveryEndAt = _timeProvider.GetLocalNow().DateTime
@@ -362,18 +395,24 @@ internal sealed class InFlightSessionRecovery
     {
         var completed = new List<InFlightSession>();
         foreach (var group in _pendingRecoveredSessions.GroupBy(s =>
-                     (s.DataKey.ToUpperInvariant(), s.StartedAt, s.RecoveryEndAt)))
+                     (s.SessionId, s.DataKey.ToUpperInvariant(), s.StartedAt, s.RecoveryEndAt)))
         {
             var first = group.First();
             try
             {
-                _playTime.WriteRecoveredSession(first.DataKey, first.StartedAt, first.RecoveryEndAt!.Value);
+                WriteRecovered(first, first.RecoveryEndAt!.Value);
                 completed.AddRange(group);
             }
             catch (Exception ex) { _logger.LogWarning(ex, "Still unable to persist interrupted session for {DataKey}; retaining snapshot.", first.DataKey); }
         }
         _pendingRecoveredSessions.RemoveAll(completed.Contains);
         if (completed.Count > 0) PersistInFlightSnapshot();
+    }
+
+    private void WriteRecovered(InFlightSession session, DateTime end)
+    {
+        if (_playTime is IIdentifiedPlayTimeService identified) identified.WriteRecoveredSession(session, end);
+        else _playTime.WriteRecoveredSession(session.DataKey, session.StartedAt, end);
     }
 
     private bool IsPersistedProcessStillSame(InFlightSession session, DateTime snapshotAt)

@@ -2,7 +2,7 @@ namespace GameHelper.Infrastructure.Storage.Sqlite.Legacy;
 
 /// <summary>Immutable source inventory, including absent formal files; originals live beside this manifest.</summary>
 public sealed record ImportManifest(string MigrationId, int CodecVersion, string ProgramVersion,
-    DateTimeOffset CreatedAtUtc, IReadOnlyList<ImportSource> Sources);
+    DateTimeOffset CreatedAtUtc, IReadOnlyList<ImportSource> Sources, bool SessionsOnly = false);
 
 /// <summary>A source identity is fixed for one inventory, not a content deduplication key.</summary>
 public sealed record ImportSource(string SourceId, string Path, string? ConfigPath, string Kind,
