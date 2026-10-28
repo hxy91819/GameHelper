@@ -147,3 +147,12 @@ sync 脏检查从 CSV mtime 改为 `database_id + history_revision` 加既有配
   修订门控仍按批次 4 实施。首次上线提供已有降级/再升级原语的离线 CLI。
 
 - 生产兼容 CSV 为保持原旧读取语义，保留旧 codec 已接受的 UTC `Z`/Local offset 后缀；不将 UTC 字面值改为无时区时间。降级 manifest 记录格式，再升级复用；无时区字段与旧 writer 固化工具默认模式不变。
+
+## 批次 4 实施澄清
+
+- 已激活库的统计与 sync 直接读取历史和修订的同事务快照；不等待兼容投影。投影失败只影响旧版交接，
+  库读取失败仍按 ReadFailed 报同步失败，不转成空历史；批次 3 的“sync 先排空投影”是旧阶段约束。
+- 报告沿用 Core 聚合，不提前迁移 Desktop 手帐或启用评分。批次 5 切换侧数据写权时，才把当前 scope
+  的手帐及后续评分加入同一个报告读事务；本批保留现有 Desktop 文件合并行为。
+- WAL 读事务仅覆盖取数，聚合和上传在释放后执行；不新增维护调度或强制 checkpoint。
+  PASSIVE 可暂留被长读固定的帧，读事务结束后维护可完成 checkpoint，具体见[会话存储](../architecture/sqlite-session-storage.md#统计读取与-wal-checkpoint)。

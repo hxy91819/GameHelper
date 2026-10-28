@@ -14,7 +14,7 @@ namespace GameHelper.Core.Services;
 
 /// <summary>
 /// 统计自动推送核心调度：
-/// - 本服务不增加会话结束时的上传；兼容期的完整 CSV 投影由存储层负责，脏检查仍做文件 mtime 对比；
+/// - 本服务不增加会话结束时的上传；兼容期的完整 CSV 投影由存储层负责，SQLite 脏检查使用历史修订，未激活时保留文件 mtime 对比；
 /// - 默认每 <see cref="SyncSettings.IntervalMinutes"/> 分钟最多推送一次，失败后按固定退避重试；
 /// - 仅在推送成功后写一次 sync-state.json。
 /// </summary>
@@ -96,7 +96,8 @@ public sealed class SyncService : ISyncService
                 }
             }
 
-            var report = BuildReport(settings, appConfig);
+            var snapshot = _snapshotProvider.GetSnapshot();
+            var report = BuildReport(settings, appConfig, snapshot);
             if (report.SessionCount == 0)
             {
                 return SyncOutcome.Skipped("暂无游玩数据");
@@ -104,7 +105,7 @@ public sealed class SyncService : ISyncService
 
             if (!force && string.Equals(state.ContentHash, report.ContentHash, StringComparison.Ordinal))
             {
-                MarkSuccess(settings, state, nowUtc, report.ContentHash);
+                MarkSuccess(settings, state, nowUtc, report.ContentHash, snapshot.HistoryVersion);
                 return SyncOutcome.Skipped("内容与上次推送一致，跳过上传");
             }
 
@@ -114,7 +115,7 @@ public sealed class SyncService : ISyncService
                 .UploadAsync(settings, report.Files, commitMessage, cancellationToken)
                 .ConfigureAwait(false);
 
-            MarkSuccess(settings, state, nowUtc, report.ContentHash);
+            MarkSuccess(settings, state, nowUtc, report.ContentHash, snapshot.HistoryVersion);
             _logger.LogInformation(
                 "统计已推送到 {Provider} {Repo}（{FileCount} 个文件）",
                 settings.Provider,
@@ -196,7 +197,7 @@ public sealed class SyncService : ISyncService
             LastSuccessUtc = targetMatches ? state.LastSuccessUtc : default,
             LastAttemptUtc = targetMatches ? state.LastAttemptUtc : default,
             LastError = targetMatches ? state.LastError : null,
-            HasPendingData = configError is null && HasLocalChanges(effectiveState)
+            HasPendingData = configError is null && HasLocalChangesForStatus(effectiveState)
         };
     }
 
@@ -234,9 +235,8 @@ public sealed class SyncService : ISyncService
         return null;
     }
 
-    private StatsReport BuildReport(SyncSettings settings, AppConfig appConfig)
+    private StatsReport BuildReport(SyncSettings settings, AppConfig appConfig, PlaytimeSnapshot snapshot)
     {
-        var snapshot = _snapshotProvider.GetSnapshot();
         if (snapshot.ReadFailed) throw new IOException("游玩数据读取或兼容投影失败，未上传统计；请检查存储日志后重试。");
         var generatedAtLocal = _timeProvider.GetLocalNow().LocalDateTime;
         return _reportBuilder.Build(
@@ -246,11 +246,19 @@ public sealed class SyncService : ISyncService
             settings.IncludeRawCsv);
     }
 
-    /// <summary>本地数据是否比上次成功推送更新（时长 CSV 或配置任一更新即视为有新内容）。</summary>
+    private bool HasLocalChangesForStatus(SyncState state)
+    {
+        try { return HasLocalChanges(state); }
+        catch { return true; } // A failed read is pending work, never a clean/empty history.
+    }
+
+    /// <summary>SQLite compares committed history identity; legacy fallback retains CSV mtime.</summary>
     private bool HasLocalChanges(SyncState state)
     {
         var referenceUtc = state.LastSuccessUtc == default ? DateTime.MinValue : state.LastSuccessUtc;
-        return IsModifiedAfter(_playtimeCsvPath, referenceUtc) || IsModifiedAfter(_configPath, referenceUtc);
+        var version = _snapshotProvider.GetHistoryVersion();
+        return (version is not null ? version != state.HistoryVersion : IsModifiedAfter(_playtimeCsvPath, referenceUtc))
+            || IsModifiedAfter(_configPath, referenceUtc);
     }
 
     private static bool IsModifiedAfter(string? path, DateTime referenceUtc)
@@ -270,7 +278,7 @@ public sealed class SyncService : ISyncService
         Method = settings.NormalizedMethod
     };
 
-    private void MarkSuccess(SyncSettings settings, SyncState state, DateTime nowUtc, string contentHash)
+    private void MarkSuccess(SyncSettings settings, SyncState state, DateTime nowUtc, string contentHash, PlaytimeHistoryVersion? historyVersion)
     {
         state.Provider = settings.Provider;
         state.Repo = settings.NormalizedRepo;
@@ -279,6 +287,7 @@ public sealed class SyncService : ISyncService
         state.LastAttemptUtc = nowUtc;
         state.LastError = null;
         state.ContentHash = contentHash;
+        state.HistoryVersion = historyVersion;
         TrySaveState(state);
     }
 

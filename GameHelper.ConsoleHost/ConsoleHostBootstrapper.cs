@@ -163,7 +163,7 @@ public static class ConsoleHostBootstrapper
         services.AddSingleton<IStatsUploadChannelProvider>(sp => sp.GetRequiredService<GitHubUploadChannelProvider>());
         services.AddSingleton<ISyncService>(sp => new SyncService(
             sp.GetRequiredService<IGameConfiguration>(),
-            new CompatibilityPlaytimeSnapshotProvider(sp.GetRequiredService<SessionStorage>(), AppDataPath.GetGameHelperDirectory()),
+            new CompatibilityPlaytimeSnapshotProvider(sp.GetRequiredService<SessionStorage>()),
             sp.GetRequiredService<IStatsUploadChannelProvider>(), sp.GetRequiredService<StatsReportBuilder>(),
             sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<SyncService>>()));
         services.AddSingleton<IHostedService, SyncBackgroundService>();

@@ -225,7 +225,7 @@ public sealed class SqliteSessionStorageTests(ITestOutputHelper output) : IDispo
     }
 
     [Fact]
-    public async Task Compatibility_ProjectionFailure_DoesNotUndoCompletionAndSyncRefusesStaleCsv()
+    public async Task Compatibility_ProjectionFailure_DoesNotUndoCompletionOrBlockDatabaseSync()
     {
         var fail = false;
         var storage = Storage(); await storage.InitializeAsync(Config, [Game], checkpoint: point =>
@@ -237,19 +237,22 @@ public sealed class SqliteSessionStorageTests(ITestOutputHelper output) : IDispo
         Assert.Equal(1L, Count("play_sessions"));
         Assert.Throws<IOException>(storage.FlushProjection);
         Assert.Contains("旧版兼容投影失败", storage.Warning);
-        Assert.True(new CompatibilityPlaytimeSnapshotProvider(storage, _directory).GetSnapshot().ReadFailed);
+        Assert.False(new CompatibilityPlaytimeSnapshotProvider(storage).GetSnapshot().ReadFailed);
         var config = new Mock<IGameConfiguration>();
         config.Setup(c => c.Read()).Returns(new AppConfig
         {
             Games = [Game], SyncSettings = new() { Enabled = true, Repo = "owner/repo", Method = "api", Token = "test" }
         });
+        var channel = new Mock<IStatsUploadChannel>();
+        channel.Setup(c => c.UploadAsync(It.IsAny<SyncSettings>(), It.IsAny<IReadOnlyList<StatsUploadFile>>(),
+            It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(new StatsUploadResult("uploaded", NoChanges: false));
         var channels = new Mock<IStatsUploadChannelProvider>(MockBehavior.Strict);
-        var sync = new SyncService(config.Object, new CompatibilityPlaytimeSnapshotProvider(storage, _directory),
+        channels.Setup(c => c.GetChannel(It.IsAny<SyncSettings>())).Returns(channel.Object);
+        var sync = new SyncService(config.Object, new CompatibilityPlaytimeSnapshotProvider(storage),
             channels.Object, new StatsReportBuilder(), _clock, NullLogger<SyncService>.Instance,
             Path.Combine(_directory, "playtime.csv"), Path.Combine(_directory, "sync-state.json"));
-        Assert.Equal(SyncOutcomeStatus.Failed, (await sync.SyncNowAsync(force: true)).Status);
-        Assert.Contains("兼容投影失败", sync.GetStatus().LastError);
-        channels.VerifyNoOtherCalls();
+        Assert.Equal(SyncOutcomeStatus.Uploaded, (await sync.SyncNowAsync(force: true)).Status);
+        Assert.Null(sync.GetStatus().LastError);
         fail = false; storage.FlushProjection(); Assert.Null(storage.Warning);
         Assert.Single(Assert.Single(new FilePlaytimeSnapshotProvider(_directory).GetSnapshot().Records).Sessions);
         var csv = Path.Combine(_directory, "playtime.csv"); var mtime = File.GetLastWriteTimeUtc(csv);
@@ -344,7 +347,7 @@ public sealed class SqliteSessionStorageTests(ITestOutputHelper output) : IDispo
         var old = new FilePlaytimeSnapshotProvider(_directory).GetSnapshot().Records;
         var before = new StatsReportBuilder().Build(old, [Game], _clock.Now, true);
         var storage = Storage(); await storage.InitializeAsync(Config, [Game]);
-        var projected = new CompatibilityPlaytimeSnapshotProvider(storage, _directory).GetSnapshot().Records;
+        var projected = new CompatibilityPlaytimeSnapshotProvider(storage).GetSnapshot().Records;
         Assert.Equal(DateTimeKind.Utc, Assert.Single(Assert.Single(projected).Sessions).EndTime.Kind);
         Assert.Equal(JsonSerializer.Serialize(before), JsonSerializer.Serialize(new StatsReportBuilder().Build(projected, [Game], _clock.Now, true)));
         // The production maintenance entry uses the same date-preserving codec for old-version handoff.

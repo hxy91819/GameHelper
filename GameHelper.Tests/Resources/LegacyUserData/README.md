@@ -18,3 +18,5 @@ legacy JSON 另含旧投影忽略的 Duration/unknown 字段及毫秒；保留�
 六类 Desktop 期望文件也用作合法输入；journal 另有含非法状态和大小写覆盖的输入。
 完整草稿包含 Baseline、启动选项、动作、DS4 与倍速热键；inflight 包含多进程、空身份、
 不同启动来源、待重试结束时间、HDR 与待启动截止时间。
+
+批次 4 新增 `dashboard-*.expected.bin` 和 `report-*.expected.bin`：由未改动的批次 3 基线 `e288a68`（通过 `git archive HEAD` 独立检出）在 UTC、固定 2025-04-01 12:00 上，读取既有 csv.input.bin，以原 Core builder 生成 JSON UTF-8 字节。涵盖 0/7/30/90 天、2024/2025 年及每个季度；不包含任何 SQLite 新适配器调用。测试只读固化字节，daily/README/raw 继续复用批次 2 的原始基线。
