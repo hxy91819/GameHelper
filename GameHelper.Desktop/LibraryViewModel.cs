@@ -83,7 +83,9 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             var targetKey = Selected?.DataKey;
             if (targetKey is null) return;
             if (Selected?.IsDirty == true) await SaveSelectedAsync();
+            LaunchWindowHandoff.AllowForeground();
             await SendAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Launch, DataKey = targetKey });
+            LaunchWindowHandoff.Minimize();
         }), () => Ready && Selected is not null && !string.IsNullOrWhiteSpace(Selected.Target) && !Selected.IsRunning && Selected.State != "启动中");
         // 秒级计时时钟只在 UI 线程泵下跳；测试线程可直接调 OnClockTick 驱动。
         _elapsedTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -99,6 +101,13 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public string ActionError { get => _actionError; private set { if (Set(ref _actionError, value)) Changed(nameof(HasActionError)); } }
     public bool HasActionError => !string.IsNullOrEmpty(ActionError);
     public ICommand LaunchCommand { get; }
+    /// <summary>Window hand-off used around a launch; attached by the window and replaceable in tests.</summary>
+    internal ILaunchWindowHandoff LaunchWindowHandoff { get; set; } = NoopLaunchWindowHandoff.Instance;
+    /// <summary>Double-clicking a poster uses the launch button's command, including all disabled cases.</summary>
+    internal void LaunchFromPoster()
+    {
+        if (LaunchCommand.CanExecute(null)) LaunchCommand.Execute(null);
+    }
     public bool IsBusy { get => _busy; private set { if (Set(ref _busy, value)) { Changed(nameof(Ready)); RefreshCommands(); } } }
     public bool Connected { get => _connected; private set { if (Set(ref _connected, value)) { Changed(nameof(Ready)); RefreshCommands(); } } }
     public bool Ready => Connected && !IsBusy;

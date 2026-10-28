@@ -10,15 +10,25 @@ public sealed class WindowsGameLauncher : IGameLauncher
     private readonly Action<string> _ensureCompanion;
     private readonly Action<GameLaunchOptions> _startEntry;
     private readonly Action _stopCompanion;
-    public WindowsGameLauncher() : this(Ds4WindowsProcess.EnsureRunning, StartEntry, Ds4WindowsProcess.StopRunning) { }
-    internal WindowsGameLauncher(Action<string> ensureCompanion, Action<GameLaunchOptions> startEntry, Action stopCompanion)
-    { _ensureCompanion = ensureCompanion; _startEntry = startEntry; _stopCompanion = stopCompanion; }
+    private readonly Action _allowForeground;
+    public WindowsGameLauncher() : this(Ds4WindowsProcess.EnsureRunning, StartEntry, Ds4WindowsProcess.StopRunning,
+        () => WindowsForegroundPermission.AllowAnyProcess()) { }
+    internal WindowsGameLauncher(Action<string> ensureCompanion, Action<GameLaunchOptions> startEntry, Action stopCompanion,
+        Action? allowForeground = null)
+    {
+        _ensureCompanion = ensureCompanion;
+        _startEntry = startEntry;
+        _stopCompanion = stopCompanion;
+        _allowForeground = allowForeground ?? (() => { });
+    }
 
     public void Start(GameLaunchOptions options)
     {
         Validate(options);
         if (options.Ds4WindowsPath is { } companion) EnsureCompanionRunning(companion);
         else StopCompanion();
+        // The game is created by this background host, so hand it the foreground right again.
+        _allowForeground();
         _startEntry(options);
     }
 

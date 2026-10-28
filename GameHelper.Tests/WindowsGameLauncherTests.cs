@@ -16,6 +16,15 @@ public sealed class WindowsGameLauncherTests
         Assert.Equal(@"C:\Controller", start.WorkingDirectory);
     }
     [Fact]
+    public void Start_AllowsForegroundBeforeTheHostCreatesTheGameProcess()
+    {
+        var calls = new List<string>();
+        var launcher = new WindowsGameLauncher(_ => { }, options => calls.Add("game"), () => { }, () => calls.Add("allow"));
+        launcher.Start(new() { Target = "steam://rungameid/620" });
+        Assert.Equal(new[] { "allow", "game" }, calls);
+    }
+
+    [Fact]
     public void DisabledCompanion_PreservesPreUpgradeRevisionTokenForSavedDrafts()
     {
         const string legacy = """{"DataKey":"a","Executable":"a.exe","DisplayName":null,"IsEnabled":true,"HdrEnabled":false,"SpeedMultiplier":null,"SpeedAttach":null,"Launch":{"Target":"steam://rungameid/620","Arguments":null,"WorkingDirectory":null}}""";

@@ -513,6 +513,85 @@ public sealed class DesktopLibraryViewModelTests
         Assert.False(buttonEnabled); model.RefreshAsync().GetAwaiter().GetResult(); Assert.True(buttonEnabled);
     });
 
+    [Fact]
+    public Task PosterDoubleClick_SharesLaunchCommandAndDisabledConditions() => OnSta(() =>
+    {
+        // Both entry points run the same command and the same foreground/minimize hand-off.
+        var posterBackend = new Backend(); posterBackend.Game.HdrEnabled = true;
+        using (var model = new LibraryViewModel(posterBackend))
+        {
+            model.LaunchWindowHandoff = new RecordingHandoff(posterBackend.Calls);
+            model.RefreshAsync().GetAwaiter().GetResult();
+            model.LaunchFromPoster();
+            Assert.Equal(1, posterBackend.Launches);
+            Assert.Equal(new[] { "allow", "launch", "minimize" }, posterBackend.Calls);
+        }
+
+        var buttonBackend = new Backend(); buttonBackend.Game.HdrEnabled = true;
+        using (var model = new LibraryViewModel(buttonBackend))
+        {
+            model.LaunchWindowHandoff = new RecordingHandoff(buttonBackend.Calls);
+            model.RefreshAsync().GetAwaiter().GetResult();
+            model.LaunchCommand.Execute(null);
+            Assert.Equal(1, buttonBackend.Launches);
+            Assert.Equal(new[] { "allow", "launch", "minimize" }, buttonBackend.Calls);
+        }
+
+        // Running, starting, missing target and disconnected all stay silent.
+        foreach (var state in new[] { "运行中", "启动中" })
+        {
+            var backend = new Backend { State = state };
+            using var model = new LibraryViewModel(backend);
+            model.LaunchWindowHandoff = new RecordingHandoff(backend.Calls);
+            model.RefreshAsync().GetAwaiter().GetResult();
+            Assert.False(model.LaunchCommand.CanExecute(null));
+            model.LaunchFromPoster();
+            Assert.Equal(0, backend.Launches); Assert.Empty(backend.Calls);
+        }
+
+        var noTarget = new Backend(); noTarget.Game.Executable = "a.exe";
+        using (var model = new LibraryViewModel(noTarget))
+        {
+            model.LaunchWindowHandoff = new RecordingHandoff(noTarget.Calls);
+            model.RefreshAsync().GetAwaiter().GetResult();
+            Assert.False(model.LaunchCommand.CanExecute(null));
+            model.LaunchFromPoster();
+            Assert.Equal(0, noTarget.Launches); Assert.Empty(noTarget.Calls);
+        }
+
+        var disconnectedBackend = new Backend();
+        using (var disconnected = new LibraryViewModel(disconnectedBackend))
+        {
+            disconnected.LaunchWindowHandoff = new RecordingHandoff(disconnectedBackend.Calls);
+            Assert.False(disconnected.LaunchCommand.CanExecute(null));
+            disconnected.LaunchFromPoster();
+            Assert.Equal(0, disconnectedBackend.Launches); Assert.Empty(disconnectedBackend.Calls);
+        }
+    });
+
+    [Fact]
+    public Task LaunchFailure_DoesNotMinimizeAndSaveFailureNeverRequestsForeground() => OnSta(() =>
+    {
+        var backend = new Backend { RejectLaunch = true }; backend.Game.HdrEnabled = true;
+        using var model = new LibraryViewModel(backend);
+        model.LaunchWindowHandoff = new RecordingHandoff(backend.Calls);
+        model.RefreshAsync().GetAwaiter().GetResult();
+        model.LaunchCommand.Execute(null);
+        Assert.Equal(1, backend.Launches);
+        Assert.Equal(new[] { "allow", "launch" }, backend.Calls);
+        Assert.True(model.HasActionError); Assert.Equal(model.Status, model.ActionError);
+
+        // A failed save never reaches the launch request, so it must not touch the window either.
+        var conflict = new Backend { RejectSave = true };
+        using var conflictModel = new LibraryViewModel(conflict);
+        conflictModel.LaunchWindowHandoff = new RecordingHandoff(conflict.Calls);
+        conflictModel.RefreshAsync().GetAwaiter().GetResult();
+        conflictModel.Selected!.Hdr = true;
+        conflictModel.LaunchCommand.Execute(null);
+        Assert.Equal(1, conflict.Saves); Assert.Equal(0, conflict.Launches);
+        Assert.Empty(conflict.Calls); Assert.True(conflictModel.HasActionError);
+    });
+
     [Theory]
     [InlineData("运行中")]
     [InlineData("运行中·外部")]
@@ -612,6 +691,8 @@ public sealed class DesktopLibraryViewModelTests
         public DateTime? StartedAt { get; set; }
         public GameInstallationState Installation { get; set; } = GameInstallationState.Installed;
         public bool RejectSave { get; init; }
+        public bool RejectLaunch { get; init; }
+        public List<string> Calls { get; } = [];
         public int Saves { get; private set; }
         public int Launches { get; private set; }
         public Task<GameLibraryResponse> ExecuteAsync(GameLibraryRequest request, CancellationToken cancellationToken = default)
@@ -623,7 +704,12 @@ public sealed class DesktopLibraryViewModelTests
                 Assert.Equal(GameConfigRevision.For(Game), request.ExpectedRevision);
                 Game = request.Game!;
             }
-            if (request.Operation == GameLibraryOperation.Launch) { Launches++; Assert.True(Game.HdrEnabled); }
+            if (request.Operation == GameLibraryOperation.Launch)
+            {
+                Calls.Add("launch"); Launches++;
+                if (RejectLaunch) return Task.FromResult(new GameLibraryResponse { Error = "launch failed" });
+                Assert.True(Game.HdrEnabled);
+            }
             if (request.Operation == GameLibraryOperation.Statistics)
                 return Task.FromResult(new GameLibraryResponse
                 {
@@ -640,6 +726,12 @@ public sealed class DesktopLibraryViewModelTests
                 Games = [new() { Config = Game, Revision = GameConfigRevision.For(Game), State = State, RunningStartedAt = StartedAt, Installation = new(Installation, "test") }]
             });
         }
+    }
+
+    private sealed class RecordingHandoff(List<string> calls) : ILaunchWindowHandoff
+    {
+        public void AllowForeground() => calls.Add("allow");
+        public void Minimize() => calls.Add("minimize");
     }
 
     private sealed class FixedClock : TimeProvider

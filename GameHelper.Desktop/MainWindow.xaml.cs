@@ -86,6 +86,7 @@ public partial class MainWindow : Window
     {
         _model = model;
         InitializeComponent();
+        _model.LaunchWindowHandoff = new MainWindowLaunchWindowHandoff(this);
         SizeChanged += (_, _) => UpdateStudioGeometry();
         Loaded += (_, _) => UpdateStickyDetails();
         DataContext = model;
@@ -176,6 +177,10 @@ public partial class MainWindow : Window
         SetInstallationGroup("installed"); _model.Selected = game;
         GameList.ScrollIntoView(game);
         if (_model.LaunchCommand.CanExecute(null)) _model.LaunchCommand.Execute(null);
+    }
+    private void OnPosterMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton == MouseButton.Left && e.ClickCount == 2) _model.LaunchFromPoster();
     }
     private void OnGenre(object sender, RoutedEventArgs e)
     {
