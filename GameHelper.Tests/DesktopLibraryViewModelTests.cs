@@ -621,15 +621,16 @@ public sealed class DesktopLibraryViewModelTests
         using var model = new LibraryViewModel(backend, null, null, clock);
         model.RefreshAsync().GetAwaiter().GetResult();
         var item = model.Selected!;
-        var changed = new List<string?>();
-        item.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+        // Artwork/genre completion can publish notifications from a worker on this STA test without a dispatcher.
+        var changed = new System.Collections.Concurrent.ConcurrentQueue<string?>();
+        item.PropertyChanged += (_, args) => changed.Enqueue(args.PropertyName);
         backend.State = state;
         backend.StartedAt = clock.LocalStamp;
         model.RefreshAsync().GetAwaiter().GetResult();
         Assert.Same(item, model.Selected);
         Assert.True(item.IsRunning);
         Assert.False(model.LaunchCommand.CanExecute(null));
-        Assert.Contains(nameof(LibraryGameItem.IsRunning), changed);
+        Assert.Contains(nameof(LibraryGameItem.IsRunning), changed.ToArray());
         Assert.Equal(state, item.StateDisplay);
         Assert.Null(item.RunningSessionLine);
 
@@ -647,7 +648,7 @@ public sealed class DesktopLibraryViewModelTests
         backend.State = "未运行";
         model.RefreshAsync().GetAwaiter().GetResult();
         Assert.False(item.IsRunning);
-        Assert.Contains(nameof(LibraryGameItem.IsRunning), changed);
+        Assert.Contains(nameof(LibraryGameItem.IsRunning), changed.ToArray());
         Assert.Equal("未运行", item.StateDisplay);
         Assert.Null(item.RunningSessionLine);
     });
