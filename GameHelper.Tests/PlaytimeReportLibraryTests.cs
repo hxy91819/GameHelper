@@ -12,16 +12,21 @@ public sealed class PlaytimeReportLibraryTests
     public async Task Report_ReadsOneSnapshotAndReturnsAggregatesWithoutRawSessions()
     {
         var history = new Mock<IPlaytimeSnapshotProvider>();
-        history.Setup(source => source.GetSnapshot()).Returns(new PlaytimeSnapshot([
+        history.Setup(source => source.GetReportSnapshot()).Returns(new PlaytimeSnapshot([
             new() { GameName = "key", Sessions = [new("key", new(2026, 1, 1), new(2026, 1, 1, 1, 0, 0), TimeSpan.FromHours(1), 60)] }
-        ], null));
+        ], null, Journal: [new("key", "key", new(2026, 1, 2), "全成就", "私人短评"),
+            new("removed", "removed", new(2025, 12, 31), "已通关")]));
         var configuration = new Mock<IGameConfiguration>();
         configuration.Setup(source => source.Read()).Returns(new AppConfig { Games = [new() { DataKey = "key", DisplayName = "Display" }] });
         var response = await Library(configuration.Object, history.Object).ExecuteAsync(new() { Operation = GameLibraryOperation.Report, ReportPeriod = new(2026, 1) });
         Assert.True(response.Success); Assert.Equal(60, response.Report!.Minutes);
         Assert.Equal("Display", Assert.Single(response.Report.TopGames).Name);
         Assert.Null(response.Statistics);
-        history.Verify(source => source.GetSnapshot(), Times.Once);
+        Assert.True(response.Report.JournalIncluded);
+        var cleared = Assert.Single(response.Report.ClearedGames);
+        Assert.Equal("Display", cleared.Name); Assert.Equal("私人短评", cleared.Note);
+        Assert.Equal(1, response.Report.PreviousClearedGames);
+        history.Verify(source => source.GetReportSnapshot(), Times.Once);
         configuration.Verify(source => source.Change(It.IsAny<Action<AppConfig>>()), Times.Never);
     }
 
@@ -29,7 +34,7 @@ public sealed class PlaytimeReportLibraryTests
     public async Task Report_ReadFailure_ReturnsFailureWithoutFabricatedReport()
     {
         var history = new Mock<IPlaytimeSnapshotProvider>();
-        history.Setup(source => source.GetSnapshot()).Returns(new PlaytimeSnapshot([], "source.csv", ReadFailed: true));
+        history.Setup(source => source.GetReportSnapshot()).Returns(new PlaytimeSnapshot([], "source.csv", ReadFailed: true));
         var response = await Library(Mock.Of<IGameConfiguration>(), history.Object).ExecuteAsync(new() { Operation = GameLibraryOperation.Report, ReportPeriod = new(2026) });
         Assert.False(response.Success); Assert.Null(response.Report); Assert.Contains("历史", response.Error);
     }
@@ -44,10 +49,10 @@ public sealed class PlaytimeReportLibraryTests
         Assert.Equal(new ReportPeriod(2026, 1), request.ReportPeriod);
         stream.SetLength(0); stream.Position = 0;
         await GameLibraryPipe.WriteAsync(stream, new GameLibraryResponse { Success = true,
-            Report = new() { Period = request.ReportPeriod!, Minutes = 42 } }, CancellationToken.None);
+            Report = new() { Period = request.ReportPeriod!, Minutes = 42, JournalIncluded = true } }, CancellationToken.None);
         stream.Position = 0;
         var response = await GameLibraryPipe.ReadAsync<GameLibraryResponse>(stream, CancellationToken.None);
-        Assert.Equal(42, response.Report!.Minutes); Assert.Equal(new ReportPeriod(2026, 1), response.Report.Period);
+        Assert.True(response.Report!.JournalIncluded); Assert.Equal(42, response.Report.Minutes); Assert.Equal(new ReportPeriod(2026, 1), response.Report.Period);
     }
 
     private static GameLibrary Library(IGameConfiguration config, IPlaytimeSnapshotProvider history) => new(config,
