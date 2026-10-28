@@ -117,8 +117,9 @@ public sealed class SessionStorage : IDisposable
         catch { /* Projection worker reports and retains its own warning. */ }
         try
         {
-            var backup = await new SqliteStorageMaintenance(_factory, _clock).RunAsync(cancellationToken).ConfigureAwait(false);
-            Volatile.Write(ref _maintenanceFailure, null);
+            var maintenance = new SqliteStorageMaintenance(_factory, _clock);
+            var backup = await maintenance.RunAsync(cancellationToken).ConfigureAwait(false);
+            if (maintenance.Completed) Volatile.Write(ref _maintenanceFailure, null);
             if (backup is not null)
                 _logs.CreateLogger<SessionStorage>().LogInformation("SQLite daily backup published: {Backup}", backup);
         }

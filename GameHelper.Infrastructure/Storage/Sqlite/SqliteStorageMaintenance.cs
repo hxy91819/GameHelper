@@ -5,13 +5,21 @@ namespace GameHelper.Infrastructure.Storage.Sqlite;
 /// <summary>Lock-external health, passive checkpoint and verified daily backup. Failed work is retried next tick.</summary>
 public sealed class SqliteStorageMaintenance(SqliteConnectionFactory factory, TimeProvider clock)
 {
+    internal bool Completed { get; private set; }
+
     /// <summary>Returns a backup path when published; null also means unchanged or an occupied maintenance slot.</summary>
     public async Task<string?> RunAsync(CancellationToken cancellationToken = default)
     {
+        Completed = false;
         using var admission = SqliteMaintenanceAdmission.TryEnterMaintenance(factory.DataDirectory);
         if (admission is null) return null;
         using var lease = await SqliteDirectoryLock.AcquireAsync(factory.DataDirectory, cancellationToken).ConfigureAwait(false);
-        try { return RunUnderLock(cancellationToken); }
+        try
+        {
+            var backup = RunUnderLock(cancellationToken);
+            Completed = true;
+            return backup;
+        }
         catch (Exception ex) when (ex is InvalidDataException || ex is SqliteException { SqliteErrorCode: 11 or 26 })
         {
             factory.Quarantine(ex);

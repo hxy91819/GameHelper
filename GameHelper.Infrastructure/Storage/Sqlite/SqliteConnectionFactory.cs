@@ -49,7 +49,11 @@ public sealed class SqliteConnectionFactory
             throw new InvalidDataException("SQLite 完整性检查失败，已停止写入与同步；请停止所有实例后显式恢复：" + File.ReadAllText(HealthFailurePath));
     }
 
-    internal void Quarantine(Exception exception) => File.WriteAllText(HealthFailurePath, exception.Message);
+    internal void Quarantine(Exception exception)
+    {
+        // Keep the first diagnostic; retrying a quarantined connection must not recursively grow it.
+        if (!File.Exists(HealthFailurePath)) File.WriteAllText(HealthFailurePath, exception.Message);
+    }
 
     internal static SqliteConnection OpenFile(string path, SqliteOpenMode mode)
     {

@@ -66,6 +66,11 @@ public sealed class SqliteMaintenanceTests : IDisposable
         storage.FlushProjection();
         Assert.Contains("备份失败", storage.Warning);
         File.Delete(Path.Combine(_directory, "backups"));
+        using (SqliteMaintenanceAdmission.EnterWrite(_directory, () => TimeSpan.Zero))
+        {
+            await storage.MaintainAsync();
+            Assert.Contains("备份失败", storage.Warning);
+        }
         await storage.MaintainAsync();
         Assert.Null(storage.Warning);
         Assert.Single(Directory.GetDirectories(Path.Combine(_directory, "backups"), "daily-*"));
