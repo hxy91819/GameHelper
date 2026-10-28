@@ -31,8 +31,9 @@ public sealed class SessionRatings(ISessionRatingStore store, TimeProvider? time
         DateTime Local(DateTime date) => date.Kind == DateTimeKind.Utc ? TimeZoneInfo.ConvertTimeFromUtc(date, clock.LocalTimeZone) : date;
         var rated = sessions.Where(s => s.Rating is not null && Local(s.End) >= Local(s.Start) && Local(s.End) <= clock.GetLocalNow().DateTime
             && DateOnly.FromDateTime(Local(s.End)) >= period.Start && DateOnly.FromDateTime(Local(s.End)) < period.EndExclusive).ToList();
+        var highest = rated.OrderByDescending(s => s.Rating!.Stars).ThenBy(s => Local(s.End)).ThenBy(s => s.SessionId).FirstOrDefault();
         return new(rated.Count == 0 ? null : rated.Average(s => s.Rating!.Stars), rated.Count,
-            rated.OrderByDescending(s => s.Rating!.Stars).ThenBy(s => Local(s.End)).ThenBy(s => s.SessionId).FirstOrDefault());
+            highest is null ? null : highest with { Start = Local(highest.Start), End = Local(highest.End) });
     }
     public static bool ShouldInvite(PlaySession session) => session.DurationMinutes >= 10;
 }

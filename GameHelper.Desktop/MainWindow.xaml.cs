@@ -26,6 +26,10 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) == true) item.Path = dialog.FileName;
     }
 
+    private void OnRatingHistory(object sender, RoutedEventArgs e)
+    {
+        if (_model.Selected is { } game) new SessionReviewWindow(_model.Library, game.DataKey) { Owner = this }.ShowDialog();
+    }
     private readonly LibraryViewModel _model;
     private readonly DispatcherTimer _refreshTimer;
     private bool _showStatistics;

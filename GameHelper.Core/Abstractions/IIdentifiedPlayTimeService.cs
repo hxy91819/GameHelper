@@ -6,6 +6,8 @@ namespace GameHelper.Core.Abstractions;
 public interface IIdentifiedPlayTimeService : IPlayTimeService
 {
     /// <summary>Fixes the observed event time and shares one contention budget across its writes.</summary>
+    PlaySession? StopObservedTracking(string dataKey) => StopTracking(dataKey);
+
     IDisposable BeginEvent(DateTime eventTime);
 
     /// <summary>Captured event time before lock/database waits; null outside an event.</summary>

@@ -77,14 +77,31 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
     // Native resources below are owned exclusively by the STA thread.
     private uint _taskbarCreated;
     private bool _hasIcon;
+    private Guid? _ratingSession;
+    private readonly Action<Guid>? _openRating;
 
     public WindowsSystemTrayService(Func<string> summary, TrayMenuService menus,
-        ILogger<WindowsSystemTrayService> logger, Func<string?>? storageWarning = null)
+        ILogger<WindowsSystemTrayService> logger, Func<string?>? storageWarning = null, Action<Guid>? openRating = null)
     {
         _storageWarning = storageWarning;
+        _openRating = openRating;
         _summary = summary;
         _menus = menus;
         _logger = logger;
+    }
+
+    public void Invite(Guid sessionId)
+    {
+        var window = Volatile.Read(ref _window);
+        if (!IsRunning) return;
+        PostUpdate(window, Volatile.Read(ref _generation), () =>
+        {
+            // A replaced balloon cannot retain a stale activation target.
+            _ratingSession = sessionId;
+            var data = IconData(window); data.Flags = 0x10;
+            data.Title = "本局体验如何？"; data.Text = "点击为刚结束的一局打 1–5 星，也可以写下想法。"; data.InfoFlags = 1;
+            if (!NativeMethods.ShellNotifyIcon(1, ref data)) _ratingSession = null;
+        });
     }
 
     public bool IsRunning => !_stopRequested && Volatile.Read(ref _window) != IntPtr.Zero;
@@ -205,7 +222,18 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
                 case 0x0113: RefreshSummary(window); return IntPtr.Zero; // WM_TIMER
                 case CallbackMessage:
                     var eventId = unchecked((uint)lParam.ToInt64()) & 0xffff;
-                    if (eventId == 0x0203) Dispatch(new("打开游戏库", TrayMenuAction.OpenLibrary, true), window); // WM_LBUTTONDBLCLK
+                    if (eventId == 0x0405 && _ratingSession is { } sessionId) // NIN_BALLOONUSERCLICK
+                    {
+                        _ratingSession = null;
+                        var generation = Volatile.Read(ref _generation);
+                        _ = Task.Run(() =>
+                        {
+                            try { _openRating?.Invoke(sessionId); }
+                            catch (Exception ex) { ReportFailure(window, ex, generation); }
+                        });
+                    }
+                    else if (eventId is 0x0403 or 0x0404) _ratingSession = null; // hide / timeout
+                    else if (eventId == 0x0203) Dispatch(new("打开游戏库", TrayMenuAction.OpenLibrary, true), window); // WM_LBUTTONDBLCLK
                     else if (eventId is 0x0205 or 0x007b) RequestMenu(window); // WM_RBUTTONUP / WM_CONTEXTMENU
                     return IntPtr.Zero;
                 case 0x0010: NativeMessageWindow.DestroyWindow(window); return IntPtr.Zero;
@@ -300,6 +328,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             {
                 var data = IconData(window);
                 data.Flags = 0x10; // NIF_INFO
+                _ratingSession = null;
                 data.Title = "GameHelper 操作失败";
                 data.Text = exception.Message.Length > 255 ? exception.Message[..255] : exception.Message;
                 data.InfoFlags = 3;
@@ -353,6 +382,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
         var warning = _storageWarning?.Invoke();
         if (warning is not null && warning != _shownStorageWarning)
         {
+            _ratingSession = null;
             data.Flags = 0x10;
             data.Title = "GameHelper 存储提示";
             data.Text = warning.Length > 255 ? warning[..255] : warning;

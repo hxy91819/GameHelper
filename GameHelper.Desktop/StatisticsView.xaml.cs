@@ -8,8 +8,14 @@ namespace GameHelper.Desktop;
 public partial class StatisticsView : UserControl
 {
     public StatisticsView() => InitializeComponent();
+    private GameHelper.Core.Abstractions.IGameLibrary? _library;
     public void Connect(GameHelper.Core.Abstractions.IGameLibrary library, Func<PlaytimeReport, PlaytimeReport>? enrichReport = null)
-        => ReportPage.Connect(library, enrichReport);
+    { _library = library; ReportPage.Connect(library, enrichReport); }
+    private void OnSessionReviews(object sender, RoutedEventArgs e)
+    {
+        if (_library is not null) new SessionReviewWindow(_library, (sender as FrameworkElement)?.DataContext is StatisticsGameRow row ? row.DataKey : null)
+            { Owner = Window.GetWindow(this) }.ShowDialog();
+    }
     internal void FocusSearch() { RankingSearch.Focus(); RankingSearch.SelectAll(); }
 
     private async void OnEditJournal(object sender, RoutedEventArgs e)
