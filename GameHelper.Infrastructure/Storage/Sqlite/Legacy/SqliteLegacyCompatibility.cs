@@ -15,7 +15,7 @@ public sealed record DowngradeManifest(string DowngradeId, string DatabaseId, lo
     string DatabaseHash, IReadOnlyDictionary<string, string> FileHashes, IReadOnlyList<DowngradeSession> Sessions,
     IReadOnlyList<string> ConfigPaths);
 
-/// <summary>Offline maintenance abilities only. No production read/write path invokes this class.</summary>
+/// <summary>Legacy projections for the compatibility window, plus offline downgrade and reupgrade maintenance.</summary>
 public sealed class SqliteLegacyCompatibility
 {
     private readonly SqliteConnectionFactory _factory;

@@ -5,8 +5,8 @@ using static GameHelper.Infrastructure.Storage.Sqlite.Legacy.LegacySql;
 namespace GameHelper.Infrastructure.Storage.Sqlite.Legacy;
 
 /// <summary>
-/// Offline, explicitly invoked import primitives. Callers must stop old writers before invoking them.
-/// Not registered in DI; Prepare never activates a candidate or changes legacy files.
+/// Candidate import primitives used by first activation and offline maintenance. Callers must exclude old writers.
+/// Prepare never activates a candidate or changes legacy files.
 /// </summary>
 public sealed class SqliteLegacyMigration
 {
@@ -97,7 +97,7 @@ public sealed class SqliteLegacyMigration
         return new(Candidate, manifestPath, decoded.Values.Sum(items => items.Count(i => i.Accepted)), decoded.Values.Sum(items => items.Count(i => !i.Accepted)));
     }
 
-    /// <summary>Explicit offline activation only. No production caller invokes this in batch 2.</summary>
+    /// <summary>Activates only after validation; the startup coordinator must exclude legacy writers.</summary>
     public async Task ActivateAsync(string manifestPath, CancellationToken cancellationToken = default)
     {
         using var lease = await SqliteDirectoryLock.AcquireAsync(_factory.DataDirectory, cancellationToken).ConfigureAwait(false);
