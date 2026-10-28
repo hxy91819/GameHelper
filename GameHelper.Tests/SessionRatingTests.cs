@@ -244,6 +244,26 @@ public sealed class SessionRatingTests : IDisposable
         Assert.Single(Ratings.Read(new()).Sessions); Assert.Empty(notifier.Ids);
     }
 
+    [Fact]
+    public async Task PendingRatingWriter_PreventsMaintenanceAdmission_ThenCommitsAfterContention()
+    {
+        await Seed(); var id = Complete("g", _clock.Now);
+        using var c = Factory.OpenConnection(); using var tx = c.BeginTransaction();
+        var writing = Task.Run(() => Ratings.Save(new(id, 4, "等待写锁", 0)));
+        try
+        {
+            Assert.True(SpinWait.SpinUntil(() =>
+            {
+                using var lease = SqliteMaintenanceAdmission.TryEnterMaintenance(_directory);
+                return lease is null;
+            }, TimeSpan.FromSeconds(2)), "Rating writer must admit before waiting on SQLite; maintenance must skip it.");
+        }
+        finally { tx.Rollback(); }
+        Assert.Equal(4, (await writing).Rating!.Stars);
+        using var maintenance = SqliteMaintenanceAdmission.TryEnterMaintenance(_directory);
+        Assert.NotNull(maintenance);
+    }
+
     public void Dispose() { if (Directory.Exists(_directory)) Directory.Delete(_directory, true); }
     private sealed class Clock : TimeProvider
     {

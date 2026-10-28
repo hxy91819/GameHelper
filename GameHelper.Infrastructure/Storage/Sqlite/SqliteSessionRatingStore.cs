@@ -65,8 +65,10 @@ public sealed class SqliteSessionRatingStore(SqliteConnectionFactory factory, Ti
     }
     public RatedSession Save(SaveSessionRating request)
     {
+        var budget = new SqliteEventWriteBudget(clock.GetLocalNow().DateTime);
+        using var admission = SqliteMaintenanceAdmission.EnterWrite(factory.DataDirectory, () => budget.Remaining);
         using var c = factory.OpenConnection();
-        using var tx = new SqliteEventWriteBudget(clock.GetLocalNow().DateTime).BeginWrite(c);
+        using var tx = budget.BeginWrite(c);
         var current = Get(c, tx, request.SessionId);
         if (current.Revision != request.ExpectedRevision) throw new InvalidOperationException("本局评分已被另一窗口修改，请重载后再保存；当前输入已保留。");
         if (request.Stars is null && current.Rating is null) return current;
