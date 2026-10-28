@@ -33,6 +33,19 @@ public sealed class LegacyCodecFixtureTests : IDisposable
         Assert.Equal(LegacyFixtures.Platform("legacy.expected"), File.ReadAllBytes(Path.Combine(_directory, "playtime.csv")));
     }
 
+    [Fact]
+    public void InFlight_OldStore_StillMatchesFrozenPlatformOutput()
+    {
+        Directory.CreateDirectory(_directory);
+        var path = Path.Combine(_directory, "inflight-sessions.json");
+        File.WriteAllBytes(path, LegacyFixtures.Read("inflight.input.bin"));
+        var store = new JsonInFlightSessionStore(path);
+        var snapshot = store.Load();
+        Assert.NotNull(snapshot);
+        store.Save(snapshot!);
+        Assert.Equal(LegacyFixtures.Platform("inflight.expected"), File.ReadAllBytes(path));
+    }
+
     public void Dispose() { if (Directory.Exists(_directory)) Directory.Delete(_directory, true); }
 }
 

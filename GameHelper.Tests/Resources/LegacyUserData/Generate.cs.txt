@@ -49,7 +49,9 @@ File.WriteAllText(Path.Combine(root,"journal.input.bin"),"""
 {"Étoile":{"Status":"在玩","Note":"中文短评"},"éTOILE":{"Status":"全成就","CompletedOn":"2025-01-01","Note":"胜利"},"bad":{"Status":"不存在"},"blank":{"Status":"搁置","CompletedOn":null,"Note":""}}
 """);
 var snapshot=new InFlightSnapshot{SnapshotAt=new(2025,1,2,10,10,0,DateTimeKind.Unspecified),HdrEnabledByGameHelper=true,PendingLaunches=new(){{"Pending",new(2025,1,2,11,0,0,TimeSpan.FromHours(8))}},Sessions=[new(){DataKey="éTOILE",ProcessId=10,StartedAt=new(2025,1,2,10,0,0,DateTimeKind.Unspecified),RecoveryEndAt=new(2025,1,2,10,10,0,DateTimeKind.Unspecified),NormalizedName="game.exe",LaunchedByHelper=null},new(){DataKey="étoile",ProcessId=11,StartedAt=new(2025,1,2,10,0,0,DateTimeKind.Unspecified),RecoveryEndAt=new(2025,1,2,10,10,0,DateTimeKind.Unspecified),NormalizedPath="D:/game.exe",ProcessStartedAtUtc=new(2025,1,2,9,0,0,DateTimeKind.Utc),LaunchedByHelper=false}]};
-new JsonInFlightSessionStore(Path.Combine(root,"inflight.expected.bin")).Save(snapshot);
+new JsonInFlightSessionStore(Path.Combine(root,"inflight.input.bin")).Save(snapshot);
+File.Copy(Path.Combine(root,"inflight.input.bin"),Path.Combine(root,"inflight.expected.unix.bin"),true);
+File.WriteAllText(Path.Combine(root,"inflight.expected.windows.bin"),File.ReadAllText(Path.Combine(root,"inflight.input.bin")).Replace("\r\n","\n").Replace("\n","\r\n"),Encoding.UTF8);
 var report=new StatsReportBuilder().Build(new FilePlaytimeSnapshotProvider(work).GetSnapshot().Records,[],new(2025,4,1,12,0,0,DateTimeKind.Unspecified),true);
 foreach(var file in report.Files){var name=file.RelativePath.Replace('/','_');File.WriteAllText(Path.Combine(root,name+".unix.bin"),file.Content);File.WriteAllText(Path.Combine(root,name+".windows.bin"),file.Content.Replace("\r\n","\n").Replace("\n","\r\n"));}
 Directory.Delete(work,true);

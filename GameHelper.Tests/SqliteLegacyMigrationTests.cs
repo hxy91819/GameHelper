@@ -42,7 +42,7 @@ public sealed class SqliteLegacyMigrationTests : IDisposable
         var scope = Convert.ToInt64(LegacySql.Scalar(c, tx, "SELECT scope_id FROM config_scopes;"));
         foreach (var kind in LegacyDecoder.SideKinds)
             Assert.Equal(LegacyFixtures.Read(kind + ".expected.bin"), LegacyDatabaseReader.Side(c, tx, scope, kind));
-        Assert.Equal(LegacyFixtures.Read("inflight.expected.bin"), LegacyDatabaseReader.SnapshotBytes(LegacyDatabaseReader.Snapshot(c, tx)!));
+        Assert.Equal(LegacyFixtures.Platform("inflight.expected"), LegacyDatabaseReader.SnapshotBytes(LegacyDatabaseReader.Snapshot(c, tx)!));
         var report = new StatsReportBuilder().Build(LegacyDatabaseReader.History(c, tx), [], _clock.GetLocalNow().DateTime, true);
         foreach (var file in report.Files)
             Assert.Equal(LegacyFixtures.Platform(file.RelativePath.Replace('/', '_')), Encoding.UTF8.GetBytes(file.Content));
@@ -275,7 +275,7 @@ public sealed class SqliteLegacyMigrationTests : IDisposable
     private void Seed()
     {
         Write("playtime.csv", LegacyFixtures.Read("csv.input.bin"));
-        Write("inflight-sessions.json", LegacyFixtures.Read("inflight.expected.bin"));
+        Write("inflight-sessions.json", LegacyFixtures.Read("inflight.input.bin"));
         foreach (var kind in LegacyDecoder.SideKinds)
             File.WriteAllBytes(Config + ".desktop-" + kind + ".json", LegacyFixtures.Read(kind + (kind == "journal" ? ".input.bin" : ".expected.bin")));
     }

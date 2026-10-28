@@ -1,0 +1,29 @@
+﻿{
+  "HdrEnabledByGameHelper": true,
+  "PendingLaunches": {
+    "Pending": "2025-01-02T11:00:00+08:00"
+  },
+  "SnapshotAt": "2025-01-02T10:10:00",
+  "Sessions": [
+    {
+      "DataKey": "\u00E9TOILE",
+      "ProcessId": 10,
+      "NormalizedName": "game.exe",
+      "NormalizedPath": null,
+      "StartedAt": "2025-01-02T10:00:00",
+      "ProcessStartedAtUtc": null,
+      "LaunchedByHelper": null,
+      "RecoveryEndAt": "2025-01-02T10:10:00"
+    },
+    {
+      "DataKey": "\u00E9toile",
+      "ProcessId": 11,
+      "NormalizedName": null,
+      "NormalizedPath": "D:/game.exe",
+      "StartedAt": "2025-01-02T10:00:00",
+      "ProcessStartedAtUtc": "2025-01-02T09:00:00Z",
+      "LaunchedByHelper": false,
+      "RecoveryEndAt": "2025-01-02T10:10:00"
+    }
+  ]
+}

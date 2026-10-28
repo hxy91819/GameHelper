@@ -20,7 +20,7 @@ public sealed class SqliteLegacyCompatibilityTests : IDisposable
         await Seed(full: true);
         var files = Compatibility().ReadProjection().Files;
         Assert.Equal(LegacyFixtures.Platform("csv.expected"), files[Path.Combine(_directory, "playtime.csv")]);
-        Assert.Equal(LegacyFixtures.Read("inflight.expected.bin"), files[Path.Combine(_directory, "inflight-sessions.json")]);
+        Assert.Equal(LegacyFixtures.Platform("inflight.expected"), files[Path.Combine(_directory, "inflight-sessions.json")]);
         foreach (var kind in LegacyDecoder.SideKinds)
             Assert.Equal(LegacyFixtures.Read(kind + ".expected.bin"), files[Config + ".desktop-" + kind + ".json"]);
         using (var c = Factory.OpenConnection())
@@ -211,7 +211,7 @@ public sealed class SqliteLegacyCompatibilityTests : IDisposable
         if (full)
         {
             File.WriteAllBytes(Path.Combine(_directory, "playtime.csv"), LegacyFixtures.Read("csv.input.bin"));
-            File.WriteAllBytes(Path.Combine(_directory, "inflight-sessions.json"), LegacyFixtures.Read("inflight.expected.bin"));
+            File.WriteAllBytes(Path.Combine(_directory, "inflight-sessions.json"), LegacyFixtures.Read("inflight.input.bin"));
             foreach (var kind in LegacyDecoder.SideKinds)
                 File.WriteAllBytes(Config + ".desktop-" + kind + ".json", LegacyFixtures.Read(kind + ".expected.bin"));
         }

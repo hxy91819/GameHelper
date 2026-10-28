@@ -9,7 +9,7 @@ artwork/theme 直接使用各旧 store 相同的 `DesktopDocumentStore.Write` DT
 生成器在独立临时 net8.0-windows console 工程运行，AssemblyName 为 GameHelper.Tests，引用旧
 Infrastructure，并链接上述 Desktop 文件。没有引用新导入器或投影器。生成时区为 UTC；统计时点
 固定为 2025-04-01 12:00。`*.unix.bin` 是旧实现的原始输出，`*.windows.bin` 按旧实现的 Windows
-平台换行规则转换（样本内部换行也明确为 CRLF）。JSON 不作换行转换；inflight 包含旧写法的 BOM。
+平台换行规则转换（样本内部换行也明确为 CRLF）。紧凑 JSON 不作换行转换；inflight 的旧 WriteIndented 输出也遵循平台换行，另固化两份期望，均保留旧写法的 BOM。
 `.bin` 禁用 git 文本转换。测试运行时只读取这些已提交字节，不执行生成器。
 
 CSV 样本含 BOM、中文、逗号、引号、跨行字段、大小写归组、合法重复行、保存分钟数与时间差不等、
