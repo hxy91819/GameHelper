@@ -46,18 +46,19 @@
 | `history_keys` | `data_key TEXT PK COLLATE GH_ORDINAL_IGNORE_CASE`；`first_sequence INTEGER UNIQUE` 保留首次出现顺序，读取显式 ORDER BY first_sequence，不依赖 VACUUM 可重编号的隐式 rowid；保留首次历史拼写。不是 YAML Catalog 的镜像，移除游戏不删此行。 |
 | `play_sessions` | `session_id TEXT PK`（UUID）、`data_key TEXT FK history_keys`、`sequence INTEGER UNIQUE`、`started_value TEXT`、`ended_value TEXT`、`started_kind INTEGER`、`ended_kind INTEGER`、`duration_ticks INTEGER`、`duration_minutes INTEGER CHECK >= 0`、`launch_source TEXT CHECK IN ('library','external','unknown')`、`completion_source TEXT CHECK IN ('observed','recovered','legacy')`、`created_at_utc TEXT`、可空 `import_source_id TEXT`／`import_record_ordinal INTEGER`，两者联合 UNIQUE。 |
 | `session_ratings` | `session_id TEXT PK/FK play_sessions ON DELETE RESTRICT`、`stars INTEGER CHECK BETWEEN 1 AND 5`、`thought TEXT`（可空）、`created_at_utc TEXT`、`updated_at_utc TEXT`、`revision INTEGER`。每局最多一条当前评分；未评分就是无行，不用 0 星。 |
-| `journals` | `(scope_id, data_key) PK`，scope FK；`status TEXT CHECK` 为现有五种状态、`completed_on TEXT NULL`（ISO 日期）、`note TEXT`（单行 ≤80 字）、`revision INTEGER`。不依赖游戏仍在 YAML 中。 |
-| `genre_overrides` | `(scope_id, data_key) PK`、`revision INTEGER`；父行存在表示显式覆盖，即使没有子项。 |
+| `journals` | `(scope_id, data_key) PK`，scope FK；`status TEXT CHECK` 为现有五种状态、`completed_on TEXT NULL`（ISO 日期）、`note TEXT`（单行 ≤80 字）、`revision INTEGER`、`position INTEGER`。不依赖游戏仍在 YAML 中。 |
+| `genre_overrides` | `(scope_id, data_key) PK`、`revision INTEGER`、`position INTEGER`；父行存在表示显式覆盖，即使没有子项。 |
 | `genre_override_items` | `(scope_id, data_key, genre) PK/FK genre_overrides`、`position INTEGER`；采用现有 `Normalize` 规则，不把 Steam 自动类型复制为手动项。 |
-| `artwork_links` | `(scope_id, data_key) PK`、`steam_app_id INTEGER CHECK BETWEEN 1 AND 4294967295`、`revision INTEGER`；解除关联删除行。 |
+| `artwork_links` | `(scope_id, data_key) PK`、`steam_app_id INTEGER CHECK BETWEEN 1 AND 4294967295`、`revision INTEGER`；`position INTEGER`；解除关联删除行。 |
 | `desktop_drafts` | `(scope_id, draft_id) PK`、`data_key TEXT`、`position INTEGER`、`payload_version INTEGER`、`payload_json TEXT`、`revision INTEGER`；保留完整现有 LibraryDraft（含 Baseline），版本化 payload 不参与运行配置读取；旧列表按来源 ID + 项序号分配 draft_id，后续新草稿分配 UUID。 |
-| `scan_roots`／`scan_ignored` | 分别 `(scope_id, directory) PK` + `position`、`(scope_id, executable) PK`，路径采用上述 collation；保存最近目录作为一个事务，最多六项。 |
+| `scan_roots`／`scan_ignored` | 分别 `(scope_id, directory) PK` + `position`、`(scope_id, executable) PK` + `position`，路径采用上述 collation；保存最近目录作为一个事务，最多六项。 |
 | `desktop_preferences` | `scope_id PK/FK`、`theme TEXT CHECK IN ('light','dark')`、`revision INTEGER`。 |
 | `runtime_snapshot` | 单行 PK，`snapshot_at TEXT`（含原时间语义）、`hdr_enabled_by_helper INTEGER CHECK IN (0,1)`、`revision INTEGER`。保持现在数据目录级唯一监控拥有者。 |
 | `inflight_sessions` | `session_id TEXT PK`、`data_key TEXT`、`started_value TEXT`／`started_kind INTEGER`、`launch_source TEXT`、可空 `recovery_end_value TEXT`／`recovery_end_kind INTEGER`；一局可对应多个进程，但只有一个历史 session_id。 |
-| `inflight_processes` | `process_row_id INTEGER PK`、`session_id FK inflight_sessions`、可空 `pid INTEGER`、`normalized_name TEXT`、`normalized_path TEXT`、`process_started_at_utc TEXT`；PID 不是永久主键。 |
-| `pending_launches` | `data_key TEXT PK`、`deadline TEXT`（DateTimeOffset round-trip）；不代表已开始会话，不重放启动命令。 |
+| `inflight_processes` | `process_row_id INTEGER PK`、`session_id FK inflight_sessions`、可空 `pid INTEGER`、可空 `normalized_name TEXT`／`normalized_path TEXT`／`process_started_at_utc TEXT`、可空 `launched_by_helper INTEGER`、可空原始 `data_key TEXT`；以 process_row_id 保持进程顺序，原始 key 与逐进程来源保留旧快照字段；PID 不是永久主键。 |
+| `pending_launches` | `data_key TEXT PK`、`deadline TEXT`（DateTimeOffset round-trip）、`position INTEGER`；不代表已开始会话，不重放启动命令。 |
 | `import_sources`／`import_records` | `import_sources`：`source_id TEXT PK`、可空 `scope_id INTEGER FK`（历史源无 scope）、`path TEXT`、`sha256 TEXT`、`size_bytes INTEGER CHECK >=0`、`codec_version INTEGER`、`status TEXT`、`accepted_count INTEGER CHECK >=0`、`skipped_count INTEGER CHECK >=0`、`validation_summary TEXT`；`import_records`：`(source_id, record_ordinal) PK`、source FK、`disposition TEXT CHECK IN ('accepted','skipped')`、`reason TEXT`、可空 `session_id TEXT FK play_sessions`。失败明细留本机。 |
+| `migration_state` | `name TEXT PK`、`value TEXT`；候选来源代际、校验通过、激活与离线再升级的库内事实，不安装生产切库入口。 |
 | `compatibility_exports` | `target TEXT PK`、`data_revision INTEGER`、`snapshot_revision INTEGER`、`content_hash TEXT`、`failure TEXT`（无失败为空字符串）、`dirty INTEGER CHECK IN (0,1)`；事务内置脏标记，事务外投影，不把“库成功、文件失败”当两边都成功。 |
 
 新会话在首次被实际进程观察时分配 session_id，写入在途记录，重启接管和完成后保持 ID；多进程同 DataKey 的引用计数只产生一局。休眠调整有效开始时间不能改变 ID。现有 `PlaySession` 只有 GameName（实际为 DataKey）、StartTime、EndTime、Duration、DurationMinutes；启动来源目前仅在在途快照的可空 `LaunchedByHelper` 中，历史 CSV 不含来源，导入必须记 `unknown`，不可伪造为库内启动。旧快照缺少此字段时，HDR 续算仍按现有“视作库内”规则执行，存储事实继续标为 unknown。
@@ -66,7 +67,7 @@
 
 索引至少包括 `play_sessions(data_key, sequence)`、`session_ratings(updated_at_utc, session_id)`、`inflight_sessions(data_key)`、`inflight_processes(session_id)`、各侧表的 scope 联合主键和导入来源唯一索引。日期字符串含不同 Kind，不能依靠其词典序做跨时区统计范围过滤；第一阶段仍由 Core 对一致快照计算统计。评分曲线先按 DataKey 索引取会话，再按转换后的结束时刻、sequence 排序；确有性能证据后才新增可重建的日期投影索引。
 
-用 `PRAGMA user_version` 作为唯一 schema 版本号，按嵌入程序集的编号 SQL 逐版前进，不另设第二个版本事实源。迁移在启动协调锁下先备份，DDL、数据回填与 user_version 更新置于同一事务；失败全部回滚。批次 1 的版本 1 建全部表，版本 2 建查询索引；初始 storage_meta.compatibility_mode 为 `legacy`，两个修订为 0，不表示已导入或切库。每次连接先检查版本，Desktop 也通过同一初始化器，数据库版本高于程序支持范围时明确拒绝写入，不自动降 schema。导入状态不是 schema 版本，另由 import_sources 记录。[SQLite PRAGMA 文档](https://www.sqlite.org/pragma.html#pragma_user_version)定义了 user_version，并区分 integrity_check 与外键检查。
+用 `PRAGMA user_version` 作为唯一 schema 版本号，按嵌入程序集的编号 SQL 逐版前进，不另设第二个版本事实源。迁移在启动协调锁下先备份，DDL、数据回填与 user_version 更新置于同一事务；失败全部回滚。批次 1 的版本 1 建全部表，版本 2 建查询索引；初始 storage_meta.compatibility_mode 为 `legacy`，两个修订为 0，不表示已导入或切库。每次连接先检查版本，Desktop 也通过同一初始化器，数据库版本高于程序支持范围时明确拒绝写入，不自动降 schema。批次 2 增加版本 3：旧 JSON 顺序列、可空进程身份与逐进程来源/拼写、库内维护状态；不改动已发布的版本 1/2 SQL。导入状态不是 schema 版本，另由 import_sources 记录。[SQLite PRAGMA 文档](https://www.sqlite.org/pragma.html#pragma_user_version)定义了 user_version，并区分 integrity_check 与外键检查。
 
 ## 两个进程与在途恢复
 
@@ -81,7 +82,7 @@ WAL 允许读写并行但仍只有一个 writer。每次操作新建短生命周
 ## 首次导入与回滚窗口
 
 1. 先停止旧版 ConsoleHost 和 Desktop，取得数据目录协调锁，再启动新版初始化器；不在旧进程仍写 CSV/JSON 时拍快照。首次迁移在开放监控与 Desktop 编辑前完成，保存所有存在的正式源文件原始字节到 `migration-backups/<migration-id>/`，manifest 记录路径、scope、哈希、长度、codec／程序版本；缺失文件也记录为缺失。不能复用 DesktopDocumentStore 的“读取失败返回空文档”掩盖原件损坏。
-2. 在独立候选库 `userdata.db.importing` 建 schema。历史按 CSV 优先、否则 legacy JSON 的规则解析，JSON 到历史采用现有 JSON→CSV 的投影语义；侧文档沿用各 store 的已接受字段与校验规则。语法坏行及语义被跳过的侧项逐项记录，原字节保留；整份 JSON 解析失败、非空 CSV 表头错误或来源不可读则阻断激活，不能成功迁成空历史。合法空文件／无历史必须与异常明确区分。
+2. 在独立候选库 `userdata.db.importing` 建 schema。历史按 CSV 优先、否则 legacy JSON 的规则解析，JSON 到历史采用现有 JSON→CSV 的投影语义；侧文档沿用各 store 的已接受字段与校验规则。类型读取不额外执行仅在旧 Save 才做的 Normalize。旧 Read 可接受但当前关系约束无法无损表达的值（如 0 AppID、大小写冲突的 artwork、重复类型或超限/重复扫描项）保留原件并阻断，不能静默截断或改值。语法坏行及语义被跳过的侧项逐项记录，原字节保留；整份 JSON 解析失败、非空 CSV 表头错误或来源不可读则阻断激活，不能成功迁成空历史。合法空文件／无历史必须与异常明确区分。
 3. 来源 ID 固定于本次源清单，历史 UUID 由来源 ID + 逻辑记录序号确定；唯一约束与导入游标在同一批事务提交。完全相同的两行有不同序号，不能以内容哈希去重。重复运行同一清单继续未完成批次，已提交批次不重复；源哈希改变就作废尚未激活的候选库，重新备份导入，不能把两代文件混装。未知配置以后首次打开再做 scope 级导入：备份和来源清单规则相同，在现有库内用一个事务提交该 scope 的侧数据与完成标记；不得用新候选库覆盖已激活的共享历史。
 4. 在固定时钟、相同时区和同份配置上，旧读路径与候选库分别生成比较结果：逐游戏的记录数、总分钟、最近窗口分钟、每个本地结束日分钟／次数、零分钟次数、最早／最晚记录、跨日归属、已移除游戏、档案各期间 KPI 和年度／季度报告逐项一致。再以原 StatsReportBuilder 比较 daily.csv、README、raw CSV 的完整 UTF-8 字节和内容指纹；接受／跳过数量与 manifest 对账，侧文档读取值、显式空覆盖及草稿字段逐项一致。失败不激活，不以“总时长一样”替代校验。
 5. 完成 `integrity_check` 和 `foreign_key_check`，成功 checkpoint 后关闭候选库全部连接及连接池，确认没有剩余 WAL 帧，再原子改名为 `userdata.db`。库内激活记录才是事实源；外部 `migration-complete.json` 仅供诊断，可在重启时从库补写，避免跨文件标记成为另一事务。原 CSV/JSON 的不可变备份永不覆盖；原位置在兼容期转为投影文件，以 manifest 明确区分。候选库激活前崩溃继续步骤 3，激活后标记漏写则补标记，不能重导历史。
@@ -91,7 +92,7 @@ WAL 允许读写并行但仍只有一个 writer。每次操作新建短生命周
 
 回到旧版必须先由新版的离线维护入口执行“准备降级”：停止两个进程、取得锁、输出到同一固定库修订、核对所有投影哈希与旧读路径统计、备份当前主库及源文件并写降级 manifest，验证成功后才允许旧版启动。正在运行的游戏也要输出当前旧快照，旧版继续按现机制接管。若投影／校验失败则阻断降级而不是丢弃库内增量。UUID、启动来源和未来评分等旧格式无法表达的字段保留在封存库，旧版不可见但不删除。
 
-从旧版重新升级时读取降级 manifest：以导出时 CSV 的逐行基线和 occurrence（含合法重复行）匹配已知 session_id，旧版新增记录只追加一次；侧文档在对应 scope 原子导入旧版的最新值。评分继续关联原 ID。旧版删除／改写历史导致无法无歧义匹配时停止自动合并，保留两边原件并给出差异，不重新分配已有评分的身份。没有降级 manifest 的手工覆盖安装不承诺安全降级，恢复应使用封存库与导出工具。下一发布版本可停止实时旧格式投影，但“准备降级”离线导出入口和不可表达数据的封存能力继续保留；清理旧备份必须是显式维护动作，不在首次成功启动时删除。
+从旧版重新升级时读取降级 manifest：按旧版 append-only 契约核对导出时 CSV 的完整有序前缀，以逐行基线和 occurrence（含合法重复行）匹配已知 session_id，旧版新增记录只追加一次；侧文档在对应 scope 原子导入旧版的最新值。评分继续关联原 ID。旧版删除／改写历史导致无法无歧义匹配时停止自动合并，保留两边原件并给出差异，不重新分配已有评分的身份。没有降级 manifest 的手工覆盖安装不承诺安全降级，恢复应使用封存库与导出工具。下一发布版本可停止实时旧格式投影，但“准备降级”离线导出入口和不可表达数据的封存能力继续保留；清理旧备份必须是显式维护动作，不在首次成功启动时删除。
 
 ## 一致性、损坏检测与备份
 
@@ -130,3 +131,5 @@ sync 脏检查从 CSV mtime 改为 `database_id + history_revision` 加既有配
 批次 1–2 只增加未启用基础能力；批次 3 上线时，凡已切库的数据必须已有可用的兼容投影与降级工具，不能等批次 6 才补救。批次 3 尚未改造的 sync 暂以完整兼容 CSV 的 mtime 工作，批次 4 才切 revision 门控。尚未切库的 Desktop 文档继续按旧路径工作，批次 5 才导入并改其写权。批次 6 将维护与发布验收闭环，不作为之前批次正确性的隐藏前置条件。评分表结构可提前建立空表，但评分行为始终最后启用。
 
 测试使用固定 `TimeProvider`、明确时区及相对测试时点，覆盖夏令时与期间边界，不依赖执行机器今天、午夜或真实延迟；并发以屏障／事件协调而非 sleep 赌时序。期望 CSV 字节由旧版本一次生成后固化入库，禁止测试中调用新序列化器自造期望。若历史数据被旧实现跳过，报告必须列出源记录与原因，让迁移验收同时证明“统计兼容”和“原始数据没有被悄悄删除”。
+
+批次 2 的未启用 API、验证与离线调用边界见 [导入与兼容工具](../architecture/sqlite-import-tools.md)。本批不部署、不自动激活，也不增加生产 CLI/DI/UI；已导入 scope 的缺失侧文档可在显式投影时生成默认空文档。导入首次校验成功时按有无历史/用户记录初始化修订为 1/0，续导不重复递增。

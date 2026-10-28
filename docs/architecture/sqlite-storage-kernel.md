@@ -12,7 +12,7 @@
 
 ## Schema 与健康检查
 
-唯一版本事实源是 `PRAGMA user_version`。嵌入资源 `001_tables.sql` 建立 ADR 全部 20 张表，`002_indexes.sql` 增加 4 个显式查询索引；主键、导入记录来源/序号及来源关联另外由唯一约束保护。所有待执行版本的 DDL、初始 metadata 和 user_version 同事务提交，失败全部回滚。初始化不会导入任何旧数据，初始 compatibility_mode 为 `legacy`，修订为零；后续适配器负责业务修订递增。
+唯一版本事实源是 `PRAGMA user_version`。嵌入资源 `001_tables.sql` 建立 ADR 全部 20 张表，`002_indexes.sql` 增加 4 个显式查询索引；批次 2 的 `003_legacy_projection.sql` 增加顺序、可空快照身份和维护状态（详见[导入工具](./sqlite-import-tools.md)）；主键、导入记录来源/序号及来源关联另外由唯一约束保护。所有待执行版本的 DDL、初始 metadata 和 user_version 同事务提交，失败全部回滚。初始化不会导入任何旧数据，初始 compatibility_mode 为 `legacy`，修订为零；后续适配器负责业务修订递增。
 
 手帐状态保存现有中文值。SQLite 的 note 长度 CHECK 按 Unicode code point 计数；后续 Core/侧数据适配器仍须沿用现有 .NET UTF-16 长度 ≤80 的用户校验。DateTime 值与 Kind 分列，不添加会改变旧历史语义的日期排序或 duration 等值约束。history_keys.first_sequence 显式保存首次出现顺序，未来导入器分配序号并按其排序，不依赖无 ORDER BY 查询或 VACUUM 可改变的隐式 rowid。
 
