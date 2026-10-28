@@ -131,13 +131,35 @@ public sealed class SqliteSessionStore : IInFlightSessionStore, IPlaytimeSnapsho
 
     public IReadOnlyList<GamePlaytimeRecord> GetPlaytimeRecords() => GetSnapshot().Records;
 
-    public PlaytimeSnapshot GetSnapshot() => Guard(GetSnapshotCore);
+    public PlaytimeSnapshot GetSnapshot()
+    {
+        try { return Guard(GetSnapshotCore); }
+        catch { return new([], null, ReadFailed: true); }
+    }
 
     private PlaytimeSnapshot GetSnapshotCore()
     {
         using var c = _factory.OpenConnection();
         using var tx = c.BeginTransaction(deferred: true);
-        return new(LegacyDatabaseReader.History(c, tx), Path.Combine(_factory.DataDirectory, "playtime.csv"));
+        var version = ReadHistoryVersion(c, tx);
+        _checkpoint?.Invoke("history.read.version");
+        return new(LegacyDatabaseReader.History(c, tx), null, HistoryVersion: version);
+    }
+
+    /// <summary>Reads only metadata without acquiring automation state or projection coordination locks.</summary>
+    public PlaytimeHistoryVersion GetHistoryVersion() => Guard(() =>
+    {
+        using var c = _factory.OpenConnection();
+        using var tx = c.BeginTransaction(deferred: true);
+        return ReadHistoryVersion(c, tx);
+    });
+
+    private static PlaytimeHistoryVersion ReadHistoryVersion(SqliteConnection c, SqliteTransaction tx)
+    {
+        using var command = Command(c, tx, "SELECT database_id,history_revision FROM storage_meta;");
+        using var reader = command.ExecuteReader();
+        if (!reader.Read()) throw new InvalidDataException("SQLite history metadata is missing.");
+        return new(reader.GetString(0), reader.GetInt64(1));
     }
 
     private T Guard<T>(Func<T> operation)

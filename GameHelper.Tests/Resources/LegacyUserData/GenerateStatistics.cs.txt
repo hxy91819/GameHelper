@@ -1,0 +1,20 @@
+using System.Text.Json;
+using GameHelper.Core.Models;
+using GameHelper.Core.Services;
+using GameHelper.Infrastructure.Providers;
+var output = args[0];
+var scratch = Path.Combine(Path.GetTempPath(), "gh-stats-generate-" + Guid.NewGuid());
+Directory.CreateDirectory(scratch);
+try {
+File.Copy(Path.Combine(output,"csv.input.bin"),Path.Combine(scratch,"playtime.csv"));
+var records = new FilePlaytimeSnapshotProvider(scratch).GetSnapshot().Records;
+var clock = new Clock();
+foreach(var days in new[]{0,7,30,90})
+File.WriteAllBytes(Path.Combine(output,$"dashboard-{days}.expected.bin"),JsonSerializer.SerializeToUtf8Bytes(PlaytimeDashboardBuilder.Build(records,[],new(days),clock)));
+foreach(var year in new[]{2024,2025}) foreach(int? q in new int?[]{null,1,2,3,4})
+File.WriteAllBytes(Path.Combine(output,$"report-{year}-{q?.ToString() ?? "year"}.expected.bin"),JsonSerializer.SerializeToUtf8Bytes(PlaytimeReportBuilder.Build(records,[],new(year,q),clock)));
+} finally {Directory.Delete(scratch,true);}
+sealed class Clock : TimeProvider {
+public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+public override DateTimeOffset GetUtcNow()=>new(2025,4,1,12,0,0,TimeSpan.Zero);
+}

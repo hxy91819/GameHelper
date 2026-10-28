@@ -23,6 +23,9 @@ public interface IPlaytimeSnapshotProvider
             .ToList();
     }
 
+    /// <summary>Cheap history bookmark; null retains legacy file change detection. Read errors must throw.</summary>
+    PlaytimeHistoryVersion? GetHistoryVersion() => null;
+
     PlaytimeSnapshot GetSnapshot()
     {
         return new PlaytimeSnapshot(GetPlaytimeRecords(), null);
