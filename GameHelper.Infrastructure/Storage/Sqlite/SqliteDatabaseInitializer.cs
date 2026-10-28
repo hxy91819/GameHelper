@@ -25,6 +25,7 @@ public sealed class SqliteDatabaseInitializer
     /// <summary>Checks health and atomically applies all pending versions. Failure leaves the previous schema intact.</summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        _factory.ThrowIfUnhealthy();
         using var lease = await SqliteDirectoryLock.AcquireAsync(_factory.DataDirectory, cancellationToken).ConfigureAwait(false);
         InitializeUnderLock(_factory.DatabasePath, cancellationToken);
     }

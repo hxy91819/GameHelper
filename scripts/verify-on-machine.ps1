@@ -247,7 +247,32 @@ games:
                 }
             }
             finally { $libraryProbe.Dispose() }
-            Write-Host 'Isolated runtime verification passed (no console, sandbox writes, monitor readiness, library IPC).'
+            # Stop only the isolated host before exercising the offline downgrade commands.
+            Stop-Process -Id $testRuntime.Id -Force
+            $testRuntime.WaitForExit(30000) | Out-Null
+            $testRuntime.Dispose()
+            $testRuntime = $null
+            $downgradeOutput = & $tempExe storage prepare-downgrade --config $configPath 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "Isolated downgrade preparation failed: $downgradeOutput" }
+            $downgradeManifests = @(Get-ChildItem (Join-Path (Join-Path $sandbox 'GameHelper') 'downgrade-backups') -Filter 'manifest.json' -Recurse)
+            if ($downgradeManifests.Count -ne 1) { throw 'Downgrade preparation did not publish one verified archive.' }
+            $preflight = & $tempExe storage check-downgrade --config $configPath 2>&1
+            if ($LASTEXITCODE -ne 0 -or (($preflight -join "`n") -notmatch 'Downgrade preflight passed')) { throw "Downgrade preflight failed: $preflight" }
+            # Reuse the real published ETW regression: game survives two host crashes and completes once.
+            $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+            try {
+                if (-not ([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+                    throw 'Storage restart verification requires an elevated Windows runner; refusing a silently skipped ETW test.'
+                }
+            } finally { $identity.Dispose() }
+            $priorPublishExe = $env:GAMEHELPER_TEST_PUBLISH_EXE
+            try {
+                $env:GAMEHELPER_TEST_PUBLISH_EXE = $tempExe
+                & dotnet test (Join-Path $repoRoot 'GameHelper.Tests/GameHelper.Tests.csproj') --configuration $Configuration `
+                    --filter 'FullyQualifiedName~Monitor_WhenElevatedWithPublishedExe_ResumesAcrossTwoCrashesAndPersistsOneContinuousSession'
+                if ($LASTEXITCODE -ne 0) { throw 'Published two-crash session recovery verification failed.' }
+            } finally { $env:GAMEHELPER_TEST_PUBLISH_EXE = $priorPublishExe }
+            Write-Host 'Isolated runtime verification passed (migration, IPC, two-crash session recovery and offline downgrade preflight).'
         }
 
         Write-Host "Test instance verification passed (data dir sandboxed at $sandbox)."

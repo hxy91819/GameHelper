@@ -51,6 +51,24 @@ public sealed class SqliteLegacyCompatibility
         return ExportUnderLock(CancellationToken.None, sessionsOnly: true);
     }
 
+    /// <summary>Offline read-only preflight: checks health, fixed-revision legacy bytes and old-reader statistics.</summary>
+    public async Task CheckDowngradeAsync(CancellationToken cancellationToken = default)
+    {
+        using var lease = await SqliteDirectoryLock.AcquireAsync(_factory.DataDirectory, cancellationToken).ConfigureAwait(false);
+        using var c = _factory.OpenConnection();
+        using var tx = c.BeginTransaction(deferred: true);
+        SqliteDatabaseHealth.Check(c, full: true, tx);
+        var projection = Capture(c, tx);
+        VerifyLegacyHistory(c, tx, projection);
+        foreach (var (path, bytes) in projection.Files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var actual = SqliteLegacyMigration.ReadSource(path);
+            if (bytes is null ? actual is not null : actual is null || !bytes.AsSpan().SequenceEqual(actual))
+                throw new InvalidDataException("旧格式投影缺失或过期，请先准备降级：" + path);
+        }
+    }
+
     /// <summary>Archives the full database (including ratings) and verified projections before an offline downgrade.</summary>
     public async Task<string> PrepareDowngradeAsync(CancellationToken cancellationToken = default)
     {

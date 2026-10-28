@@ -22,12 +22,21 @@ public sealed class SessionStorage : IDisposable
     private SqliteSessionStore? _sessionStore;
     private string? _warning;
     private string? _storageFailure;
+    private string? _maintenanceFailure;
 
     public SessionStorage(SqliteConnectionFactory factory, TimeProvider clock, ILoggerFactory logs)
     { _factory = factory; _clock = clock; _logs = logs; }
 
     public bool UsesSqlite => _compatibility is not null;
-    public string? Warning => Volatile.Read(ref _storageFailure) ?? Volatile.Read(ref _warning);
+    public string? Warning
+    {
+        get
+        {
+            var messages = new[] { Volatile.Read(ref _storageFailure), Volatile.Read(ref _maintenanceFailure), Volatile.Read(ref _warning) }
+                .Where(message => message is not null).ToArray();
+            return messages.Length == 0 ? null : string.Join("\n", messages);
+        }
+    }
     public IPlayTimeService PlayTime => _playTime ?? throw new InvalidOperationException("Session storage is not initialized.");
     public IInFlightSessionStore InFlight => _inflight ?? throw new InvalidOperationException("Session storage is not initialized.");
     public IPlaytimeSnapshotProvider Snapshot => _snapshot ?? throw new InvalidOperationException("Session storage is not initialized.");
@@ -95,6 +104,35 @@ public sealed class SessionStorage : IDisposable
     public void FlushProjection()
     {
         _projections?.Flush();
+    }
+
+    /// <summary>Called only by the background worker, outside automation locks. Projection faults never hide backup faults.</summary>
+    public async Task MaintainAsync(CancellationToken cancellationToken = default)
+    {
+        if (!UsesSqlite) return;
+        try
+        {
+            await _projections!.FlushAsync().ConfigureAwait(false);
+        }
+        catch { /* Projection worker reports and retains its own warning. */ }
+        try
+        {
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            var maintenance = new SqliteStorageMaintenance(_factory, _clock);
+            var backup = await maintenance.RunAsync(cancellationToken).ConfigureAwait(false);
+            if (maintenance.Completed) Volatile.Write(ref _maintenanceFailure, null);
+            if (backup is not null)
+                _logs.CreateLogger<SessionStorage>().LogInformation("SQLite daily backup published: {Backup}; health/backup elapsed {ElapsedMilliseconds} ms",
+                    backup, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            Volatile.Write(ref _maintenanceFailure, File.Exists(_factory.HealthFailurePath)
+                ? "SQLite 完整性失败，已停止写入与同步；停止全部实例后显式恢复：" + ex.Message
+                : "SQLite 健康维护／每日备份失败；请检查日志，备份将在下次维护重试：" + ex.Message);
+            _logs.CreateLogger<SessionStorage>().LogError(ex, "{StorageWarning}", Warning);
+        }
     }
 
     private void ReportStorageFailure(Exception exception)

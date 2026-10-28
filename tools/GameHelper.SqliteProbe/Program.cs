@@ -2,6 +2,49 @@ using System.Text.Json;
 using GameHelper.Infrastructure.Storage.Sqlite;
 using GameHelper.Core.Models;
 
+// Real WAL multi-process behavior, coordinated by named events rather than timing sleeps.
+if (args.Length >= 2 && args[0].StartsWith("ops-", StringComparison.Ordinal))
+{
+    var opsFactory = new SqliteConnectionFactory(args[1]);
+    using var c = opsFactory.OpenConnection();
+    object? Scalar(string sql, Microsoft.Data.Sqlite.SqliteTransaction? tx = null)
+    {
+        using var query = c.CreateCommand(); query.CommandText = sql; query.Transaction = tx;
+        return query.ExecuteScalar();
+    }
+    if (args[0] is "ops-hold-reader" or "ops-hold-writer")
+    {
+        using var tx = c.BeginTransaction(deferred: args[0] == "ops-hold-reader");
+        var before = Scalar("SELECT history_revision FROM storage_meta;", tx);
+        using var reached = EventWaitHandle.OpenExisting(args[2]);
+        using var release = EventWaitHandle.OpenExisting(args[3]);
+        reached.Set();
+        if (!release.WaitOne(TimeSpan.FromSeconds(30))) throw new TimeoutException("WAL transaction release barrier.");
+        if (!Equals(before, Scalar("SELECT history_revision FROM storage_meta;", tx))) throw new InvalidDataException("Reader snapshot changed.");
+    }
+    else if (args[0] == "ops-write")
+    {
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            new SqliteSessionStore(opsFactory, new ProbeClock(), () => { }).Complete(new()
+            {
+                SessionId = Guid.NewGuid(), DataKey = "concurrent", StartedAt = DateTime.UnixEpoch
+            }, DateTime.UnixEpoch.AddMinutes(1), "observed");
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode is 5 or 6) { Environment.ExitCode = 20; }
+        Console.WriteLine(JsonSerializer.Serialize(new { ElapsedMilliseconds = elapsed.ElapsedMilliseconds }));
+    }
+    else if (args[0] == "ops-checkpoint")
+    {
+        using var query = c.CreateCommand();
+        query.CommandText = args.Length > 2 && args[2] == "truncate" ? "PRAGMA wal_checkpoint(TRUNCATE);" : "PRAGMA wal_checkpoint(PASSIVE);";
+        using var row = query.ExecuteReader(); row.Read();
+        Console.WriteLine(JsonSerializer.Serialize(new { Busy = row.GetInt64(0), Frames = row.GetInt64(1), Checkpointed = row.GetInt64(2) }));
+    }
+    return;
+}
+
 // Real Desktop two-process optimistic-save driver; no production CLI surface.
 if (args.Length >= 2 && args[0].StartsWith("desktop-", StringComparison.Ordinal))
 {

@@ -36,7 +36,8 @@ CI 的 `Isolated Runtime Verify (Windows)` job 在 `windows-latest` 上运行：
 
 `-VerifyRuntime` 是可选扩展，不改变本地默认验证行为。它在 CLI 配置校验后，复用部署的
 WPF 后台启动和健康探针，验证无可见控制台、沙盒数据目录可写且运行时已写日志、监控就绪、
-本实例拥有 ETW 会话，以及游戏库 `--check` 命名管道能连到同一 PID。
+本实例拥有 ETW 会话，以及游戏库 `--check` 命名管道能连到同一 PID。随后停止该隔离后台，验证准备降级与离线预检，
+再复用发布产物的真实 ETW 两次强杀续算回归（明确要求提权 runner，拒绝静默跳过）。
 实例通过 `GAMEHELPER_DATA_DIR` 和 `GAMEHELPER_CONSOLEHOST_DISABLE_SINGLE_INSTANCE=1` 隔离，
 结束时仅停止临时发布目录中的进程并删除数据沙盒；不部署、不重启用户实例、不修改快捷方式。
 失败时上传 `isolated-runtime-diagnostics` artifact（沙盒配置、运行时日志、IPC 结果及发布错误日志）。
@@ -46,7 +47,7 @@ CI 默认严格要求 ETW，不主动降级。如果 runner 确认不能创建 E
 `-AllowDegradedMonitor`，但必须在 job 摘要记录实际失败原因，不能用它掩盖运行时回归。
 
 仍需 Windows 真机验收：HDR 显示切换、DDC 显示器控制、CE 注入与热键、实际发布目录交换、
-用户实例重启及在途游戏会话续算。CI 的隔离验收不替代这些硬件和真实部署检查。
+用户实例重启及实际部署的在途游戏会话续算。CI 的隔离验收不替代这些硬件和真实部署检查。
 
 ## 跨重启会话续算（in-flight sessions）
 

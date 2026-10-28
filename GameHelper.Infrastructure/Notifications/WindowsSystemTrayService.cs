@@ -227,7 +227,12 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
                 var summary = _summary();
                 PostUpdate(window, generation, () => { _cachedSummary = summary; UpdateIcon(window); });
             }
-            catch (Exception ex) { ReportFailure(window, ex, generation); }
+            catch (Exception ex)
+            {
+                // Storage failures can also break the summary read. Still refresh the storage warning.
+                if (_storageWarning?.Invoke() is null) ReportFailure(window, ex, generation);
+                PostUpdate(window, generation, () => UpdateIcon(window));
+            }
             finally { Volatile.Write(ref _refreshing, 0); }
         });
     }

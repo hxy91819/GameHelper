@@ -106,8 +106,10 @@ public sealed class SqliteDesktopStore(SqliteConnectionFactory factory, string c
             foreach (var item in decoded)
                 ids.Add(available.TryGetValue(item.Key, out var queue) && queue.Count > 0 ? queue.Dequeue() : Guid.NewGuid().ToString("D"));
         }
+        var budget = new SqliteEventWriteBudget(default);
+        using var admission = SqliteMaintenanceAdmission.EnterWrite(factory.DataDirectory, () => budget.Remaining);
         using var c = factory.OpenConnection();
-        using var tx = new SqliteEventWriteBudget(default).BeginWrite(c);
+        using var tx = budget.BeginWrite(c);
         using var deadline = new SqliteWriteDeadline(c);
         checkpoint?.Invoke("desktop.write.acquired");
         void Deadline() => deadline.Check();
