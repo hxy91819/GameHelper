@@ -67,3 +67,7 @@ StatsReportBuilder 比较含 raw CSV 的完整文件内容与指纹，核对每�
 
 批次 3 的 `sessionsOnly` 清单模式备份并严格解码当前配置侧文档，但只导入历史/在途，不登记 scope；
 后续 scope 导入读取最新文件。运行时 `ExportSessions()` 只投影历史与在途，完整离线导出 API 保持原行为。
+
+生产协调器与维护 CLI 构造兼容器时启用 `preserveHistoryKinds: true`：CSV 输出旧读取器支持的 `Z`/offset 后缀，
+避免 UTC 历史的旧读统计变化。原始显式工具默认仍复现旧 writer 固化字节。降级 receipt 保存 `PreserveHistoryKinds`，
+再升级按 receipt 选择格式，不要求调用者记住构造参数。

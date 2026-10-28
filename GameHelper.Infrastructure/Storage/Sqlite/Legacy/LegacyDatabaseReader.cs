@@ -26,17 +26,18 @@ internal static class LegacyDatabaseReader
         return map.Values.ToList();
     }
 
-    internal static byte[] Csv(IReadOnlyList<GamePlaytimeRecord> records)
+    internal static byte[] Csv(IReadOnlyList<GamePlaytimeRecord> records, bool preserveKinds = false)
     {
-        // Frozen PlaytimeCsvCodec write contract: no BOM, platform newline, second precision.
+        // The frozen writer is the default. Production additionally retains old-reader accepted Kind suffixes
+        // so UTC history is not reinterpreted as local time when sync/older versions read the projection.
         var output = new StringBuilder("game,start_time,end_time,duration_minutes" + Environment.NewLine);
         foreach (var record in records)
             foreach (var row in record.Sessions)
             {
                 var key = row.GameName;
                 if (key.IndexOfAny([',', '"', '\r', '\n']) >= 0) key = "\"" + key.Replace("\"", "\"\"") + "\"";
-                output.Append(key).Append(',').Append(row.StartTime.ToString("yyyy-MM-ddTHH:mm:ss", System.Globalization.CultureInfo.InvariantCulture))
-                    .Append(',').Append(row.EndTime.ToString("yyyy-MM-ddTHH:mm:ss", System.Globalization.CultureInfo.InvariantCulture))
+                output.Append(key).Append(',').Append(row.StartTime.ToString(preserveKinds ? "yyyy-MM-ddTHH:mm:ssK" : "yyyy-MM-ddTHH:mm:ss", System.Globalization.CultureInfo.InvariantCulture))
+                    .Append(',').Append(row.EndTime.ToString(preserveKinds ? "yyyy-MM-ddTHH:mm:ssK" : "yyyy-MM-ddTHH:mm:ss", System.Globalization.CultureInfo.InvariantCulture))
                     .Append(',').Append(row.DurationMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(Environment.NewLine);
             }
         return Encoding.UTF8.GetBytes(output.ToString());

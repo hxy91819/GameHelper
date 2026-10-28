@@ -38,7 +38,7 @@ public static class ConsoleCommandDispatcher
                 var configPath = ((IConfigPathProvider)configProvider).ConfigPath;
                 LegacyWriterGuard.EnsureDesktopStopped(configPath);
                 var maintenance = new SqliteLegacyCompatibility(host.Services.GetRequiredService<SqliteConnectionFactory>(),
-                    host.Services.GetRequiredService<TimeProvider>(), configProvider.Read().Games);
+                    host.Services.GetRequiredService<TimeProvider>(), configProvider.Read().Games, preserveHistoryKinds: true);
                 if (parsedArgs.EffectiveArgs.ElementAtOrDefault(1) == "prepare-downgrade")
                     Console.WriteLine(await maintenance.PrepareDowngradeAsync(cancellationToken).ConfigureAwait(false));
                 else if (parsedArgs.EffectiveArgs.ElementAtOrDefault(1) == "reupgrade" && parsedArgs.EffectiveArgs.Length == 3)

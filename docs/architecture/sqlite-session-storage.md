@@ -58,6 +58,10 @@ Stop 在同一锁下失效代际；校验、事务、结果发布之间没有放
 内容相同的文件不替换，因此快照心跳不改变 CSV mtime，不触发新的 sync 上传。
 
 ConsoleHost 统计/档案/报告经基础 SQLite snapshot adapter 读取同一短读事务的完整历史，在内存计算。
+生产兼容 CSV 保留旧读取器已支持的 UTC `Z`/Local offset 后缀，避免原 UTC 时间变成本地无时区时间，
+从而改变跨日统计和 sync 字节；无时区时间、字段、秒精度、排序和编码不变。离线降级 receipt 记录此格式，
+再升级从 receipt 选择相同投影语义。批次 2 的显式旧 writer 固化模式默认保持不变。
+
 sync 仍读完整兼容 CSV、沿用 mtime/指纹/退避；读取前排空投影，失败返回 ReadFailed，阻止上传陈旧文件。
 尚未修改 sync 修订门控、侧文档读写、评分与自动备份调度。
 

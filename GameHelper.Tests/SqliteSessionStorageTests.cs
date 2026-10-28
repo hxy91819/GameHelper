@@ -313,6 +313,25 @@ public sealed class SqliteSessionStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task Compatibility_UtcHistory_PreservesOldReadSemanticsAndSyncBytes()
+    {
+        Directory.CreateDirectory(_directory);
+        var csv = Path.Combine(_directory, "playtime.csv");
+        File.WriteAllText(csv, "game,start_time,end_time,duration_minutes\n游戏,2025-01-01T23:50:00Z,2025-01-02T00:10:00Z,20\n");
+        var old = new FilePlaytimeSnapshotProvider(_directory).GetSnapshot().Records;
+        var before = new StatsReportBuilder().Build(old, [Game], _clock.Now, true);
+        var storage = Storage(); await storage.InitializeAsync(Config, [Game]);
+        var projected = new CompatibilityPlaytimeSnapshotProvider(storage, _directory).GetSnapshot().Records;
+        Assert.Equal(DateTimeKind.Utc, Assert.Single(Assert.Single(projected).Sessions).EndTime.Kind);
+        Assert.Equal(JsonSerializer.Serialize(before), JsonSerializer.Serialize(new StatsReportBuilder().Build(projected, [Game], _clock.Now, true)));
+        // The production maintenance entry uses the same date-preserving codec for old-version handoff.
+        var compatibility = new SqliteLegacyCompatibility(Factory, _clock, preserveHistoryKinds: true);
+        var manifest = await compatibility.PrepareDowngradeAsync();
+        await new SqliteLegacyCompatibility(Factory, _clock).ReupgradeAsync(manifest);
+        Assert.Equal(1L, Count("play_sessions"));
+    }
+
+    [Fact]
     public async Task Compatibility_DowngradeOldJsonAdoption_PreservesOneContinuousRow()
     {
         var storage = Storage(); await storage.InitializeAsync(Config, [Game]);

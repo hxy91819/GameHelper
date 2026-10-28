@@ -66,7 +66,7 @@ public sealed class SessionStorage
             try { WriteJson(Path.Combine(_factory.DataDirectory, "migration-complete.json"), new { MigrationId = activated }); }
             catch (IOException ex) { _logs.CreateLogger<SessionStorage>().LogWarning(ex, "Could not repair the diagnostic migration receipt; database activation remains authoritative."); }
         }
-        _compatibility = new SqliteLegacyCompatibility(_factory, _clock, games, checkpoint);
+        _compatibility = new SqliteLegacyCompatibility(_factory, _clock, games, checkpoint, preserveHistoryKinds: true);
         var store = new SqliteSessionStore(_factory, _clock, ProjectBestEffort, checkpoint, ReportStorageFailure, () => Volatile.Write(ref _storageFailure, null));
         _inflight = store;
         _snapshot = store;

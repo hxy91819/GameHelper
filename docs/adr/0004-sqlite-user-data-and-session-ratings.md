@@ -144,3 +144,5 @@ sync 脏检查从 CSV mtime 改为 `database_id + history_revision` 加既有配
   此例外及完整锁关系见[会话存储](../architecture/sqlite-session-storage.md#锁边界的有意选择)。
 - 兼容文件内容相同时不替换，快照心跳不会改变 CSV mtime。sync 在读 CSV 前排空投影，失败阻止陈旧上传；
   修订门控仍按批次 4 实施。首次上线提供已有降级/再升级原语的离线 CLI。
+
+- 生产兼容 CSV 为保持原旧读取语义，保留旧 codec 已接受的 UTC `Z`/Local offset 后缀；不将 UTC 字面值改为无时区时间。降级 manifest 记录格式，再升级复用；无时区字段与旧 writer 固化工具默认模式不变。

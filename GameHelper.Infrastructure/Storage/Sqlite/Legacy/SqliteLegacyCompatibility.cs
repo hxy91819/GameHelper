@@ -13,7 +13,7 @@ public sealed record DowngradeSession(string SessionId, string Key, DateTime Sta
 /// <summary>Published only after the database archive and all legacy files have been verified.</summary>
 public sealed record DowngradeManifest(string DowngradeId, string DatabaseId, long DataRevision, long SnapshotRevision,
     string DatabaseHash, IReadOnlyDictionary<string, string> FileHashes, IReadOnlyList<DowngradeSession> Sessions,
-    IReadOnlyList<string> ConfigPaths);
+    IReadOnlyList<string> ConfigPaths, bool PreserveHistoryKinds = false);
 
 /// <summary>Legacy projections for the compatibility window, plus offline downgrade and reupgrade maintenance.</summary>
 public sealed class SqliteLegacyCompatibility
@@ -22,10 +22,11 @@ public sealed class SqliteLegacyCompatibility
     private readonly TimeProvider _clock;
     private readonly IReadOnlyList<GameConfig> _configs;
     private readonly Action<string>? _checkpoint;
+    private readonly bool _preserveHistoryKinds;
 
     /// <summary>Inject the same clock/timezone/config used by old statistics validation.</summary>
-    public SqliteLegacyCompatibility(SqliteConnectionFactory factory, TimeProvider clock, IReadOnlyList<GameConfig>? configs = null, Action<string>? checkpoint = null)
-    { _factory = factory; _clock = clock; _configs = configs ?? []; _checkpoint = checkpoint; }
+    public SqliteLegacyCompatibility(SqliteConnectionFactory factory, TimeProvider clock, IReadOnlyList<GameConfig>? configs = null, Action<string>? checkpoint = null, bool preserveHistoryKinds = false)
+    { _factory = factory; _clock = clock; _configs = configs ?? []; _checkpoint = checkpoint; _preserveHistoryKinds = preserveHistoryKinds; }
 
     /// <summary>Reads the complete projection from one SQLite snapshot, without writing legacy files.</summary>
     public LegacyProjection ReadProjection()
@@ -93,7 +94,7 @@ public sealed class SqliteLegacyCompatibility
                 if (bytes is not null) File.WriteAllBytes(Path.Combine(temporary, (index++).ToString("D4") + ".legacy"), bytes);
             }
             var manifest = new DowngradeManifest(id, databaseId, projection.DataRevision, projection.SnapshotRevision,
-                Hash(File.ReadAllBytes(Path.Combine(temporary, "userdata.db"))), hashes, sessions, configs);
+                Hash(File.ReadAllBytes(Path.Combine(temporary, "userdata.db"))), hashes, sessions, configs, _preserveHistoryKinds);
             Hit("downgrade.manifest.before");
             WriteJson(Path.Combine(temporary, "manifest.json"), manifest);
             Hit("downgrade.manifest.after");
@@ -178,7 +179,7 @@ public sealed class SqliteLegacyCompatibility
             foreach (var table in new[] { "inflight_processes", "inflight_sessions", "pending_launches", "runtime_snapshot" }) Execute(c, tx, "DELETE FROM " + table + ";");
         SqliteLegacyMigration.EnsureSourcesUnchanged(manifest);
         LegacyImportValidation.CompareHistory(LegacyImportValidation.ExpectedHistory(items),
-            LegacyImportValidation.ExpectedHistory(LegacyDecoder.Csv(System.Text.Encoding.UTF8.GetString(LegacyDatabaseReader.Csv(LegacyDatabaseReader.History(c, tx))))), _clock, _configs);
+            LegacyImportValidation.ExpectedHistory(LegacyDecoder.Csv(System.Text.Encoding.UTF8.GetString(LegacyDatabaseReader.Csv(LegacyDatabaseReader.History(c, tx), baseline.PreserveHistoryKinds)))), _clock, _configs);
         Execute(c, tx, "UPDATE storage_meta SET history_revision=history_revision+$0,data_revision=data_revision+1; UPDATE compatibility_exports SET dirty=1;",
             rows.Count > baseline.Sessions.Count ? 1 : 0);
         Execute(c, tx, "INSERT INTO migration_state VALUES($0,$1);", appliedName, fingerprint);
@@ -229,7 +230,7 @@ public sealed class SqliteLegacyCompatibility
     private LegacyProjection Capture(SqliteConnection c, SqliteTransaction tx, bool sessionsOnly = false)
     {
         var files = new Dictionary<string, byte[]?>(StringComparer.OrdinalIgnoreCase)
-        { [Path.Combine(_factory.DataDirectory, "playtime.csv")] = LegacyDatabaseReader.Csv(LegacyDatabaseReader.History(c, tx)) };
+        { [Path.Combine(_factory.DataDirectory, "playtime.csv")] = LegacyDatabaseReader.Csv(LegacyDatabaseReader.History(c, tx), _preserveHistoryKinds) };
         var snapshot = LegacyDatabaseReader.Snapshot(c, tx);
         files[Path.Combine(_factory.DataDirectory, "inflight-sessions.json")] = snapshot is null ? null : LegacyDatabaseReader.SnapshotBytes(snapshot);
         foreach (var config in sessionsOnly ? [] : Configs(c, tx))
@@ -246,7 +247,7 @@ public sealed class SqliteLegacyCompatibility
         var bytes = projection.Files[Path.Combine(_factory.DataDirectory, "playtime.csv")]!;
         var legacy = LegacyImportValidation.ExpectedHistory(LegacyDecoder.Csv(System.Text.Encoding.UTF8.GetString(bytes)));
         // CSV intentionally drops Kind and subsecond precision. Compare to the database's same legacy projection.
-        var expected = LegacyImportValidation.ExpectedHistory(LegacyDecoder.Csv(System.Text.Encoding.UTF8.GetString(LegacyDatabaseReader.Csv(LegacyDatabaseReader.History(c, tx)))));
+        var expected = LegacyImportValidation.ExpectedHistory(LegacyDecoder.Csv(System.Text.Encoding.UTF8.GetString(LegacyDatabaseReader.Csv(LegacyDatabaseReader.History(c, tx), _preserveHistoryKinds))));
         LegacyImportValidation.CompareHistory(expected, legacy, _clock, _configs);
         // Also exercise the real old reader, not only the strict migration reader.
         var old = new FilePlaytimeSnapshotProvider(_factory.DataDirectory).GetSnapshot();
