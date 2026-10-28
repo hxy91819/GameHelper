@@ -10,6 +10,10 @@ namespace GameHelper.Core.Models;
 /// </summary>
 public sealed class InFlightSession
 {
+    /// <summary>Stable identity shared by every process in this session; omitted from legacy JSON.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Guid SessionId { get; set; }
+
     /// <summary>Stable game identity this process instance belongs to.</summary>
     public string DataKey { get; set; } = string.Empty;
 
@@ -45,6 +49,10 @@ public sealed class InFlightSession
 /// </summary>
 public sealed class InFlightSnapshot
 {
+    /// <summary>Optimistic SQLite snapshot revision; legacy files do not carry it.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public long Revision { get; set; }
+
     /// <summary>Whether this instance changed an originally disabled HDR state.</summary>
     public bool HdrEnabledByGameHelper { get; set; }
 

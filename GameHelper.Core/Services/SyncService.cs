@@ -14,7 +14,7 @@ namespace GameHelper.Core.Services;
 
 /// <summary>
 /// 统计自动推送核心调度：
-/// - 会话结束路径零额外磁盘写入，脏检查只做文件 mtime 对比；
+/// - 本服务不增加会话结束时的上传；兼容期的完整 CSV 投影由存储层负责，脏检查仍做文件 mtime 对比；
 /// - 默认每 <see cref="SyncSettings.IntervalMinutes"/> 分钟最多推送一次，失败后按固定退避重试；
 /// - 仅在推送成功后写一次 sync-state.json。
 /// </summary>
@@ -237,6 +237,7 @@ public sealed class SyncService : ISyncService
     private StatsReport BuildReport(SyncSettings settings, AppConfig appConfig)
     {
         var snapshot = _snapshotProvider.GetSnapshot();
+        if (snapshot.ReadFailed) throw new IOException("游玩数据读取或兼容投影失败，未上传统计；请检查存储日志后重试。");
         var generatedAtLocal = _timeProvider.GetLocalNow().LocalDateTime;
         return _reportBuilder.Build(
             snapshot.Records,

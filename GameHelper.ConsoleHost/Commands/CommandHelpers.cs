@@ -18,6 +18,7 @@ public static class CommandHelpers
         Console.WriteLine("  stats [--game <name>] [--config <path>] [--debug]");
         Console.WriteLine("  sync now [--force] / sync test / sync status");
         Console.WriteLine("                      Stats sync configuration and manual triggers (see docs/guides/sync.md)");
+        Console.WriteLine("  storage prepare-downgrade / storage reupgrade <manifest> [--config <path>]");
         Console.WriteLine("  validate-config");
         Console.WriteLine();
         Console.WriteLine("Global options:");

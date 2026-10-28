@@ -85,20 +85,20 @@ internal static class LegacyRelationalWriter
     {
         foreach (var table in new[] { "inflight_processes", "inflight_sessions", "pending_launches", "runtime_snapshot" }) Execute(c, tx, "DELETE FROM " + table + ";");
         Execute(c, tx, "INSERT INTO runtime_snapshot VALUES(1,$0,$1,1);", Date(snapshot.SnapshotAt), snapshot.HdrEnabledByGameHelper);
-        var groups = new Dictionary<(string, string, string?), string>();
+        var groups = new Dictionary<(Guid, string, string, string?), string>();
         var ordinal = 0;
         foreach (var process in snapshot.Sessions)
         {
             ordinal++;
             if (string.IsNullOrWhiteSpace(process.DataKey)) continue;
-            var key = (process.DataKey.ToUpperInvariant(), Date(process.StartedAt), process.RecoveryEndAt is { } re ? Date(re) : null);
+            var key = (process.SessionId, process.DataKey.ToUpperInvariant(), Date(process.StartedAt), process.RecoveryEndAt is { } re ? Date(re) : null);
             if (!groups.TryGetValue(key, out var id))
             {
                 id = process.RecoveryEndAt is { } end ? Scalar(c, tx, """
                     SELECT session_id FROM play_sessions WHERE data_key=$0
                     AND substr(started_value,1,19)=$1 AND substr(ended_value,1,19)=$2 ORDER BY sequence LIMIT 1;
                     """, process.DataKey, Date(process.StartedAt)[..19], Date(end)[..19]) as string : null;
-                id ??= Id(source + ":inflight", ordinal);
+                id = process.SessionId != Guid.Empty ? process.SessionId.ToString("D") : id ?? Id(source + ":inflight", ordinal);
                 groups[key] = id;
                 Execute(c, tx, "INSERT INTO inflight_sessions VALUES($0,$1,$2,$3,$4,$5,$6);", id, process.DataKey, Date(process.StartedAt), (int)process.StartedAt.Kind,
                     process.LaunchedByHelper is null ? "unknown" : process.LaunchedByHelper.Value ? "library" : "external",

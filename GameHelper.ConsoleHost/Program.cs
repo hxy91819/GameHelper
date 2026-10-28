@@ -8,6 +8,7 @@ using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
 using GameHelper.Infrastructure.Notifications;
+using GameHelper.Infrastructure.Storage.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 
 // Parse command line arguments
@@ -104,6 +105,10 @@ try
     // Handle file drag & drop (auto-add to config and exit)
     if (isFileDropRequest)
     {
+        var config = host.Services.GetRequiredService<IGameConfiguration>();
+        var configPath = ((IConfigPathProvider)config).ConfigPath;
+        await host.Services.GetRequiredService<SessionStorage>().InitializeAsync(configPath, config.Read().Games,
+            () => LegacyWriterGuard.EnsureDesktopStopped(configPath)).ConfigureAwait(false);
         var handler = host.Services.GetRequiredService<FileDropIntake>();
         var response = await handler.HandleAsync(
                 new DropAddRequest { Paths = parsedArgs.EffectiveArgs },
@@ -124,6 +129,13 @@ catch (Exception ex)
 // Execute the appropriate command
 try
 {
+    if (parsedArgs.EffectiveArgs.FirstOrDefault()?.ToLowerInvariant() is "monitor" or "stats" or "sync")
+    {
+        var config = host.Services.GetRequiredService<IGameConfiguration>();
+        var path = ((IConfigPathProvider)config).ConfigPath;
+        await host.Services.GetRequiredService<SessionStorage>().InitializeAsync(path, config.Read().Games,
+            () => LegacyWriterGuard.EnsureDesktopStopped(path)).ConfigureAwait(false);
+    }
     await ConsoleCommandDispatcher.DispatchAsync(host, parsedArgs, CancellationToken.None).ConfigureAwait(false);
 }
 catch (InvalidDataException ex)

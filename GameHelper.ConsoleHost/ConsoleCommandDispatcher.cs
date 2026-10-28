@@ -6,6 +6,8 @@ using GameHelper.ConsoleHost.Commands;
 using GameHelper.ConsoleHost.Services;
 using GameHelper.ConsoleHost.Utilities;
 using GameHelper.Core.Abstractions;
+using GameHelper.Infrastructure.Storage.Sqlite;
+using GameHelper.Infrastructure.Storage.Sqlite.Legacy;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -29,6 +31,19 @@ public static class ConsoleCommandDispatcher
         {
             case "monitor":
                 await host.RunAsync(cancellationToken).ConfigureAwait(false);
+                break;
+
+            case "storage":
+                var configProvider = host.Services.GetRequiredService<IGameConfiguration>();
+                var configPath = ((IConfigPathProvider)configProvider).ConfigPath;
+                LegacyWriterGuard.EnsureDesktopStopped(configPath);
+                var maintenance = new SqliteLegacyCompatibility(host.Services.GetRequiredService<SqliteConnectionFactory>(),
+                    host.Services.GetRequiredService<TimeProvider>(), configProvider.Read().Games, preserveHistoryKinds: true);
+                if (parsedArgs.EffectiveArgs.ElementAtOrDefault(1) == "prepare-downgrade")
+                    Console.WriteLine(await maintenance.PrepareDowngradeAsync(cancellationToken).ConfigureAwait(false));
+                else if (parsedArgs.EffectiveArgs.ElementAtOrDefault(1) == "reupgrade" && parsedArgs.EffectiveArgs.Length == 3)
+                    await maintenance.ReupgradeAsync(parsedArgs.EffectiveArgs[2], cancellationToken).ConfigureAwait(false);
+                else throw new ArgumentException("storage prepare-downgrade | storage reupgrade <manifest>");
                 break;
 
             case "config":

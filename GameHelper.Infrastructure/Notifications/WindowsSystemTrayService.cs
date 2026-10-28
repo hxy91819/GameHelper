@@ -56,6 +56,8 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
     private readonly object _gate = new();
     private readonly Func<string> _summary;
     private readonly TrayMenuService _menus;
+    private readonly Func<string?>? _storageWarning;
+    private string? _shownStorageWarning;
     private readonly ConcurrentQueue<Action> _updates = new();
     private readonly SemaphoreSlim _operations = new(1, 1);
     private string _cachedSummary = "GameHelper";
@@ -77,8 +79,9 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
     private bool _hasIcon;
 
     public WindowsSystemTrayService(Func<string> summary, TrayMenuService menus,
-        ILogger<WindowsSystemTrayService> logger)
+        ILogger<WindowsSystemTrayService> logger, Func<string?>? storageWarning = null)
     {
+        _storageWarning = storageWarning;
         _summary = summary;
         _menus = menus;
         _logger = logger;
@@ -342,6 +345,16 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             throw new Win32Exception(Marshal.GetLastWin32Error());
         }
         _hasIcon = true;
+        var warning = _storageWarning?.Invoke();
+        if (warning is not null && warning != _shownStorageWarning)
+        {
+            data.Flags = 0x10;
+            data.Title = "GameHelper 存储提示";
+            data.Text = warning.Length > 255 ? warning[..255] : warning;
+            data.InfoFlags = 2;
+            NativeMethods.ShellNotifyIcon(1, ref data);
+        }
+        _shownStorageWarning = warning;
         // Keep legacy callback semantics for native double-click delivery.
     }
 

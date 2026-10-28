@@ -26,17 +26,18 @@ internal static class LegacyDatabaseReader
         return map.Values.ToList();
     }
 
-    internal static byte[] Csv(IReadOnlyList<GamePlaytimeRecord> records)
+    internal static byte[] Csv(IReadOnlyList<GamePlaytimeRecord> records, bool preserveKinds = false)
     {
-        // Frozen PlaytimeCsvCodec write contract: no BOM, platform newline, second precision.
+        // The frozen writer is the default. Production additionally retains old-reader accepted Kind suffixes
+        // so UTC history is not reinterpreted as local time when sync/older versions read the projection.
         var output = new StringBuilder("game,start_time,end_time,duration_minutes" + Environment.NewLine);
         foreach (var record in records)
             foreach (var row in record.Sessions)
             {
                 var key = row.GameName;
                 if (key.IndexOfAny([',', '"', '\r', '\n']) >= 0) key = "\"" + key.Replace("\"", "\"\"") + "\"";
-                output.Append(key).Append(',').Append(row.StartTime.ToString("yyyy-MM-ddTHH:mm:ss", System.Globalization.CultureInfo.InvariantCulture))
-                    .Append(',').Append(row.EndTime.ToString("yyyy-MM-ddTHH:mm:ss", System.Globalization.CultureInfo.InvariantCulture))
+                output.Append(key).Append(',').Append(row.StartTime.ToString(preserveKinds ? "yyyy-MM-ddTHH:mm:ssK" : "yyyy-MM-ddTHH:mm:ss", System.Globalization.CultureInfo.InvariantCulture))
+                    .Append(',').Append(row.EndTime.ToString(preserveKinds ? "yyyy-MM-ddTHH:mm:ssK" : "yyyy-MM-ddTHH:mm:ss", System.Globalization.CultureInfo.InvariantCulture))
                     .Append(',').Append(row.DurationMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(Environment.NewLine);
             }
         return Encoding.UTF8.GetBytes(output.ToString());
@@ -88,18 +89,19 @@ internal static class LegacyDatabaseReader
     internal static InFlightSnapshot? Snapshot(SqliteConnection c, SqliteTransaction tx)
     {
         InFlightSnapshot? snapshot = null;
-        using (var command = Command(c, tx, "SELECT snapshot_at,hdr_enabled_by_helper FROM runtime_snapshot;"))
+        using (var command = Command(c, tx, "SELECT snapshot_at,hdr_enabled_by_helper,revision FROM runtime_snapshot;"))
         using (var reader = command.ExecuteReader())
-            if (reader.Read()) snapshot = new() { SnapshotAt = DateTime.Parse(reader.GetString(0), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind), HdrEnabledByGameHelper = reader.GetBoolean(1) };
+            if (reader.Read()) snapshot = new() { Revision = reader.GetInt64(2), SnapshotAt = DateTime.Parse(reader.GetString(0), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind), HdrEnabledByGameHelper = reader.GetBoolean(1) };
         if (snapshot is null) return null;
         using (var command = Command(c, tx, """
             SELECT coalesce(p.data_key,s.data_key),s.started_value,s.started_kind,s.recovery_end_value,s.recovery_end_kind,
-                p.pid,p.normalized_name,p.normalized_path,p.process_started_at_utc,p.launched_by_helper
+                p.pid,p.normalized_name,p.normalized_path,p.process_started_at_utc,p.launched_by_helper,s.session_id
             FROM inflight_processes p JOIN inflight_sessions s ON s.session_id=p.session_id ORDER BY p.process_row_id;
             """))
         using (var reader = command.ExecuteReader())
             while (reader.Read()) snapshot.Sessions.Add(new()
             {
+                SessionId = Guid.Parse(reader.GetString(10)),
                 DataKey = reader.GetString(0), StartedAt = Date(reader.GetString(1), reader.GetInt32(2)),
                 RecoveryEndAt = reader.IsDBNull(3) ? null : Date(reader.GetString(3), reader.GetInt32(4)),
                 ProcessId = reader.IsDBNull(5) ? null : reader.GetInt32(5), NormalizedName = reader.IsDBNull(6) ? null : reader.GetString(6),

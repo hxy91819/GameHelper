@@ -151,7 +151,7 @@ U2720QM 默认护眼配方改为单笔 `F0=0x0C`，固件联动完成 `DC=00 / E
 
 ### 更新重启不断计时（会话跨重启续算）
 
-GameHelper 更新替换重启（或异常崩溃）时，正在统计的游戏会话按**原开始时间**续算，游戏退出时落一条连续记录；游戏在停机间隙退出的，按最后已知存活时间收尾落库。在途快照 `%AppData%\GameHelper\inflight-sessions.json` 记录全部游戏进程，随每次进程变化及每 10 秒刷新；恢复后立即原子重写，连续多次更新也能接续。进程创建时间用于防止同一程序复用 PID 时串局，恢复落库失败则保留快照重试。部署脚本 `-Restart` 只清理已退出属主的 ETW 会话，且新实例启动失败会恢复旧产物和旧实例。详见[验证与部署工作流](docs/guides/verify-and-deploy-workflow.md)。
+GameHelper 更新替换重启（或异常崩溃）时，正在统计的游戏会话按**原开始时间**续算，游戏退出时落一条连续记录；游戏在停机间隙退出的，按最后已知存活时间收尾落库。SQLite 在途事务记录全部游戏进程，并在兼容期输出 `%AppData%\GameHelper\inflight-sessions.json`，随每次进程变化及每 10 秒刷新；恢复后立即原子重写，连续多次更新也能接续。进程创建时间用于防止同一程序复用 PID 时串局，恢复落库失败则保留快照重试。部署脚本 `-Restart` 只清理已退出属主的 ETW 会话，且新实例启动失败会恢复旧产物和旧实例。详见[验证与部署工作流](docs/guides/verify-and-deploy-workflow.md)。
 
 默认路径：`%AppData%\GameHelper\config.yml`
 
@@ -233,3 +233,5 @@ Windows CI 构建整个解决方案，并自动验证隔离后台实例的无控
 游玩档案内可生成年度／自然季度报告，查看 Top 5、月周分布、本期通关与上期对比并导出 Markdown；本期通关读取本机手帐的已通关／全成就记录。可选配置 OpenAI 兼容接口生成点评，默认关闭。详见[游玩报告指南](docs/guides/playtime-report.md)。
 
 SQLite 存储内核与[导入／兼容工具](docs/architecture/sqlite-import-tools.md)目前仅提供未启用的开发能力；生产仍使用原 CSV/JSON，未自动迁移或切换存储。
+
+会话历史与在途恢复首次启动校验后自动迁入 SQLite，失败保留原件并沿用旧存储；首个发布周期保留完整 CSV/快照投影，见[会话存储与降级说明](docs/architecture/sqlite-session-storage.md)。

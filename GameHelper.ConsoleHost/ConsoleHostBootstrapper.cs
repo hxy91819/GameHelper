@@ -14,6 +14,7 @@ using GameHelper.Infrastructure.Power;
 using GameHelper.Infrastructure.Providers;
 using GameHelper.Infrastructure.Resolvers;
 using GameHelper.Infrastructure.Startup;
+using GameHelper.Infrastructure.Storage.Sqlite;
 using GameHelper.Infrastructure.Upload;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -107,9 +108,6 @@ public static class ConsoleHostBootstrapper
                 AppDataPath.GetLocationCachePath(),
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<JsonLocationCacheStore>(),
                 sp.GetRequiredService<TimeProvider>()));
-            services.AddSingleton<IInFlightSessionStore>(_ => new JsonInFlightSessionStore(
-                AppDataPath.GetInFlightSessionsPath(),
-                _.GetRequiredService<ILoggerFactory>().CreateLogger<JsonInFlightSessionStore>()));
             services.AddSingleton<ISystemPowerEvents, WindowsSystemPowerEvents>();
         }
         else
@@ -119,7 +117,10 @@ public static class ConsoleHostBootstrapper
             services.AddSingleton<IMonitorModeController, NoOpMonitorModeController>();
         }
 
-        services.AddSingleton<IPlayTimeService, CsvBackedPlayTimeService>();
+        services.AddSingleton<SqliteConnectionFactory>();
+        services.AddSingleton<SessionStorage>();
+        services.AddSingleton<IPlayTimeService>(sp => sp.GetRequiredService<SessionStorage>().PlayTime);
+        services.AddSingleton<IInFlightSessionStore>(sp => sp.GetRequiredService<SessionStorage>().InFlight);
         services.AddSingleton<IGameSpeedController, CheatEngineSpeedController>();
         services.AddSingleton<IForegroundActivityProvider, WindowsForegroundActivityProvider>();
         services.AddSingleton<IBreakReminderNotifier, WindowsBreakReminderNotifier>();
@@ -151,7 +152,7 @@ public static class ConsoleHostBootstrapper
         services.AddSingleton<IMonitorControlService, MonitorControlService>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IGameCatalogService, GameCatalogService>();
-        services.AddSingleton<IPlaytimeSnapshotProvider, FilePlaytimeSnapshotProvider>();
+        services.AddSingleton<IPlaytimeSnapshotProvider>(sp => sp.GetRequiredService<SessionStorage>().Snapshot);
         services.AddSingleton<IStatisticsService, StatisticsService>();
         services.AddSingleton<ISteamGameResolver, SteamGameResolver>();
         services.AddSingleton<ILocalGameDiscovery, LocalGameDiscovery>();
@@ -160,7 +161,11 @@ public static class ConsoleHostBootstrapper
         services.AddSingleton<StatsReportBuilder>();
         services.AddSingleton<GitHubUploadChannelProvider>();
         services.AddSingleton<IStatsUploadChannelProvider>(sp => sp.GetRequiredService<GitHubUploadChannelProvider>());
-        services.AddSingleton<ISyncService, SyncService>();
+        services.AddSingleton<ISyncService>(sp => new SyncService(
+            sp.GetRequiredService<IGameConfiguration>(),
+            new CompatibilityPlaytimeSnapshotProvider(sp.GetRequiredService<SessionStorage>(), AppDataPath.GetGameHelperDirectory()),
+            sp.GetRequiredService<IStatsUploadChannelProvider>(), sp.GetRequiredService<StatsReportBuilder>(),
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<SyncService>>()));
         services.AddSingleton<IHostedService, SyncBackgroundService>();
 
         services.AddSingleton<IConfigPathProvider>(sp => (IConfigPathProvider)sp.GetRequiredService<IGameConfiguration>());
@@ -191,7 +196,8 @@ public static class ConsoleHostBootstrapper
                         using var process = Process.Start(SystemTrayLogic.LibraryStartInfo(AppContext.BaseDirectory, config, File.Exists));
                     },
                     () => sp.GetRequiredService<IHostApplicationLifetime>().StopApplication()),
-                sp.GetRequiredService<ILogger<WindowsSystemTrayService>>()));
+                sp.GetRequiredService<ILogger<WindowsSystemTrayService>>(),
+                () => sp.GetRequiredService<SessionStorage>().Warning));
         }
 
         services.AddHostedService<Worker>();

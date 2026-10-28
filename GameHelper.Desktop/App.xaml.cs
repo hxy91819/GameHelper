@@ -43,6 +43,9 @@ public partial class App : Application
                 Shutdown(response.Success ? 0 : 1);
                 return;
             }
+            // Complete first activation before opening any legacy Desktop documents or claiming the UI mutex.
+            if (snapshot is null && !e.Args.Contains("--no-start-host", StringComparer.Ordinal))
+                await RuntimeConnection.EnsureAsync(config);
             Theme = new DesktopTheme(Resources, new ThemePreferenceStore(config));
             Theme.Load();
             if (snapshot is null && !ClaimInstance(config, activate: !restore)) { Shutdown(0); return; }

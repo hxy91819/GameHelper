@@ -35,6 +35,8 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     private readonly object _stateLock = new();
     // Global lock order: monitor update → companion/before-launch execution → state.
     // Queued after-exit admission borrows only state; its I/O and bounded drain hold no locks.
+    // Only short session transactions stay under state, with one event contention deadline.
+    // Full compatibility projection is admitted here but runs on its serial worker without automation locks.
     // Companion/before-launch I/O stays outside _stateLock. Dependencies must not re-enter lifecycle methods.
     // Stop crosses this boundary before invalidation,
     // so a validated operation cannot begin after Stop has completed.
@@ -101,6 +103,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
     public void Start()
     {
+        var eventTime = _timeProvider.GetLocalNow().DateTime;
         GameConfig[] recoveredGames;
         long generation;
         lock (_stateLock)
@@ -112,6 +115,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             _sessionTracker.Clear();
             _sessionSuspend.Reset();
             _launchOwnership.ResetProvenance();
+            using var storageEvent = (_playTime as IIdentifiedPlayTimeService)?.BeginEvent(eventTime);
             _inFlightRecovery.RecoverInFlightSessions();
             var recoveredHdrLease = _launchOwnership.OwnsEnabledHdr;
             _launchOwnership.UpdateHdrState();
@@ -179,12 +183,14 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
     public void Stop()
     {
+        var eventTime = _timeProvider.GetLocalNow().DateTime;
         AfterExitActionQueue.DrainRequest actionDrain;
         lock (_monitorMode.UpdateLock)
         lock (_companionLock)
         {
             lock (_stateLock)
             {
+                using var storageEvent = (_playTime as IIdentifiedPlayTimeService)?.BeginEvent(eventTime);
                 _started = false;
                 ++_generation;
                 actionDrain = _afterExitActions.Stop();
@@ -245,6 +251,8 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         // An admitted action may call back into read-only service APIs. Never drain it
         // while holding state, companion or monitor-update locks.
         Cleanup(() => _afterExitActions.Drain(actionDrain), "drain after-exit actions");
+        if (_playTime is IIdentifiedPlayTimeService identified)
+            Cleanup(identified.FlushPendingProjections, "flush compatibility projections");
     }
 
     private void Cleanup(Action cleanup, string operation)
@@ -255,10 +263,12 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
     private void OnProcessStarted(ProcessEventInfo processInfo, long generation)
     {
+        var eventTime = _timeProvider.GetLocalNow().DateTime;
         GameConfig? externalGame = null;
         lock (_stateLock)
         {
             if (!_started || generation != _generation) return;
+            using var storageEvent = (_playTime as IIdentifiedPlayTimeService)?.BeginEvent(eventTime);
             var normalizedName = PathNormalizer.NormalizeName(processInfo.ExecutableName);
             var config = _processMatcher.Match(processInfo, normalizedName, out var normalizedPath, out var matchLabel);
 
@@ -300,7 +310,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             {
                 try
                 {
-                    _playTime.StartTracking(config.DataKey);
+                    _inFlightRecovery.RecordSessionStart(config.DataKey, isOwnLaunch);
                 }
                 catch (Exception ex)
                 {
@@ -312,7 +322,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
                 // Persist the in-flight snapshot so a restart (deploy or crash) can
                 // resume this session instead of losing it.
-                _inFlightRecovery.RecordSessionStart(config.DataKey);
+
             }
 
             ConfigureProcessObservation();
@@ -344,6 +354,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
     private void OnProcessStopped(ProcessEventInfo processInfo, long generation)
     {
+        var eventTime = _timeProvider.GetLocalNow().DateTime;
         SpeedAttachmentCoordinator.SpeedAttachRecord? speedAttachCandidate = null;
         string? stoppedDataKey = null;
         GameAction[] exitActions = [];
@@ -351,6 +362,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         lock (_stateLock)
         {
             if (!_started || generation != _generation) return;
+            using var storageEvent = (_playTime as IIdentifiedPlayTimeService)?.BeginEvent(eventTime);
             var hadAnyActive = _sessionTracker.ActiveCount > 0;
 
             if (!_sessionTracker.TryResolve(processInfo, out var entry))
@@ -530,9 +542,11 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
     private void OnMonitorModeTick(long generation)
     {
+        var eventTime = _timeProvider.GetLocalNow().DateTime;
         lock (_stateLock)
         {
             if (!_started || generation != _generation) return;
+            using var storageEvent = (_playTime as IIdentifiedPlayTimeService)?.BeginEvent(eventTime);
             var wasOwned = _launchOwnership.OwnsEnabledHdr;
             var expiredCount = _launchOwnership.ExpirePending();
             if (_gameLauncher is not null)

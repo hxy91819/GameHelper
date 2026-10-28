@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 
 namespace GameHelper.Infrastructure.Storage.Sqlite;
 
-/// <summary>Creates private, short-lived connections. No production service uses this factory yet.</summary>
+/// <summary>Creates private, short-lived connections shared by session persistence and offline maintenance.</summary>
 public sealed class SqliteConnectionFactory
 {
     /// <summary>The versioned comparison contract; never replace it with SQLite NOCASE.</summary>

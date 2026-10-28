@@ -50,6 +50,7 @@ internal static class LegacyImportValidation
         CompareHistory(expected, actual, clock, configs);
         foreach (var source in manifest.Sources)
         {
+            if (manifest.SessionsOnly && source.ConfigPath is not null) continue;
             var items = decoded[source.SourceId];
             var accepted = items.Count(item => item.Accepted);
             var skipped = items.Count - accepted;
