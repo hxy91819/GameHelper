@@ -159,6 +159,12 @@ public sealed class SqliteLegacyMigration
                 LegacyDatabaseReader.Side(connection, tx, scope!.Value, source.Kind), source.Path);
         }
         Execute(connection, tx, "UPDATE storage_meta SET data_revision=data_revision+1; UPDATE compatibility_exports SET dirty=1;");
+        foreach (var kind in LegacyDecoder.SideKinds)
+            Execute(connection, tx, """
+                INSERT INTO compatibility_exports
+                SELECT $0,data_revision,0,'','',1 FROM storage_meta WHERE singleton=1
+                ON CONFLICT(target) DO UPDATE SET dirty=1;
+                """, config + ".desktop-" + kind + ".json");
         Deadline();
         Commit(tx, "scope.complete");
     }

@@ -1,6 +1,6 @@
 namespace GameHelper.Core.Models;
 
-/// <summary>Program-generated report. Desktop-side providers join local journal completions by DataKey.</summary>
+/// <summary>Program-generated report; scoped providers capture local journal completions together with history.</summary>
 public sealed record PlaytimeReport
 {
     public ReportPeriod Period { get; init; } = new(2000);

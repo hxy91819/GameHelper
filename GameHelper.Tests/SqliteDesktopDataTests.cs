@@ -20,6 +20,10 @@ public sealed class SqliteDesktopDataTests : IDisposable
         var candidate = await migration.PrepareAsync([Config], sessionsOnly: true);
         await migration.ActivateAsync(candidate.ManifestPath);
         await migration.ImportScopeAsync(Config);
+        using var connection = Factory.OpenConnection();
+        using var markers = connection.CreateCommand();
+        markers.CommandText = "SELECT count(*) FROM compatibility_exports WHERE dirty=1 AND target LIKE '%.desktop-%.json';";
+        Assert.Equal(6L, markers.ExecuteScalar()); // Scope publication includes durable pending projection targets.
     }
     private static string Journal(string key, string note) => JsonSerializer.Serialize(new Dictionary<string, object>
         { [key] = new { Status = "已通关", CompletedOn = new DateOnly(2025, 1, 1), Note = note } });
