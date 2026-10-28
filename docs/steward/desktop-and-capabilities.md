@@ -11,7 +11,7 @@
 - [x] 阶段 13：Windows CI 加隔离实例运行验证（严格 ETW、库 IPC），已合入 main
 - [x] 阶段 9：删旧 Console 界面（ADR-0003）、注入时钟、重复函数合一、修空断言测试、自动化服务拆为 6 个协作者（1395→494 行，代际隔离修复）、配置单一事实源（写回逐字节同旧版）、公共件；教训成规则（PR #44），已合入 main 1b41fbc
 - [x] 阶段 12：年度/季度报告（程序统计、Markdown 导出、可选 OpenAI 兼容点评、本期通关），CI 1008 过，main faf377e
-- [ ] 阶段 14：按 [ADR-0004](../adr/0004-sqlite-user-data-and-session-ratings.md) 迁 SQLite，批次 1–5 已合入 255b8c5；批次 6 备份维护与降级 ← 进行中 thr_2x7rwdgh43
+- [x] 阶段 14：按 [ADR-0004](../adr/0004-sqlite-user-data-and-session-ratings.md) 迁 SQLite，批次 1–6 已合入 900ab1f（备份、维护、恢复与降级见 docs/guides/sqlite-recovery.md），只剩打分
 - [ ] 阶段 14.7：本局 5 星打分（结束 ≥10 分钟托盘邀请、档案补评、详情趋势、报告平均分） ← 进行中 thr_nyqviuf994
 - [x] 阶段 15：双击海报启动、启动后放开前台锁并最小化游戏库，CI 绿，main 6c19353
 
