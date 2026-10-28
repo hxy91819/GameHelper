@@ -24,6 +24,9 @@ public sealed record PlaytimeReport
     public IReadOnlyList<string> NewGameKeys { get; init; } = [];
     /// <summary>Completed games joined from the local desktop journal, ordered by completion date.</summary>
     public IReadOnlyList<ReportClearedGame> ClearedGames { get; init; } = [];
+    /// <summary>True when journal completions were captured together with history by the report provider.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool JournalIncluded { get; init; }
     public int PreviousClearedGames { get; init; }
     public int ClearedChange => ClearedGames.Count - PreviousClearedGames;
 }

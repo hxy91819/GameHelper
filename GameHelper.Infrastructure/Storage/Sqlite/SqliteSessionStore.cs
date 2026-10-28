@@ -137,6 +137,25 @@ public sealed class SqliteSessionStore : IInFlightSessionStore, IPlaytimeSnapsho
         catch { return new([], null, ReadFailed: true); }
     }
 
+    /// <summary>Materializes history and current-scope journal before releasing the same WAL read transaction.</summary>
+    public PlaytimeSnapshot GetReportSnapshot(string configPath) => Guard(() =>
+    {
+        using var c = _factory.OpenConnection();
+        using var tx = c.BeginTransaction(deferred: true);
+        var version = ReadHistoryVersion(c, tx);
+        var history = LegacyDatabaseReader.History(c, tx);
+        _checkpoint?.Invoke("report.read.history");
+        var journal = new List<ReportClearedGame>();
+        using var command = Command(c, tx, """
+            SELECT data_key,status,completed_on,note FROM journals j JOIN config_scopes s ON s.scope_id=j.scope_id
+            WHERE config_path=$0 AND status IN ('已通关','全成就') AND completed_on IS NOT NULL;
+            """, Path.GetFullPath(configPath));
+        using var reader = command.ExecuteReader();
+        while (reader.Read()) journal.Add(new(reader.GetString(0), reader.GetString(0),
+            DateOnly.Parse(reader.GetString(2), System.Globalization.CultureInfo.InvariantCulture), reader.GetString(1), reader.GetString(3)));
+        return new PlaytimeSnapshot(history, null, HistoryVersion: version, Journal: journal);
+    });
+
     private PlaytimeSnapshot GetSnapshotCore()
     {
         using var c = _factory.OpenConnection();

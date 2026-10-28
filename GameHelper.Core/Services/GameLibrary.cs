@@ -11,6 +11,22 @@ public sealed class GameLibrary(
     IPlaytimeSnapshotProvider history, TimeProvider? timeProvider = null, ILocalGameDiscovery? localGames = null,
     ISettingsService? settings = null, IMonitorModeController? monitorMode = null, ISyncService? sync = null) : IGameLibrary
 {
+    private PlaytimeReport BuildReport(PlaytimeSnapshot snapshot, ReportPeriod period)
+    {
+        var games = configuration.Read().Games;
+        var report = PlaytimeReportBuilder.Build(snapshot.Records, games, period, timeProvider ?? TimeProvider.System);
+        if (snapshot.Journal is null) return report;
+        var names = games.ToDictionary(g => g.DataKey, g => g.DisplayName, StringComparer.OrdinalIgnoreCase);
+        return report with
+        {
+            JournalIncluded = true,
+            ClearedGames = snapshot.Journal.Where(g => g.CompletedOn >= period.Start && g.CompletedOn < period.EndExclusive)
+                .Select(g => g with { Name = names.TryGetValue(g.DataKey, out var name) && !string.IsNullOrWhiteSpace(name) ? name.Trim() : g.DataKey })
+                .OrderBy(g => g.CompletedOn).ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase).ThenBy(g => g.DataKey, StringComparer.OrdinalIgnoreCase).ToList(),
+            PreviousClearedGames = snapshot.Journal.Count(g => g.CompletedOn >= period.Previous.Start && g.CompletedOn < period.Previous.EndExclusive)
+        };
+    }
+
     public Task<GameLibraryResponse> ExecuteAsync(GameLibraryRequest request, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -34,12 +50,11 @@ public sealed class GameLibrary(
             case GameLibraryOperation.SyncPush:
                 return ExecuteSyncAsync(request.Operation, cancellationToken);
             case GameLibraryOperation.Report:
-                var reportSnapshot = history.GetSnapshot();
+                var reportSnapshot = history.GetReportSnapshot();
                 if (reportSnapshot.ReadFailed)
                     return Task.FromResult(new GameLibraryResponse { Error = "无法读取历史文件，请稍后重试。" });
                 return Task.FromResult(new GameLibraryResponse { Success = true,
-                    Report = PlaytimeReportBuilder.Build(reportSnapshot.Records, configuration.Read().Games,
-                        request.ReportPeriod ?? throw new ArgumentException("缺少报告期间。"), timeProvider ?? TimeProvider.System) });
+                    Report = BuildReport(reportSnapshot, request.ReportPeriod ?? throw new ArgumentException("缺少报告期间。")) });
             case GameLibraryOperation.Statistics:
                 var snapshot = history.GetSnapshot();
                 if (snapshot.ReadFailed)
