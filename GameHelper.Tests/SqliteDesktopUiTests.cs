@@ -96,7 +96,7 @@ public sealed class SqliteDesktopUiTests : IDisposable
     public Task CleanWindowReload_ReceivesOtherProcessDraftWithoutDeletingIt(bool inCatalog) => OnDispatcher(async () =>
     {
         await Seed();
-        var baseline = new LibraryGame { Config = new() { DataKey = "game", Executable = "game.exe" }, Revision = "baseline" };
+        var baseline = new LibraryGame { Config = new() { DataKey = "game", Executable = "game.exe" }, Revision = "baseline", Installation = new(GameInstallationState.Installed, "installed") };
         var backend = new Moq.Mock<GameHelper.Core.Abstractions.IGameLibrary>();
         backend.Setup(b => b.ExecuteAsync(Moq.It.IsAny<GameLibraryRequest>(), Moq.It.IsAny<CancellationToken>()))
             .ReturnsAsync(new GameLibraryResponse { Success = true, Games = inCatalog ? [baseline] : [], ConfigPath = Config });
@@ -120,7 +120,7 @@ public sealed class SqliteDesktopUiTests : IDisposable
     public Task DiscardCurrentDraft_UsesOriginalExpectation_ConcurrentEditConflictsAndIsRetained() => OnDispatcher(async () =>
     {
         await Seed();
-        var baseline = new LibraryGame { Config = new() { DataKey = "game", Executable = "game.exe" }, Revision = "baseline" };
+        var baseline = new LibraryGame { Config = new() { DataKey = "game", Executable = "game.exe" }, Revision = "baseline", Installation = new(GameInstallationState.Installed, "installed") };
         var backend = new Moq.Mock<GameHelper.Core.Abstractions.IGameLibrary>();
         backend.Setup(b => b.ExecuteAsync(Moq.It.IsAny<GameLibraryRequest>(), Moq.It.IsAny<CancellationToken>()))
             .ReturnsAsync(new GameLibraryResponse { Success = true, Games = [baseline], ConfigPath = Config });
@@ -133,6 +133,33 @@ public sealed class SqliteDesktopUiTests : IDisposable
         Assert.Equal("本窗口编辑", model.Selected.Name);
         Assert.Contains("另一窗口", model.Status);
         Assert.Equal("并发编辑", Assert.Single(new LibraryDraftStore(Config).Read()).Name);
+    });
+
+    [Fact]
+    public Task ReloadLatestDrafts_ClearsObsoleteCleanupFailure() => OnDispatcher(async () =>
+    {
+        await Seed();
+        var baseline = new LibraryGame { Config = new() { DataKey = "game", Executable = "game.exe" }, Revision = "old", Installation = new(GameInstallationState.Installed, "installed") };
+        var current = baseline;
+        var backend = new Mock<GameHelper.Core.Abstractions.IGameLibrary>();
+        backend.Setup(b => b.ExecuteAsync(It.IsAny<GameLibraryRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new GameLibraryResponse { Success = true, Games = [current], ConfigPath = Config });
+        using var model = new LibraryViewModel(backend.Object, Config);
+        await model.RefreshAsync(); model.Selected!.Name = "saved"; await model.FlushDraftsAsync();
+        using var connection = Factory.OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "CREATE TRIGGER fail_cleanup BEFORE DELETE ON desktop_drafts BEGIN SELECT RAISE(ABORT,'cleanup failed'); END;";
+        command.ExecuteNonQuery();
+        current = baseline with { Config = new() { DataKey = "game", Executable = "game.exe", DisplayName = "saved" }, Revision = "new" };
+        var saved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        model.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(model.IsBusy) && !model.IsBusy) saved.TrySetResult(); };
+        model.SaveCommand.Execute(null); await saved.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(model.HasUnsavedChanges);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => model.FlushDraftsAsync());
+        command.CommandText = "DROP TRIGGER fail_cleanup;"; command.ExecuteNonQuery();
+        await model.RefreshAsync(discardDrafts: true);
+        await model.FlushDraftsAsync();
+        Assert.Equal("saved", Assert.Single(new LibraryDraftStore(Config).Read()).Name);
     });
 
     [Fact]

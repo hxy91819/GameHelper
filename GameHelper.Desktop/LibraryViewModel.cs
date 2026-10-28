@@ -234,6 +234,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
                     return _draftStore?.Read() ?? [];
                 });
                 _restoredDrafts = latest.ToDictionary(d => d.Baseline.Config.DataKey, StringComparer.OrdinalIgnoreCase);
+                _draftFailure = null; // These contents are the newly accepted durable snapshot, not a pending failed write.
                 Apply(response, true);
             });
             return;
