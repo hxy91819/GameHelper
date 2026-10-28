@@ -50,6 +50,17 @@ public partial class App : Application
             var sideData = await DesktopSideData.LoadAsync(config, readOnly: snapshot is not null);
             Theme = new DesktopTheme(Resources, sideData.ThemePreferences);
             Theme.Load(sideData.IsLight);
+            var ratingId = Option(e.Args, "--rate-session");
+            if (ratingId is not null)
+            {
+                var library = new GameLibraryPipe(config);
+                var response = await library.ExecuteAsync(new() { Operation = GameLibraryOperation.GetSessionRating, SessionId = Guid.Parse(ratingId) });
+                if (!response.Success || response.RatedSession is null) throw new InvalidOperationException(response.Error);
+                // Dedicated transient window may coexist with the main library; optimistic revision handles edits.
+                MainWindow = new SessionRatingWindow(library, response.RatedSession);
+                MainWindow.Show();
+                return;
+            }
             if (snapshot is null && !ClaimInstance(config, activate: !restore)) { Shutdown(0); return; }
             var model = new LibraryViewModel(new GameLibraryPipe(config), snapshot is null ? config : null, null, metadataConfigPath: config, sideData: sideData);
             var window = new MainWindow(model);

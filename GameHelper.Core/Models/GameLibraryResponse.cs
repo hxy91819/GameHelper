@@ -16,5 +16,8 @@ public sealed record GameLibraryResponse
     public IReadOnlyList<SteamInstalledGame> SteamGames { get; init; } = [];
     public PlaytimeDashboard? Statistics { get; init; }
     public LocalGameScan? LocalScan { get; init; }
+    public IReadOnlyList<SessionRatingPoint> RatingTimeline { get; init; } = [];
+    public SessionReviewPage? SessionReviews { get; init; }
+    public RatedSession? RatedSession { get; init; }
     public PlaytimeReport? Report { get; init; }
 }

@@ -13,8 +13,9 @@ public sealed class SqlitePlayTimeService : IIdentifiedPlayTimeService
     private readonly SqliteSessionStore _store;
     private readonly TimeProvider _clock;
     private readonly Action? _flush;
+    private readonly ISessionRatingNotifier? _notifier;
 
-    public SqlitePlayTimeService(SqliteSessionStore store, TimeProvider clock, Action? flush = null) { _store = store; _clock = clock; _flush = flush; }
+    public SqlitePlayTimeService(SqliteSessionStore store, TimeProvider clock, Action? flush = null, ISessionRatingNotifier? notifier = null) { _store = store; _clock = clock; _flush = flush; _notifier = notifier; }
 
     public IDisposable BeginEvent(DateTime eventTime) => _store.BeginEvent(eventTime);
     public DateTime? EventTime => _store.EventTime;
@@ -28,7 +29,9 @@ public sealed class SqlitePlayTimeService : IIdentifiedPlayTimeService
             _active.TryAdd(dataKey, new InFlightSession { DataKey = dataKey, StartedAt = start, SessionId = sessionId, LaunchedByHelper = launchedByHelper });
     }
 
-    public PlaySession? StopTracking(string gameName)
+    public PlaySession? StopTracking(string gameName) => StopCore(gameName, false);
+    public PlaySession? StopObservedTracking(string gameName) => StopCore(gameName, true);
+    private PlaySession? StopCore(string gameName, bool observed)
     {
         InFlightSession session;
         lock (_gate)
@@ -39,6 +42,11 @@ public sealed class SqlitePlayTimeService : IIdentifiedPlayTimeService
         }
         var result = _store.Complete(session, session.RecoveryEndAt.Value, "observed");
         lock (_gate) _failed.Remove(gameName);
+        if (observed && result.RatingInvitationId is { } id && GameHelper.Core.Services.SessionRatings.ShouldInvite(result))
+        {
+            // Notification failure must never turn a committed session into a pending completion.
+            try { _notifier?.Invite(id); } catch { }
+        }
         return result;
     }
 

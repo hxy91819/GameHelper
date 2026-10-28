@@ -13,6 +13,7 @@ public sealed class SessionStorage : IDisposable
     private readonly SqliteConnectionFactory _factory;
     private readonly TimeProvider _clock;
     private readonly ILoggerFactory _logs;
+    private readonly ISessionRatingNotifier? _notifier;
     private SqliteLegacyCompatibility? _compatibility;
     private SerialCompatibilityProjection? _projections;
     private IPlayTimeService? _playTime;
@@ -24,8 +25,8 @@ public sealed class SessionStorage : IDisposable
     private string? _storageFailure;
     private string? _maintenanceFailure;
 
-    public SessionStorage(SqliteConnectionFactory factory, TimeProvider clock, ILoggerFactory logs)
-    { _factory = factory; _clock = clock; _logs = logs; }
+    public SessionStorage(SqliteConnectionFactory factory, TimeProvider clock, ILoggerFactory logs, ISessionRatingNotifier? notifier = null)
+    { _factory = factory; _clock = clock; _logs = logs; _notifier = notifier; }
 
     public bool UsesSqlite => _compatibility is not null;
     public string? Warning
@@ -91,7 +92,7 @@ public sealed class SessionStorage : IDisposable
         _sessionStore = store;
         _inflight = store;
         _snapshot = store;
-        _playTime = new SqlitePlayTimeService(store, _clock, FlushProjection);
+        _playTime = new SqlitePlayTimeService(store, _clock, FlushProjection, _notifier);
         try { await projections.FlushAsync().ConfigureAwait(false); }
         catch { /* Worker already reported the projection fault; committed SQLite remains authoritative. */ }
     }

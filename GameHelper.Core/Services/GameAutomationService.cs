@@ -395,7 +395,8 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             {
                 try
                 {
-                    var session = _playTime.StopTracking(entry.DataKey);
+                    var session = _playTime is IIdentifiedPlayTimeService identified
+                        ? identified.StopObservedTracking(entry.DataKey) : _playTime.StopTracking(entry.DataKey);
                     if (session is not null)
                     {
                         var formatted = TimeFormatting.FormatDuration(session.Duration);

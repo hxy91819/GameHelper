@@ -10,4 +10,9 @@ public sealed record PlaySession(
     DateTime StartTime,
     DateTime EndTime,
     TimeSpan Duration,
-    long DurationMinutes);
+    long DurationMinutes)
+{
+    /// <summary>Present only for a newly committed, unrated observed completion; transient notification eligibility.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Guid? RatingInvitationId { get; init; }
+}

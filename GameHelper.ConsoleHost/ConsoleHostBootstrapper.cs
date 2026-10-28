@@ -118,7 +118,13 @@ public static class ConsoleHostBootstrapper
         }
 
         services.AddSingleton<SqliteConnectionFactory>();
+        services.AddSingleton<ISessionRatingNotifier>(sp => new SessionRatingNotifier(id =>
+        {
+            if (sp.GetService<ISystemTrayService>() is WindowsSystemTrayService tray) tray.Invite(id);
+        }, sp.GetRequiredService<ILogger<SessionRatingNotifier>>()));
         services.AddSingleton<SessionStorage>();
+        services.AddSingleton<SessionRatings>(sp => new SessionRatings(new SqliteSessionRatingStore(
+            sp.GetRequiredService<SqliteConnectionFactory>(), sp.GetRequiredService<TimeProvider>()), sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<IPlayTimeService>(sp => sp.GetRequiredService<SessionStorage>().PlayTime);
         services.AddSingleton<IInFlightSessionStore>(sp => sp.GetRequiredService<SessionStorage>().InFlight);
         services.AddSingleton<IGameSpeedController, CheatEngineSpeedController>();
@@ -152,7 +158,7 @@ public static class ConsoleHostBootstrapper
         services.AddSingleton<IMonitorControlService, MonitorControlService>();
         services.AddSingleton<ISettingsService, SettingsService>();
         services.AddSingleton<IGameCatalogService, GameCatalogService>();
-        services.AddSingleton<IPlaytimeSnapshotProvider>(sp => sp.GetRequiredService<SessionStorage>().Snapshot);
+        services.AddSingleton<IPlaytimeSnapshotProvider, CompatibilityPlaytimeSnapshotProvider>();
         services.AddSingleton<IStatisticsService, StatisticsService>();
         services.AddSingleton<ISteamGameResolver, SteamGameResolver>();
         services.AddSingleton<ILocalGameDiscovery, LocalGameDiscovery>();
@@ -198,7 +204,13 @@ public static class ConsoleHostBootstrapper
                     },
                     () => sp.GetRequiredService<IHostApplicationLifetime>().StopApplication()),
                 sp.GetRequiredService<ILogger<WindowsSystemTrayService>>(),
-                () => sp.GetRequiredService<SessionStorage>().Warning));
+                () => sp.GetRequiredService<SessionStorage>().Warning,
+                id =>
+                {
+                    var start = SystemTrayLogic.LibraryStartInfo(AppContext.BaseDirectory, sp.GetRequiredService<IConfigPathProvider>().ConfigPath, File.Exists);
+                    start.ArgumentList.Add("--rate-session"); start.ArgumentList.Add(id.ToString("D"));
+                    using var process = Process.Start(start);
+                }));
         }
 
         services.AddHostedService<Worker>();

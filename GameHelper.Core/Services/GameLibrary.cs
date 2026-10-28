@@ -9,12 +9,14 @@ public sealed class GameLibrary(
     IGameConfiguration configuration, IGameCatalogService catalog, IGameAutomationService automation,
     IMonitorControlService monitor, IGameLaunchCoordinator launch, ISteamGameResolver steam,
     IPlaytimeSnapshotProvider history, TimeProvider? timeProvider = null, ILocalGameDiscovery? localGames = null,
-    ISettingsService? settings = null, IMonitorModeController? monitorMode = null, ISyncService? sync = null) : IGameLibrary
+    ISettingsService? settings = null, IMonitorModeController? monitorMode = null, ISyncService? sync = null, SessionRatings? ratings = null) : IGameLibrary
 {
     private PlaytimeReport BuildReport(PlaytimeSnapshot snapshot, ReportPeriod period)
     {
         var games = configuration.Read().Games;
         var report = PlaytimeReportBuilder.Build(snapshot.Records, games, period, timeProvider ?? TimeProvider.System);
+        var summary = SessionRatings.Summarize(snapshot.Ratings ?? [], period, timeProvider ?? TimeProvider.System);
+        report = report with { AverageRating = summary.Average, RatingSamples = summary.Samples, HighestRatedSession = summary.Highest };
         if (snapshot.Journal is null) return report;
         var names = games.ToDictionary(g => g.DataKey, g => g.DisplayName, StringComparer.OrdinalIgnoreCase);
         return report with
@@ -33,6 +35,14 @@ public sealed class GameLibrary(
         string? message = null;
         switch (request.Operation)
         {
+            case GameLibraryOperation.RatingTimeline:
+                return Task.FromResult(new GameLibraryResponse { Success = true, RatingTimeline = RequireRatings().Timeline(request.DataKey ?? "") });
+            case GameLibraryOperation.SessionReviews:
+                return Task.FromResult(new GameLibraryResponse { Success = true, SessionReviews = RequireRatings().Read(request.SessionReviews ?? new()) });
+            case GameLibraryOperation.GetSessionRating:
+                return Task.FromResult(new GameLibraryResponse { Success = true, RatedSession = RequireRatings().Get(request.SessionId ?? throw new ArgumentException("缺少会话身份。")) });
+            case GameLibraryOperation.SaveSessionRating:
+                return Task.FromResult(new GameLibraryResponse { Success = true, RatedSession = RequireRatings().Save(request.SessionRating ?? throw new ArgumentException("缺少评分。")) });
             case GameLibraryOperation.GetSettings:
                 return Task.FromResult(new GameLibraryResponse { Success = true, Settings = RequireSettings().Get() });
             case GameLibraryOperation.UpdateSettings:
@@ -158,6 +168,8 @@ public sealed class GameLibrary(
             }).ToList()
         });
     }
+
+    private SessionRatings RequireRatings() => ratings ?? throw new InvalidOperationException("当前存储不支持评分，请更新运行时并确认 SQLite 已激活。");
 
     private ISettingsService RequireSettings() => settings ?? throw new InvalidOperationException("当前运行时不支持全局设置，请更新运行时。");
     private ISyncService RequireSync() => sync ?? throw new InvalidOperationException("当前运行时不支持 GitHub 同步，请更新运行时。");

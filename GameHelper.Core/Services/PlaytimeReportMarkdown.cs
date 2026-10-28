@@ -23,6 +23,9 @@ public static class PlaytimeReportMarkdown
         text.AppendLine($"上一期（{report.Period.Previous}）：{Hours(report.PreviousMinutes)} · {report.PreviousActiveDays} 天 · {report.PreviousGamesPlayed} 款");
         text.AppendLine($"时长变化：{report.MinutesChange:+0;-0;0} 分钟（" +
             (report.MinutesChangePercent is { } percent ? percent.ToString("+0.0;-0.0;0", CultureInfo.InvariantCulture) + "%" : "上期为零，无百分比") + "）").AppendLine();
+        text.AppendLine(report.AverageRating is { } average ? $"本期平均分：{average.ToString("0.00", CultureInfo.InvariantCulture)} / 5 · {report.RatingSamples} 局" : "本期平均分：未评分（0 局）").AppendLine();
+        if (report.HighestRatedSession is { } highest)
+            text.AppendLine($"最高分的一局：{Escape(highest.DataKey)} · {highest.Rating!.Stars} 星 · {highest.End:yyyy-MM-dd HH:mm}").AppendLine();
         if (report.ClearedGames.Count > 0)
         {
             text.AppendLine("## 本期通关").AppendLine();
