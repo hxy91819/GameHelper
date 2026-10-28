@@ -90,7 +90,9 @@ public sealed class SqliteDatabaseBackup
                 SqliteConnectionFactory.Execute(destination, "PRAGMA journal_mode=DELETE;");
                 manifest = ReadMetadata(destination, kind, clock.GetUtcNow(), elapsed.ElapsedMilliseconds);
             }
-            manifest = manifest with { Sha256 = Hash(database) };
+            // The injected clock may repeat or move backwards; retention follows publication order.
+            var sequence = ReadBackups(factory.DataDirectory, kind).Select(item => item.Manifest.BackupSequence).DefaultIfEmpty(0).Max() + 1;
+            manifest = manifest with { Sha256 = Hash(database), BackupSequence = sequence };
             File.WriteAllText(Path.Combine(temporary, "manifest.json"), JsonSerializer.Serialize(manifest));
             var published = Path.Combine(root, $"{kind}-{manifest.CreatedAtUtc:yyyyMMddTHHmmssfffffffZ}-{Guid.NewGuid():N}");
             Directory.Move(temporary, published);
@@ -140,7 +142,7 @@ public sealed class SqliteDatabaseBackup
         var history = reader.GetInt64(1);
         var data = reader.GetInt64(2);
         reader.Close();
-        return new BackupManifest(kind, id, SqliteConnectionFactory.ReadVersion(connection), history, data, createdAt, elapsed, "");
+        return new BackupManifest(kind, id, SqliteConnectionFactory.ReadVersion(connection), history, data, createdAt, elapsed, "", 0);
     }
 
     private static void VerifyMetadata(SqliteConnection source, BackupManifest expected)
@@ -157,8 +159,8 @@ public sealed class SqliteDatabaseBackup
         if (!Directory.Exists(root)) return [];
         return Directory.EnumerateDirectories(root, kind + "-*")
             .Select(path => (Directory: path, Manifest: ReadManifest(path)))
-            .OrderByDescending(item => item.Manifest.CreatedAtUtc)
-            .ThenByDescending(item => item.Directory, StringComparer.Ordinal).ToArray();
+            .OrderByDescending(item => item.Manifest.BackupSequence)
+            .ThenByDescending(item => item.Manifest.CreatedAtUtc).ToArray();
     }
 
     private static BackupManifest ReadManifest(string directory) =>
@@ -177,5 +179,5 @@ public sealed class SqliteDatabaseBackup
     }
 
     private sealed record BackupManifest(string Kind, string DatabaseId, int SchemaVersion, long HistoryRevision,
-        long DataRevision, DateTimeOffset CreatedAtUtc, long DurationMilliseconds, string Sha256);
+        long DataRevision, DateTimeOffset CreatedAtUtc, long DurationMilliseconds, string Sha256, long BackupSequence);
 }

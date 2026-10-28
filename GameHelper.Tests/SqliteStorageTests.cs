@@ -211,6 +211,26 @@ public sealed class SqliteStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task UpgradeBackups_IdenticalClockInstants_RetainLastThreePublishedVersions()
+    {
+        await Initialize();
+        for (var revision = 1; revision <= 5; revision++)
+        {
+            using (var connection = _factory.OpenConnection())
+                Execute(connection, $"UPDATE storage_meta SET data_revision={revision}; DROP INDEX ix_play_sessions_key_sequence; DROP INDEX ix_session_ratings_updated; DROP INDEX ix_inflight_sessions_key; DROP INDEX ix_inflight_processes_session; PRAGMA user_version=1;");
+            await Initialize();
+        }
+        var retained = Directory.GetDirectories(Path.Combine(_directory, "backups"), "upgrade-*");
+        Assert.Equal(3, retained.Length);
+        var revisions = retained.Select(path =>
+        {
+            using var connection = SqliteConnectionFactory.OpenFile(Path.Combine(path, "userdata.db"), SqliteOpenMode.ReadOnly);
+            return (long)Scalar(connection, "SELECT data_revision FROM storage_meta;");
+        }).Order().ToArray();
+        Assert.Equal(new long[] { 3, 4, 5 }, revisions);
+    }
+
+    [Fact]
     public async Task Backup_ForeignKeyFailure_KeepsPreviousSuccessfulBackupAndCleansCandidate()
     {
         await Initialize();

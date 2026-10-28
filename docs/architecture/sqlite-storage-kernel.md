@@ -20,7 +20,7 @@
 
 ## 备份与离线恢复
 
-升级已有版本前执行 BackupDatabase，失败阻断迁移。备份先写 `backups/.pending-<uuid>/userdata.db`，完整性/外键检查、checkpoint 并转为 DELETE journal，关闭连接后计算 SHA-256，写 manifest，再原子发布整个目录。manifest 记录数据库身份、schema、两个修订、注入时钟 UTC 时刻及备份毫秒耗时。只在成功发布后保留最近 3 个升级前版本、7 个每日版本；失败不删除已有成功备份。旧格式原件包由批次 2 实现，与这些数据库备份分开。
+升级已有版本前执行 BackupDatabase，失败阻断迁移。备份先写 `backups/.pending-<uuid>/userdata.db`，完整性/外键检查、checkpoint 并转为 DELETE journal，关闭连接后计算 SHA-256，写 manifest，再原子发布整个目录。manifest 记录数据库身份、schema、两个修订、注入时钟 UTC 时刻及备份毫秒耗时。备份 manifest 另记录锁内递增的发布序号，使固定/回拨时钟下的保留顺序仍确定。只在成功发布后保留最近 3 个升级前版本、7 个每日版本；失败不删除已有成功备份。旧格式原件包由批次 2 实现，与这些数据库备份分开。
 
 `SqliteDatabaseBackup.CreateDailyBackupAsync` 是未调度的维护原语：按注入时钟 UTC 日期，首次有 data_revision 变化时备份，同日不重复，无变化不备份。调用者需安排在无完成写入待处理的空隙；BackupDatabase 会阻挡其他连接写入。批次 6 再启用维护调度，不在本批创建后台计时器。
 
