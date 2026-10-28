@@ -83,8 +83,9 @@
         <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="游戏名称" />
         <CheckBox Content="启用游戏自动化" IsChecked="{Binding Enabled}" />
         <CheckBox Content="启动前开启 HDR" IsChecked="{Binding Hdr}" />
-        <StackPanel Orientation="Horizontal"><CheckBox Content="游戏倍速" IsChecked="{Binding UseSpeed}" /><TextBox Text="{Binding Speed, UpdateSourceTrigger=PropertyChanged}" Width="72" Margin="12,0,0,0" IsEnabled="{Binding UseSpeed}" AutomationProperties.Name="倍速倍率" /></StackPanel>
-        <TextBlock Text="游戏内倍速热键（每行一项）" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,12,0,0" />
+        <StackPanel Orientation="Horizontal"><CheckBox Content="游戏倍速" IsChecked="{Binding UseSpeed}" /><TextBlock Text="{Binding Speed, StringFormat={}{0}×}" Foreground="{DynamicResource Muted}" FontSize="12" VerticalAlignment="Center" Margin="2,0,0,0" /></StackPanel>
+        <Slider Minimum="0.1" Maximum="10" Value="{Binding SpeedValue}" IsEnabled="{Binding UseSpeed}" Margin="0,2,0,10" AutomationProperties.Name="倍速倍率" />
+        <TextBlock Text="主倍速用上面的滑块选择（0.1–10×，步进 0.1）；游戏内倍速热键（每行一项）：" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,12,0,0" />
         <TextBox Text="{Binding SpeedHotkeys, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" MinHeight="76" VerticalScrollBarVisibility="Auto" IsEnabled="{Binding UseSpeed}" AutomationProperties.Name="游戏内倍速热键" />
         <TextBlock Text="Ctrl+F1=2 设置 2×；Ctrl+F2=1 恢复原速；Ctrl+F3=toggle 在主倍速与原速间切换。支持 Ctrl/Alt/Shift、F1–F12、A–Z、0–9；倍率用小数点。留空则使用全局设置里的默认热键。保存后下次启动生效。" FontSize="11" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,6,0,0" />
         <TextBlock Text="启动入口" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,18,0,0" />

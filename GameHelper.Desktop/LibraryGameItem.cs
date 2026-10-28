@@ -85,6 +85,25 @@ public sealed class LibraryGameItem : ObservableState
     public string Directory { get => _directory; set { if (Set(ref _directory, value)) Edited(); } }
     public string Speed { get => _speed; set { if (Set(ref _speed, value)) Edited(); } }
     public string SpeedHotkeys { get => _speedHotkeys; set { if (Set(ref _speedHotkeys, value)) Edited(); } }
+    /// <summary>倍速滑块允许的最小倍率。</summary>
+    public const double MinSpeedValue = 0.1;
+    /// <summary>倍速滑块允许的最大倍率；超出区间的历史配置在写入滑块值时被收拢进来。</summary>
+    public const double MaxSpeedValue = 10;
+    /// <summary>倍速滑块的数值视图：读取时落到滑块区间（未填按 1.5），写入时按 0.1 步进取整并同步回 <see cref="Speed"/> 文本。</summary>
+    public double SpeedValue
+    {
+        get => Math.Clamp(TryParseSpeed(_speed) ?? 1.5, MinSpeedValue, MaxSpeedValue);
+        set
+        {
+            value = Math.Clamp(value, MinSpeedValue, MaxSpeedValue);
+            value = Math.Round(value * 10, MidpointRounding.AwayFromZero) / 10;
+            var text = value.ToString("0.##", CultureInfo.CurrentCulture);
+            if (_speed == text) return;
+            _speed = text;
+            Edited();
+            Changed(nameof(Speed));
+        }
+    }
     public bool Hdr { get => _hdr; set { if (Set(ref _hdr, value)) Edited(); } }
     public bool Enabled { get => _enabled; set { if (Set(ref _enabled, value)) Edited(); } }
     public bool UseSpeed { get => _useSpeed; set { if (Set(ref _useSpeed, value)) Edited(); } }
@@ -211,8 +230,7 @@ public sealed class LibraryGameItem : ObservableState
         double? speed = null;
         if (UseSpeed)
         {
-            if (!double.TryParse(Speed, NumberStyles.Float, CultureInfo.CurrentCulture, out var parsed)
-                || !double.IsFinite(parsed) || parsed <= 0) throw new ArgumentException("倍速必须是大于 0 的数字。");
+            if (!TryParseSpeed(Speed, out var parsed)) throw new ArgumentException("倍速必须是大于 0 的数字。");
             speed = parsed;
         }
         var hotkeys = SpeedHotkey.ParseLines(SpeedHotkeys);
@@ -232,4 +250,15 @@ public sealed class LibraryGameItem : ObservableState
     }
 
     private static string? NullIfEmpty(string text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+
+    private static double? TryParseSpeed(string? text) =>
+        double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out var value)
+        && double.IsFinite(value) && value > 0 ? value : null;
+
+    private static bool TryParseSpeed(string? text, out double value)
+    {
+        var parsed = TryParseSpeed(text);
+        value = parsed ?? 0;
+        return parsed is not null;
+    }
 }
