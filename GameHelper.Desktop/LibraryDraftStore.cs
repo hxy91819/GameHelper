@@ -13,18 +13,22 @@ internal sealed class LibraryDraftStore(string configPath)
 {
     private readonly string _path = configPath + ".desktop-drafts.json";
     private string? _lastWritten;
+    private readonly DesktopDocument<List<LibraryDraft>> _document = new(configPath + ".desktop-drafts.json", () => new(), recoverReadFailure: false);
 
     public IReadOnlyList<LibraryDraft> Read()
     {
+        _lastWritten = null;
         // Keep the caller's read-failure status message instead of silently dropping drafts.
-        return DesktopDocumentStore.Read(_path, () => new List<LibraryDraft>(), recoverReadFailure: false);
+        return _document.Read();
     }
+
+    internal bool UsesSqlite => _document.UsesSqlite;
 
     public void Write(IEnumerable<LibraryDraft> drafts)
     {
         var payload = JsonSerializer.Serialize(drafts);
-        if (_lastWritten == payload || (payload == "[]" && !File.Exists(_path))) return;
-        DesktopDocumentStore.WriteJson(_path, () => payload, resolveDirectory: false);
+        if (_lastWritten == payload || (!_document.UsesSqlite && payload == "[]" && !File.Exists(_path))) return;
+        _document.Write(drafts.ToList());
         _lastWritten = payload;
     }
 }

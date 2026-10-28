@@ -18,6 +18,8 @@ public sealed class SessionStorage : IDisposable
     private IPlayTimeService? _playTime;
     private IInFlightSessionStore? _inflight;
     private IPlaytimeSnapshotProvider? _snapshot;
+    private string? _configPath;
+    private SqliteSessionStore? _sessionStore;
     private string? _warning;
     private string? _storageFailure;
 
@@ -35,6 +37,7 @@ public sealed class SessionStorage : IDisposable
         Action<string>? checkpoint = null, CancellationToken cancellationToken = default)
     {
         if (_playTime is not null) return;
+        _configPath = configPath;
         var migration = new SqliteLegacyMigration(_factory, _clock, games, checkpoint);
         if (!File.Exists(_factory.DatabasePath))
         {
@@ -71,16 +74,22 @@ public sealed class SessionStorage : IDisposable
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { _logs.CreateLogger<SessionStorage>().LogWarning(ex, "Could not repair the diagnostic migration receipt; database activation remains authoritative."); }
         }
+        await migration.ImportScopeAsync(configPath, cancellationToken).ConfigureAwait(false);
         _compatibility = new SqliteLegacyCompatibility(_factory, _clock, games, checkpoint, preserveHistoryKinds: true);
         var projections = new SerialCompatibilityProjection(ExportProjection, ReportProjectionFailure);
         _projections = projections;
         var store = new SqliteSessionStore(_factory, _clock, projections.Request, checkpoint, ReportStorageFailure, () => Volatile.Write(ref _storageFailure, null));
+        _sessionStore = store;
         _inflight = store;
         _snapshot = store;
         _playTime = new SqlitePlayTimeService(store, _clock, FlushProjection);
         try { await projections.FlushAsync().ConfigureAwait(false); }
         catch { /* Worker already reported the projection fault; committed SQLite remains authoritative. */ }
     }
+
+    /// <summary>Returns scoped journal and history together; unactivated storage keeps the legacy Desktop merge.</summary>
+    public PlaytimeSnapshot GetReportSnapshot() => _sessionStore is not null
+        ? _sessionStore.GetReportSnapshot(_configPath!) : Snapshot.GetReportSnapshot();
 
     /// <summary>Drains legacy projections for handoff/diagnostics. SQLite reads and sync do not depend on projections.</summary>
     public void FlushProjection()
@@ -96,7 +105,7 @@ public sealed class SessionStorage : IDisposable
 
     private void ExportProjection()
     {
-        _compatibility!.ExportSessions();
+        _compatibility!.ExportAsync().GetAwaiter().GetResult();
         Volatile.Write(ref _warning, null);
     }
 

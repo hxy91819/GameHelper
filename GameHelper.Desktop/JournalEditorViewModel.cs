@@ -13,6 +13,7 @@ public sealed class JournalEditorViewModel : ObservableState
     internal JournalEditorViewModel(LibraryJournalStore store, string key, string name, TimeProvider clock)
     {
         _store = store; _key = key; _clock = clock; Name = name;
+        store.Reload();
         var record = store.Read(key);
         _status = record.Status;
         _completedOn = record.CompletedOn?.ToDateTime(TimeOnly.MinValue);
@@ -46,4 +47,16 @@ public sealed class JournalEditorViewModel : ObservableState
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
         { Error = "手帐未保存：" + ex.Message; return false; }
     }
+    public async Task<bool> SaveAsync()
+    {
+        try
+        {
+            await _store.SaveAsync(_key, new(Status, IsCompleted && CompletedOn is { } date ? DateOnly.FromDateTime(date) : null, Note));
+            Error = string.Empty;
+            return true;
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+        { Error = "手帐未保存：" + ex.Message; return false; }
+    }
+
 }

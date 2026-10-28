@@ -9,6 +9,7 @@ public sealed class CompatibilityPlaytimeSnapshotProvider(SessionStorage storage
 {
     public IReadOnlyList<GamePlaytimeRecord> GetPlaytimeRecords() => GetSnapshot().Records;
     public PlaytimeHistoryVersion? GetHistoryVersion() => storage.Snapshot.GetHistoryVersion();
+    public PlaytimeSnapshot GetReportSnapshot() => storage.GetReportSnapshot();
     public PlaytimeSnapshot GetSnapshot()
     {
         try { return storage.Snapshot.GetSnapshot(); }

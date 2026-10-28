@@ -7,16 +7,16 @@ namespace GameHelper.Desktop;
 /// <summary>Per-configuration appearance preference, independent of runtime configuration and drafts.</summary>
 internal sealed class ThemePreferenceStore(string configPath)
 {
-    private readonly string _path = configPath + ".desktop-theme.json";
+    private readonly DesktopDocument<Preference> _document = new(configPath + ".desktop-theme.json", () => new("dark"));
 
     internal bool ReadLight()
     {
-        return DesktopDocumentStore.Read(_path, () => new Preference("dark")).Theme == "light";
+        return _document.Read().Theme == "light";
     }
 
     internal void Write(bool light)
     {
-        DesktopDocumentStore.Write(_path, new Preference(light ? "light" : "dark"));
+        _document.Write(new Preference(light ? "light" : "dark"));
     }
 
     private sealed record Preference(string Theme);
@@ -31,6 +31,12 @@ internal sealed class DesktopTheme(ResourceDictionary resources, ThemePreference
     internal bool IsLight { get; private set; }
 
     internal void Load() => Set(preferences.ReadLight(), persist: false);
+
+    internal async Task SetAsync(bool light)
+    {
+        await Task.Run(() => preferences.Write(light));
+        Set(light, persist: false);
+    }
 
     internal void Set(bool light, bool persist)
     {

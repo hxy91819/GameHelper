@@ -174,13 +174,12 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         await previous.GenresLoading;
         if (!_lifetime.IsCancellationRequested && current.GenreVersion == version) current.SetGenres(previous.Genres);
     }
-    internal Task SaveGenresAsync(LibraryGameItem game, string[]? genres)
+    internal async Task SaveGenresAsync(LibraryGameItem game, string[]? genres)
     {
-        _genreStore.Save(game.DataKey, genres);
+        await Task.Run(() => _genreStore.Save(game.DataKey, genres));
         // Reset is immediate; network work belongs to the window lifetime, not the editor dialog.
         if (genres is null) game.SetGenres([]);
         game.GenresLoading = LoadGenresAsync(game);
-        return Task.CompletedTask;
     }
     public void SetFilter(string filter) { _filter = filter; Filter(); }
     public void SetInstallationGroup(string group) { _group = group; Changed(nameof(InstallationGroup)); Filter(); }
@@ -214,7 +213,12 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         if (IsBusy) return;
         if (discardDrafts)
         {
-            await RunAsync(async () => Apply(await _library.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.List }, _lifetime.Token), true));
+            await RunAsync(async () =>
+            {
+                await _draftWrite;
+                await Task.Run(() => _draftStore?.Read()); // Explicit discard accepts the latest collection revision.
+                Apply(await _library.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.List }, _lifetime.Token), true);
+            });
             return;
         }
         if (_refreshing || _lifetime.IsCancellationRequested) return;
@@ -261,6 +265,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     {
         if (Selected is null) return;
         var key = Selected.DataKey;
+        await FlushDraftsAsync();
         var response = await _library.ExecuteAsync(new GameLibraryRequest
         {
             Operation = GameLibraryOperation.Save, DataKey = key,
@@ -404,26 +409,26 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             if (!response.Success) throw new InvalidOperationException(response.Error);
             scan = response.LocalScan;
             Status = $"扫描完成：{scan?.Candidates.Count ?? 0} 个候选程序，请勾选需要加入的游戏。";
-            if (scan is not null) SaveScanMemory(() => _scanStore.Remember(scan.Root));
+            if (scan is not null) await SaveScanMemoryAsync(() => _scanStore.Remember(scan.Root));
         });
         return scan;
     }
     internal IReadOnlyList<string> RecentScanDirectories => _scanStore.Directories;
     internal IReadOnlyCollection<string> IgnoredScanPrograms => _scanStore.Ignored;
-    internal void SetScanIgnored(IReadOnlyList<string> executables, bool ignored) => SaveScanMemory(() => _scanStore.SetIgnored(executables, ignored));
+    internal async void SetScanIgnored(IReadOnlyList<string> executables, bool ignored) => await SaveScanMemoryAsync(() => _scanStore.SetIgnored(executables, ignored));
     /// <summary>Rescan a remembered root; a root that no longer exists is dropped from the list.</summary>
     public async Task<LocalGameScan?> RescanDirectoryAsync(string directory)
     {
         if (Directory.Exists(directory)) return await DiscoverDirectoryAsync(directory);
-        SaveScanMemory(() => _scanStore.Forget(directory));
+        await SaveScanMemoryAsync(() => _scanStore.Forget(directory));
         Status = $"目录已不存在，已从最近扫描中移除：{directory}";
         return null;
     }
     // Scan memory is a convenience; failing to persist it must not fail the scan itself.
-    private void SaveScanMemory(Action save)
+    private async Task SaveScanMemoryAsync(Action save)
     {
-        try { save(); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Status += " 扫描记录未能保存：" + ex.Message; }
+        try { await _sideWrites.WaitAsync(); try { await Task.Run(save); } finally { _sideWrites.Release(); } }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException) { Status += " 扫描记录未能保存：" + ex.Message; }
     }
     public Task ImportDirectoryAsync(IReadOnlyList<LocalGameCandidate> games) => RunAsync(() => SendAsync(new GameLibraryRequest { Operation = GameLibraryOperation.ImportDirectory, LocalGames = games }));
     internal Task<IReadOnlyList<GameHelper.Infrastructure.Artwork.SteamArtworkGame>> SearchPostersAsync(string query, CancellationToken cancellationToken) => _posters.SearchAsync(query, cancellationToken);
@@ -445,7 +450,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     internal int PosterCount => _games.Count(game => game.ArtworkIsCover);
     internal async Task AssociatePosterAsync(LibraryGameItem game, uint? appId, bool refresh = true)
     {
-        _posters.Associate(game.DataKey, appId);
+        await Task.Run(() => _posters.Associate(game.DataKey, appId));
         await game.LoadArtworkAsync(_posters, _lifetime.Token, refresh);
         game.GenresLoading = LoadGenresAsync(game);
     }
@@ -457,18 +462,43 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         if (e.PropertyName is nameof(LibraryGameItem.Name) or nameof(LibraryGameItem.Executable) or nameof(LibraryGameItem.Target)
             or nameof(LibraryGameItem.Arguments) or nameof(LibraryGameItem.Directory) or nameof(LibraryGameItem.Speed)
             or nameof(LibraryGameItem.Hdr) or nameof(LibraryGameItem.Enabled) or nameof(LibraryGameItem.UseSpeed) or nameof(LibraryGameItem.IsDirty)
-            or nameof(LibraryGameItem.UseDs4Windows) or nameof(LibraryGameItem.Ds4WindowsPath) or nameof(LibraryGameItem.ActionEditor)) PersistDrafts();
+            or nameof(LibraryGameItem.UseDs4Windows) or nameof(LibraryGameItem.Ds4WindowsPath) or nameof(LibraryGameItem.ActionEditor) or nameof(LibraryGameItem.SpeedHotkeys)) PersistDrafts();
     }
     private ImageSource? FindArtwork(string dataKey)
         => _gameIndex.TryGetValue(dataKey, out var game) && game.ArtworkIsCover ? game.Artwork : null;
     internal PlaytimeReport ReportWithJournal(PlaytimeReport report) =>
-        ReportJournalMerge.Apply(report, _journalStore.Entries, FindDisplayName);
+        report.JournalIncluded ? report : ReportJournalMerge.Apply(report, _journalStore.Entries, FindDisplayName);
     private string? FindDisplayName(string dataKey) => _gameIndex.TryGetValue(dataKey, out var game) ? game.Name : null;
+    private readonly SemaphoreSlim _sideWrites = new(1, 1);
+    private Task _draftWrite = Task.CompletedTask;
+    private Exception? _draftFailure;
+    internal async Task FlushDraftsAsync()
+    {
+        await _draftWrite;
+        await DesktopDocumentStore.DrainProjectionsAsync();
+        if (_draftFailure is { } failure) throw new InvalidOperationException("草稿尚未保存，编辑已保留：" + failure.Message, failure);
+    }
     private void PersistDrafts()
     {
-        try { _draftStore?.Write(_games.Where(game => game.IsDirty).Select(game => game.ExportDraft())); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        { Status = "草稿未能写入磁盘，更新或关闭前请保存设置：" + ex.Message; }
+        var drafts = _games.Where(game => game.IsDirty).Select(game => game.ExportDraft()).ToList();
+        if (_draftStore?.UsesSqlite != true)
+        {
+            try { _draftStore?.Write(drafts); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Status = "草稿未能写入磁盘：" + ex.Message; }
+            return;
+        }
+        _draftWrite = WriteDraftsAsync(drafts);
+    }
+    private async Task WriteDraftsAsync(List<LibraryDraft> drafts)
+    {
+        try
+        {
+            await _sideWrites.WaitAsync();
+            try { await Task.Run(() => _draftStore!.Write(drafts)); _draftFailure = null; }
+            finally { _sideWrites.Release(); }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        { _draftFailure = ex; Status = "草稿未能写入磁盘，更新或关闭前请保存设置：" + ex.Message; }
     }
     public void Dispose()
     {

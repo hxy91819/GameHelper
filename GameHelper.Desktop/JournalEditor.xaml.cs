@@ -5,8 +5,10 @@ namespace GameHelper.Desktop;
 public partial class JournalEditor : Window
 {
     internal JournalEditor(JournalEditorViewModel model) { InitializeComponent(); DataContext = model; }
-    private void OnSave(object sender, RoutedEventArgs e)
+    private async void OnSave(object sender, RoutedEventArgs e)
     {
-        if (((JournalEditorViewModel)DataContext).Save()) DialogResult = true;
+        IsEnabled = false;
+        try { if (await ((JournalEditorViewModel)DataContext).SaveAsync()) DialogResult = true; }
+        finally { IsEnabled = true; }
     }
 }

@@ -7,22 +7,27 @@ namespace GameHelper.Desktop;
 internal sealed class LibraryGenreStore
 {
     private readonly string? _path;
-    private readonly Dictionary<string, string[]> _manual;
+    private Dictionary<string, string[]> _manual;
+    private readonly DesktopDocument<Dictionary<string, string[]>> _document;
     internal LibraryGenreStore(string? configPath)
     {
         _path = configPath is null ? null : configPath + ".desktop-genres.json";
-        _manual = new Dictionary<string, string[]>(
-            DesktopDocumentStore.Read(_path, () => new Dictionary<string, string[]>()), StringComparer.OrdinalIgnoreCase);
+        _document = new(_path, () => new());
+        _manual = new(_document.Read(), StringComparer.OrdinalIgnoreCase);
     }
     internal bool TryRead(string key, out string[] genres) => _manual.TryGetValue(key, out genres!);
     internal void Save(string key, string[]? genres)
     {
+        lock (_saveGate) SaveCore(key, genres);
+    }
+    private readonly object _saveGate = new();
+    private void SaveCore(string key, string[]? genres)
+    {
         if (_path is null) throw new InvalidOperationException("只读界面不能保存类型。");
         var next = new Dictionary<string, string[]>(_manual, StringComparer.OrdinalIgnoreCase);
         if (genres is null) next.Remove(key); else next[key] = SteamGenreClient.Normalize(genres);
-        DesktopDocumentStore.Write(_path, next);
-        _manual.Clear();
-        foreach (var pair in next) _manual.Add(pair.Key, pair.Value);
+        _document.Write(next);
+        _manual = next;
     }
 }
 

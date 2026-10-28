@@ -99,17 +99,25 @@ public partial class MainWindow : Window
         _refreshTimer.Tick += OnTick;
         _refreshTimer.Start();
         PreviewKeyDown += OnKeyboard;
+        var closingAfterSave = false;
+        Closing += async (_, args) =>
+        {
+            if (closingAfterSave) return;
+            args.Cancel = true;
+            try { await _model.FlushDraftsAsync(); closingAfterSave = true; Dispatcher.BeginInvoke(new Action(Close)); }
+            catch (InvalidOperationException ex) { MessageBox.Show(this, ex.Message, "草稿未保存"); }
+        };
         Closed += (_, _) => { _refreshTimer.Stop(); _refreshTimer.Tick -= OnTick; _model.Dispose(); };
     }
 
     private void UpdateThemeButton() => ThemeButton.Content = (Application.Current as App)?.Theme?.IsLight == true ? "深色主题" : "浅色主题";
 
-    private void OnTheme(object sender, RoutedEventArgs e)
+    private async void OnTheme(object sender, RoutedEventArgs e)
     {
         if ((Application.Current as App)?.Theme is not { } theme) return;
-        try { theme.Set(!theme.IsLight, persist: true); UpdateThemeButton(); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        { _model.Status = "主题偏好未能保存，请检查数据目录是否可写后重试。"; }
+        try { await theme.SetAsync(!theme.IsLight); UpdateThemeButton(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        { _model.Status = "主题偏好未能保存：" + ex.Message; }
     }
 
     private async void OnTick(object? sender, EventArgs e) { if (!_showStatistics) await _model.RefreshAsync(); }

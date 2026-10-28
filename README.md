@@ -232,8 +232,10 @@ Windows CI 构建整个解决方案，并自动验证隔离后台实例的无控
 
 游玩档案内可生成年度／自然季度报告，查看 Top 5、月周分布、本期通关与上期对比并导出 Markdown；本期通关读取本机手帐的已通关／全成就记录。可选配置 OpenAI 兼容接口生成点评，默认关闭。详见[游玩报告指南](docs/guides/playtime-report.md)。
 
-SQLite 存储内核与[导入／兼容工具](docs/architecture/sqlite-import-tools.md)支撑会话切库和离线降级；Desktop 侧文档与评分行为按 ADR-0004 后续批次接入。
+SQLite 存储内核与[导入／兼容工具](docs/architecture/sqlite-import-tools.md)支撑会话切库和离线降级；六类 Desktop 侧数据已按配置 scope 迁入同一 SQLite；评分行为按 ADR-0004 后续批次接入。
 
 会话历史与在途恢复首次启动校验后自动迁入 SQLite，失败保留原件并沿用旧存储；首个发布周期保留完整 CSV/快照投影，见[会话存储与降级说明](docs/architecture/sqlite-session-storage.md)。
 
 统计、档案、年度／季度报告及 sync 直接从 SQLite 一致历史快照读取，输出格式与旧版相同；sync 按数据库标识与历史修订判断更新，上传期间新增会话留待下次，心跳与 checkpoint 不触发上传。兼容投影故障不影响库读取，未激活时保留旧存储行为。
+
+手帐、手动类型、海报关联、完整草稿、扫描选择和主题首次打开各配置时独立导入 SQLite，共享时长不重复导入；保存冲突或失败保留编辑。报告在后台同一读事务读取历史与该配置的手帐，兼容窗口继续输出六类旧 JSON。数据库尚未激活时保留旧文件路径。详见 [Desktop 数据存储](docs/architecture/sqlite-desktop-storage.md)。
