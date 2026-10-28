@@ -63,6 +63,7 @@ Monitor preset automation calls `IHdrController.TryGetEnabled` before any DDC av
 
 ## Persistence Model
 
+- [SQLite storage kernel](./sqlite-storage-kernel.md) implements ADR-0004 batch 1 only: connection policy, transactional migrations and verified backups/restores. It is not registered in production DI; existing storage paths remain active.
 - [ADR-0004: SQLite user data and session ratings](../adr/0004-sqlite-user-data-and-session-ratings.md) records the target storage design, migration/rollback contract and staged implementation. The file-backed adapters described below remain the current implementation until those stages land.
 - `config.yml` is the primary configuration file under `%AppData%\GameHelper\`.
 - `dataKey` is the single stable game identity in configuration and the statistics key written to playtime records.

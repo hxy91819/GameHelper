@@ -5,6 +5,7 @@
     <AssemblyVersion>0.0.1.0</AssemblyVersion>
     <InformationalVersion>0.0.1</InformationalVersion>
     <AnalysisLevel>latest</AnalysisLevel>
+    <MicrosoftDataSqliteVersion>8.0.33</MicrosoftDataSqliteVersion>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
   </PropertyGroup>
   <ItemGroup>

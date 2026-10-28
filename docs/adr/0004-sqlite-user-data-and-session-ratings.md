@@ -43,7 +43,7 @@
 | --- | --- |
 | `storage_meta` | 单行 PK；`database_id TEXT`（随机 UUID）、`history_revision INTEGER`、`data_revision INTEGER`、`compatibility_mode TEXT`。完成会话才递增 history_revision；任意用户数据变化递增 data_revision，快照心跳不递增二者。 |
 | `config_scopes` | `scope_id INTEGER PK`、`config_path TEXT UNIQUE COLLATE GH_ORDINAL_IGNORE_CASE`。不把配置内容或密钥放入此表。 |
-| `history_keys` | `data_key TEXT PK COLLATE GH_ORDINAL_IGNORE_CASE`；保留首次历史拼写与首次出现顺序。不是 YAML Catalog 的镜像，移除游戏不删此行。 |
+| `history_keys` | `data_key TEXT PK COLLATE GH_ORDINAL_IGNORE_CASE`；`first_sequence INTEGER UNIQUE` 保留首次出现顺序，读取显式 ORDER BY first_sequence，不依赖 VACUUM 可重编号的隐式 rowid；保留首次历史拼写。不是 YAML Catalog 的镜像，移除游戏不删此行。 |
 | `play_sessions` | `session_id TEXT PK`（UUID）、`data_key TEXT FK history_keys`、`sequence INTEGER UNIQUE`、`started_value TEXT`、`ended_value TEXT`、`started_kind INTEGER`、`ended_kind INTEGER`、`duration_ticks INTEGER`、`duration_minutes INTEGER CHECK >= 0`、`launch_source TEXT CHECK IN ('library','external','unknown')`、`completion_source TEXT CHECK IN ('observed','recovered','legacy')`、`created_at_utc TEXT`、可空 `import_source_id TEXT`／`import_record_ordinal INTEGER`，两者联合 UNIQUE。 |
 | `session_ratings` | `session_id TEXT PK/FK play_sessions ON DELETE RESTRICT`、`stars INTEGER CHECK BETWEEN 1 AND 5`、`thought TEXT`（可空）、`created_at_utc TEXT`、`updated_at_utc TEXT`、`revision INTEGER`。每局最多一条当前评分；未评分就是无行，不用 0 星。 |
 | `journals` | `(scope_id, data_key) PK`，scope FK；`status TEXT CHECK` 为现有五种状态、`completed_on TEXT NULL`（ISO 日期）、`note TEXT`（单行 ≤80 字）、`revision INTEGER`。不依赖游戏仍在 YAML 中。 |
@@ -57,8 +57,8 @@
 | `inflight_sessions` | `session_id TEXT PK`、`data_key TEXT`、`started_value TEXT`／`started_kind INTEGER`、`launch_source TEXT`、可空 `recovery_end_value TEXT`／`recovery_end_kind INTEGER`；一局可对应多个进程，但只有一个历史 session_id。 |
 | `inflight_processes` | `process_row_id INTEGER PK`、`session_id FK inflight_sessions`、可空 `pid INTEGER`、`normalized_name TEXT`、`normalized_path TEXT`、`process_started_at_utc TEXT`；PID 不是永久主键。 |
 | `pending_launches` | `data_key TEXT PK`、`deadline TEXT`（DateTimeOffset round-trip）；不代表已开始会话，不重放启动命令。 |
-| `import_sources`／`import_records` | 来源 ID PK、scope（历史源无 scope）、路径、SHA-256、大小、codec 版本、状态、计数／校验摘要；记录表以 `(source_id, record_ordinal) PK` 保存接受／跳过原因和目标 session_id。失败明细留本机。 |
-| `compatibility_exports` | 投影目标 PK、已输出 `data_revision`／快照 revision、内容哈希及失败信息；事务内置脏标记，事务外投影，不把“库成功、文件失败”当两边都成功。 |
+| `import_sources`／`import_records` | `import_sources`：`source_id TEXT PK`、可空 `scope_id INTEGER FK`（历史源无 scope）、`path TEXT`、`sha256 TEXT`、`size_bytes INTEGER CHECK >=0`、`codec_version INTEGER`、`status TEXT`、`accepted_count INTEGER CHECK >=0`、`skipped_count INTEGER CHECK >=0`、`validation_summary TEXT`；`import_records`：`(source_id, record_ordinal) PK`、source FK、`disposition TEXT CHECK IN ('accepted','skipped')`、`reason TEXT`、可空 `session_id TEXT FK play_sessions`。失败明细留本机。 |
+| `compatibility_exports` | `target TEXT PK`、`data_revision INTEGER`、`snapshot_revision INTEGER`、`content_hash TEXT`、`failure TEXT`（无失败为空字符串）、`dirty INTEGER CHECK IN (0,1)`；事务内置脏标记，事务外投影，不把“库成功、文件失败”当两边都成功。 |
 
 新会话在首次被实际进程观察时分配 session_id，写入在途记录，重启接管和完成后保持 ID；多进程同 DataKey 的引用计数只产生一局。休眠调整有效开始时间不能改变 ID。现有 `PlaySession` 只有 GameName（实际为 DataKey）、StartTime、EndTime、Duration、DurationMinutes；启动来源目前仅在在途快照的可空 `LaunchedByHelper` 中，历史 CSV 不含来源，导入必须记 `unknown`，不可伪造为库内启动。旧快照缺少此字段时，HDR 续算仍按现有“视作库内”规则执行，存储事实继续标为 unknown。
 
@@ -66,7 +66,7 @@
 
 索引至少包括 `play_sessions(data_key, sequence)`、`session_ratings(updated_at_utc, session_id)`、`inflight_sessions(data_key)`、`inflight_processes(session_id)`、各侧表的 scope 联合主键和导入来源唯一索引。日期字符串含不同 Kind，不能依靠其词典序做跨时区统计范围过滤；第一阶段仍由 Core 对一致快照计算统计。评分曲线先按 DataKey 索引取会话，再按转换后的结束时刻、sequence 排序；确有性能证据后才新增可重建的日期投影索引。
 
-用 `PRAGMA user_version` 作为唯一 schema 版本号，按嵌入程序集的编号 SQL 逐版前进，不另设第二个版本事实源。迁移在启动协调锁下先备份，DDL、数据回填与 user_version 更新置于同一事务；失败全部回滚。每次连接先检查版本，Desktop 也通过同一初始化器，数据库版本高于程序支持范围时明确拒绝写入，不自动降 schema。导入状态不是 schema 版本，另由 import_sources 记录。[SQLite PRAGMA 文档](https://www.sqlite.org/pragma.html#pragma_user_version)定义了 user_version，并区分 integrity_check 与外键检查。
+用 `PRAGMA user_version` 作为唯一 schema 版本号，按嵌入程序集的编号 SQL 逐版前进，不另设第二个版本事实源。迁移在启动协调锁下先备份，DDL、数据回填与 user_version 更新置于同一事务；失败全部回滚。批次 1 的版本 1 建全部表，版本 2 建查询索引；初始 storage_meta.compatibility_mode 为 `legacy`，两个修订为 0，不表示已导入或切库。每次连接先检查版本，Desktop 也通过同一初始化器，数据库版本高于程序支持范围时明确拒绝写入，不自动降 schema。导入状态不是 schema 版本，另由 import_sources 记录。[SQLite PRAGMA 文档](https://www.sqlite.org/pragma.html#pragma_user_version)定义了 user_version，并区分 integrity_check 与外键检查。
 
 ## 两个进程与在途恢复
 
@@ -103,7 +103,7 @@ sync 脏检查从 CSV mtime 改为 `database_id + history_revision` 加既有配
 
 首次激活、每次 schema 升级后、每日首次维护及备份验证运行 `PRAGMA integrity_check`，并单独运行 `PRAGMA foreign_key_check`；日常启动先做 `quick_check`，异常升级完整检查。检查失败停止库写入和 sync 上传，不把损坏结果解释为空历史，不自动覆盖损坏原件。保留原主库及 WAL/SHM 的现场，在关闭全部连接后恢复到独立候选路径，校验成功再原子换入；恢复备份之后的未备份数据仍需从现场／兼容投影核对补回，备份不能承诺零数据损失。
 
-迁移前原件包、schema 升级前备份、每日首次有用户数据变更后的自动备份分开管理。每日备份由进程协调锁指定一个执行者，通过 `SqliteConnection.BackupDatabase` 写独立临时库，验证完整性与外键后原子发布到 `backups/`，保留最近 7 个每日成功版本和最近 3 个升级前版本；首次迁移原件包单独保留。记录数据库 ID、schema、修订、时刻与摘要；无变更不备份、失败不轮换掉上一份成功备份，下次维护重试。使用注入时钟确定日期与保留策略，备份在业务事务外执行并报告耗时；[Microsoft 备份文档](https://learn.microsoft.com/en-us/dotnet/standard/data/sqlite/backup)指出 BackupDatabase 期间会阻挡其他连接写入，因此安排在无完成写入待处理的维护空隙，不能称为完全无阻塞后台任务。
+迁移前原件包、schema 升级前备份、每日首次有用户数据变更后的自动备份分开管理。每日按注入时钟的 UTC 日期划分；批次 1 提供可调用原语，批次 6 才接入生产维护调度。每日备份由进程协调锁指定一个执行者，通过 `SqliteConnection.BackupDatabase` 写独立临时库，验证完整性与外键后原子发布到 `backups/`，保留最近 7 个每日成功版本和最近 3 个升级前版本；首次迁移原件包单独保留。记录数据库 ID、schema、修订、时刻与摘要；无变更不备份、失败不轮换掉上一份成功备份，下次维护重试。使用注入时钟确定日期与保留策略，备份在业务事务外执行并报告耗时；[Microsoft 备份文档](https://learn.microsoft.com/en-us/dotnet/standard/data/sqlite/backup)指出 BackupDatabase 期间会阻挡其他连接写入，因此安排在无完成写入待处理的维护空隙，不能称为完全无阻塞后台任务。
 
 数据库备份包含私人文本与草稿，仅落本机，不等于 sync 公共统计。可恢复整套用户环境还需一起保留 YAML 和配置路径／scope 清单；图片及定位缓存不必备份，可重建。恢复动作停止所有进程并关闭连接池，校验候选库后整体替换，绝不只复制运行中的 `.db` 而丢弃 WAL，也不逐文件覆盖正在使用的数据库。
 
