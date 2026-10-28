@@ -1,4 +1,4 @@
-# SQLite 会话与在途恢复（ADR-0004 批次 3）
+# SQLite 会话与在途恢复（ADR-0004 批次 3–4）
 
 ConsoleHost 首次执行 `monitor`、`stats`、`sync` 或本地文件导入时，在开放监控、IPC、上传前初始化
 `SessionStorage`。主库位置复用 `AppDataPath`：`GAMEHELPER_DATA_DIR` 是 base，数据库仍在其
@@ -43,7 +43,7 @@ SQLite 在途读路径返回 ID；旧 JSON 投影省略 ID 和数据库 revision
 保留 `UpdateLock → _companionLock → _stateLock`。锁内存储例外仅限会话/在途短事务；
 完整历史读取、CSV 生成、文件比较/刷盘、目录协调锁与投影标记事务全部在独立串行执行器运行。
 业务提交后只向队列投递请求，不同步执行投影；重复请求合并，显式 flush 在该执行器中串行化。
-sync 在锁外等待 flush；正常 Stop 释放全部自动化锁后才排空投影，存储 Dispose 关闭并 drain 执行器。
+统计和 sync 不等待投影；正常 Stop 释放全部自动化锁后才排空投影，存储 Dispose 关闭并 drain 执行器。
 执行器不取得自动化锁，故不存在等待它时反向进入状态锁的路径；完整投影耗时不计入状态锁内例外。
 
 事件/定时器在进入时核对捕获的 generation；Stop 在同一锁下失效代际。事务与结果仍处于该执行边界内。
@@ -68,8 +68,26 @@ ConsoleHost 统计/档案/报告经基础 SQLite snapshot adapter 读取同一�
 从而改变跨日统计和 sync 字节；无时区时间、字段、秒精度、排序和编码不变。离线降级 receipt 记录此格式，
 再升级从 receipt 选择相同投影语义。批次 2 的显式旧 writer 固化模式默认保持不变。
 
-sync 仍读完整兼容 CSV、沿用 mtime/指纹/退避；读取前排空投影，失败返回 ReadFailed，sync 在构建报告前将其作为可见同步失败写入日志/状态，阻止上传陈旧文件；只有成功读取的空历史才显示暂无数据。
-尚未修改 sync 修订门控、侧文档读写、评分与自动备份调度。
+sync 从同一 SQLite 历史快照通过原 `StatsReportBuilder` 导出 daily.csv、README 和可选 raw CSV；
+保留原格式、内容指纹、间隔、退避、受管文件清单及关闭 raw 时的远端删除。
+脏判断使用 `database_id + history_revision` 和配置 mtime；成功只确认实际导出的修订，上传中的新会话不会被误确认。
+快照读取失败返回 ReadFailed，metadata 读取失败抛出并由 sync 记录失败；均不更新成功书签、不上传空结果。
+兼容投影故障只影响旧版交接，已提交历史仍可读可同步。未激活时保持旧文件读取及 mtime 门控。
+侧文档读写、评分与自动备份调度尚未切换。
+
+## 统计读取与 WAL checkpoint
+
+每个读取自建私有连接，以 deferred 读事务先读 storage_meta，再按 history_keys.first_sequence、
+play_sessions.sequence 读取历史；修订与会话来自同一视图。事务结束并释放连接后才做 Core 聚合、Markdown 渲染或上传，
+不进入自动化状态锁，不持有目录协调锁，也不等待兼容投影。保留各行原始拼写、Kind、分钟数与重复记录，
+按首次分组与组内顺序还原，维持 raw 同开始时间的稳定排序。档案的未来／逆序过滤不用于 sync。
+本阶段只有历史已迁库，Desktop 手帐仍按原文件边界工作；批次 5 再扩展当前 scope 的同事务报告数据。
+
+WAL 中读者固定自己的 end mark，长读事务不阻止另一个连接提交会话。
+SQLite 默认自动 checkpoint（通常阈值 1000 页）可能在提交时做可完成的工作；活跃读者可能阻止回收全部 WAL 帧。
+本批不新增后台维护或强制 checkpoint，不在读路径执行 TRUNCATE/RESTART。
+PASSIVE checkpoint 不等待读者，允许暂时有未回收帧；读者释放后维护可再 checkpoint，TRUNCATE 才能清空 WAL。
+长时间持有读事务会增加 WAL 大小，所以只在取数阶段保留事务，不跨越聚合和网络。
 
 降级前停止后台和游戏库，运行：
 
@@ -87,7 +105,7 @@ GameHelper.ConsoleHost.exe storage reupgrade <downgrade-manifest.json> --config 
 
 `SqliteSessionStorageTests` 在真实临时磁盘库验证提交前后故障、重复停止、多进程、PID 复用、休眠、
 两次恢复、固定失败终点与运行中心跳重试、HDR/待启动、陈旧 revision、激活前后故障、原件字节、
-不可表达文档阻断、激活沿用、旧版接管和投影失败拒绝上传。时间使用注入时钟与手动定时器。
+不可表达文档阻断、激活沿用、旧版接管和投影失败时直接从库上传。时间使用注入时钟与手动定时器。
 
 `sqlite-publish-smoke.ps1` 在两种 win-x64 发布布局强杀停在真实提交前/后屏障的子进程，重新打开 WAL 检查
 历史/在途二者原子性，再重复恢复两次检查同一 ID 仅一行、历史修订仅增一次。
@@ -97,3 +115,5 @@ GameHelper.ConsoleHost.exe storage reupgrade <downgrade-manifest.json> --config 
 审查回归另外覆盖：十五小时已知终点失败后重启仍记 900 分钟；真实 writer 争用时一次 stop 的完成/补录共享五秒，
 注入的游戏时钟推进不改变原事件终点；文件投影屏障不阻塞状态查询；诊断标记权限错误不阻止监控；
 ReadFailed（有/无记录）均显示同步失败、记录 LastError 且不调用上传。
+
+`SqliteStatisticsTests` 固化比较 KPI、年度／季度汇总、sync 三种文件完整 UTF-8 字节，验证跨时区、重复和同分顺序；屏障固定长读快照，同时完成会话并验证 checkpoint 释放。`SqliteSyncTests` 验证上传期间追加、历史书签兼容、心跳／checkpoint 无脏判、raw 关闭删除和读取失败保留成功书签。

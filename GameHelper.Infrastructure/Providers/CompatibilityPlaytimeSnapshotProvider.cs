@@ -4,14 +4,14 @@ using GameHelper.Infrastructure.Storage.Sqlite;
 
 namespace GameHelper.Infrastructure.Providers;
 
-/// <summary>Sync retains its CSV/mtime contract; a failed projection cannot be uploaded as current history.</summary>
-public sealed class CompatibilityPlaytimeSnapshotProvider(SessionStorage storage, string directory) : IPlaytimeSnapshotProvider
+/// <summary>Reads the backend selected at activation; compatibility file projections are never a SQLite read dependency.</summary>
+public sealed class CompatibilityPlaytimeSnapshotProvider(SessionStorage storage) : IPlaytimeSnapshotProvider
 {
-    private readonly FilePlaytimeSnapshotProvider _files = new(directory);
     public IReadOnlyList<GamePlaytimeRecord> GetPlaytimeRecords() => GetSnapshot().Records;
+    public PlaytimeHistoryVersion? GetHistoryVersion() => storage.Snapshot.GetHistoryVersion();
     public PlaytimeSnapshot GetSnapshot()
     {
-        try { storage.FlushProjection(); return _files.GetSnapshot(); }
+        try { return storage.Snapshot.GetSnapshot(); }
         catch { return new([], null, ReadFailed: true); }
     }
 }

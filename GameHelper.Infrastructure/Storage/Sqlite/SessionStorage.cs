@@ -82,7 +82,7 @@ public sealed class SessionStorage : IDisposable
         catch { /* Worker already reported the projection fault; committed SQLite remains authoritative. */ }
     }
 
-    /// <summary>Used before sync reads the compatibility CSV. Failure blocks upload of a stale projection.</summary>
+    /// <summary>Drains legacy projections for handoff/diagnostics. SQLite reads and sync do not depend on projections.</summary>
     public void FlushProjection()
     {
         _projections?.Flush();

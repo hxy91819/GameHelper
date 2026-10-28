@@ -83,7 +83,7 @@ ETW 会话意外中断时会自动尝试恢复，并核对已观察到的游戏�
 
 - 推送内容为聚合报告（Markdown）+ 按日×按游戏聚合 CSV，只写入仓库的 `game-stats/` 子目录，不含精确作息时间；原始明细可选附带。
 - 两种上传方式：`method: git`（默认，复用本机 git 凭据，零 token）或 `method: api`（GitHub token）。
-- 自动推送默认每天最多一次，会话结束路径零新增磁盘写入；也可用 `sync now` 手动触发。
+- 自动推送默认每天最多一次，会话结束后不立即上传；也可用 `sync now` 手动触发。
 - 配置方法、token 创建与隐私说明见 `docs/guides/sync.md`。
 
 ### 运行中拖拽添加（已支持）
@@ -232,6 +232,8 @@ Windows CI 构建整个解决方案，并自动验证隔离后台实例的无控
 
 游玩档案内可生成年度／自然季度报告，查看 Top 5、月周分布、本期通关与上期对比并导出 Markdown；本期通关读取本机手帐的已通关／全成就记录。可选配置 OpenAI 兼容接口生成点评，默认关闭。详见[游玩报告指南](docs/guides/playtime-report.md)。
 
-SQLite 存储内核与[导入／兼容工具](docs/architecture/sqlite-import-tools.md)目前仅提供未启用的开发能力；生产仍使用原 CSV/JSON，未自动迁移或切换存储。
+SQLite 存储内核与[导入／兼容工具](docs/architecture/sqlite-import-tools.md)支撑会话切库和离线降级；Desktop 侧文档与评分行为按 ADR-0004 后续批次接入。
 
 会话历史与在途恢复首次启动校验后自动迁入 SQLite，失败保留原件并沿用旧存储；首个发布周期保留完整 CSV/快照投影，见[会话存储与降级说明](docs/architecture/sqlite-session-storage.md)。
+
+统计、档案、年度／季度报告及 sync 直接从 SQLite 一致历史快照读取，输出格式与旧版相同；sync 按数据库标识与历史修订判断更新，上传期间新增会话留待下次，心跳与 checkpoint 不触发上传。兼容投影故障不影响库读取，未激活时保留旧存储行为。

@@ -19,6 +19,9 @@ public sealed class SyncState
     /// <summary>上次成功推送的内容指纹；用于内容未变化时跳过提交。</summary>
     public string? ContentHash { get; set; }
 
+    /// <summary>The exact history snapshot last exported successfully; absent in legacy state files.</summary>
+    public PlaytimeHistoryVersion? HistoryVersion { get; set; }
+
     /// <summary>记录状态对应的目标，配置变更后旧状态作废。</summary>
     public string? Provider { get; set; }
 
