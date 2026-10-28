@@ -33,7 +33,6 @@ public sealed class SqliteConnectionFactory
             EnsureSupported(version);
             if (version != SqliteDatabaseInitializer.CurrentVersion)
                 throw new InvalidOperationException("SQLite schema is not initialized; run the shared initializer first.");
-            Configure(connection);
             if (!string.Equals(Scalar(connection, "PRAGMA journal_mode;")?.ToString(), "wal", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("SQLite database is not in WAL mode.");
             return connection;
@@ -52,6 +51,10 @@ public sealed class SqliteConnectionFactory
         {
             connection.Open();
             connection.CreateCollation(CollationName, StringComparer.OrdinalIgnoreCase.Compare);
+            // Apply the same policy to maintenance/candidate/read-only connections as to business connections.
+            // Version is checked first so opening a future database never applies writable configuration.
+            EnsureSupported(ReadVersion(connection));
+            Configure(connection);
             return connection;
         }
         catch { connection.Dispose(); throw; }

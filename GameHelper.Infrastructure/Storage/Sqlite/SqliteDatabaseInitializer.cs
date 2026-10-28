@@ -29,7 +29,6 @@ public sealed class SqliteDatabaseInitializer
         using var connection = SqliteConnectionFactory.OpenFile(_factory.DatabasePath, SqliteOpenMode.ReadWriteCreate);
         var version = SqliteConnectionFactory.ReadVersion(connection);
         SqliteConnectionFactory.EnsureSupported(version);
-        SqliteConnectionFactory.Configure(connection);
         SqliteDatabaseHealth.Check(connection, full: version < CurrentVersion);
         if (version > 0 && version < CurrentVersion)
             SqliteDatabaseBackup.CreateUnderLock(_factory, connection, "upgrade", _timeProvider);

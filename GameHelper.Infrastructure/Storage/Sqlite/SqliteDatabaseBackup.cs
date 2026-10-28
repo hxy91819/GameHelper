@@ -56,7 +56,6 @@ public sealed class SqliteDatabaseBackup
             }
             using (var destination = SqliteConnectionFactory.OpenFile(candidate, SqliteOpenMode.ReadWrite))
             {
-                SqliteConnectionFactory.Configure(destination);
                 using var update = destination.CreateCommand();
                 update.CommandText = "UPDATE storage_meta SET database_id=$id WHERE singleton=1;";
                 update.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
