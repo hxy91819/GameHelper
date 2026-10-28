@@ -8,12 +8,13 @@ using static GameHelper.Infrastructure.Storage.Sqlite.Legacy.LegacySql;
 namespace GameHelper.Infrastructure.Storage.Sqlite;
 
 /// <summary>Chooses one authoritative backend before the host exposes monitoring or IPC.</summary>
-public sealed class SessionStorage
+public sealed class SessionStorage : IDisposable
 {
     private readonly SqliteConnectionFactory _factory;
     private readonly TimeProvider _clock;
     private readonly ILoggerFactory _logs;
     private SqliteLegacyCompatibility? _compatibility;
+    private SerialCompatibilityProjection? _projections;
     private IPlayTimeService? _playTime;
     private IInFlightSessionStore? _inflight;
     private IPlaytimeSnapshotProvider? _snapshot;
@@ -63,23 +64,28 @@ public sealed class SessionStorage
         {
             var activated = Scalar(c, null, "SELECT value FROM migration_state WHERE name='activated';") as string
                 ?? throw new InvalidDataException("Main SQLite database has no activation record; legacy fallback refused.");
-            try { WriteJson(Path.Combine(_factory.DataDirectory, "migration-complete.json"), new { MigrationId = activated }); }
-            catch (IOException ex) { _logs.CreateLogger<SessionStorage>().LogWarning(ex, "Could not repair the diagnostic migration receipt; database activation remains authoritative."); }
+            try
+            {
+                checkpoint?.Invoke("activation.diagnostic.repair.before");
+                WriteJson(Path.Combine(_factory.DataDirectory, "migration-complete.json"), new { MigrationId = activated });
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { _logs.CreateLogger<SessionStorage>().LogWarning(ex, "Could not repair the diagnostic migration receipt; database activation remains authoritative."); }
         }
         _compatibility = new SqliteLegacyCompatibility(_factory, _clock, games, checkpoint, preserveHistoryKinds: true);
-        var store = new SqliteSessionStore(_factory, _clock, ProjectBestEffort, checkpoint, ReportStorageFailure, () => Volatile.Write(ref _storageFailure, null));
+        var projections = new SerialCompatibilityProjection(ExportProjection, ReportProjectionFailure);
+        _projections = projections;
+        var store = new SqliteSessionStore(_factory, _clock, projections.Request, checkpoint, ReportStorageFailure, () => Volatile.Write(ref _storageFailure, null));
         _inflight = store;
         _snapshot = store;
-        _playTime = new SqlitePlayTimeService(store, _clock);
-        ProjectBestEffort();
+        _playTime = new SqlitePlayTimeService(store, _clock, FlushProjection);
+        try { await projections.FlushAsync().ConfigureAwait(false); }
+        catch { /* Worker already reported the projection fault; committed SQLite remains authoritative. */ }
     }
 
     /// <summary>Used before sync reads the compatibility CSV. Failure blocks upload of a stale projection.</summary>
     public void FlushProjection()
     {
-        if (_compatibility is null) return;
-        _compatibility.ExportSessions();
-        Volatile.Write(ref _warning, null);
+        _projections?.Flush();
     }
 
     private void ReportStorageFailure(Exception exception)
@@ -88,13 +94,17 @@ public sealed class SessionStorage
         _logs.CreateLogger<SessionStorage>().LogError(exception, "{StorageWarning}", Warning);
     }
 
-    private void ProjectBestEffort()
+    private void ExportProjection()
     {
-        try { FlushProjection(); }
-        catch (Exception ex)
-        {
-            Volatile.Write(ref _warning, "SQLite 已保存；旧版兼容投影失败，暂不能降级：" + ex.Message);
-            _logs.CreateLogger<SessionStorage>().LogError(ex, "{StorageWarning}", Warning);
-        }
+        _compatibility!.ExportSessions();
+        Volatile.Write(ref _warning, null);
     }
+
+    private void ReportProjectionFailure(Exception exception)
+    {
+        Volatile.Write(ref _warning, "SQLite 已保存；旧版兼容投影失败，暂不能降级：" + exception.Message);
+        _logs.CreateLogger<SessionStorage>().LogError(exception, "{StorageWarning}", Warning);
+    }
+
+    public void Dispose() => _projections?.Dispose();
 }

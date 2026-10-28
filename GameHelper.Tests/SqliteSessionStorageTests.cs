@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using GameHelper.Core.Abstractions;
@@ -8,16 +9,23 @@ using GameHelper.Infrastructure.Storage.Sqlite;
 using GameHelper.Infrastructure.Storage.Sqlite.Legacy;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using Xunit.Abstractions;
 
 namespace GameHelper.Tests;
 
-public sealed class SqliteSessionStorageTests : IDisposable
+public sealed class SqliteSessionStorageTests(ITestOutputHelper output) : IDisposable
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "GameHelper.Sessions." + Guid.NewGuid().ToString("N"));
     private readonly Clock _clock = new();
     private string Config => Path.Combine(_directory, "config.yml");
     private SqliteConnectionFactory Factory => new(_directory);
-    private SessionStorage Storage() => new(Factory, _clock, NullLoggerFactory.Instance);
+    private readonly List<SessionStorage> _storages = [];
+    private SessionStorage Storage()
+    {
+        var storage = new SessionStorage(Factory, _clock, NullLoggerFactory.Instance);
+        _storages.Add(storage);
+        return storage;
+    }
     private static readonly GameConfig Game = new() { DataKey = "游戏", Executable = "game.exe", HdrEnabled = true };
 
     [Theory]
@@ -50,6 +58,7 @@ public sealed class SqliteSessionStorageTests : IDisposable
         Assert.Equal(1L, Count("play_sessions"));
         Assert.Equal(0L, Count("inflight_sessions"));
         Assert.Equal(1L, Scalar("SELECT history_revision FROM storage_meta;"));
+        restarted.FlushProjection();
         Assert.Single(Assert.Single(new FilePlaytimeSnapshotProvider(_directory).GetSnapshot().Records).Sessions);
     }
 
@@ -225,8 +234,22 @@ public sealed class SqliteSessionStorageTests : IDisposable
         });
         storage.InFlight.Load(); storage.PlayTime.StartTracking(Game.DataKey); _clock.Advance(20); fail = true;
         Assert.NotNull(storage.PlayTime.StopTracking(Game.DataKey));
-        Assert.Equal(1L, Count("play_sessions")); Assert.Contains("旧版兼容投影失败", storage.Warning);
+        Assert.Equal(1L, Count("play_sessions"));
+        Assert.Throws<IOException>(storage.FlushProjection);
+        Assert.Contains("旧版兼容投影失败", storage.Warning);
         Assert.True(new CompatibilityPlaytimeSnapshotProvider(storage, _directory).GetSnapshot().ReadFailed);
+        var config = new Mock<IGameConfiguration>();
+        config.Setup(c => c.Read()).Returns(new AppConfig
+        {
+            Games = [Game], SyncSettings = new() { Enabled = true, Repo = "owner/repo", Method = "api", Token = "test" }
+        });
+        var channels = new Mock<IStatsUploadChannelProvider>(MockBehavior.Strict);
+        var sync = new SyncService(config.Object, new CompatibilityPlaytimeSnapshotProvider(storage, _directory),
+            channels.Object, new StatsReportBuilder(), _clock, NullLogger<SyncService>.Instance,
+            Path.Combine(_directory, "playtime.csv"), Path.Combine(_directory, "sync-state.json"));
+        Assert.Equal(SyncOutcomeStatus.Failed, (await sync.SyncNowAsync(force: true)).Status);
+        Assert.Contains("兼容投影失败", sync.GetStatus().LastError);
+        channels.VerifyNoOtherCalls();
         fail = false; storage.FlushProjection(); Assert.Null(storage.Warning);
         Assert.Single(Assert.Single(new FilePlaytimeSnapshotProvider(_directory).GetSnapshot().Records).Sessions);
         var csv = Path.Combine(_directory, "playtime.csv"); var mtime = File.GetLastWriteTimeUtc(csv);
@@ -337,6 +360,7 @@ public sealed class SqliteSessionStorageTests : IDisposable
         var storage = Storage(); await storage.InitializeAsync(Config, [Game]);
         storage.InFlight.Load(); var process = Session();
         storage.InFlight.Save(new() { SnapshotAt = _clock.Now, Sessions = [process] });
+        storage.FlushProjection();
         var manifest = await new SqliteLegacyCompatibility(Factory, _clock).PrepareDowngradeAsync();
         Assert.True(File.Exists(manifest));
         var old = new JsonInFlightSessionStore(Path.Combine(_directory, "inflight-sessions.json")).Load()!;
@@ -347,6 +371,116 @@ public sealed class SqliteSessionStorageTests : IDisposable
         new JsonInFlightSessionStore(Path.Combine(_directory, "inflight-sessions.json")).Clear();
         await new SqliteLegacyCompatibility(Factory, _clock).ReupgradeAsync(manifest);
         Assert.Equal(1L, Count("play_sessions"));
+    }
+
+    [Fact]
+    public async Task Recovery_KnownFifteenHourEndAfterFailedCompletion_RestartKeepsNineHundredMinutes()
+    {
+        var storage = Storage();
+        await storage.InitializeAsync(Config, [Game], checkpoint: point =>
+        {
+            if (point == "completion.commit.before") throw new IOException("completion unavailable");
+        });
+        var monitor = new Monitor();
+        var automation = Automation(storage, monitor, new Probe(_clock.Now));
+        automation.Start(); monitor.Started(10); _clock.Advance(900);
+        var endedAt = _clock.Now;
+        monitor.Stopped(10);
+        Assert.Equal(endedAt, Assert.Single(storage.InFlight.Load()!.Sessions).RecoveryEndAt);
+        var restarted = Storage(); await restarted.InitializeAsync(Config, [Game]);
+        var resumed = Automation(restarted, new Monitor(), new Probe(_clock.Now));
+        resumed.Start();
+        var completed = Assert.Single(Assert.Single(restarted.Snapshot.GetSnapshot().Records).Sessions);
+        Assert.Equal(900, completed.DurationMinutes);
+        Assert.Equal(endedAt, completed.EndTime);
+        resumed.Stop();
+    }
+
+    [Fact]
+    public async Task StopEvent_ContendedWriter_SharesFiveSecondBudgetAndKeepsObservedEnd()
+    {
+        var storage = Storage();
+        var advanceDuringWrite = false;
+        await storage.InitializeAsync(Config, [Game], checkpoint: point =>
+        {
+            if (advanceDuringWrite && point == "write.acquire.before")
+            {
+                advanceDuringWrite = false;
+                _clock.Advance(30); // deterministically moves the gameplay clock after event-time capture
+            }
+        });
+        var monitor = new Monitor(); var automation = Automation(storage, monitor, new Probe(_clock.Now));
+        automation.Start(); monitor.Started(10); storage.FlushProjection();
+        _clock.Advance(15); var observedEnd = _clock.Now;
+        using (var blocker = Factory.OpenConnection())
+        using (var transaction = blocker.BeginTransaction(deferred: false))
+        {
+            advanceDuringWrite = true;
+            var elapsed = await Task.Run(() =>
+            {
+                var watch = Stopwatch.StartNew();
+                monitor.Stopped(10);
+                return watch.Elapsed;
+            }).WaitAsync(TimeSpan.FromSeconds(8));
+            output.WriteLine($"contended stop event: {elapsed.TotalMilliseconds:F1} ms; budget: {SqliteConnectionFactory.TimeoutSeconds * 1000} ms");
+            Assert.InRange(elapsed, TimeSpan.Zero, TimeSpan.FromSeconds(SqliteConnectionFactory.TimeoutSeconds));
+            Assert.Equal(0L, Count("play_sessions"));
+            transaction.Rollback();
+        }
+        _clock.Tick();
+        var completed = Assert.Single(Assert.Single(storage.Snapshot.GetSnapshot().Records).Sessions);
+        Assert.Equal(observedEnd, completed.EndTime);
+        Assert.Equal(15, completed.DurationMinutes);
+        automation.Stop();
+    }
+
+    [Fact]
+    public async Task Projection_BlockedAtFileReplacement_DoesNotHoldAutomationStateLock()
+    {
+        using var reached = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var block = false;
+        var storage = Storage();
+        await storage.InitializeAsync(Config, [Game], checkpoint: point =>
+        {
+            if (Volatile.Read(ref block) && point == "projection.replace.before:playtime.csv")
+            {
+                reached.Set();
+                if (!release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("projection test barrier");
+            }
+        });
+        var monitor = new Monitor(); var automation = Automation(storage, monitor, new Probe(_clock.Now));
+        automation.Start(); storage.FlushProjection();
+        Volatile.Write(ref block, true);
+        var started = Task.Run(() => monitor.Started(10));
+        try
+        {
+            Assert.True(reached.Wait(TimeSpan.FromSeconds(10)), "projection worker reached the file boundary");
+            await started.WaitAsync(TimeSpan.FromSeconds(2));
+            var states = await Task.Run(automation.GetGameStates).WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.Single(states, pair => pair.Key == Game.DataKey && pair.Value.StartsWith("运行中", StringComparison.Ordinal));
+        }
+        finally { Volatile.Write(ref block, false); release.Set(); await started; }
+        automation.Stop();
+    }
+
+    [Fact]
+    public async Task Activation_UnwritableDiagnosticReceipt_DoesNotPreventMonitoring()
+    {
+        var storage = Storage(); await storage.InitializeAsync(Config, [Game]);
+        var receipt = Path.Combine(_directory, "migration-complete.json");
+        File.Delete(receipt);
+        Directory.CreateDirectory(receipt); // File.Move reports access denied on Windows; the DB remains writable.
+        var restarted = Storage();
+        await restarted.InitializeAsync(Config, [Game], checkpoint: point =>
+        {
+            if (point == "activation.diagnostic.repair.before") throw new UnauthorizedAccessException("receipt is not writable");
+        });
+        Assert.True(restarted.UsesSqlite);
+        var monitor = new Monitor(); var automation = Automation(restarted, monitor, new Probe(_clock.Now));
+        automation.Start(); monitor.Started(10); _clock.Advance(15); monitor.Stopped(10);
+        Assert.Equal(15, Assert.Single(Assert.Single(restarted.Snapshot.GetSnapshot().Records).Sessions).DurationMinutes);
+        automation.Stop();
     }
 
     private InFlightSession Session() => new()
@@ -367,7 +501,11 @@ public sealed class SqliteSessionStorageTests : IDisposable
         using var c = Factory.OpenConnection(); using var command = c.CreateCommand(); command.CommandText = sql; return command.ExecuteScalar();
     }
     private long Count(string table) => Convert.ToInt64(Scalar("SELECT count(*) FROM " + table + ";"));
-    public void Dispose() { if (Directory.Exists(_directory)) Directory.Delete(_directory, true); }
+    public void Dispose()
+    {
+        foreach (var storage in _storages) storage.Dispose();
+        if (Directory.Exists(_directory)) Directory.Delete(_directory, true);
+    }
 
     private sealed class Probe(DateTime created) : IProcessIdentityProbe
     {

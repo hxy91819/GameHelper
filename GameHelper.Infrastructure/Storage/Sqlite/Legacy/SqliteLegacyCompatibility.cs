@@ -46,7 +46,7 @@ public sealed class SqliteLegacyCompatibility
     /// <summary>Compatibility window projection for the session writer; Desktop remains on legacy files.</summary>
     public LegacyProjection ExportSessions()
     {
-        // Synchronous automation boundary. AcquireAsync never captures a synchronization context.
+        // Runs on the serial projection worker or offline maintenance, never under automation locks.
         using var lease = SqliteDirectoryLock.AcquireAsync(_factory.DataDirectory, CancellationToken.None).GetAwaiter().GetResult();
         return ExportUnderLock(CancellationToken.None, sessionsOnly: true);
     }

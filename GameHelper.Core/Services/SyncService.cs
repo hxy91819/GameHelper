@@ -237,6 +237,7 @@ public sealed class SyncService : ISyncService
     private StatsReport BuildReport(SyncSettings settings, AppConfig appConfig)
     {
         var snapshot = _snapshotProvider.GetSnapshot();
+        if (snapshot.ReadFailed) throw new IOException("游玩数据读取或兼容投影失败，未上传统计；请检查存储日志后重试。");
         var generatedAtLocal = _timeProvider.GetLocalNow().LocalDateTime;
         return _reportBuilder.Build(
             snapshot.Records,

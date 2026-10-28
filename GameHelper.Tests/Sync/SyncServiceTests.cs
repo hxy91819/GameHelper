@@ -202,6 +202,22 @@ public class SyncServiceTests : IDisposable
         Assert.Equal(0, _channels.Channel.UploadCalls);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SyncNowAsync_ReadFailed_ReportsFailureAndNeverUploads(bool hasRecords)
+    {
+        EnableSync(); WriteCsv();
+        _snapshots.Snapshot = new(hasRecords ? SampleRecords() : [], _csvPath, ReadFailed: true);
+        var outcome = await _service.SyncNowAsync(force: true);
+        Assert.Equal(SyncOutcomeStatus.Failed, outcome.Status);
+        Assert.Contains("读取或兼容投影失败", outcome.Error);
+        Assert.Equal(0, _channels.Channel.UploadCalls);
+        Assert.Equal(outcome.Error, ReadState().LastError);
+        Assert.Equal(outcome.Error, _service.GetStatus().LastError);
+        Assert.Equal(default, _service.GetStatus().LastSuccessUtc);
+    }
+
     [Fact]
     public async Task ValidateAsync_WithEnabledConfig_CallsChannel()
     {

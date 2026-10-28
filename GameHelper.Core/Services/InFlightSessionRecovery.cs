@@ -11,8 +11,8 @@ namespace GameHelper.Core.Services;
 /// Every member borrows the service state lock; no lock or asynchronous entry is added.
 /// Callers keep generation validation before event/timer mutations. Lock order remains
 /// UpdateLock → companion → state; callbacks never enter the first two locks.
-/// Store/probe/playtime/speed I/O retains the serialized state-lock scope. SQLite transactions
-/// acquire no automation locks and never invoke callbacks; see sqlite-session-storage.md.
+/// Only short session/snapshot transactions retain the state-lock scope. Full compatibility
+/// projection is queued to an independent serial worker; see sqlite-session-storage.md.
 /// </summary>
 internal sealed class InFlightSessionRecovery
 {
@@ -54,6 +54,8 @@ internal sealed class InFlightSessionRecovery
         _getConfigIndex = getConfigIndex;
     }
 
+    private DateTime LocalEventTime() => (_playTime as IIdentifiedPlayTimeService)?.EventTime ?? _timeProvider.GetLocalNow().DateTime;
+
     internal bool HasStore => _inFlightSessionStore is not null;
     internal int PendingCount => _pendingRecoveredSessions.Count;
 
@@ -74,7 +76,7 @@ internal sealed class InFlightSessionRecovery
 
     internal void RecordSessionStart(string dataKey, bool ownLaunch)
     {
-        var start = _timeProvider.GetLocalNow().DateTime;
+        var start = LocalEventTime();
         var id = Guid.NewGuid();
         _inFlightStarts[dataKey] = start;
         _sessionIds[dataKey] = id;
@@ -186,7 +188,7 @@ internal sealed class InFlightSessionRecovery
         var snapshot = new InFlightSnapshot
         {
             Revision = _snapshotRevision,
-            SnapshotAt = _timeProvider.GetLocalNow().DateTime, Sessions = new List<InFlightSession>(),
+            SnapshotAt = LocalEventTime(), Sessions = new List<InFlightSession>(),
             HdrEnabledByGameHelper = _launchOwnership.OwnsEnabledHdr,
             PendingLaunches = _launchOwnership.CapturePending()
         };
@@ -315,7 +317,7 @@ internal sealed class InFlightSessionRecovery
                 // When GameHelper stayed down for a long time the true exit time is
                 // unknowable; cap the recovered duration so a stale snapshot cannot
                 // inflate playtime unboundedly.
-                if (endTime - startedAt > MaxRecoveredSessionDuration)
+                if (!group.First().RecoveryEndAt.HasValue && endTime - startedAt > MaxRecoveredSessionDuration)
                 {
                     _logger.LogWarning(
                         "In-flight session for {DataKey} spans {Span}; capping the recovered duration at {Cap}.",
@@ -387,7 +389,7 @@ internal sealed class InFlightSessionRecovery
                 SessionId = _sessionIds.GetValueOrDefault(dataKey),
                 DataKey = dataKey,
                 StartedAt = start,
-                RecoveryEndAt = _timeProvider.GetLocalNow().DateTime
+                RecoveryEndAt = LocalEventTime()
             });
     }
 

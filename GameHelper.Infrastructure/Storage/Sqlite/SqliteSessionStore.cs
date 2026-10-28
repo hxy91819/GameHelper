@@ -16,13 +16,35 @@ public sealed class SqliteSessionStore : IInFlightSessionStore, IPlaytimeSnapsho
     private readonly TimeProvider _clock;
     private readonly Action<string>? _checkpoint;
     private readonly Action _project;
+    private readonly AsyncLocal<SqliteEventWriteBudget?> _event = new();
     private long _revision;
     private readonly Action<Exception>? _reportFailure;
     private readonly Action? _reportRecovery;
 
-    /// <summary>Projection runs after commit and must report its own errors without throwing into completion.</summary>
+    /// <summary>The projection callback only enqueues work after commit; it must not execute projection synchronously.</summary>
     public SqliteSessionStore(SqliteConnectionFactory factory, TimeProvider clock, Action project, Action<string>? checkpoint = null, Action<Exception>? reportFailure = null, Action? reportRecovery = null)
     { _factory = factory; _clock = clock; _project = project; _checkpoint = checkpoint; _reportFailure = reportFailure; _reportRecovery = reportRecovery; }
+
+    /// <summary>Owns one event's write budget. Nested events restore the previous scope.</summary>
+    public IDisposable BeginEvent(DateTime eventTime)
+    {
+        var previous = _event.Value;
+        _event.Value = new SqliteEventWriteBudget(eventTime);
+        return new EventScope(() => _event.Value = previous);
+    }
+
+    public DateTime? EventTime => _event.Value?.EventTime;
+
+    private SqliteTransaction BeginWrite(SqliteConnection connection)
+    {
+        _checkpoint?.Invoke("write.acquire.before");
+        return (_event.Value ?? new SqliteEventWriteBudget(_clock.GetLocalNow().DateTime)).BeginWrite(connection);
+    }
+
+    private sealed class EventScope(Action restore) : IDisposable
+    {
+        public void Dispose() => restore();
+    }
 
     public InFlightSnapshot? Load() => Guard(LoadCore);
 
@@ -40,7 +62,7 @@ public sealed class SqliteSessionStore : IInFlightSessionStore, IPlaytimeSnapsho
     private void SaveCore(InFlightSnapshot snapshot)
     {
         using (var c = _factory.OpenConnection())
-        using (var tx = c.BeginTransaction(deferred: false))
+        using (var tx = BeginWrite(c))
         {
             CheckRevision(c, tx);
             // Never resurrect a completed ID from an old in-memory snapshot after a lost commit response.
@@ -77,7 +99,7 @@ public sealed class SqliteSessionStore : IInFlightSessionStore, IPlaytimeSnapsho
         var duration = end > session.StartedAt ? end - session.StartedAt : TimeSpan.Zero;
         var result = new PlaySession(session.DataKey, session.StartedAt, end, duration, (long)duration.TotalMinutes);
         using (var c = _factory.OpenConnection())
-        using (var tx = c.BeginTransaction(deferred: false))
+        using (var tx = BeginWrite(c))
         {
             CheckRevision(c, tx);
             var id = session.SessionId.ToString("D");

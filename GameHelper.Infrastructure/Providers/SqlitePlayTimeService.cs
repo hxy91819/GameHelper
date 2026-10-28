@@ -12,8 +12,13 @@ public sealed class SqlitePlayTimeService : IIdentifiedPlayTimeService
     private readonly Dictionary<string, InFlightSession> _failed = new(StringComparer.OrdinalIgnoreCase);
     private readonly SqliteSessionStore _store;
     private readonly TimeProvider _clock;
+    private readonly Action? _flush;
 
-    public SqlitePlayTimeService(SqliteSessionStore store, TimeProvider clock) { _store = store; _clock = clock; }
+    public SqlitePlayTimeService(SqliteSessionStore store, TimeProvider clock, Action? flush = null) { _store = store; _clock = clock; _flush = flush; }
+
+    public IDisposable BeginEvent(DateTime eventTime) => _store.BeginEvent(eventTime);
+    public DateTime? EventTime => _store.EventTime;
+    public void FlushPendingProjections() => _flush?.Invoke();
 
     public void StartTracking(string gameName) => ResumeTracking(gameName, _clock.GetLocalNow().DateTime, Guid.NewGuid(), null);
     public void ResumeTracking(string gameName, DateTime startTime) => ResumeTracking(gameName, startTime, Guid.NewGuid(), null);
@@ -29,7 +34,7 @@ public sealed class SqlitePlayTimeService : IIdentifiedPlayTimeService
         lock (_gate)
         {
             if (!_active.Remove(gameName, out session!)) return null;
-            session.RecoveryEndAt = _clock.GetLocalNow().DateTime;
+            session.RecoveryEndAt = EventTime ?? _clock.GetLocalNow().DateTime;
             _failed[gameName] = session;
         }
         var result = _store.Complete(session, session.RecoveryEndAt.Value, "observed");
