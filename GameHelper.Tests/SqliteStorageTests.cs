@@ -16,7 +16,7 @@ public sealed class SqliteStorageTests : IDisposable
     {
         await Initialize();
         using var connection = _factory.OpenConnection();
-        Assert.Equal(2L, Scalar(connection, "PRAGMA user_version;"));
+        Assert.Equal(3L, Scalar(connection, "PRAGMA user_version;"));
         Assert.Equal("wal", Scalar(connection, "PRAGMA journal_mode;"));
         Assert.Equal(5000L, Scalar(connection, "PRAGMA busy_timeout;"));
         Assert.Equal(1L, Scalar(connection, "PRAGMA foreign_keys;"));
@@ -38,16 +38,42 @@ public sealed class SqliteStorageTests : IDisposable
         await Initialize();
         using (var connection = _factory.OpenConnection())
         {
-            Execute(connection, "INSERT INTO history_keys VALUES ('旧游戏', 1); DROP INDEX ix_play_sessions_key_sequence; DROP INDEX ix_session_ratings_updated; DROP INDEX ix_inflight_sessions_key; DROP INDEX ix_inflight_processes_session; PRAGMA user_version=1;");
+            Execute(connection, "INSERT INTO history_keys VALUES ('旧游戏', 1); " + RevertToVersionOne);
         }
         await Initialize();
         using var upgraded = _factory.OpenConnection();
         Assert.Equal("旧游戏", Scalar(upgraded, "SELECT data_key FROM history_keys;"));
-        Assert.Equal(2L, Scalar(upgraded, "PRAGMA user_version;"));
+        Assert.Equal(3L, Scalar(upgraded, "PRAGMA user_version;"));
         var backup = Assert.Single(Directory.GetDirectories(Path.Combine(_directory, "backups"), "upgrade-*"));
         using var original = SqliteConnectionFactory.OpenFile(Path.Combine(backup, "userdata.db"), SqliteOpenMode.ReadOnly);
         Assert.Equal(1L, Scalar(original, "PRAGMA user_version;"));
         Assert.Equal("旧游戏", Scalar(original, "SELECT data_key FROM history_keys;"));
+    }
+
+    [Fact]
+    public async Task Initialize_VersionTwo_PreservesExistingProcessAndJournalRows()
+    {
+        Directory.CreateDirectory(_directory);
+        using (var old = SqliteConnectionFactory.OpenFile(_factory.DatabasePath, SqliteOpenMode.ReadWriteCreate))
+        {
+            var migrations = ReadMigrations();
+            Execute(old, migrations[0] + migrations[1]);
+            Execute(old, """
+                INSERT INTO storage_meta VALUES(1,'existing',2,3,'legacy');
+                INSERT INTO config_scopes VALUES(1,'D:/config.yml');
+                INSERT INTO journals VALUES(1,'Old','在玩',NULL,'note',1);
+                INSERT INTO inflight_sessions VALUES('live','Old','2025-01-01T10:00:00',0,'unknown',NULL,NULL);
+                INSERT INTO inflight_processes VALUES(1,'live',123,'old.exe','','');
+                PRAGMA user_version=2;
+                """);
+        }
+        await Initialize();
+        using var current = _factory.OpenConnection();
+        Assert.Equal("existing", Scalar(current, "SELECT database_id FROM storage_meta;"));
+        Assert.Equal("note", Scalar(current, "SELECT note FROM journals;"));
+        Assert.Equal("old.exe", Scalar(current, "SELECT normalized_name FROM inflight_processes;"));
+        Assert.Equal(DBNull.Value, Scalar(current, "SELECT launched_by_helper FROM inflight_processes;"));
+        Assert.Equal(3L, Scalar(current, "PRAGMA user_version;"));
     }
 
     [Fact]
@@ -81,7 +107,7 @@ public sealed class SqliteStorageTests : IDisposable
     {
         await Initialize();
         using (var connection = _factory.OpenConnection())
-            Execute(connection, "INSERT INTO history_keys VALUES ('retained', 1); PRAGMA user_version=1;");
+            Execute(connection, "INSERT INTO history_keys VALUES ('retained', 1);" + RevertToVersionOne);
         var migrations = ReadMigrations();
         migrations[1] = "CREATE TABLE failure_probe (id INTEGER); INVALID SQL;";
         await Assert.ThrowsAsync<SqliteException>(() => new SqliteDatabaseInitializer(_factory, _clock, migrations).InitializeAsync());
@@ -124,12 +150,12 @@ public sealed class SqliteStorageTests : IDisposable
         AssertConstraint(connection, "INSERT INTO session_ratings VALUES ('session', 1.5, NULL, 'utc', 'utc', 1);");
         Execute(connection, "INSERT INTO session_ratings VALUES ('session', 5, NULL, 'utc', 'utc', 1);");
         AssertConstraint(connection, "DELETE FROM play_sessions WHERE session_id='session';");
-        AssertConstraint(connection, "INSERT INTO journals VALUES (99, 'no-history', '在玩', NULL, '', 1);");
-        Execute(connection, "INSERT INTO config_scopes VALUES (1, 'C:/a.yml'), (2, 'C:/b.yml'); INSERT INTO journals VALUES (1, 'no-history', '在玩', NULL, '', 1), (2, 'NO-HISTORY', '全成就', NULL, '', 1);");
+        AssertConstraint(connection, "INSERT INTO journals(scope_id,data_key,status,completed_on,note,revision) VALUES (99, 'no-history', '在玩', NULL, '', 1);");
+        Execute(connection, "INSERT INTO config_scopes VALUES (1, 'C:/a.yml'), (2, 'C:/b.yml'); INSERT INTO journals(scope_id,data_key,status,completed_on,note,revision) VALUES (1, 'no-history', '在玩', NULL, '', 1), (2, 'NO-HISTORY', '全成就', NULL, '', 1);");
         Assert.Equal(2L, Scalar(connection, "SELECT count(*) FROM journals;"));
         AssertConstraint(connection, "INSERT INTO config_scopes VALUES (3, 'c:/A.YML');");
         AssertConstraint(connection, "INSERT INTO scan_roots VALUES (1, 'C:/games', 6);");
-        AssertConstraint(connection, "INSERT INTO artwork_links VALUES (1, 'x', 4294967296, 1);");
+        AssertConstraint(connection, "INSERT INTO artwork_links(scope_id,data_key,steam_app_id,revision) VALUES (1, 'x', 4294967296, 1);");
         AssertConstraint(connection, "UPDATE play_sessions SET duration_minutes=-1;");
     }
 
@@ -217,7 +243,7 @@ public sealed class SqliteStorageTests : IDisposable
         for (var revision = 1; revision <= 5; revision++)
         {
             using (var connection = _factory.OpenConnection())
-                Execute(connection, $"UPDATE storage_meta SET data_revision={revision}; DROP INDEX ix_play_sessions_key_sequence; DROP INDEX ix_session_ratings_updated; DROP INDEX ix_inflight_sessions_key; DROP INDEX ix_inflight_processes_session; PRAGMA user_version=1;");
+                Execute(connection, $"UPDATE storage_meta SET data_revision={revision}; " + RevertToVersionOne);
             await Initialize();
         }
         var retained = Directory.GetDirectories(Path.Combine(_directory, "backups"), "upgrade-*");
@@ -263,6 +289,22 @@ public sealed class SqliteStorageTests : IDisposable
             Execute(connection, "PRAGMA foreign_keys=OFF; INSERT INTO session_ratings VALUES ('missing', 3, NULL, 'utc', 'utc', 1);");
         await Assert.ThrowsAsync<InvalidDataException>(Initialize);
     }
+
+    // Upgrade tests start from the actual old schema, not merely an old user_version on new tables.
+    private const string RevertToVersionOne = """
+        DROP INDEX ix_play_sessions_key_sequence; DROP INDEX ix_session_ratings_updated; DROP INDEX ix_inflight_sessions_key;
+        DROP TABLE inflight_processes;
+        CREATE TABLE inflight_processes(process_row_id INTEGER NOT NULL PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES inflight_sessions(session_id),pid INTEGER,
+            normalized_name TEXT NOT NULL,normalized_path TEXT NOT NULL,process_started_at_utc TEXT NOT NULL);
+        ALTER TABLE journals DROP COLUMN position;
+        ALTER TABLE genre_overrides DROP COLUMN position;
+        ALTER TABLE artwork_links DROP COLUMN position;
+        ALTER TABLE scan_ignored DROP COLUMN position;
+        ALTER TABLE pending_launches DROP COLUMN position;
+        DROP TABLE migration_state;
+        PRAGMA user_version=1;
+        """;
 
     private const string SessionInsert = "INSERT INTO play_sessions VALUES ('session', 'éTOILE', 1, 'start', 'end', 0, 0, 10, 1, 'unknown', 'legacy', 'utc', NULL, NULL);";
     private Task Initialize() => new SqliteDatabaseInitializer(_factory, _clock).InitializeAsync();

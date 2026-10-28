@@ -20,6 +20,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <EmbeddedResource Include="Resources/ConfigurationCompatibility/*.yml" />
+    <EmbeddedResource Include="Resources/LegacyUserData/*.bin" />
   </ItemGroup>
 
   <ItemGroup>

@@ -66,3 +66,5 @@ SQLite 内核的真实磁盘与并发验收见 [SQLite 存储内核](./sqlite-st
 
 - Console host construction is covered through `ConsoleHostBootstrapper`, and CLI command routing is covered through `ConsoleCommandDispatcher`.
 - Console process-level smoke coverage is intentionally narrow: it exercises published `validate-config` and `config list` only, avoiding long-running monitor flows.
+
+SQLite 批次 2 的旧 codec 固化字节、候选导入断点、完整投影和降级/再升级测试见[导入与兼容工具](./sqlite-import-tools.md)。源坏行与逐项跳过诊断须对账；不以新投影器生成测试期望。

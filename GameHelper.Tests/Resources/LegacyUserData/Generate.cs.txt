@@ -1,0 +1,57 @@
+using System.Text;
+using System.Text.Json;
+using GameHelper.Core.Models;
+using GameHelper.Core.Services;
+using GameHelper.Infrastructure.Providers;
+using GameHelper.Desktop;
+
+var root = args[0];
+Directory.CreateDirectory(root);
+var work = Path.Combine(root, ".work"); Directory.CreateDirectory(work);
+var key = "中文,\"游戏\"\r\n第二行";
+var text = "game,start_time,end_time,duration_minutes\r\n" +
+    "\"中文,\"\"游戏\"\"\r\n第二行\",2024-12-31T23:59:00,2025-01-01T00:02:00,7\r\n" +
+    "Étoile,2025-03-30T00:30:00Z,2025-03-30T01:30:00Z,60\r\n" +
+    "Removed,2025-01-02T12:00:00,2025-01-02T12:00:10,0\r\n" +
+    "éTOILE,2025-01-02T10:00:00,2025-01-02T10:10:00,3\r\n" +
+    "éTOILE,2025-01-02T10:00:00,2025-01-02T10:10:00,3\r\n" +
+    "Reverse,2025-01-02T11:00:00,2025-01-02T10:00:00,2\r\n" +
+    "bad,not-a-date,2025-01-02,1\r\n" +
+    "negative,2025-01-01,2025-01-01,-1\r\n" +
+    "\"broken\"suffix,2025-01-01,2025-01-01,1\r\n" +
+    "\"unterminated";
+File.WriteAllText(Path.Combine(root,"csv.input.bin"), text, new UTF8Encoding(true));
+File.Copy(Path.Combine(root,"csv.input.bin"),Path.Combine(work,"playtime.csv"),true);
+var rows = new List<PlaytimeCsvRow>(); PlaytimeCsvCodec.ReadRows(Path.Combine(work,"playtime.csv"), rows.Add);
+PlaytimeCsvCodec.WriteAll(Path.Combine(root,"csv.expected.unix.bin"), rows.GroupBy(r=>r.GameName,StringComparer.OrdinalIgnoreCase).SelectMany(g=>g));
+var csvOutput=File.ReadAllText(Path.Combine(root,"csv.expected.unix.bin"));
+File.WriteAllText(Path.Combine(root,"csv.expected.windows.bin"), csvOutput.Replace("\r\n","\n").Replace("\n","\r\n"));
+var legacy="""
+{"games":[{"GameName":"旧游戏","Sessions":[{"StartTime":"2024-12-31T23:59:30.123Z","EndTime":"2025-01-01T00:01:00Z","DurationMinutes":9,"Duration":"99:00:00"},{"StartTime":"2025-01-01T01:00:00","EndTime":"2025-01-01T01:00:01","DurationMinutes":0}]}],"unknown":"preserved in original"}
+""";
+File.WriteAllText(Path.Combine(root,"legacy.input.bin"),legacy,new UTF8Encoding(true));
+var jsonDir=Path.Combine(work,"json");Directory.CreateDirectory(jsonDir);File.WriteAllText(Path.Combine(jsonDir,"playtime.json"),legacy);
+_ = new CsvBackedPlayTimeService(jsonDir);
+File.Copy(Path.Combine(jsonDir,"playtime.csv"),Path.Combine(root,"legacy.expected.unix.bin"),true);
+File.WriteAllText(Path.Combine(root,"legacy.expected.windows.bin"),File.ReadAllText(Path.Combine(jsonDir,"playtime.csv")).Replace("\n","\r\n"));
+var config=Path.Combine(work,"config.yml");
+File.WriteAllText(config+".desktop-journal.json","""
+{"Étoile":{"Status":"在玩","Note":"中文短评"},"éTOILE":{"Status":"全成就","CompletedOn":"2025-01-01","Note":"胜利"},"bad":{"Status":"不存在"},"blank":{"Status":"搁置","CompletedOn":null,"Note":""}}
+""");
+var journal=new LibraryJournalStore(config);DesktopDocumentStore.Write(config+".desktop-journal.json",journal.Entries.ToDictionary(p=>p.Key,p=>p.Value));
+var genres=new LibraryGenreStore(config);genres.Save("Étoile",[" RPG ","动作","rpg"]);genres.Save("Empty",[]);
+DesktopDocumentStore.Write(config+".desktop-artwork.json",new Dictionary<string,uint>{{"Étoile",123},{key,4294967295}});
+var scan=new LibraryScanStore(config);foreach(var dir in new[]{"D:/一","D:/二","D:/三","D:/四","D:/五","D:/六","D:/七"})scan.Remember(dir);scan.SetIgnored(["D:/a.exe","D:/中文.exe"],true);
+var draft=new LibraryDraft(new LibraryGame{Config=new GameConfig{DataKey="Étoile",Executable="D:/game.exe",Launch=new(){Target="D:/link.lnk",Arguments="--old",WorkingDirectory="D:/"},SpeedHotkeys=[new(){Hotkey="F2",Speed=2}],Actions=[new(){Path="D:/before.exe",Type="run",When="beforeLaunch"}]}},"草稿","D:/game.exe","steam://rungameid/123","--arg \"中文\"","D:/Games","1.5",true,true,true,true,"D:/DS4.exe","F3=3",[new(){Path="D:/after.exe",Type="run",When="afterExit"}]);
+new LibraryDraftStore(config).Write([draft]);DesktopDocumentStore.Write(config+".desktop-theme.json",new {Theme="light"});
+foreach(var kind in new[]{"journal","genres","artwork","drafts","scan","theme"})File.Copy(config+".desktop-"+kind+".json",Path.Combine(root,kind+".expected.bin"),true);
+File.WriteAllText(Path.Combine(root,"journal.input.bin"),"""
+{"Étoile":{"Status":"在玩","Note":"中文短评"},"éTOILE":{"Status":"全成就","CompletedOn":"2025-01-01","Note":"胜利"},"bad":{"Status":"不存在"},"blank":{"Status":"搁置","CompletedOn":null,"Note":""}}
+""");
+var snapshot=new InFlightSnapshot{SnapshotAt=new(2025,1,2,10,10,0,DateTimeKind.Unspecified),HdrEnabledByGameHelper=true,PendingLaunches=new(){{"Pending",new(2025,1,2,11,0,0,TimeSpan.FromHours(8))}},Sessions=[new(){DataKey="éTOILE",ProcessId=10,StartedAt=new(2025,1,2,10,0,0,DateTimeKind.Unspecified),RecoveryEndAt=new(2025,1,2,10,10,0,DateTimeKind.Unspecified),NormalizedName="game.exe",LaunchedByHelper=null},new(){DataKey="étoile",ProcessId=11,StartedAt=new(2025,1,2,10,0,0,DateTimeKind.Unspecified),RecoveryEndAt=new(2025,1,2,10,10,0,DateTimeKind.Unspecified),NormalizedPath="D:/game.exe",ProcessStartedAtUtc=new(2025,1,2,9,0,0,DateTimeKind.Utc),LaunchedByHelper=false}]};
+new JsonInFlightSessionStore(Path.Combine(root,"inflight.input.bin")).Save(snapshot);
+File.Copy(Path.Combine(root,"inflight.input.bin"),Path.Combine(root,"inflight.expected.unix.bin"),true);
+File.WriteAllText(Path.Combine(root,"inflight.expected.windows.bin"),File.ReadAllText(Path.Combine(root,"inflight.input.bin")).Replace("\r\n","\n").Replace("\n","\r\n"),Encoding.UTF8);
+var report=new StatsReportBuilder().Build(new FilePlaytimeSnapshotProvider(work).GetSnapshot().Records,[],new(2025,4,1,12,0,0,DateTimeKind.Unspecified),true);
+foreach(var file in report.Files){var name=file.RelativePath.Replace('/','_');File.WriteAllText(Path.Combine(root,name+".unix.bin"),file.Content);File.WriteAllText(Path.Combine(root,name+".windows.bin"),file.Content.Replace("\r\n","\n").Replace("\n","\r\n"));}
+Directory.Delete(work,true);

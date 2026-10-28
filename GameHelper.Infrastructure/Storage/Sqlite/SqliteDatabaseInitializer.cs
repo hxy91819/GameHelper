@@ -6,7 +6,7 @@ namespace GameHelper.Infrastructure.Storage.Sqlite;
 public sealed class SqliteDatabaseInitializer
 {
     /// <summary>Highest embedded numbered SQL migration supported by this build.</summary>
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
     private readonly SqliteConnectionFactory _factory;
     private readonly TimeProvider _timeProvider;
     private readonly IReadOnlyList<string> _migrations;
@@ -26,7 +26,12 @@ public sealed class SqliteDatabaseInitializer
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         using var lease = await SqliteDirectoryLock.AcquireAsync(_factory.DataDirectory, cancellationToken).ConfigureAwait(false);
-        using var connection = SqliteConnectionFactory.OpenFile(_factory.DatabasePath, SqliteOpenMode.ReadWriteCreate);
+        InitializeUnderLock(_factory.DatabasePath, cancellationToken);
+    }
+
+    internal void InitializeUnderLock(string path, CancellationToken cancellationToken, Action<string>? checkpoint = null)
+    {
+        using var connection = SqliteConnectionFactory.OpenFile(path, SqliteOpenMode.ReadWriteCreate);
         var version = SqliteConnectionFactory.ReadVersion(connection);
         SqliteConnectionFactory.EnsureSupported(version);
         SqliteDatabaseHealth.Check(connection, full: version < CurrentVersion);
@@ -54,7 +59,9 @@ public sealed class SqliteDatabaseInitializer
             SqliteConnectionFactory.Execute(connection, $"PRAGMA user_version={next};", transaction);
         }
         SqliteDatabaseHealth.Check(connection, full: true, transaction);
+        checkpoint?.Invoke("candidate.schema.commit.before");
         transaction.Commit();
+        checkpoint?.Invoke("candidate.schema.commit.after");
     }
 
     private static string[] LoadMigrations()

@@ -231,3 +231,5 @@ Windows CI 构建整个解决方案，并自动验证隔离后台实例的无控
 自动监控、更新及默认回归使用后台入口；CE 与 DS4Windows 请求隐藏启动。测试游戏采用无窗口探针，避免回归时弹出命令行。
 
 游玩档案内可生成年度／自然季度报告，查看 Top 5、月周分布、本期通关与上期对比并导出 Markdown；本期通关读取本机手帐的已通关／全成就记录。可选配置 OpenAI 兼容接口生成点评，默认关闭。详见[游玩报告指南](docs/guides/playtime-report.md)。
+
+SQLite 存储内核与[导入／兼容工具](docs/architecture/sqlite-import-tools.md)目前仅提供未启用的开发能力；生产仍使用原 CSV/JSON，未自动迁移或切换存储。
