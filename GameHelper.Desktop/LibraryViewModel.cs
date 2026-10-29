@@ -194,7 +194,15 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         // Reset is immediate; network work belongs to the window lifetime, not the editor dialog.
         if (genres is null) game.SetGenres([]);
         game.GenresLoading = LoadGenresAsync(game);
-        _ = LoadControllerAsync(game);
+        QueueControllerLoad(game);
+    }
+    private void QueueControllerLoad(LibraryGameItem game)
+    {
+        // Presentation metadata starts after the current collection update, on the window dispatcher.
+        Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() =>
+        {
+            if (!_lifetime.IsCancellationRequested) _ = LoadControllerAsync(game);
+        }));
     }
     internal async Task LoadControllerAsync(LibraryGameItem game)
     {
@@ -209,13 +217,13 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
                 (id is { } cachedId ? _controllerStore.Read(cachedId)?.Value : null) ?? new ControllerSupport(), _lifetime.Token);
             var manual = await Task.Run(() => _controllerConfig is null ? null : _controllerStore.Manual(_controllerConfig, game.DataKey), _lifetime.Token);
             if (game.ControllerVersion != version || _lifetime.IsCancellationRequested) return;
-            game.SetController(initial with { Manual = manual }); Filter();
+            game.SetController(initial with { Manual = manual }); if (_filter == "unsupported") Filter();
             var result = await Task.Run(async () =>
             {
                 var value = id is { } app ? await _controllerClient.GetAsync(app, _allowGenreNetwork, _lifetime.Token) : new ControllerSupport();
                 return value with { Manual = _controllerConfig is null ? null : _controllerStore.Manual(_controllerConfig, game.DataKey) };
             }, _lifetime.Token);
-            if (!_lifetime.IsCancellationRequested && game.ControllerVersion == version) { game.SetController(result); Filter(); }
+            if (!_lifetime.IsCancellationRequested && game.ControllerVersion == version) { game.SetController(result); if (_filter == "unsupported") Filter(); }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or Microsoft.Data.Sqlite.SqliteException or UnauthorizedAccessException)
@@ -381,7 +389,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             if (discardDrafts || !old.TryGetValue(row.Config.DataKey, out var existing) || existing.GenreIdentity != (item.Executable, item.Target))
                 item.GenresLoading = LoadGenresAsync(item);
             else if (!ReferenceEquals(existing, item)) item.GenresLoading = CarryGenresAsync(existing, item);
-            _ = LoadControllerAsync(item);
+            QueueControllerLoad(item);
             updated.Add(item);
         }
         for (var index = 0; index < updated.Count; index++)
@@ -504,7 +512,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         game.ArtworkLoading = game.LoadArtworkAsync(_posters, _lifetime.Token);
         await game.ArtworkLoading.WaitAsync(cancellationToken);
         game.GenresLoading = LoadGenresAsync(game);
-        _ = LoadControllerAsync(game);
+        QueueControllerLoad(game);
         return true;
     }
     internal Task<System.Windows.Media.ImageSource?> PreviewPosterAsync(uint appId, CancellationToken cancellationToken)
@@ -516,7 +524,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         await Task.Run(() => _posters.Associate(game.DataKey, appId));
         await game.LoadArtworkAsync(_posters, _lifetime.Token, refresh);
         game.GenresLoading = LoadGenresAsync(game);
-        _ = LoadControllerAsync(game);
+        QueueControllerLoad(game);
     }
     private void OnItemChanged(object? sender, PropertyChangedEventArgs e)
     {
