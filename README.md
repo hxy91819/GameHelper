@@ -245,3 +245,5 @@ SQLite 存储内核与[导入／兼容工具](docs/architecture/sqlite-import-to
 Desktop 启动预读与手帐打开在后台线程读取侧数据；重新载入草稿会保留另一窗口的新编辑，丢弃本窗口草稿仍检查原版本。扫描大列表与长 SQL 同样受短事务预算约束。
 
 每日健康检查和自动本机备份已启用（每日成功版本保留 7 份、升级前保留 3 份）；投影／备份失败有托盘提示，完整性失败停止写入与同步。首个 SQLite 正式版保留一个发布周期的旧格式投影；安全退回旧版必须先停止后台和游戏库，再用新版 `storage prepare-downgrade` 并通过 `storage check-downgrade`，重新升级先执行 `storage reupgrade <manifest>`。恢复与完整步骤见[SQLite 维护与恢复](docs/guides/sqlite-recovery.md)。
+
+游戏库支持 Xbox、PS4 / PS5 手柄前台导航与启动：方向键/左摇杆选游戏，A / × 启动，B / ○ 返回；详见[手柄操作](docs/guides/game-library.md#手柄操作)。此输入基础不包含全屏主机模式。

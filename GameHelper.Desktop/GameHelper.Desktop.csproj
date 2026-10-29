@@ -8,6 +8,8 @@
     <ApplicationIcon>Assets/gamehelper.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="SDL3-CS" Version="3.4.18.1" />
+    <PackageReference Include="SDL3-CS.Windows" Version="3.4.18.1" />
     <Resource Include="Assets/gamehelper-logo.png" />
     <Resource Include="Assets/gamehelper.ico" />
     <ProjectReference Include="../GameHelper.Infrastructure/GameHelper.Infrastructure.csproj" />

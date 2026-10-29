@@ -86,3 +86,23 @@ jobs:
           name: isolated-runtime-diagnostics
           path: ${{ runner.temp }}/runtime-verify
           if-no-files-found: warn
+
+  controller-native-publish:
+    name: Controller native assets (both layouts)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Test input logic and verify SDL publish assets
+        shell: pwsh
+        run: |
+          dotnet test GameHelper.Input.Tests/GameHelper.Input.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($layout in @('false', 'true')) {
+            $output = Join-Path $env:RUNNER_TEMP "controller-$layout"
+            dotnet publish GameHelper.Desktop/GameHelper.Desktop.csproj -c Release -r win-x64 --self-contained $layout -o $output
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if (-not (Test-Path (Join-Path $output 'SDL3.dll'))) { throw "SDL3.dll missing: $layout" }
+          }
