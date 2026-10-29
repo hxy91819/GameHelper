@@ -16,6 +16,10 @@
 - [Console Mode Workbook](./steward/console-mode.md): roadmap, decisions, and user todos for the controller-driven console mode goal.
 - [Archives](./archives/index.md): historical material retained for traceability, not current truth.
 
+## Research
+
+- [Console Mode Survey](./research/console-mode-survey.md): controller frontend components, Windows input libraries, compatibility data sources, and current integration boundaries.
+
 ## Maintenance Rules
 
 - Keep active docs short and stable; prefer design intent, ownership, and constraints over class-by-class inventories.
