@@ -101,7 +101,7 @@ internal static class YamlConfigCodec
         {
             Monitor = config.ProcessMonitorType,
             Startup = new { LaunchOnStartup = config.LaunchOnSystemStartup },
-            config.ConsoleModeOnLibraryOpen,
+            ConsoleModeOnLibraryOpen = config.ConsoleModeOnLibraryOpen ? (bool?)true : null,
             config.CheatEngine,
             config.BreakReminder,
             config.MonitorMode,
