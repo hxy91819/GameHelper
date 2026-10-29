@@ -35,7 +35,7 @@ public sealed class ConsoleLaunchStateTests
     [Fact] public void TimeoutPersistsThroughRendersAndRejectsLateProcessUntilRetryOrBack()
     {
         var clock = new Clock(); var state = new ConsoleLaunchState(clock); state.Begin("game", "Game"); var request = state.RequestId;
-        clock.Advance(); Assert.Equal(ConsoleLaunchState.Effect.None,state.Observe(true,request,42));
+        clock.Advance(); Assert.Equal(ConsoleLaunchState.Effect.None,state.Observe(true,null,42));
         Assert.False(state.ShowOverlay); var message = state.Message; Assert.Contains("超时",message);
         Assert.Equal(ConsoleLaunchState.Effect.None,state.Observe(true,request,42)); Assert.Equal(message,state.Message);
         Assert.Equal(ConsoleLaunchState.Effect.None,state.Observe(false,null,null)); Assert.Equal(message,state.Message);

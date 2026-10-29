@@ -9,6 +9,36 @@ namespace GameHelper.Tests;
 public sealed class DesktopLibraryViewModelTests
 {
     [Fact]
+    public Task ConsoleRefreshWithoutDesktopPolling_UpdatesExternalGameActions() => OnDispatcher(async () =>
+    {
+        var game = new LibraryGame { Config = new() { DataKey = "game", Executable = "game.exe", Launch = new() { Target = @"C:\Games\game.exe" } } };
+        var backend = new Mock<IGameLibrary>();
+        backend.Setup(b => b.ExecuteAsync(It.IsAny<GameLibraryRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new GameLibraryResponse { Success = true, Games = [game] });
+        using var model = new LibraryViewModel(backend.Object);
+        bool showRunningActions = false;
+        // No MainWindow timer runs here (as when its statistics page suspends library polling),
+        // and no launch is being tracked. Console ticks alone must update the live action state.
+        var refresh = new ConsoleRuntimeRefresh(() => model.RefreshAsync(), () =>
+        {
+            showRunningActions = model.Selected?.IsRunning == true;
+            return Task.CompletedTask;
+        });
+        try
+        {
+            await refresh.TickAsync();
+            Assert.False(showRunningActions); Assert.True(model.LaunchCommand.CanExecute(null));
+            game = game with { State = "运行中·外部" };
+            await refresh.TickAsync();
+            Assert.True(showRunningActions); Assert.False(model.LaunchCommand.CanExecute(null));
+            game = game with { State = "未运行" };
+            await refresh.TickAsync();
+            Assert.False(showRunningActions); Assert.True(model.LaunchCommand.CanExecute(null));
+        }
+        finally { refresh.Stop(); }
+    });
+
+    [Fact]
     public Task JournalFromLibraryAndDashboard_SharesSavedDataAndPreservesLaunchDraft() => OnSta(() =>
     {
         var root = Path.Combine(Path.GetTempPath(), "gh-library-journal-" + Guid.NewGuid().ToString("N"));

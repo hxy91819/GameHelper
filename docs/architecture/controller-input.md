@@ -11,3 +11,5 @@ SDL 初始化前使用 `SetHintWithPriority(..., Override)` 禁用 enhanced repo
 WindowControllerInput 统一窗口激活、SDL 持有与释放，MainWindow 与 ConsoleModeWindow 共用；静态前台 owner 在新窗口建立 SDL 前先释放旧 owner，所有调用在 WPF Dispatcher 上。主机窗口不把其他窗口视作所属模态，桌面库继续支持自身模态返回。ConsoleModePolicy 是可在 Linux 测试的页签、提示和恢复判定边界。
 
 主机启动生命周期由 ConsoleLaunchState（TimeProvider）管理。IPC LaunchRequestId 随启动进入运行时待启动记录；LaunchSessionCorrelation（注入 TimeProvider）管理两分钟观察窗口。有启动器 PID 时严格匹配该 PID；无 PID 时，仅在请求前 DataKey 未运行、期限内首次出现新会话且并非 Preexisting 枚举进程时绑定观察到的 PID。关联随该运行组退出清理，不持久化到跨重启快照。窗口按请求 ID + PID 跟踪，等待、运行、超时与覆盖层展示分开；返回关闭覆盖层不释放等待状态。Steam URI／快捷方式在窗口内关联成功后与直接启动共用最小化、恢复及现有评分邀请路径；已运行或超时后的会话不绑定。按管家确认的折中，接受窗口内从其他入口启动同一 DataKey 的歧义；原启动、HDR 与计时行为不变。
+
+运行时负责会话是否在两分钟内建立关联；界面先接受匹配本次请求的运行时关联，再对未关联请求判断本地超时，避免 IPC 延迟丢弃合法关联。主机窗口的 ConsoleRuntimeRefresh 每次定时回合均主动刷新库状态后再渲染，不依赖桌面是否停留在统计页或当前是否跟踪启动；慢请求不重叠，窗口关闭后不再渲染迟到响应。

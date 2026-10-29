@@ -32,7 +32,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
     private int tab;
     private bool detail, confirm;
     private string query = "";
-    private bool ticking;
+    private readonly ConsoleRuntimeRefresh runtimeRefresh;
     private LibraryGameItem? Selected => shelf.SelectedItem as LibraryGameItem;
     internal ConsoleModeWindow(MainWindow library, LibraryViewModel model)
     {
@@ -75,8 +75,13 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
         KeyDown += (_,e) => { var a = e.Key switch { Key.Left => ControllerAction.Left, Key.Right => ControllerAction.Right, Key.Enter => ControllerAction.Confirm, Key.Escape => ControllerAction.Back, Key.PageUp => ControllerAction.PreviousPage, Key.PageDown => ControllerAction.NextPage, Key.F2 => ControllerAction.SearchFinish, Key.F3 => ControllerAction.Auxiliary, _ => ControllerAction.None }; if (a != ControllerAction.None) { e.Handled = true; Handle(a); } };
         input = new(this, actions => { UpdateHelp(); foreach (var a in actions) Handle(a); }, message => status.Text = message);
         Loaded += (_,_) => { PlaceOnLibraryMonitor(); library.Hide(); model.LaunchWindowHandoff = this; Reload(); };
+        runtimeRefresh = new(async () =>
+        {
+            if (launchState.Tracking && !model.IsBusy && model.HasActionError) launchState.Fail();
+            if (!model.IsBusy) await model.RefreshAsync();
+        }, RenderRuntimeAsync);
         refresh.Tick += Tick; refresh.Start();
-        Closed += (_,_) => { closed = true; model.ConsoleLaunchRequestId = null; refresh.Stop(); input.Dispose(); model.LaunchWindowHandoff = previous; library.Show(); library.WindowState = WindowState.Normal; library.Activate(); };
+        Closed += (_,_) => { closed = true; runtimeRefresh.Stop(); model.ConsoleLaunchRequestId = null; refresh.Stop(); input.Dispose(); model.LaunchWindowHandoff = previous; library.Show(); library.WindowState = WindowState.Normal; library.Activate(); };
     }
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct Rect { public int Left, Top, Right, Bottom; }
@@ -160,30 +165,23 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
         try { var value = await model.ConsoleRatingAsync(key); if (!closed && Selected?.DataKey == key) { rating = value; Render(); } }
         catch { if (!closed && Selected?.DataKey == key) { rating = "评分暂不可用"; Render(); } }
     }
-    private async void Tick(object? sender, EventArgs e)
+    private async void Tick(object? sender, EventArgs e) => await runtimeRefresh.TickAsync();
+    private async Task RenderRuntimeAsync()
     {
-        if (closed || ticking) return;
-        ticking = true;
-        try
+        if (closed) return;
+        if (launchState.Tracking)
         {
-            if (launchState.Tracking)
-            {
-                if (!model.IsBusy && model.HasActionError) launchState.Fail();
-                if (launchState.Tracking && !model.IsBusy) await model.RefreshAsync();
-                if (closed) return;
-                var game = model.ConsoleGames.FirstOrDefault(g => g.DataKey == launchState.Key);
-                if (!model.IsBusy && model.HasActionError) launchState.Fail();
-                if (game?.LaunchRequestId == launchState.RequestId && game?.IsRunning == true) ratingSession = game.Processes.FirstOrDefault()?.SessionId;
-                var effect = launchState.Observe(game?.IsRunning == true, game?.LaunchRequestId, game?.LaunchProcessId);
-                Render();
-                if (effect == ConsoleLaunchState.Effect.Minimize) WindowState = WindowState.Minimized;
-                else if (effect == ConsoleLaunchState.Effect.Restore) { WindowState = WindowState.Normal; Activate(); ratingDeadline = DateTimeOffset.UtcNow.AddSeconds(15); }
-            }
-            else if (!detail) Reload();
-            else Render();
-            await CheckRatingInvitationAsync();
+            var game = model.ConsoleGames.FirstOrDefault(g => g.DataKey == launchState.Key);
+            if (!model.IsBusy && model.HasActionError) launchState.Fail();
+            if (game?.LaunchRequestId == launchState.RequestId && game?.IsRunning == true) ratingSession = game.Processes.FirstOrDefault()?.SessionId;
+            var effect = launchState.Observe(game?.IsRunning == true, game?.LaunchRequestId, game?.LaunchProcessId);
+            Render();
+            if (effect == ConsoleLaunchState.Effect.Minimize) WindowState = WindowState.Minimized;
+            else if (effect == ConsoleLaunchState.Effect.Restore) { WindowState = WindowState.Normal; Activate(); ratingDeadline = DateTimeOffset.UtcNow.AddSeconds(15); }
         }
-        finally { ticking = false; }
+        else if (!detail) Reload();
+        else Render();
+        await CheckRatingInvitationAsync();
     }
 
     void ILaunchWindowHandoff.AllowForeground() => WindowsForegroundPermission.AllowAnyProcess();

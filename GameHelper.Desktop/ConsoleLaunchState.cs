@@ -38,10 +38,11 @@ internal sealed class ConsoleLaunchState(TimeProvider clock)
     {
         if (Waiting)
         {
-            // Expire before accepting any observation, including one received after a slow IPC call.
-            if (clock.GetUtcNow() >= deadline) { State = Phase.TimedOut; RequestId = null; return Effect.None; }
             if (running && requestId == RequestId && pid is not null)
             { processId = pid; State = Phase.Running; return Effect.Minimize; }
+            // The runtime owns the association deadline. A valid association may arrive after slow IPC;
+            // the local deadline only expires requests for which no association was received.
+            if (clock.GetUtcNow() >= deadline) { State = Phase.TimedOut; RequestId = null; return Effect.None; }
         }
         else if (State == Phase.Running && (!running || requestId != RequestId || pid != processId))
         { State = Phase.Completed; RequestId = null; return Effect.Restore; }

@@ -29,6 +29,18 @@ public sealed class LaunchSessionCorrelationTests
         Assert.Equal(ConsoleLaunchState.Effect.Restore,window.Observe(false,null,null));
         Assert.Equal(ConsoleLaunchState.Effect.None,window.Observe(false,null,null));
     }
+    [Fact] public void AssociationAt119SecondsIsAcceptedWhenResponseArrivesAfterDeadline()
+    {
+        var clock = new Clock(); var correlation = new LaunchSessionCorrelation(clock); var window = new ConsoleLaunchState(clock);
+        window.Begin("steam", "Steam game");
+        correlation.Begin("steam",window.RequestId!.Value,null,clock.GetUtcNow().AddMinutes(2),false);
+        clock.Advance(TimeSpan.FromSeconds(119)); correlation.Observe("steam",42,true,false);
+        var identity = correlation.Snapshot()["steam"];
+        clock.Advance(TimeSpan.FromSeconds(3));
+        Assert.Equal(ConsoleLaunchState.Effect.Minimize,window.Observe(true,identity.RequestId,identity.ProcessId));
+        Assert.Equal(ConsoleLaunchState.Phase.Running,window.State); Assert.False(window.ShowOverlay);
+        Assert.Equal(ConsoleLaunchState.Effect.Restore,window.Observe(false,null,null));
+    }
     [Theory] [InlineData(120)] [InlineData(121)]
     public void UriSessionAtOrAfterDeadlineCannotMinimizeOrRestore(int seconds)
     {
