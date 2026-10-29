@@ -4,8 +4,6 @@
 
 ## Active Documents
 
-- [Agent XERJ Search](./agents/xerj-search.md): Linux search experiment, external corpora and measured limits.
-
 - [Architecture](./architecture/index.md): current repository design, module seams, dependency direction, and testing strategy.
 - [CLI Guide](./guides/cli.md): user-facing command-line usage.
 - [Game Speed](./guides/game-speed.md): per-game Cheat Engine speed configuration and safety boundary.

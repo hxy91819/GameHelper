@@ -388,8 +388,3 @@ docs/todo/
 # Per-configuration local appearance preferences
 *.desktop-theme.json
 *.desktop-theme.json.*.tmp
-
-# Agent search experiment: never commit indices or cloned corpora
-.xerj/
-.xerj-data/
-.xerj-cache/

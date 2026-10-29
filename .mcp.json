@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "xerj": {
-      "command": "bash",
-      "args": ["scripts/xerj-search.sh", "mcp"]
-    }
-  }
-}
