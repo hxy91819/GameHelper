@@ -56,25 +56,19 @@ internal sealed partial class ConsoleModeWindow
     private void RenderSettingsOverlay(StackPanel panel)
     {
         if (gameSettings is not { } draft) return;
-        panel.Children.Add(new TextBlock { Text = $"{draft.Name} · 游戏自动化设置", FontSize = 34, Foreground = Brushes.White, TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(new TextBlock
-        {
-            Text = "自动 HDR 配置用于游戏自动化；系统菜单的显示器 HDR 是临时开关。\nDS4Windows 与倍速在下次启动游戏时应用；HDR 在后续自动调度时应用。\n本页读取已保存配置；桌面未保存草稿独立保留。",
-            FontSize = 21, Foreground = Brushes.LightGray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 12)
-        });
-        string[] labels = [$"自动 HDR：{(draft.Hdr ? "开启" : "关闭")}", $"启动 DS4Windows：{(draft.UseDs4Windows ? "开启" : "关闭")}",
-            $"倍速：{(draft.UseSpeed ? "开启" : "关闭")}", $"倍率：{draft.Speed:0.##}×（左右调整 0.1×，范围 0.1–10×）",
-            "保存设置", "重新载入已保存配置（放弃本页调整）", "取消（放弃本页调整）"];
+        ConsoleOverlayVisuals.Header(panel, "游戏自动化设置", $"{draft.Name}\nDS4Windows 与倍速下次启动生效；HDR 在后续自动调度时应用。");
+        string[] labels = ["自动 HDR", "启动 DS4Windows", "游戏倍速", "倍速倍率", "保存设置", "重新载入已保存配置", "取消，返回主机模式"];
+        string?[] values = [draft.Hdr ? "开启" : "关闭", draft.UseDs4Windows ? "开启" : "关闭", draft.UseSpeed ? "开启" : "关闭", $"{draft.Speed:0.##}×", null, null, null];
+        string[] descriptions = ["用于游戏自动化，与显示器临时 HDR 开关独立", "在启动游戏前准备手柄配套软件", "启用后使用已配置的 Cheat Engine", "左右调整 0.1× · 范围 0.1–10×",
+            "应用本页调整，桌面未保存草稿独立保留", "放弃本页调整，读取最新设置", "放弃本页尚未保存的调整"];
         for (var index = 0; index < labels.Length; index++)
         {
             var captured = index;
-            var button = new Button { Content = labels[index], FontSize = 24, Padding = new Thickness(15, 8, 15, 8), Margin = new Thickness(3), IsEnabled = !actionBusy,
-                Background = index == settingsIndex ? Brushes.LightGreen : Brushes.DarkSlateGray, Foreground = index == settingsIndex ? Brushes.Black : Brushes.White };
-            if (index == settingsIndex) button.Loaded += (_, _) => button.BringIntoView();
-            button.Click += (_, _) => { settingsIndex = captured; HandleSettings(ControllerAction.Confirm); Render(); };
-            panel.Children.Add(button);
+            panel.Children.Add(ConsoleOverlayVisuals.Row(labels[index], descriptions[index], values[index], index == settingsIndex, !actionBusy,
+                () => { settingsIndex = captured; HandleSettings(ControllerAction.Confirm); Render(); }, primary: index == 4));
         }
-        panel.Children.Add(new TextBlock { Text = $"DS4Windows 路径：{draft.Ds4WindowsPath}（路径请在桌面游戏库修改）\n关闭 DS4Windows 会在下次启动此游戏前关闭它。启用倍速需已配置 Cheat Engine。",
-            FontSize = 20, Foreground = Brushes.LightGray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) });
+        panel.Children.Add(ConsoleOverlayVisuals.Notice("关闭 DS4Windows 会在下次启动此游戏前关闭它。"));
+        var path = ConsoleModeVisuals.Label($"DS4Windows 路径（在桌面游戏库修改）\n{draft.Ds4WindowsPath}", 15, ConsoleModeVisuals.Secondary);
+        path.Margin = new Thickness(2, 14, 2, 2); panel.Children.Add(path);
     }
 }

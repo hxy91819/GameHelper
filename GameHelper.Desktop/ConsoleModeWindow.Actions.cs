@@ -11,7 +11,7 @@ internal sealed partial class ConsoleModeWindow
 {
     private enum ConsoleOverlay { None, SystemMenu, Confirm, Keyboard, Rating, Settings }
     private sealed record MenuRow(string Label, bool Enabled, Func<Task> Execute);
-    private readonly Border actionOverlay = new() { Background = new SolidColorBrush(Color.FromArgb(250, 13, 23, 34)), Padding = new Thickness(30), Visibility = Visibility.Collapsed };
+    private readonly Border actionOverlay = new() { Background = new SolidColorBrush(Color.FromArgb(235, 9, 10, 14)), Padding = new Thickness(24), Visibility = Visibility.Collapsed };
     private readonly Button stopButton = new() { Content = "结束游戏（需确认）", FontSize = 24, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0,15,0,0), Visibility = Visibility.Collapsed };
     private ConsoleOverlay overlayKind;
     private List<MenuRow> menuRows = [];
@@ -197,36 +197,53 @@ internal sealed partial class ConsoleModeWindow
     {
         actionOverlay.Visibility = overlayKind == ConsoleOverlay.None ? Visibility.Collapsed : Visibility.Visible;
         if (overlayKind == ConsoleOverlay.None) return;
-        var panel = new StackPanel { VerticalAlignment = VerticalAlignment.Center, MaxWidth = 1100 };
-        actionOverlay.Child = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        void Text(string text, int size = 26) => panel.Children.Add(new TextBlock { Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0,10,0,10), Foreground = Brushes.White });
-        Button Button(string label, bool enabled, bool selected, Action click)
+        var panel = new StackPanel();
+        var playStation = input.Kind == ControllerKind.PlayStation;
+        var confirmButton = playStation ? "×" : "A"; var backButton = playStation ? "○" : "B";
+        var auxiliaryButton = playStation ? "□" : "X"; var finishButton = playStation ? "△" : "Y";
+        var hint = overlayKind switch
         {
-            var button = new Button { Content = label, FontSize = 24, Padding = new Thickness(15,8,15,8), Margin = new Thickness(3), IsEnabled = enabled && !actionBusy,
-                Background = selected ? Brushes.LightGreen : Brushes.DarkSlateGray, Foreground = selected ? Brushes.Black : Brushes.White };
-            if (selected) button.Loaded += (_, _) => button.BringIntoView();
-            button.Click += (_,_) => click(); return button;
-        }
+            ConsoleOverlay.Settings => $"上下 选择  ·  左右 调整  ·  {confirmButton} 切换 / 保存  ·  {backButton} 返回（放弃调整）",
+            ConsoleOverlay.Keyboard => $"方向键 选字符  ·  {confirmButton} 输入  ·  {auxiliaryButton} 退格  ·  {finishButton} 完成  ·  {backButton} 取消",
+            ConsoleOverlay.Rating => $"左右 选星  ·  {confirmButton} 提交  ·  {auxiliaryButton} 填写想法  ·  {backButton} 跳过",
+            ConsoleOverlay.Confirm => $"{confirmButton} 确认执行  ·  {backButton} 取消",
+            _ => $"上下 选择  ·  {confirmButton} 确认  ·  {backButton} 关闭菜单"
+        };
+        actionOverlay.Child = ConsoleOverlayVisuals.Surface(panel, hint, interactionStatus);
+        Button Button(string label, bool enabled, bool selected, Action click, string? description = null, bool primary = false) =>
+            ConsoleOverlayVisuals.Row(label, description, null, selected, enabled && !actionBusy, click, primary);
         if (overlayKind == ConsoleOverlay.Settings) RenderSettingsOverlay(panel);
         else if (overlayKind == ConsoleOverlay.SystemMenu)
         {
-            Text("系统菜单",36);
-            for (int i=0;i<menuRows.Count;i++) { var row = menuRows[i]; panel.Children.Add(Button(row.Label,row.Enabled,i==menuIndex,() => _ = RunInteractionAsync(row.Execute))); }
+            ConsoleOverlayVisuals.Header(panel, "系统菜单", "管理当前游戏、显示与休息提醒。电源操作会再次确认。");
+            for (int i=0;i<menuRows.Count;i++)
+            {
+                var row = menuRows[i];
+                var description = row.Label.StartsWith("当前游戏设置", StringComparison.Ordinal) ? "自动 HDR、DS4Windows 与游戏倍速"
+                    : row.Label.Contains("临时开关", StringComparison.Ordinal) ? "只调整显示器当前状态，不修改游戏自动 HDR 配置"
+                    : row.Label.Contains("结束", StringComparison.Ordinal) || row.Label is "重启电脑" or "关闭电脑" ? "执行前需要确认，请先保存游戏进度"
+                    : !row.Enabled ? "当前不可用" : null;
+                panel.Children.Add(Button(row.Label,row.Enabled,i==menuIndex,() => _ = RunInteractionAsync(row.Execute),description));
+            }
         }
         else if (overlayKind == ConsoleOverlay.Confirm)
         {
-            Text(confirmationText,32);
-            panel.Children.Add(Button("确认",true,true,() => HandleActionOverlay(ControllerAction.Confirm)));
-            panel.Children.Add(Button("取消",true,false,() => HandleActionOverlay(ControllerAction.Back)));
+            ConsoleOverlayVisuals.Header(panel, "请确认操作", "确认后将执行以下操作。返回可取消。");
+            panel.Children.Add(ConsoleOverlayVisuals.Notice(confirmationText, warning: true));
+            var actions = new StackPanel { Margin = new Thickness(0, 20, 0, 0) }; panel.Children.Add(actions);
+            actions.Children.Add(Button("确认执行",true,true,() => HandleActionOverlay(ControllerAction.Confirm),primary:true));
+            actions.Children.Add(Button("取消，返回主机模式",true,false,() => HandleActionOverlay(ControllerAction.Back)));
         }
         else if (overlayKind == ConsoleOverlay.Keyboard && keyboard is not null)
         {
-            Text(editingThought ? "本局想法（可留空）" : "按名称搜索",32); Text(keyboard.Text.Length == 0 ? "（空）" : keyboard.Text.Length > 100 ? "…" + keyboard.Text[^100..] : keyboard.Text);
+            ConsoleOverlayVisuals.Header(panel, editingThought ? "记录本局想法" : "搜索游戏", "方向键选择字符，确认输入；完成后应用，返回取消。");
+            var field = ConsoleModeVisuals.PanelFrame(ConsoleModeVisuals.Label(keyboard.Text.Length == 0 ? "（尚未输入）" : keyboard.Text.Length > 100 ? "…" + keyboard.Text[^100..] : keyboard.Text, 24), 16);
+            field.Background = ConsoleModeVisuals.Surface; field.Margin = new Thickness(0, 0, 0, 16); panel.Children.Add(field);
             var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = ConsoleKeyboard.Columns }; panel.Children.Add(grid);
             for (int i=0;i<ConsoleKeyboard.Keys.Length;i++)
             {
                 int index = i;
-                grid.Children.Add(Button(ConsoleKeyboard.Keys[i],true,i==keyboard.Index,() =>
+                grid.Children.Add(ConsoleOverlayVisuals.Key(ConsoleKeyboard.Keys[i],i==keyboard.Index,!actionBusy,() =>
                 {
                     if (keyboard is null) return;
                     var key = ConsoleKeyboard.Keys[index];
@@ -237,13 +254,16 @@ internal sealed partial class ConsoleModeWindow
         }
         else if (ratingEditor is not null)
         {
-            Text("本局体验如何？",36); Text(ratingEditor.Description);
-            Text(new string('★',ratingEditor.Stars) + new string('☆',5-ratingEditor.Stars),44);
-            Text(ratingEditor.Thought.Length == 0 ? "想法：留空" : ratingEditor.Thought.Length > 100 ? ratingEditor.Thought[..100] + "…" : ratingEditor.Thought);
-            panel.Children.Add(Button("提交评分",true,true,() => HandleActionOverlay(ControllerAction.Confirm)));
-            panel.Children.Add(Button("填写想法",true,false,() => OpenKeyboard(true)));
-            panel.Children.Add(Button("跳过",true,false,() => HandleActionOverlay(ControllerAction.Back)));
+            ConsoleOverlayVisuals.Header(panel, "本局体验如何？", ratingEditor.Description);
+            var stars = ConsoleModeVisuals.Label(new string('★',ratingEditor.Stars) + new string('☆',5-ratingEditor.Stars), 46, ConsoleModeVisuals.Accent);
+            stars.Margin = new Thickness(0, 0, 0, 6); panel.Children.Add(stars);
+            var ratingHint = ConsoleModeVisuals.Label("左右选择星级", 17, ConsoleModeVisuals.Secondary);
+            ratingHint.Margin = new Thickness(0, 0, 0, 12); panel.Children.Add(ratingHint);
+            panel.Children.Add(ConsoleOverlayVisuals.Notice(ratingEditor.Thought.Length == 0 ? "想法：留空" : ratingEditor.Thought.Length > 100 ? ratingEditor.Thought[..100] + "…" : ratingEditor.Thought));
+            var actions = new StackPanel { Margin = new Thickness(0, 20, 0, 0) }; panel.Children.Add(actions);
+            actions.Children.Add(Button("提交评分",true,true,() => HandleActionOverlay(ControllerAction.Confirm),primary:true));
+            actions.Children.Add(Button("填写想法",true,false,() => OpenKeyboard(true),"可选，记录当下感受"));
+            actions.Children.Add(Button("跳过本次评分",true,false,() => HandleActionOverlay(ControllerAction.Back)));
         }
-        if (interactionStatus.Length > 0) Text(interactionStatus);
     }
 }

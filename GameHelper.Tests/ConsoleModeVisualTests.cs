@@ -14,9 +14,11 @@ namespace GameHelper.Tests;
 public sealed class ConsoleModeVisualTests
 {
     [Theory]
-    [InlineData("Light")]
-    [InlineData("Dark")]
-    public Task ShelfTextAndSelectionRemainReadableAndContentSized(string desktopTheme) => OnSta(() =>
+    [InlineData("Light", 750)]
+    [InlineData("Dark", 750)]
+    [InlineData("Light", 300)]
+    [InlineData("Dark", 300)]
+    public Task ShelfTextAndSelectionRemainReadableAndContentSized(string desktopTheme, int viewportHeight) => OnSta(() =>
     {
         var directory = new DirectoryInfo(Path.GetDirectoryName(SourcePath())!);
         while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "GameHelper.sln"))) directory = directory.Parent;
@@ -40,13 +42,17 @@ public sealed class ConsoleModeVisualTests
         unselectedGame.SetController(new ControllerSupport("unlisted"));
         shelf.ItemsSource = new[] { selectedGame, unselectedGame };
         shelf.SelectedIndex = 0;
-        surface.Measure(new Size(1280, 750)); surface.Arrange(new Rect(0, 0, 1280, 750)); surface.UpdateLayout();
-        var bitmap = new RenderTargetBitmap(1280, 750, 96, 96, PixelFormats.Pbgra32); bitmap.Render(surface);
+        shelf.Tag = ConsoleModeWindow.ShelfPosterHeight(viewportHeight);
+        surface.Measure(new Size(1280, viewportHeight)); surface.Arrange(new Rect(0, 0, 1280, viewportHeight)); surface.UpdateLayout();
+        var actualViewport = Descendants<ScrollContentPresenter>(shelf).First();
+        shelf.Tag = ConsoleModeWindow.ShelfPosterHeight(actualViewport.ActualHeight);
+        surface.UpdateLayout();
+        var bitmap = new RenderTargetBitmap(1280, viewportHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(surface);
         if (Environment.GetEnvironmentVariable("GAMEHELPER_TEST_VISUAL_OUTPUT") is { Length: > 0 } output)
         {
             Directory.CreateDirectory(output);
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
-            using var file = File.Create(Path.Combine(output, $"console-shelf-{desktopTheme}.png")); encoder.Save(file);
+            using var file = File.Create(Path.Combine(output, $"console-shelf-{desktopTheme}-{viewportHeight}.png")); encoder.Save(file);
         }
         var first = (ListBoxItem)shelf.ItemContainerGenerator.ContainerFromIndex(0);
         var second = (ListBoxItem)shelf.ItemContainerGenerator.ContainerFromIndex(1);
@@ -62,7 +68,14 @@ public sealed class ConsoleModeVisualTests
                 $"{desktopTheme}: {label.Text} foreground {label.Foreground} is unreadable on console background");
         Assert.True(first.ActualHeight < 500, $"Selected card stretched to {first.ActualHeight} instead of its poster and text height");
         Assert.True(second.ActualHeight < 500, $"Unselected card stretched to {second.ActualHeight}");
-        Assert.True(first.ActualHeight > 350);
+        Assert.True(first.ActualHeight > 240);
+        var lastLabel = Descendants<TextBlock>(first).Last();
+        var labelBottom = lastLabel.TranslatePoint(new Point(0, lastLabel.ActualHeight), actualViewport).Y;
+        Assert.True(labelBottom <= actualViewport.ActualHeight, $"Support text clipped: {labelBottom} > {actualViewport.ActualHeight}");
+        var poster = Descendants<GamePosterTile>(first).Single();
+        Assert.Equal(2d / 3d, poster.ActualWidth / poster.ActualHeight, 3);
+        Assert.True(first.ActualHeight <= viewportHeight - 8, $"Card {first.ActualHeight} clipped by {viewportHeight}px viewport");
+        Assert.Equal(244, first.ActualWidth, 1);
         Assert.Contains(labels, label => label.Text == "不支持手柄" && ((SolidColorBrush)label.Foreground).Color == Colors.Salmon);
         // The console's local palette must not mutate the desktop's active palette.
         var desktopPalette = resources.MergedDictionaries[0];

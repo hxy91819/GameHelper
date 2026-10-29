@@ -19,7 +19,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
     private readonly TextBlock heading = new() { FontSize = 44, Text = "今晚，继续冒险。" };
     private readonly TextBlock help = new() { FontSize = 22 };
     private readonly TextBlock info = new() { FontSize = 24, TextWrapping = TextWrapping.Wrap };
-    private readonly StackPanel details = new();
+    private readonly Grid details = new();
     private readonly Button detailLaunchButton = new() { FontSize = 26, Margin = new Thickness(0,25,0,0), HorizontalAlignment = HorizontalAlignment.Left };
     private readonly GamePosterTile detailPoster = new() { Width = 220, Height = 310, HorizontalAlignment = HorizontalAlignment.Left };
     private string rating = "正在读取评分…";
@@ -39,25 +39,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
         this.library = library; this.model = model; previous = model.LaunchWindowHandoff;
         Title = "GameHelper 主机模式"; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         ConfigureTheme(Resources);
-        Background = new SolidColorBrush(Color.FromRgb(13, 23, 34)); Foreground = Brushes.White;
-        var root = new DockPanel { Margin = new Thickness(55, 35, 55, 30) }; Content = root;
-        var top = new StackPanel(); DockPanel.SetDock(top, Dock.Top); root.Children.Add(top);
-        top.Children.Add(new TextBlock { Text = "◈ GAMEHELPER / 主机模式", FontSize = 22, Margin = new Thickness(0,0,0,35) });
-        top.Children.Add(heading);
-        var tabs = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0,25,0,25) }; top.Children.Add(tabs);
-        string[] names = ["全部", "最近", "未通关", "支持手柄"];
-        for (int i = 0; i < names.Length; i++) { int index = i; var b = new Button { Content = names[i], FontSize = 22, Padding = new Thickness(22,10,22,10) }; b.Click += (_,_) => { tab = index; Reload(); }; tabs.Children.Add(b); }
-        var footer = new StackPanel(); DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer); footer.Children.Add(status); footer.Children.Add(help);
-        var body = new Grid(); root.Children.Add(body); body.Children.Add(shelf); body.Children.Add(details); body.Children.Add(launchOverlay); body.Children.Add(actionOverlay);
-        ConfigureShelf(shelf);
-        var searchButton = new Button { Content = "搜索 / 屏幕键盘", FontSize = 22, Padding = new Thickness(22,10,22,10) }; searchButton.Click += (_,_) => OpenKeyboard(false); tabs.Children.Add(searchButton);
-        shelf.MouseDoubleClick += (_,_) => Handle(ControllerAction.Confirm);
-        details.Orientation = Orientation.Horizontal;
-        details.Children.Add(detailPoster);
-        var detailBody = new StackPanel { Margin = new Thickness(35,0,0,0), MaxWidth = 850 }; details.Children.Add(detailBody);
-        detailBody.Children.Add(info); var launch = detailLaunchButton; launch.Click += (_,_) => Handle(ControllerAction.Confirm); detailBody.Children.Add(launch);
-        detailBody.Children.Add(stopButton); stopButton.Click += (_,_) => ConfirmStop();
-        var back = new Button { Content = "返回", FontSize = 24, HorizontalAlignment = HorizontalAlignment.Left }; back.Click += (_,_) => Handle(ControllerAction.Back); detailBody.Children.Add(back);
+        BuildPresentation();
         KeyDown += (_,e) => { var a = e.Key switch { Key.Left => ControllerAction.Left, Key.Right => ControllerAction.Right, Key.Enter => ControllerAction.Confirm, Key.Escape => ControllerAction.Back, Key.PageUp => ControllerAction.PreviousPage, Key.PageDown => ControllerAction.NextPage, Key.F2 => ControllerAction.SearchFinish, Key.F3 => ControllerAction.Auxiliary, _ => ControllerAction.None }; if (a != ControllerAction.None) { e.Handled = true; Handle(a); } };
         input = new(this, actions => { UpdateHelp(); foreach (var a in actions) Handle(a); }, message => status.Text = message);
         Loaded += (_,_) => { PlaceOnLibraryMonitor(); library.Hide(); model.LaunchWindowHandoff = this; Reload(); };
@@ -93,7 +75,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
         shelf.ItemsSource = order.Select(k => rows.First(g => g.DataKey == k)).ToArray();
         shelf.SelectedItem = shelf.Items.Cast<LibraryGameItem>().FirstOrDefault(g => g.DataKey == key);
         if (shelf.SelectedIndex < 0 && shelf.Items.Count > 0) shelf.SelectedIndex = 0;
-        heading.Text = $"今晚，继续冒险。 / {new[] { "全部", "最近", "未通关", "支持手柄" }[tab]}";
+        UpdatePresentation();
         Render();
     }
     private void UpdateHelp()
@@ -123,9 +105,16 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
         if (Selected is { } posterGame) { detailPoster.Artwork = posterGame.CoverArtwork; detailPoster.Label = posterGame.Initial; }
         detailLaunchButton.Content = Selected?.IsRunning == true ? "回到游戏" : "启动游戏 / 确认";
         stopButton.Visibility = detail && Selected?.IsRunning == true ? Visibility.Visible : Visibility.Collapsed;
-        if (Selected is { } g) info.Text = $"{g.Name}\n\n{g.Playtime} · {model.ConsoleJournal(g.DataKey).Status}\n{g.LastPlayedLabel} · 最近本局打分：{rating}\n{g.Controller.Label}\n{g.Controller.Description}\n\n启动设置：{g.Summary} · DS4Windows：{(g.UseDs4Windows ? "启用" : "关闭")}\n□ / X 快速打开游戏设置；也可从系统菜单进入\n\n{(confirm ? "部分支持或不支持手柄，请备好键鼠。确认仍启动 / 返回取消" : g.IsRunning ? "确认回到游戏 · 结束游戏请选下方按钮（需确认）" : "确认启动游戏")}";
+        if (Selected is { } g)
+        {
+            detailTitle.Text = g.Name;
+            detailSummary.Text = $"{g.Playtime}  ·  {model.ConsoleJournal(g.DataKey).Status}\n{g.LastPlayedLabel}  ·  最近本局评分：{rating}";
+            detailController.Text = $"{g.Controller.Label}\n{g.Controller.Description}";
+            detailSettings.Text = $"{g.Summary}  ·  DS4Windows {(g.UseDs4Windows ? "启用" : "关闭")}\n□ / X 快速打开游戏设置";
+            info.Text = confirm ? "这款游戏仅部分支持或不支持手柄。请备好键鼠，再次确认即可启动。" : g.IsRunning ? "游戏正在运行。回到游戏继续冒险，或从系统菜单结束游戏。" : "准备好就出发。启动时会应用已保存的游戏自动化设置。";
+        }
         status.Text = launchState.Message ?? (interactionStatus.Length > 0 ? interactionStatus : !string.IsNullOrEmpty(model.ActionError) ? model.ActionError : settingsStatus.Length > 0 ? settingsStatus : model.Status);
-        RenderActionOverlay(); UpdateHelp();
+        UpdatePresentation(); RenderActionOverlay(); UpdateHelp();
     }
     private void Handle(ControllerAction action)
     {
@@ -147,10 +136,10 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
         }
         if (detail) return;
         if (action is ControllerAction.PreviousShelfPage or ControllerAction.NextShelfPage)
-        { PageShelf(shelf, action == ControllerAction.NextShelfPage); return; }
+        { PageShelf(shelf, action == ControllerAction.NextShelfPage); UpdatePresentation(); return; }
         if (action is ControllerAction.PreviousPage or ControllerAction.NextPage) { tab = (tab + (action == ControllerAction.NextPage ? 1 : 3)) % 4; Reload(); return; }
         var offset = action == ControllerAction.Left ? -1 : action == ControllerAction.Right ? 1 : 0;
-        if (offset != 0 && shelf.Items.Count > 0) { shelf.SelectedIndex = Math.Clamp(shelf.SelectedIndex + offset,0,shelf.Items.Count-1); shelf.ScrollIntoView(shelf.SelectedItem); }
+        if (offset != 0 && shelf.Items.Count > 0) { shelf.SelectedIndex = Math.Clamp(shelf.SelectedIndex + offset,0,shelf.Items.Count-1); shelf.ScrollIntoView(shelf.SelectedItem); UpdatePresentation(); }
     }
     internal static void PageShelf(ListBox shelf, bool next)
     {
