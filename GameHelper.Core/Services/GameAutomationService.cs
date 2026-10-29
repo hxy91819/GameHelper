@@ -294,7 +294,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 normalizedName,
                 normalizedPath,
                 processInfo.ProcessId);
-            var isOwnLaunch = _launchOwnership.ObserveStart(config.DataKey, processInfo.ProcessId);
+            var isOwnLaunch = _launchOwnership.ObserveStart(config.DataKey, processInfo.ProcessId, firstForDataKey, processInfo.Preexisting);
             var processStartedUtc = _inFlightRecovery.RecordProcessStart(processInfo.ProcessId);
 
             _logger.LogInformation(

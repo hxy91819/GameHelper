@@ -16,9 +16,8 @@ namespace GameHelper.Core.Services;
 internal sealed class LaunchOwnershipCoordinator
 {
     private readonly Dictionary<string, DateTimeOffset> _pendingLaunches = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, (Guid RequestId, int ProcessId)> _pendingRequests = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, (Guid RequestId, int ProcessId)> _launchIdentities = new(StringComparer.OrdinalIgnoreCase);
-    internal IReadOnlyDictionary<string, (Guid RequestId, int ProcessId)> GetLaunchIdentities() => new Dictionary<string, (Guid, int)>(_launchIdentities, StringComparer.OrdinalIgnoreCase);
+    private readonly LaunchSessionCorrelation _requestSessions;
+    internal IReadOnlyDictionary<string, (Guid RequestId, int ProcessId)> GetLaunchIdentities() => _requestSessions.Snapshot();
     private readonly Dictionary<string, string> _launchFailures = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _ownLaunchedDataKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly HdrScheduler _hdrScheduler = new();
@@ -36,6 +35,7 @@ internal sealed class LaunchOwnershipCoordinator
         TimeProvider timeProvider, ILogger logger, object stateLock, Func<bool> isStarted,
         Func<AutomationConfigIndex> getConfigIndex, SessionTracker sessionTracker, Action persistInFlightSnapshot)
     {
+        _requestSessions = new(timeProvider);
         _gameLauncher = gameLauncher;
         _hdr = hdr;
         _timeProvider = timeProvider;
@@ -49,17 +49,15 @@ internal sealed class LaunchOwnershipCoordinator
 
     internal bool OwnsEnabledHdr => _hdrScheduler.OwnsEnabledHdr;
     internal int PendingCount => _pendingLaunches.Count;
-    internal void ResetProvenance() { _ownLaunchedDataKeys.Clear(); _launchIdentities.Clear(); }
-    internal void ClearPending() { _pendingLaunches.Clear(); _pendingRequests.Clear(); }
+    internal void ResetProvenance() { _ownLaunchedDataKeys.Clear(); _requestSessions.ClearActive(); }
+    internal void ClearPending() { _pendingLaunches.Clear(); _requestSessions.ClearPending(); }
     internal void ClearFailures() => _launchFailures.Clear();
-    internal void Release(string dataKey) { _ownLaunchedDataKeys.Remove(dataKey); _launchIdentities.Remove(dataKey); }
+    internal void Release(string dataKey) { _ownLaunchedDataKeys.Remove(dataKey); _requestSessions.Release(dataKey); }
 
-    internal bool ObserveStart(string dataKey, int? processId)
+    internal bool ObserveStart(string dataKey, int? processId, bool firstForKey, bool preexisting)
     {
-        var timely = _pendingLaunches.TryGetValue(dataKey, out var deadline) && deadline > _timeProvider.GetUtcNow();
+        _requestSessions.Observe(dataKey, processId, firstForKey, preexisting);
         var isOwnLaunch = _pendingLaunches.Remove(dataKey);
-        if (_pendingRequests.Remove(dataKey, out var request) && timely && processId == request.ProcessId)
-            _launchIdentities[dataKey] = request;
         // Existing-process enumeration is external; only a pending library launch grants ownership.
         if (isOwnLaunch) _ownLaunchedDataKeys.Add(dataKey);
         _launchFailures.Remove(dataKey);
@@ -78,7 +76,7 @@ internal sealed class LaunchOwnershipCoordinator
         foreach (var key in expired)
         {
             _pendingLaunches.Remove(key);
-            _pendingRequests.Remove(key);
+            _requestSessions.Cancel(key);
             _launchFailures[key] = "启动超时：未识别到游戏进程";
         }
         return expired.Count;
@@ -103,7 +101,7 @@ internal sealed class LaunchOwnershipCoordinator
 
     internal void CompleteRecovery()
     {
-        foreach (var key in _sessionTracker.GetActiveDataKeysSnapshot()) { _pendingLaunches.Remove(key); _pendingRequests.Remove(key); }
+        foreach (var key in _sessionTracker.GetActiveDataKeysSnapshot()) { _pendingLaunches.Remove(key); _requestSessions.Cancel(key); }
     }
 
     internal void UpdateHdrState()
@@ -145,7 +143,7 @@ internal sealed class LaunchOwnershipCoordinator
                 catch
                 {
                     _pendingLaunches.Remove(dataKey);
-                    _pendingRequests.Remove(dataKey);
+                    _requestSessions.Cancel(dataKey);
                     UpdateHdrState();
                     _persistInFlightSnapshot();
                     throw;
@@ -162,8 +160,9 @@ internal sealed class LaunchOwnershipCoordinator
                 if (requestId is { } id)
                 {
                     var pid = _gameLauncher.StartTracked(options);
-                    if (pid is { } confirmedPid && _pendingLaunches.ContainsKey(dataKey))
-                        _pendingRequests[dataKey] = (id, confirmedPid);
+                    if (_pendingLaunches.TryGetValue(dataKey, out var deadline))
+                        // The launch gate above rejected any already-running DataKey.
+                        _requestSessions.Begin(dataKey, id, pid, deadline, alreadyRunning: false);
                 }
                 else _gameLauncher.Start(options);
             }
@@ -176,7 +175,7 @@ internal sealed class LaunchOwnershipCoordinator
                 if (isCurrent())
                 {
                     _pendingLaunches.Remove(dataKey);
-                    _pendingRequests.Remove(dataKey);
+                    _requestSessions.Cancel(dataKey);
                     UpdateHdrState();
                     _persistInFlightSnapshot();
                 }
