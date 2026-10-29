@@ -45,3 +45,6 @@ games:
     displayName: Command Prompt
     enabled: true
     hdr: false
+
+# 游戏库默认进入全屏主机模式
+consoleModeOnLibraryOpen: false

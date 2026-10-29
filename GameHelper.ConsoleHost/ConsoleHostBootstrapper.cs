@@ -202,7 +202,14 @@ public static class ConsoleHostBootstrapper
                         var config = sp.GetRequiredService<IConfigPathProvider>().ConfigPath;
                         using var process = Process.Start(SystemTrayLogic.LibraryStartInfo(AppContext.BaseDirectory, config, File.Exists));
                     },
-                    () => sp.GetRequiredService<IHostApplicationLifetime>().StopApplication()),
+                    () => sp.GetRequiredService<IHostApplicationLifetime>().StopApplication(),
+                    () =>
+                    {
+                        var config = sp.GetRequiredService<IConfigPathProvider>().ConfigPath;
+                        var start = SystemTrayLogic.LibraryStartInfo(AppContext.BaseDirectory, config, File.Exists);
+                        start.ArgumentList.Add("--console-mode");
+                        using var process = Process.Start(start);
+                    }),
                 sp.GetRequiredService<ILogger<WindowsSystemTrayService>>(),
                 () => sp.GetRequiredService<SessionStorage>().Warning,
                 id =>

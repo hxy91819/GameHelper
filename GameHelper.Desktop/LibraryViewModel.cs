@@ -100,6 +100,13 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         _elapsedTimer.Start();
     }
 
+    internal IEnumerable<LibraryGameItem> ConsoleGames => _games;
+    internal async Task<string> ConsoleRatingAsync(string key)
+    {
+        var response = await _library.ExecuteAsync(new() { Operation = GameLibraryOperation.SessionReviews, SessionReviews = new(key, null, 1, true) });
+        return response.Success ? response.SessionReviews?.Sessions.FirstOrDefault()?.Rating?.Stars.ToString() ?? "尚无评分" : "评分暂不可用";
+    }
+    internal JournalRecord ConsoleJournal(string key) => _journalStore.Read(key);
     public ICollectionView Games { get; }
     public StatisticsViewModel Statistics { get; }
     public ICommand RefreshCommand { get; }

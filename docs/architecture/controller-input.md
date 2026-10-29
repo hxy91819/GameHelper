@@ -7,3 +7,5 @@ GameHelper.Input.Tests 链接纯逻辑源文件，net8.0 可在 Linux 运行；W
 参考 Playnite GameController.cs（3e8abb241873e326e27c75b59dd0d2ea367698e3）的轮询→语义→WPF 桥接思路，当前代码独立编写，没有拷入其源码。第三方记录见根 THIRD-PARTY.md。
 
 SDL 初始化前使用 `SetHintWithPriority(..., Override)` 禁用 enhanced reports，检查失败即拒绝初始化，通过现有窗口状态报告错误。Windows 测试验证继承环境变量为 1 时仍被覆盖为 0。
+
+WindowControllerInput 统一窗口激活、SDL 持有与释放，MainWindow 与 ConsoleModeWindow 共用；静态前台 owner 在新窗口建立 SDL 前先释放旧 owner，所有调用在 WPF Dispatcher 上。主机窗口不把其他窗口视作所属模态，桌面库继续支持自身模态返回。ConsoleModePolicy 是可在 Linux 测试的页签、提示和恢复判定边界。

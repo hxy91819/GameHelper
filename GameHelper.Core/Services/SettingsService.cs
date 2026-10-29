@@ -23,6 +23,7 @@ public sealed class SettingsService(IGameConfiguration gameConfiguration,
             {
                 current.ProcessMonitorType = request.ProcessMonitorType ?? current.ProcessMonitorType;
                 current.LaunchOnSystemStartup = request.LaunchOnSystemStartup;
+                current.ConsoleModeOnLibraryOpen = request.ConsoleModeOnLibraryOpen;
                 if (request.Hdr is not null) current.Hdr = Clone(request.Hdr);
                 if (request.BreakReminder is not null) current.BreakReminder = Clone(request.BreakReminder);
                 if (request.MonitorMode is not null) current.MonitorMode = Clone(request.MonitorMode);
@@ -54,6 +55,7 @@ public sealed class SettingsService(IGameConfiguration gameConfiguration,
         {
             ProcessMonitorType = config.ProcessMonitorType,
             LaunchOnSystemStartup = config.LaunchOnSystemStartup,
+            ConsoleModeOnLibraryOpen = config.ConsoleModeOnLibraryOpen,
             Hdr = Clone(config.Hdr), BreakReminder = Clone(config.BreakReminder),
             MonitorMode = Clone(config.MonitorMode), CheatEngine = Clone(config.CheatEngine),
             Report = Clone(config.Report), SyncSettings = Clone(config.SyncSettings), DisplaysAvailable = available,

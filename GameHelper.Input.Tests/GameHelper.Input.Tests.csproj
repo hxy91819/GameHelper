@@ -5,5 +5,5 @@
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <Compile Include="../GameHelper.Desktop/Input/ControllerNavigation.cs" Link="ControllerNavigation.cs" />
-  </ItemGroup>
+  <Compile Include="../GameHelper.Desktop/ConsoleModePolicy.cs" Link="ConsoleModePolicy.cs" /></ItemGroup>
 </Project>

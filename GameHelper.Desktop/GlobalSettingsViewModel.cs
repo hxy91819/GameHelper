@@ -12,6 +12,7 @@ public sealed class GlobalSettingsViewModel
         _snapshot = snapshot;
         ProcessMonitorType = snapshot.ProcessMonitorType;
         LaunchOnSystemStartup = snapshot.LaunchOnSystemStartup;
+        ConsoleModeOnLibraryOpen = snapshot.ConsoleModeOnLibraryOpen;
         var reminder = snapshot.BreakReminder ?? new();
         ReminderEnabled = reminder.Enabled; PlayMinutes = reminder.PlayMinutes; BreakMinutes = reminder.BreakMinutes;
         RepeatMinutes = reminder.RepeatMinutes; Sound = reminder.Sound;
@@ -28,6 +29,7 @@ public sealed class GlobalSettingsViewModel
     }
     public ProcessMonitorType ProcessMonitorType { get; set; }
     public bool LaunchOnSystemStartup { get; set; }
+    public bool ConsoleModeOnLibraryOpen { get; set; }
     public bool ReminderEnabled { get; set; }
     public int PlayMinutes { get; set; }
     public int BreakMinutes { get; set; }
@@ -62,7 +64,7 @@ public sealed class GlobalSettingsViewModel
         }
         return new UpdateAppSettingsRequest
         {
-            ProcessMonitorType = ProcessMonitorType, LaunchOnSystemStartup = LaunchOnSystemStartup,
+            ProcessMonitorType = ProcessMonitorType, LaunchOnSystemStartup = LaunchOnSystemStartup, ConsoleModeOnLibraryOpen = ConsoleModeOnLibraryOpen,
             Hdr = new HdrSettings { AllowedDisplays = allowed, DisabledDisplays = disabled },
             BreakReminder = new BreakReminderSettings { Enabled = ReminderEnabled, PlayMinutes = PlayMinutes,
                 BreakMinutes = BreakMinutes, RepeatMinutes = RepeatMinutes, Sound = Sound },
