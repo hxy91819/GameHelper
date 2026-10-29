@@ -103,6 +103,8 @@
 
 ## Agent skills
 
+调研外部现成方案或使用 xerj 搜索时，先读 `docs/agents/xerj-search.md`。
+
 ### Issue tracker
 
 Issues are tracked as GitHub issues on `hxy91819/GameHelper` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
