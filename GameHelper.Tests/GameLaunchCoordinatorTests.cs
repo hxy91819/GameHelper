@@ -95,6 +95,16 @@ public sealed class GameLaunchCoordinatorTests
         app.Start("a", 102); Assert.Empty(app.Service.GetLaunchIdentities());
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData(999)]
+    public void UnconfirmedOrDifferentPidCannotBindExternalStart(int? pid)
+    {
+        using var app = new Fixture(); app.Launcher.TrackedPid = pid;
+        app.Service.Launch("a", Guid.NewGuid()); app.Start("a", 101);
+        Assert.Empty(app.Service.GetLaunchIdentities());
+    }
+
     [Fact]
     public void ExpiredRequestCannotBindLaterExternalProcess()
     {
@@ -244,6 +254,8 @@ public sealed class GameLaunchCoordinatorTests
     }
     private sealed class Launcher : IGameLauncher
     {
+        public int? TrackedPid { get; set; } = 101;
+        public int? StartTracked(GameLaunchOptions options) { Start(options); return TrackedPid; }
         public int Starts { get; private set; }
         public Action? OnStart { get; set; }
         public void ExecuteAction(GameAction action) { }

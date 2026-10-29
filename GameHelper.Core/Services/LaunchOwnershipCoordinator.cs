@@ -16,7 +16,7 @@ namespace GameHelper.Core.Services;
 internal sealed class LaunchOwnershipCoordinator
 {
     private readonly Dictionary<string, DateTimeOffset> _pendingLaunches = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, Guid> _pendingRequests = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (Guid RequestId, int ProcessId)> _pendingRequests = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (Guid RequestId, int ProcessId)> _launchIdentities = new(StringComparer.OrdinalIgnoreCase);
     internal IReadOnlyDictionary<string, (Guid RequestId, int ProcessId)> GetLaunchIdentities() => new Dictionary<string, (Guid, int)>(_launchIdentities, StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _launchFailures = new(StringComparer.OrdinalIgnoreCase);
@@ -58,8 +58,8 @@ internal sealed class LaunchOwnershipCoordinator
     {
         var timely = _pendingLaunches.TryGetValue(dataKey, out var deadline) && deadline > _timeProvider.GetUtcNow();
         var isOwnLaunch = _pendingLaunches.Remove(dataKey);
-        if (_pendingRequests.Remove(dataKey, out var requestId) && timely && processId is not null)
-            _launchIdentities[dataKey] = (requestId, processId.Value);
+        if (_pendingRequests.Remove(dataKey, out var request) && timely && processId == request.ProcessId)
+            _launchIdentities[dataKey] = request;
         // Existing-process enumeration is external; only a pending library launch grants ownership.
         if (isOwnLaunch) _ownLaunchedDataKeys.Add(dataKey);
         _launchFailures.Remove(dataKey);
@@ -136,7 +136,6 @@ internal sealed class LaunchOwnershipCoordinator
             if (game.IsEnabled)
             {
                 _pendingLaunches[dataKey] = _timeProvider.GetUtcNow().AddMinutes(2);
-                if (requestId is { } id) _pendingRequests[dataKey] = id;
                 _launchFailures.Remove(dataKey);
                 try
                 {
@@ -160,7 +159,13 @@ internal sealed class LaunchOwnershipCoordinator
             {
                 if (!isCurrent() || (launchGame.IsEnabled && (!_pendingLaunches.ContainsKey(dataKey) || !_getConfigIndex().ByDataKey.ContainsKey(dataKey))))
                     throw new InvalidOperationException("启动已取消，或该游戏已经运行。");
-                _gameLauncher.Start(options);
+                if (requestId is { } id)
+                {
+                    var pid = _gameLauncher.StartTracked(options);
+                    if (pid is { } confirmedPid && _pendingLaunches.ContainsKey(dataKey))
+                        _pendingRequests[dataKey] = (id, confirmedPid);
+                }
+                else _gameLauncher.Start(options);
             }
         }
         catch
