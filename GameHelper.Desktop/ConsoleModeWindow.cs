@@ -9,7 +9,7 @@ using GameHelper.Infrastructure.Processes;
 
 namespace GameHelper.Desktop;
 
-/// <summary>Read-only full-screen library; all launches use the existing catalog command.</summary>
+/// <summary>Full-screen library with controller settings; launches use the existing catalog command.</summary>
 internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
 {
     private readonly LibraryViewModel model;
@@ -38,6 +38,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
     {
         this.library = library; this.model = model; previous = model.LaunchWindowHandoff;
         Title = "GameHelper 主机模式"; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
+        ConfigureTheme(Resources);
         Background = new SolidColorBrush(Color.FromRgb(13, 23, 34)); Foreground = Brushes.White;
         var root = new DockPanel { Margin = new Thickness(55, 35, 55, 30) }; Content = root;
         var top = new StackPanel(); DockPanel.SetDock(top, Dock.Top); root.Children.Add(top);
@@ -48,22 +49,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
         for (int i = 0; i < names.Length; i++) { int index = i; var b = new Button { Content = names[i], FontSize = 22, Padding = new Thickness(22,10,22,10) }; b.Click += (_,_) => { tab = index; Reload(); }; tabs.Children.Add(b); }
         var footer = new StackPanel(); DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer); footer.Children.Add(status); footer.Children.Add(help);
         var body = new Grid(); root.Children.Add(body); body.Children.Add(shelf); body.Children.Add(details); body.Children.Add(launchOverlay); body.Children.Add(actionOverlay);
-        shelf.Background = Brushes.Transparent; shelf.BorderThickness = new Thickness(0); shelf.Foreground = Brushes.White;
-        shelf.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
-        shelf.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
-        var panel = new FrameworkElementFactory(typeof(StackPanel)); panel.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal); shelf.ItemsPanel = new ItemsPanelTemplate(panel);
-        var card = new FrameworkElementFactory(typeof(StackPanel)); card.SetValue(FrameworkElement.WidthProperty, 220d); card.SetValue(FrameworkElement.MarginProperty, new Thickness(10));
-        var image = new FrameworkElementFactory(typeof(GamePosterTile)); image.SetValue(FrameworkElement.HeightProperty, 310d); image.SetBinding(GamePosterTile.ArtworkProperty, new Binding("CoverArtwork")); image.SetBinding(GamePosterTile.LabelProperty, new Binding("Name")); card.AppendChild(image);
-        foreach (var prop in new[] { "Name", "TotalHours", "Controller.Label" }) { var text = new FrameworkElementFactory(typeof(TextBlock)); text.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap); text.SetValue(TextBlock.FontSizeProperty, 19d); text.SetBinding(TextBlock.TextProperty, new Binding(prop));
-            if (prop == "Controller.Label")
-            {
-                var style = new Style(typeof(TextBlock));
-                var red = new DataTrigger { Binding = new Binding("Controller.Unsupported"), Value = true };
-                red.Setters.Add(new Setter(TextBlock.ForegroundProperty, Brushes.Salmon)); style.Triggers.Add(red);
-                text.SetValue(FrameworkElement.StyleProperty, style);
-            }
-            card.AppendChild(text); }
-        shelf.ItemTemplate = new DataTemplate { VisualTree = card };
+        ConfigureShelf(shelf);
         var searchButton = new Button { Content = "搜索 / 屏幕键盘", FontSize = 22, Padding = new Thickness(22,10,22,10) }; searchButton.Click += (_,_) => OpenKeyboard(false); tabs.Children.Add(searchButton);
         shelf.MouseDoubleClick += (_,_) => Handle(ControllerAction.Confirm);
         details.Orientation = Orientation.Horizontal;
@@ -119,27 +105,31 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
             ConsoleOverlay.Keyboard => $"方向键 选字符   {a} 输入   {x} 退格   {y} 完成   {b} 取消",
             ConsoleOverlay.Rating => $"左右 选星   {a} 提交   {x} 填写想法   {b} 跳过",
             ConsoleOverlay.Confirm => $"{a} 确认   {b} 取消",
+            ConsoleOverlay.Settings => $"上下 选择   左右 调整   {a} 切换 / 保存   {b} 返回（放弃本页调整）",
             ConsoleOverlay.SystemMenu => $"上下 选择   {a} 确认   {b} 关闭",
             _ when launchState.ShowOverlay => $"{b} 关闭提示（保留等待）   {(ps ? "Options" : "Start")} 系统菜单",
             _ when detail && Selected?.IsRunning == true => $"{a} 回到游戏   {x} 结束游戏   {b} 返回   {(ps ? "Options" : "Start")} 系统菜单",
             _ when detail => $"{a} 启动 / 确认   {b} 返回   {(ps ? "Options" : "Start")} 系统菜单",
             _ => $"左右 浏览   {a} 详情   {b} 退出主机模式   {y} 搜索   {(ps ? "L1 / R1" : "LB / RB")} 页签   {(ps ? "Options" : "Start")} 系统菜单"
         };
+        help.Text += ps ? "   Share/Create + Options 切换模式（仅 GameHelper 前台）" : "   View/Back + Menu/Start 切换模式（仅 GameHelper 前台）";
+        help.TextWrapping = TextWrapping.Wrap;
     }
     private void Render()
     {
         launchOverlay.Visibility = launchState.ShowOverlay ? Visibility.Visible : Visibility.Collapsed;
         shelf.Visibility = detail ? Visibility.Collapsed : Visibility.Visible;
         details.Visibility = detail ? Visibility.Visible : Visibility.Collapsed;
-        if (Selected is { } posterGame) { detailPoster.Artwork = posterGame.CoverArtwork; detailPoster.Label = posterGame.Name; }
+        if (Selected is { } posterGame) { detailPoster.Artwork = posterGame.CoverArtwork; detailPoster.Label = posterGame.Initial; }
         detailLaunchButton.Content = Selected?.IsRunning == true ? "回到游戏" : "启动游戏 / 确认";
         stopButton.Visibility = detail && Selected?.IsRunning == true ? Visibility.Visible : Visibility.Collapsed;
-        if (Selected is { } g) info.Text = $"{g.Name}\n\n{g.Playtime} · {model.ConsoleJournal(g.DataKey).Status}\n{g.LastPlayedLabel} · 最近本局打分：{rating}\n{g.Controller.Label}\n{g.Controller.Description}\n\n启动设置（只读）：{g.Summary} · DS4Windows：{(g.UseDs4Windows ? "启用" : "关闭")}\n\n{(confirm ? "部分支持或不支持手柄，请备好键鼠。确认仍启动 / 返回取消" : g.IsRunning ? "确认回到游戏 · X / □ 结束游戏（需确认）" : "确认启动游戏")}";
-        status.Text = launchState.Message ?? (interactionStatus.Length > 0 ? interactionStatus : !string.IsNullOrEmpty(model.ActionError) ? model.ActionError : model.Status);
+        if (Selected is { } g) info.Text = $"{g.Name}\n\n{g.Playtime} · {model.ConsoleJournal(g.DataKey).Status}\n{g.LastPlayedLabel} · 最近本局打分：{rating}\n{g.Controller.Label}\n{g.Controller.Description}\n\n启动设置：{g.Summary} · DS4Windows：{(g.UseDs4Windows ? "启用" : "关闭")}\n系统菜单 → 当前游戏设置可调整\n\n{(confirm ? "部分支持或不支持手柄，请备好键鼠。确认仍启动 / 返回取消" : g.IsRunning ? "确认回到游戏 · X / □ 结束游戏（需确认）" : "确认启动游戏")}";
+        status.Text = launchState.Message ?? (interactionStatus.Length > 0 ? interactionStatus : !string.IsNullOrEmpty(model.ActionError) ? model.ActionError : settingsStatus.Length > 0 ? settingsStatus : model.Status);
         RenderActionOverlay(); UpdateHelp();
     }
     private void Handle(ControllerAction action)
     {
+        if (action == ControllerAction.ToggleConsoleMode) { Close(); return; }
         if (HandleActionOverlay(action)) return;
         if (launchState.ShowOverlay) { if (action == ControllerAction.Back) { launchState.Back(); Render(); } return; }
         if (action == ControllerAction.Back) { launchState.Back(); if (confirm) confirm = false; else if (detail) detail = false; else Close(); Render(); return; }

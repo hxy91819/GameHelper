@@ -9,7 +9,7 @@ namespace GameHelper.Desktop;
 
 internal sealed partial class ConsoleModeWindow
 {
-    private enum ConsoleOverlay { None, SystemMenu, Confirm, Keyboard, Rating }
+    private enum ConsoleOverlay { None, SystemMenu, Confirm, Keyboard, Rating, Settings }
     private sealed record MenuRow(string Label, bool Enabled, Func<Task> Execute);
     private readonly Border actionOverlay = new() { Background = new SolidColorBrush(Color.FromArgb(250, 13, 23, 34)), Padding = new Thickness(30), Visibility = Visibility.Collapsed };
     private readonly Button stopButton = new() { Content = "结束游戏（需确认）", FontSize = 24, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0,15,0,0), Visibility = Visibility.Collapsed };
@@ -29,7 +29,7 @@ internal sealed partial class ConsoleModeWindow
     private async Task RunInteractionAsync(Func<Task> action)
     {
         if (actionBusy || closed) return;
-        actionBusy = true; interactionStatus = "处理中…"; Render();
+        actionBusy = true; interactionStatus = "处理中…"; settingsStatus = ""; Render();
         try { await action(); interactionStatus = ""; }
         catch (Exception ex) { interactionStatus = ex.Message; }
         finally { actionBusy = false; if (!closed) Render(); }
@@ -44,6 +44,11 @@ internal sealed partial class ConsoleModeWindow
     {
         overlayKind = ConsoleOverlay.SystemMenu; menuIndex = 0;
         menuRows = [new("退出主机模式", true, () => { Close(); return Task.CompletedTask; })];
+        if (Selected is { } selectedGame)
+        {
+            var key = selectedGame.DataKey;
+            menuRows.Add(new($"当前游戏设置 · {selectedGame.Name}", true, () => OpenGameSettingsAsync(key)));
+        }
         Render();
         await RunInteractionAsync(async () =>
         {
@@ -51,7 +56,7 @@ internal sealed partial class ConsoleModeWindow
             var hdr = response.ConsoleMenu.FirstOrDefault(r => r.Action == TrayMenuAction.ToggleHdr);
             var pause = response.ConsoleMenu.FirstOrDefault(r => r.Action == TrayMenuAction.Pause30Minutes);
             var resume = response.ConsoleMenu.FirstOrDefault(r => r.Action == TrayMenuAction.ResumeReminders);
-            menuRows.Add(new(hdr?.Text ?? "HDR：不可用", ConsoleInteractionPolicy.Available(ConsoleMenuCommand.Hdr,hdr?.Enabled == true,false,false), () => TrayActionAsync(TrayMenuAction.ToggleHdr)));
+            menuRows.Add(new((hdr?.Text ?? "HDR：不可用") + "（显示器临时开关）", ConsoleInteractionPolicy.Available(ConsoleMenuCommand.Hdr,hdr?.Enabled == true,false,false), () => TrayActionAsync(TrayMenuAction.ToggleHdr)));
             var paused = resume?.Enabled == true;
             var reminderCommand = paused ? ConsoleMenuCommand.Resume : ConsoleMenuCommand.Pause;
             menuRows.Add(new(paused ? "恢复休息提醒" : "暂停休息提醒 30 分钟", ConsoleInteractionPolicy.Available(reminderCommand,false,pause?.Enabled == true,paused),
@@ -145,7 +150,8 @@ internal sealed partial class ConsoleModeWindow
             if (action == ControllerAction.Auxiliary && detail && Selected?.IsRunning == true) { ConfirmStop(); return true; }
             return false;
         }
-        if (overlayKind == ConsoleOverlay.Keyboard && keyboard is not null)
+        if (overlayKind == ConsoleOverlay.Settings) HandleSettings(action);
+        else if (overlayKind == ConsoleOverlay.Keyboard && keyboard is not null)
         {
             if (action == ControllerAction.Back) FinishKeyboard(false);
             else if (action == ControllerAction.SearchFinish) FinishKeyboard(true);
@@ -195,9 +201,11 @@ internal sealed partial class ConsoleModeWindow
         {
             var button = new Button { Content = label, FontSize = 24, Padding = new Thickness(15,8,15,8), Margin = new Thickness(3), IsEnabled = enabled && !actionBusy,
                 Background = selected ? Brushes.LightGreen : Brushes.DarkSlateGray, Foreground = selected ? Brushes.Black : Brushes.White };
+            if (selected) button.Loaded += (_, _) => button.BringIntoView();
             button.Click += (_,_) => click(); return button;
         }
-        if (overlayKind == ConsoleOverlay.SystemMenu)
+        if (overlayKind == ConsoleOverlay.Settings) RenderSettingsOverlay(panel);
+        else if (overlayKind == ConsoleOverlay.SystemMenu)
         {
             Text("系统菜单",36);
             for (int i=0;i<menuRows.Count;i++) { var row = menuRows[i]; panel.Children.Add(Button(row.Label,row.Enabled,i==menuIndex,() => _ = RunInteractionAsync(row.Execute))); }

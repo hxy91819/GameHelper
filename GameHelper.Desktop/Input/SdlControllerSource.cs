@@ -45,6 +45,7 @@ internal sealed class SdlControllerSource : IControllerSource
         (SDL.GamepadButton.South, ControllerAction.Confirm), (SDL.GamepadButton.East, ControllerAction.Back),
         (SDL.GamepadButton.West, ControllerAction.Auxiliary), (SDL.GamepadButton.North, ControllerAction.SearchFinish),
         (SDL.GamepadButton.Start, ControllerAction.Menu), (SDL.GamepadButton.LeftShoulder, ControllerAction.PreviousPage),
+        (SDL.GamepadButton.Back, ControllerAction.ModeModifier),
         (SDL.GamepadButton.RightShoulder, ControllerAction.NextPage)
     ];
     public void Dispose()

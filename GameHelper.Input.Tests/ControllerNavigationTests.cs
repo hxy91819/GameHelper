@@ -124,4 +124,64 @@ public sealed class ControllerNavigationTests
         source.States = [new(1, ControllerKind.Xbox, ControllerAction.Confirm)];
         Assert.Equal([ControllerAction.Confirm], nav.Poll(true));
     }
+    [Theory]
+    [InlineData(ControllerAction.Menu)]
+    [InlineData(ControllerAction.ModeModifier)]
+    public void ModeChordAcceptsEitherOrderWithoutOpeningMenu(ControllerAction first)
+    {
+        var source = new Source { States = [new(1, ControllerKind.Xbox, 0)] };
+        var clock = new Clock(); var nav = new ControllerNavigation(source, clock); nav.Poll(true);
+        source.States = [new(1, ControllerKind.Xbox, first)];
+        Assert.Empty(nav.Poll(true));
+        // Even a slow chord cannot open the single-key menu before the second press.
+        clock.Now = 2000;
+        source.States = [new(1, ControllerKind.Xbox, ControllerAction.ModeModifier | ControllerAction.Menu | ControllerAction.Confirm)];
+        Assert.Equal([ControllerAction.ToggleConsoleMode], nav.Poll(true));
+        clock.Now = 4000; Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.Xbox, first)];
+        Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.Xbox, ControllerAction.ModeModifier | ControllerAction.Menu)];
+        Assert.Empty(nav.Poll(true)); // Partial release cannot trigger a second toggle.
+        source.States = [new(1, ControllerKind.Xbox, 0)]; Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.Xbox, ControllerAction.ModeModifier | ControllerAction.Menu)];
+        Assert.Equal([ControllerAction.ToggleConsoleMode], nav.Poll(true));
+    }
+    [Fact]
+    public void StandaloneMenuFiresOnceOnReleaseAndModifierAloneIsSilent()
+    {
+        var source = new Source { States = [new(1, ControllerKind.PlayStation, 0)] };
+        var nav = new ControllerNavigation(source, new Clock()); nav.Poll(true);
+        source.States = [new(1, ControllerKind.PlayStation, ControllerAction.Menu)];
+        Assert.Empty(nav.Poll(true)); Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.PlayStation, 0)];
+        Assert.Equal([ControllerAction.Menu], nav.Poll(true)); Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.PlayStation, ControllerAction.ModeModifier)]; Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.PlayStation, 0)]; Assert.Empty(nav.Poll(true));
+    }
+    [Fact]
+    public void ModeChordCannotReplayAcrossWindowOrFocusChange()
+    {
+        var chord = ControllerAction.ModeModifier | ControllerAction.Menu;
+        var source = new Source { States = [new(1, ControllerKind.Xbox, chord)] };
+        var nav = new ControllerNavigation(source, new Clock());
+        Assert.Empty(nav.Poll(true)); Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.Xbox, 0)]; nav.Poll(true);
+        source.States = [new(1, ControllerKind.Xbox, ControllerAction.Menu)]; nav.Poll(true);
+        Assert.Empty(nav.Poll(false));
+        source.States = [new(1, ControllerKind.Xbox, chord)]; Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.Xbox, 0)]; Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.Xbox, chord)];
+        Assert.Equal([ControllerAction.ToggleConsoleMode], nav.Poll(true));
+    }
+    [Fact]
+    public void ChordKeysFromDifferentDevicesCannotCombine()
+    {
+        var source = new Source { States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, 0)] };
+        var clock = new Clock(); var nav = new ControllerNavigation(source, clock); nav.Poll(true);
+        source.States = [new(1, ControllerKind.PlayStation, ControllerAction.ModeModifier), new(2, ControllerKind.Xbox, ControllerAction.Menu)];
+        Assert.Empty(nav.Poll(true));
+        clock.Now = 2000; Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, 0)];
+        Assert.Empty(nav.Poll(true));
+    }
 }

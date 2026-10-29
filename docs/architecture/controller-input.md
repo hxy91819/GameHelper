@@ -4,6 +4,10 @@
 
 GameHelper.Input.Tests 链接纯逻辑源文件，net8.0 可在 Linux 运行；Windows 集成由现有 solution CI 检查。类型区分 Unknown/Xbox/PlayStation，供后续 glyph 使用。库加载失败时保留键鼠功能并显示状态。
 
+桌面库与主机模式共用 `View/Back + Menu/Start`（PlayStation 为 `Share/Create + Options`）切换入口；SDL Back 映射为专用 ModeModifier，与 B/○ 的 Back 导航动作分开。两键可任意顺序按下，只有同一仲裁设备能形成组合；组合优先于其他动作，仅发一次 ToggleConsoleMode，两键全部松开后才允许下次触发。单独 Menu/Start 改为松开时触发原菜单，避免先按 Menu 再按 View 时误开菜单。窗口切换后仍使用原有 neutral arming，不重放手中尚未松开的组合。桌面自有模态弹窗中先用 B/○ 返回，不切换窗口。
+
+组合键仅在 GameHelper 前台有效；不注册全局热键、不在后台轮询，也不能从游戏或其他软件直接唤起 GameHelper。失焦和最小化仍由 WindowControllerInput 停泵并关闭 SDL 设备，组合识别不改变原有释放边界。
+
 参考 Playnite GameController.cs（3e8abb241873e326e27c75b59dd0d2ea367698e3）的轮询→语义→WPF 桥接思路，当前代码独立编写，没有拷入其源码。第三方记录见根 THIRD-PARTY.md。
 
 SDL 初始化前使用 `SetHintWithPriority(..., Override)` 禁用 enhanced reports，检查失败即拒绝初始化，通过现有窗口状态报告错误。Windows 测试验证继承环境变量为 1 时仍被覆盖为 0。
