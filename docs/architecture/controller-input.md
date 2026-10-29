@@ -8,6 +8,10 @@ GameHelper.Input.Tests 链接纯逻辑源文件，net8.0 可在 Linux 运行；W
 
 组合键仅在 GameHelper 前台有效；不注册全局热键、不在后台轮询，也不能从游戏或其他软件直接唤起 GameHelper。失焦和最小化仍由 WindowControllerInput 停泵并关闭 SDL 设备，组合识别不改变原有释放边界。
 
+SDL LeftTrigger/RightTrigger 轴映射为独立的 PreviousShelfPage/NextShelfPage，主机主页消费，桌面忽略；L1/R1 的 PreviousPage/NextPage 仍是页签。扳机按设备记录滞回状态（16000 按下、低于 8000 释放），断连清除，只发新边沿，不参与方向连发；仲裁与失焦 neutral arming 同时覆盖扳机。主机用实际 ScrollContentPresenter 宽度及卡片容器宽计算一屏数量，再滚动一屏并保证选中项可见，不把可能以条目计量的 ScrollViewer.ViewportWidth 当作像素。
+
+Auxiliary（□ / X）在无覆盖层的主页/详情打开所选游戏设置，复用 RunInteractionAsync 忙碌保护与原设置草稿；覆盖层中的退格和填写想法不变。结束游戏经系统菜单或详情按钮进入原二次确认，不再绑定方块快捷键。
+
 参考 Playnite GameController.cs（3e8abb241873e326e27c75b59dd0d2ea367698e3）的轮询→语义→WPF 桥接思路，当前代码独立编写，没有拷入其源码。第三方记录见根 THIRD-PARTY.md。
 
 SDL 初始化前使用 `SetHintWithPriority(..., Override)` 禁用 enhanced reports，检查失败即拒绝初始化，通过现有窗口状态报告错误。Windows 测试验证继承环境变量为 1 时仍被覆盖为 0。

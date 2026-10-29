@@ -11,6 +11,14 @@ internal static class ConsoleInteractionPolicy
     internal static bool Invite(Guid? ownSession, Guid? invitation, bool eligible, bool alreadyRated) =>
         ownSession is not null && ownSession == invitation && eligible && !alreadyRated;
     internal static bool Matches(string name, string query) => name.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    internal static int ShelfPage(int selected, int count, double viewportWidth, double cardWidth, bool next)
+    {
+        if (count <= 0) return -1;
+        var pageSize = double.IsFinite(viewportWidth) && double.IsFinite(cardWidth) && cardWidth > 0
+            ? (int)Math.Clamp(Math.Floor(viewportWidth / cardWidth), 1, count) : 1;
+        return Math.Clamp(Math.Max(0, selected) + (next ? pageSize : -pageSize), 0, count - 1);
+    }
 }
 
 /// <summary>Small character grid shared by search and optional rating thought entry.</summary>

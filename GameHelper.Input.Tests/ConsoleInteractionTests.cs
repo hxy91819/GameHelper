@@ -31,6 +31,17 @@ public sealed class ConsoleInteractionTests
     [InlineData("ELDEN RING"," ring ",true)] [InlineData("艾尔登法环","法环",true)]
     [InlineData("Game","",true)] [InlineData("Game","other",false)]
     public void SearchName(string name,string query,bool expected) => Assert.Equal(expected,ConsoleInteractionPolicy.Matches(name,query));
+    [Theory]
+    [InlineData(0, 20, 1440, 244, true, 5)]
+    [InlineData(5, 20, 1440, 244, false, 0)]
+    [InlineData(0, 20, 640, 244, true, 2)]
+    [InlineData(0, 20, 180, 244, true, 1)]
+    [InlineData(18, 20, 1440, 244, true, 19)]
+    [InlineData(19, 20, 1440, 244, true, 19)]
+    [InlineData(0, 20, 1440, 244, false, 0)]
+    [InlineData(-1, 0, 1440, 244, true, -1)]
+    public void ShelfPagesUseWholeVisibleCardsAndClampEnds(int selected, int count, double width, double card, bool next, int expected) =>
+        Assert.Equal(expected, ConsoleInteractionPolicy.ShelfPage(selected, count, width, card, next));
     [Fact] public void KeyboardEditsDraftAndNavigatesGrid()
     {
         var keyboard = new ConsoleKeyboard("old",5); keyboard.Press(); Assert.Equal("oldA",keyboard.Text);

@@ -48,6 +48,8 @@ internal sealed partial class ConsoleModeWindow
         {
             var key = selectedGame.DataKey;
             menuRows.Add(new($"当前游戏设置 · {selectedGame.Name}", true, () => OpenGameSettingsAsync(key)));
+            if (selectedGame.IsRunning)
+                menuRows.Add(new("结束当前游戏（需确认）", true, () => { ConfirmStop(); return Task.CompletedTask; }));
         }
         Render();
         await RunInteractionAsync(async () =>
@@ -147,7 +149,8 @@ internal sealed partial class ConsoleModeWindow
         {
             if (action == ControllerAction.Menu) { _ = OpenSystemMenuAsync(); return true; }
             if (action == ControllerAction.SearchFinish && !detail && !launchState.ShowOverlay) { OpenKeyboard(false); return true; }
-            if (action == ControllerAction.Auxiliary && detail && Selected?.IsRunning == true) { ConfirmStop(); return true; }
+            if (action == ControllerAction.Auxiliary && !launchState.ShowOverlay && Selected is { } settingsGame)
+            { _ = RunInteractionAsync(() => OpenGameSettingsAsync(settingsGame.DataKey)); return true; }
             return false;
         }
         if (overlayKind == ConsoleOverlay.Settings) HandleSettings(action);

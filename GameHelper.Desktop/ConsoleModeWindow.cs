@@ -108,9 +108,9 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
             ConsoleOverlay.Settings => $"上下 选择   左右 调整   {a} 切换 / 保存   {b} 返回（放弃本页调整）",
             ConsoleOverlay.SystemMenu => $"上下 选择   {a} 确认   {b} 关闭",
             _ when launchState.ShowOverlay => $"{b} 关闭提示（保留等待）   {(ps ? "Options" : "Start")} 系统菜单",
-            _ when detail && Selected?.IsRunning == true => $"{a} 回到游戏   {x} 结束游戏   {b} 返回   {(ps ? "Options" : "Start")} 系统菜单",
-            _ when detail => $"{a} 启动 / 确认   {b} 返回   {(ps ? "Options" : "Start")} 系统菜单",
-            _ => $"左右 浏览   {a} 详情   {b} 退出主机模式   {y} 搜索   {(ps ? "L1 / R1" : "LB / RB")} 页签   {(ps ? "Options" : "Start")} 系统菜单"
+            _ when detail && Selected?.IsRunning == true => $"{a} 回到游戏   {x} 游戏设置   {b} 返回   系统菜单可结束游戏（需确认）   {(ps ? "Options" : "Start")} 系统菜单",
+            _ when detail => $"{a} 启动 / 确认   {x} 游戏设置   {b} 返回   {(ps ? "Options" : "Start")} 系统菜单",
+            _ => $"左右 浏览   {(ps ? "L2 / R2" : "LT / RT")} 翻页   {a} 详情   {x} 游戏设置   {b} 退出主机模式   {y} 搜索   {(ps ? "L1 / R1" : "LB / RB")} 页签   {(ps ? "Options" : "Start")} 系统菜单"
         };
         help.Text += ps ? "   Share/Create + Options 切换模式（仅 GameHelper 前台）" : "   View/Back + Menu/Start 切换模式（仅 GameHelper 前台）";
         help.TextWrapping = TextWrapping.Wrap;
@@ -123,7 +123,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
         if (Selected is { } posterGame) { detailPoster.Artwork = posterGame.CoverArtwork; detailPoster.Label = posterGame.Initial; }
         detailLaunchButton.Content = Selected?.IsRunning == true ? "回到游戏" : "启动游戏 / 确认";
         stopButton.Visibility = detail && Selected?.IsRunning == true ? Visibility.Visible : Visibility.Collapsed;
-        if (Selected is { } g) info.Text = $"{g.Name}\n\n{g.Playtime} · {model.ConsoleJournal(g.DataKey).Status}\n{g.LastPlayedLabel} · 最近本局打分：{rating}\n{g.Controller.Label}\n{g.Controller.Description}\n\n启动设置：{g.Summary} · DS4Windows：{(g.UseDs4Windows ? "启用" : "关闭")}\n系统菜单 → 当前游戏设置可调整\n\n{(confirm ? "部分支持或不支持手柄，请备好键鼠。确认仍启动 / 返回取消" : g.IsRunning ? "确认回到游戏 · X / □ 结束游戏（需确认）" : "确认启动游戏")}";
+        if (Selected is { } g) info.Text = $"{g.Name}\n\n{g.Playtime} · {model.ConsoleJournal(g.DataKey).Status}\n{g.LastPlayedLabel} · 最近本局打分：{rating}\n{g.Controller.Label}\n{g.Controller.Description}\n\n启动设置：{g.Summary} · DS4Windows：{(g.UseDs4Windows ? "启用" : "关闭")}\n□ / X 快速打开游戏设置；也可从系统菜单进入\n\n{(confirm ? "部分支持或不支持手柄，请备好键鼠。确认仍启动 / 返回取消" : g.IsRunning ? "确认回到游戏 · 结束游戏请选下方按钮（需确认）" : "确认启动游戏")}";
         status.Text = launchState.Message ?? (interactionStatus.Length > 0 ? interactionStatus : !string.IsNullOrEmpty(model.ActionError) ? model.ActionError : settingsStatus.Length > 0 ? settingsStatus : model.Status);
         RenderActionOverlay(); UpdateHelp();
     }
@@ -146,9 +146,30 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
             model.ConsoleLaunchRequestId = launchState.RequestId; confirm = false; Render(); model.LaunchFromPoster(); return;
         }
         if (detail) return;
+        if (action is ControllerAction.PreviousShelfPage or ControllerAction.NextShelfPage)
+        { PageShelf(shelf, action == ControllerAction.NextShelfPage); return; }
         if (action is ControllerAction.PreviousPage or ControllerAction.NextPage) { tab = (tab + (action == ControllerAction.NextPage ? 1 : 3)) % 4; Reload(); return; }
         var offset = action == ControllerAction.Left ? -1 : action == ControllerAction.Right ? 1 : 0;
         if (offset != 0 && shelf.Items.Count > 0) { shelf.SelectedIndex = Math.Clamp(shelf.SelectedIndex + offset,0,shelf.Items.Count-1); shelf.ScrollIntoView(shelf.SelectedItem); }
+    }
+    internal static void PageShelf(ListBox shelf, bool next)
+    {
+        static T? Find<T>(DependencyObject parent) where T : DependencyObject
+        {
+            for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, index);
+                if (child is T match) return match;
+                if (Find<T>(child) is { } descendant) return descendant;
+            }
+            return null;
+        }
+        // ScrollViewer.ViewportWidth may be in logical item units; the presenter is always measured in DIPs.
+        var width = Find<ScrollContentPresenter>(shelf)?.ActualWidth ?? shelf.ActualWidth;
+        var cardWidth = (shelf.ItemContainerGenerator.ContainerFromIndex(0) as FrameworkElement)?.ActualWidth ?? width;
+        if (Find<ScrollViewer>(shelf) is { } scroll) { if (next) scroll.PageRight(); else scroll.PageLeft(); }
+        shelf.SelectedIndex = ConsoleInteractionPolicy.ShelfPage(shelf.SelectedIndex, shelf.Items.Count, width, cardWidth, next);
+        if (shelf.SelectedItem is { } item) shelf.ScrollIntoView(item);
     }
     private async Task LoadRatingAsync(string key)
     {

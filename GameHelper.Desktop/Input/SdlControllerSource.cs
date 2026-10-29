@@ -35,7 +35,8 @@ internal sealed class SdlControllerSource : IControllerSource
             };
             var buttons = ControllerAction.None;
             foreach (var (button, action) in Mapping) if (SDL.GetGamepadButton(h, button)) buttons |= action;
-            return new ControllerState(pair.Key, kind, buttons, SDL.GetGamepadAxis(h, SDL.GamepadAxis.LeftX), SDL.GetGamepadAxis(h, SDL.GamepadAxis.LeftY));
+            return new ControllerState(pair.Key, kind, buttons, SDL.GetGamepadAxis(h, SDL.GamepadAxis.LeftX), SDL.GetGamepadAxis(h, SDL.GamepadAxis.LeftY),
+                SDL.GetGamepadAxis(h, SDL.GamepadAxis.LeftTrigger), SDL.GetGamepadAxis(h, SDL.GamepadAxis.RightTrigger));
         }).ToArray();
     }
     private static readonly (SDL.GamepadButton, ControllerAction)[] Mapping =

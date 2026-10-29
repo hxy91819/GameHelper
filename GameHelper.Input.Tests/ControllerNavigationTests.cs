@@ -184,4 +184,47 @@ public sealed class ControllerNavigationTests
         source.States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, 0)];
         Assert.Empty(nav.Poll(true));
     }
+    [Fact]
+    public void TriggerUsesHysteresisAndOnlyOnePagePerPress()
+    {
+        var source = new Source { States = [new(1, ControllerKind.PlayStation, 0)] };
+        var clock = new Clock(); var nav = new ControllerNavigation(source, clock); nav.Poll(true);
+        source.States = [new(1, ControllerKind.PlayStation, 0, RightTrigger: 15999)]; Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.PlayStation, 0, RightTrigger: 16000)];
+        Assert.Equal([ControllerAction.NextShelfPage], nav.Poll(true));
+        clock.Now = 2000; Assert.Empty(nav.Poll(true));
+        foreach (short value in new short[] { 15000, 16001, 8000, 15999, 32767 })
+        { source.States = [new(1, ControllerKind.PlayStation, 0, RightTrigger: value)]; Assert.Empty(nav.Poll(true)); }
+        source.States = [new(1, ControllerKind.PlayStation, 0, RightTrigger: 7999)]; Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.PlayStation, 0, RightTrigger: 16000)];
+        Assert.Equal([ControllerAction.NextShelfPage], nav.Poll(true));
+        source.States = [new(1, ControllerKind.PlayStation, 0, LeftTrigger: 32767)];
+        Assert.Equal([ControllerAction.PreviousShelfPage], nav.Poll(true));
+    }
+    [Fact]
+    public void HeldTriggerCannotReplayOnFocusReturnOrDeviceTakeover()
+    {
+        var source = new Source { States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, 0)] };
+        var clock = new Clock(); var nav = new ControllerNavigation(source, clock); nav.Poll(true);
+        source.States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, 0, RightTrigger: 32767)];
+        Assert.Empty(nav.Poll(true));
+        clock.Now = 600; Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, ControllerAction.Right, RightTrigger: 32767)];
+        Assert.Equal([ControllerAction.Right], nav.Poll(true));
+        Assert.Empty(nav.Poll(false)); Assert.Empty(nav.Poll(true));
+        source.States = [new(2, ControllerKind.Xbox, 0)]; nav.Poll(true);
+        source.States = [new(2, ControllerKind.Xbox, 0, RightTrigger: 32767)];
+        Assert.Equal([ControllerAction.NextShelfPage], nav.Poll(true));
+    }
+    [Fact]
+    public void ReinitializedNavigationRequiresHeldTriggerRelease()
+    {
+        var source = new Source { States = [new(1, ControllerKind.PlayStation, 0, LeftTrigger: 32767)] };
+        var nav = new ControllerNavigation(source, new Clock());
+        Assert.Empty(nav.Poll(true)); Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.PlayStation, 0, LeftTrigger: 12000)]; Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.PlayStation, 0)]; Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.PlayStation, 0, LeftTrigger: 32767)];
+        Assert.Equal([ControllerAction.PreviousShelfPage], nav.Poll(true));
+    }
 }
