@@ -119,3 +119,5 @@ Single-context: `CONTEXT.md` at the repo root plus `docs/adr/`. See `docs/agents
 
 管家工作簿在 `docs/steward/desktop-and-capabilities.md`，存在时先读，只报未完成的用户待办。
 
+主机模式管家工作簿在 `docs/steward/console-mode.md`，存在时先读，只报未完成的用户待办。
+
