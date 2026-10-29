@@ -9,6 +9,7 @@
 - [Game Speed](./guides/game-speed.md): per-game Cheat Engine speed configuration and safety boundary.
 - [Startup and Background](./guides/startup.md): daily WPF/background entries, no-argument startup behaviour, and CLI launch boundaries.
 - [Break Reminder](./guides/break-reminder.md): foreground gaming time, continuous breaks, and system notifications.
+- [Console Mode Windows Acceptance](./guides/console-mode-windows-acceptance.md): on-machine handoff for controller input and full-screen console mode.
 - [PRD](./prd/index.md): product goals and current scope.
 - [Refactor Safety Plan](./refactor-safety.md): decisions and test gaps for the current large refactor.
 - [Plans](./plans/index.md): only active, not-yet-landed proposals.
