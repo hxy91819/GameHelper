@@ -41,6 +41,7 @@ public partial class MainWindow : Window
         if (_model.Selected is { } game) new SessionReviewWindow(_model.Library, game.DataKey) { Owner = this }.ShowDialog();
     }
     private readonly LibraryViewModel _model;
+    private readonly MainWindowLaunchWindowHandoff _launchHandoff;
     private readonly DispatcherTimer _refreshTimer;
     private bool _showStatistics;
     private bool _showGlobalSettings;
@@ -100,7 +101,8 @@ public partial class MainWindow : Window
     {
         _model = model;
         InitializeComponent();
-        _model.LaunchWindowHandoff = new MainWindowLaunchWindowHandoff(this);
+        _launchHandoff = new MainWindowLaunchWindowHandoff(this, GameList);
+        _model.LaunchWindowHandoff = _launchHandoff;
         SizeChanged += (_, _) => UpdateStudioGeometry();
         Loaded += (_, _) => UpdateStickyDetails();
         DataContext = model;
@@ -137,7 +139,7 @@ public partial class MainWindow : Window
         { _model.Status = "主题偏好未能保存：" + ex.Message; }
     }
 
-    private async void OnTick(object? sender, EventArgs e) { if (!_showStatistics) await _model.RefreshAsync(); }
+    private async void OnTick(object? sender, EventArgs e) { if (_launchHandoff.Tracking || !_showStatistics) await _model.RefreshAsync(); }
     private void Navigate(bool statistics)
     {
         _showGlobalSettings = false;

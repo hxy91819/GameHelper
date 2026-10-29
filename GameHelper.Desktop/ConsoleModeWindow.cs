@@ -177,7 +177,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
             var effect = launchState.Observe(game?.IsRunning == true, game?.LaunchRequestId, game?.LaunchProcessId);
             Render();
             if (effect == ConsoleLaunchState.Effect.Minimize) WindowState = WindowState.Minimized;
-            else if (effect == ConsoleLaunchState.Effect.Restore) { WindowState = WindowState.Normal; Activate(); ratingDeadline = DateTimeOffset.UtcNow.AddSeconds(15); }
+            else if (effect == ConsoleLaunchState.Effect.Restore) { WindowForegroundActivation.Restore(this, detail ? detailLaunchButton : shelf); ratingDeadline = DateTimeOffset.UtcNow.AddSeconds(15); }
         }
         else if (!detail) Reload();
         else Render();

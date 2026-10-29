@@ -21,10 +21,10 @@ internal sealed class ConsoleLaunchState(TimeProvider clock)
         Phase.TimedOut => "等待游戏进程超时，请返回详情检查启动状态。",
         _ => null
     };
-    internal bool Begin(string key, string name)
+    internal bool Begin(string key, string name, Guid? requestId = null)
     {
         if (Tracking) return false;
-        Key = key; Name = name; RequestId = Guid.NewGuid(); processId = null;
+        Key = key; Name = name; RequestId = requestId ?? Guid.NewGuid(); processId = null;
         deadline = clock.GetUtcNow().AddMinutes(2); dismissed = false; State = Phase.Waiting;
         return true;
     }

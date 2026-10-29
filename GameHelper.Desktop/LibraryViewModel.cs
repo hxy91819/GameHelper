@@ -90,9 +90,15 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             var targetKey = Selected?.DataKey;
             if (targetKey is null) return;
             if (Selected?.IsDirty == true) await SaveSelectedAsync();
-            LaunchWindowHandoff.AllowForeground();
-            await SendAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Launch, DataKey = targetKey, LaunchRequestId = ConsoleLaunchRequestId });
-            LaunchWindowHandoff.Minimize();
+            var handoff = LaunchWindowHandoff;
+            var requestId = ConsoleLaunchRequestId ?? Guid.NewGuid();
+            handoff.AllowForeground();
+            var response = await _library.ExecuteAsync(new GameLibraryRequest
+            { Operation = GameLibraryOperation.Launch, DataKey = targetKey, LaunchRequestId = requestId }, _lifetime.Token);
+            if (!response.Success) throw new InvalidOperationException(response.Error ?? "游戏启动失败。");
+            handoff.Track(targetKey, Selected?.Name ?? targetKey, requestId);
+            Apply(response);
+            handoff.Minimize();
         }), () => Ready && Selected is not null && !string.IsNullOrWhiteSpace(Selected.Target) && !Selected.IsRunning && Selected.State != "启动中");
         // 秒级计时时钟只在 UI 线程泵下跳；测试线程可直接调 OnClockTick 驱动。
         _elapsedTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -419,6 +425,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         ConfigPath = response.ConfigPath;
         Status = response.Message ?? (response.MonitorRunning ? "监控已就绪 · 关闭游戏库后继续监控" : "监控未运行 · 启动游戏时会先开启监控");
         if (!discardDrafts) PersistDrafts();
+        LaunchWindowHandoff.Observe(response.Games);
     }
 
     private static DateTimeOffset Activity(LibraryGame game)
