@@ -6,7 +6,7 @@
 | --- | --- | --- | --- | --- |
 | 10-29 | 把 xerj-org/xerj 的搜索能力接入本仓库作为试验 | 被覆蓋 | xerj rc.100 本机安装，本仓库 630 文件 36s 建索引，Playnite/SDL 已索引，MCP 跑通；三题实测排名不佳，定位为辅助检索（gh 发现、xerj 段落、rg 核实）；Corpus Hub 502 份语料不含两者 ；被下方 10-29「不要引用 xerj」取代，已从 main 撤回 | 分支 feat/xerj-search 67d1335 |
 | 10-29 | 探索主机模式：类似 Steam，开启后手柄选择游戏、启动等 | 待使用者 | 调研完成（Playnite 最接近，无可直接引用的全屏组件）；HTML 原型已交付，待用户选布局、启动提示、入口、设置可编辑性 | [调研](../research/console-mode-survey.md)、分支 proto/console-mode 216c0ef |
-| 10-29 | 检索游戏是否支持手柄，不支持要有标记 | 進行中 | 按 Steam appdetails 实现中 thr_zjvmwn2n3w | — |
+| 10-29 | 检索游戏是否支持手柄，不支持要有标记 | 完成 | Steam 商店按 AppID 检索，30 天缓存、串行限速与失败退避；Steam 未标注显示红色"不支持手柄"，无 AppID 为未知；详情可手动设置/清除，可筛选只看不支持；Windows CI 全绿，待实机看效果 | main b3d1a0d |
 | 10-29 | 手柄支持 Xbox、PS4、PS5 | 進行中 | SDL3-CS 输入层实现中 thr_4fvyca827s | — |
 | 10-29 | 先用 xerj 看 GitHub 是否已有现成能力 | 被覆蓋 | 改为直接在 GitHub 找组件，见下两列 | — |
 | 10-29 | xerj 不能在 GitHub 找项目就不要引用 | 完成 | 已从 main 撤回 MCP 配置、脚本、文档与指针；本机服务、索引与二进制已清理 | 會話回覆 10-29 |

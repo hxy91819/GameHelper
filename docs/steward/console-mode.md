@@ -6,8 +6,8 @@
 
 - [x] 阶段 2：GitHub 现成组件调研，结论见 [调研](../research/console-mode-survey.md)，main b49f174
 - [ ] 阶段 3a：主机模式 HTML 原型已交付（分支 proto/console-mode 216c0ef），待用户选布局与入口 ← 等用户
-- [ ] 阶段 4a：手柄输入层（SDL3-CS + Playnite 桥接，Xbox/PS4/PS5），先接入现有游戏库 ← 进行中 thr_4fvyca827s
-- [ ] 阶段 5：手柄支持检索（Steam appdetails）、缓存与"不支持"标记 ← 进行中 thr_zjvmwn2n3w
+- [ ] 阶段 4a：手柄输入层（SDL3-CS + Playnite 桥接，Xbox/PS4/PS5），先接入现有游戏库（首版 CI 绿，补设备接管与后台释放） ← 进行中 thr_4fvyca827s
+- [x] 阶段 5：手柄支持检索（Steam appdetails）、SQLite 缓存、"不支持"红标、手动设置与筛选，CI 绿，main b3d1a0d
 - [ ] 阶段 4b：全屏主机模式窗口与进出入口 ← 排在 阶段 3a 后：用户选定的布局
 - [ ] 阶段 6：Windows 实机验收（USB/蓝牙、DS4Windows/Steam Input 共存）← 排在 阶段 4b 后：合入 main 的主机模式
 
