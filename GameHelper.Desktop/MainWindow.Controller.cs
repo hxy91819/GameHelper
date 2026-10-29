@@ -11,8 +11,42 @@ public partial class MainWindow
     private ControllerNavigation? _controllerNavigation;
     private readonly DispatcherTimer _controllerTimer = new() { Interval = TimeSpan.FromMilliseconds(16) };
     public ControllerKind ControllerKind => _controllerNavigation?.DeviceKind ?? ControllerKind.Unknown;
+    private bool _controllerClosed;
+    private void ConnectControllerLifecycle()
+    {
+        Application.Current.Activated += OnControllerActivated;
+        Application.Current.Deactivated += OnControllerDeactivated;
+        Activated += OnControllerActivated;
+        Deactivated += OnControllerDeactivated;
+        StateChanged += OnControllerActivated;
+        UpdateControllerActivation();
+    }
+    private void OnControllerActivated(object? sender, EventArgs e) => UpdateControllerActivation();
+    private void OnControllerDeactivated(object? sender, EventArgs e)
+    {
+        StopController();
+        // Owned modal windows become active after the main window deactivation event.
+        Dispatcher.BeginInvoke(new Action(UpdateControllerActivation), DispatcherPriority.Background);
+    }
+    private void UpdateControllerActivation()
+    {
+        if (_controllerClosed) return;
+        if (WindowState != WindowState.Minimized && (IsActive || OwnedWindows.Cast<Window>().Any(w => w.IsActive))) StartController();
+        else StopController();
+    }
+    private void DisconnectControllerLifecycle()
+    {
+        _controllerClosed = true;
+        Application.Current.Activated -= OnControllerActivated;
+        Application.Current.Deactivated -= OnControllerDeactivated;
+        Activated -= OnControllerActivated;
+        Deactivated -= OnControllerDeactivated;
+        StateChanged -= OnControllerActivated;
+        StopController();
+    }
     private void StartController()
     {
+        if (_controllerSource is not null) return;
         try
         {
             _controllerSource = new SdlControllerSource();
@@ -20,15 +54,20 @@ public partial class MainWindow
             _controllerTimer.Tick += OnControllerTick;
             _controllerTimer.Start();
         }
-        catch (Exception ex) { _controllerSource?.Dispose(); _controllerSource = null; _model.Status = "手柄输入不可用：" + ex.Message; }
+        catch (Exception ex) { StopController(); _model.Status = "手柄输入不可用：" + ex.Message; }
     }
     private void StopController()
     {
-        _controllerTimer.Stop(); _controllerTimer.Tick -= OnControllerTick;
-        _controllerSource?.Dispose(); _controllerSource = null;
+        try { _controllerTimer.Stop(); } catch { /* Continue cleanup. */ }
+        try { _controllerTimer.Tick -= OnControllerTick; } catch { /* Continue cleanup. */ }
+        var source = _controllerSource;
+        _controllerSource = null;
+        _controllerNavigation = null;
+        try { source?.Dispose(); } catch { /* State remains stopped even if native cleanup fails. */ }
     }
     private void OnControllerTick(object? sender, EventArgs e)
     {
+        UpdateControllerActivation();
         if (_controllerNavigation is null) return;
         var dialog = OwnedWindows.Cast<Window>().FirstOrDefault(w => w.IsActive);
         var foreground = IsActive && IsEnabled;

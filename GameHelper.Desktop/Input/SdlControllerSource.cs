@@ -49,6 +49,8 @@ internal sealed class SdlControllerSource : IControllerSource
     {
         foreach (var h in _handles.Values) { try { SDL.CloseGamepad(h); } catch { /* Continue releasing remaining devices. */ } }
         _handles.Clear();
-        try { if (_initialized) SDL.QuitSubSystem(SDL.InitFlags.Gamepad); } finally { _initialized = false; }
+        try { if (_initialized) SDL.QuitSubSystem(SDL.InitFlags.Gamepad); }
+        catch { /* All native cleanup steps are best effort. */ }
+        finally { _initialized = false; }
     }
 }

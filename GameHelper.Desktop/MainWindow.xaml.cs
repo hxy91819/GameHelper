@@ -103,7 +103,7 @@ public partial class MainWindow : Window
         _refreshTimer.Tick += OnTick;
         _refreshTimer.Start();
         PreviewKeyDown += OnKeyboard;
-        Loaded += (_, _) => StartController();
+        Loaded += (_, _) => ConnectControllerLifecycle();
         var closingAfterSave = false;
         Closing += async (_, args) =>
         {
@@ -114,7 +114,7 @@ public partial class MainWindow : Window
             try { await _model.FlushDraftsAsync(); closingAfterSave = true; Dispatcher.BeginInvoke(new Action(Close)); }
             catch (InvalidOperationException ex) { IsEnabled = true; _refreshTimer.Start(); MessageBox.Show(this, ex.Message, "草稿未保存"); }
         };
-        Closed += (_, _) => { _refreshTimer.Stop(); _refreshTimer.Tick -= OnTick; StopController(); _model.Dispose(); };
+        Closed += (_, _) => { _refreshTimer.Stop(); _refreshTimer.Tick -= OnTick; DisconnectControllerLifecycle(); _model.Dispose(); };
     }
 
     private void UpdateThemeButton() => ThemeButton.Content = (Application.Current as App)?.Theme?.IsLight == true ? "深色主题" : "浅色主题";

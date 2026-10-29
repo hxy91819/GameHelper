@@ -48,6 +48,56 @@ public sealed class ControllerNavigationTests
         Assert.Empty(nav.Poll(true)); // Hot unplug cannot replay a held confirmation.
     }
     [Fact]
+    public void IdleOwnerAllowsNewPressAtHalfSecondAndChangesKind()
+    {
+        var source = new Source { States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, 0)] };
+        var clock = new Clock(); var nav = new ControllerNavigation(source, clock); nav.Poll(true);
+        clock.Now = 500;
+        source.States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, ControllerAction.Right)];
+        Assert.Equal([ControllerAction.Right], nav.Poll(true));
+        Assert.Equal(ControllerKind.Xbox, nav.DeviceKind);
+    }
+    [Fact]
+    public void DelayedMirrorDuringCooldownCannotTakeOverEvenIfHeldPastDeadline()
+    {
+        var source = new Source { States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, 0)] };
+        var clock = new Clock(); var nav = new ControllerNavigation(source, clock); nav.Poll(true);
+        source.States = [new(1, ControllerKind.PlayStation, ControllerAction.Confirm), new(2, ControllerKind.Xbox, 0)];
+        Assert.Equal([ControllerAction.Confirm], nav.Poll(true));
+        clock.Now = 10;
+        source.States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, 0)]; nav.Poll(true);
+        clock.Now = 509;
+        source.States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, ControllerAction.Confirm)];
+        Assert.Empty(nav.Poll(true));
+        clock.Now = 1000; Assert.Empty(nav.Poll(true));
+        Assert.Equal(ControllerKind.PlayStation, nav.DeviceKind);
+        source.States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, 0)]; nav.Poll(true);
+        source.States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, ControllerAction.Confirm)];
+        Assert.Equal([ControllerAction.Confirm], nav.Poll(true));
+        Assert.Equal(ControllerKind.Xbox, nav.DeviceKind);
+    }
+    [Fact]
+    public void ActiveOwnerRejectsOtherDeviceEvenAfterLongTime()
+    {
+        var source = new Source { States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, 0)] };
+        var clock = new Clock(); var nav = new ControllerNavigation(source, clock); nav.Poll(true);
+        source.States = [new(1, ControllerKind.PlayStation, 0, 20000), new(2, ControllerKind.Xbox, 0)]; nav.Poll(true);
+        clock.Now = 2000;
+        source.States = [new(1, ControllerKind.PlayStation, 0, 20000), new(2, ControllerKind.Xbox, ControllerAction.Confirm)];
+        Assert.DoesNotContain(ControllerAction.Confirm, nav.Poll(true));
+        Assert.Equal(ControllerKind.PlayStation, nav.DeviceKind);
+    }
+    [Fact]
+    public void ReinitializedNavigationDoesNotReplayHeldConfirm()
+    {
+        var source = new Source { States = [new(1, ControllerKind.Xbox, ControllerAction.Confirm)] };
+        var nav = new ControllerNavigation(source, new Clock());
+        Assert.Empty(nav.Poll(true)); Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.Xbox, 0)]; nav.Poll(true);
+        source.States = [new(1, ControllerKind.Xbox, ControllerAction.Confirm)];
+        Assert.Equal([ControllerAction.Confirm], nav.Poll(true));
+    }
+    [Fact]
     public void FocusReturnRequiresRelease()
     {
         var source = new Source { States = [new(1, ControllerKind.Xbox, 0)] };
