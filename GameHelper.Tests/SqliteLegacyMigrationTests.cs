@@ -43,7 +43,7 @@ public sealed class SqliteLegacyMigrationTests : IDisposable
         foreach (var kind in LegacyDecoder.SideKinds)
             Assert.Equal(LegacyFixtures.Read(kind + ".expected.bin"), LegacyDatabaseReader.Side(c, tx, scope, kind));
         Assert.Equal(LegacyFixtures.Platform("inflight.expected"), LegacyDatabaseReader.SnapshotBytes(LegacyDatabaseReader.Snapshot(c, tx)!));
-        var report = new StatsReportBuilder().Build(LegacyDatabaseReader.History(c, tx), [], _clock.GetLocalNow().DateTime, true);
+        var report = new StatsReportBuilder().Build(LegacyFixtures.ReportUtcWallClock(LegacyDatabaseReader.History(c, tx)), [], _clock.GetLocalNow().DateTime, true);
         foreach (var file in report.Files)
             Assert.Equal(LegacyFixtures.Platform(file.RelativePath.Replace('/', '_')), Encoding.UTF8.GetBytes(file.Content));
     }

@@ -144,11 +144,13 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             totalMinutes += minutes;
         }
         File.WriteAllText(sandbox.CsvPath, csv.ToString());
-        var original = File.ReadAllBytes(sandbox.CsvPath);
         using var app = StartApp(exePath!, sandbox);
         try
         {
             await WaitUntilOutputAsync(app, sandbox, text => text.Contains("GameAutomationService started"), ReadyTimeout, "statistics runtime ready");
+            // Startup migration flushes its canonical projection before readiness. From here,
+            // statistics and the read-only desktop must preserve the resulting bytes exactly.
+            var original = File.ReadAllBytes(sandbox.CsvPath);
             var client = new GameLibraryPipe(sandbox.ConfigPath);
             var all = await client.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Statistics, Statistics = new(0) });
             Assert.True(all.Success, all.Error);

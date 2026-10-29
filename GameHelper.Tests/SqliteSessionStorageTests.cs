@@ -490,7 +490,7 @@ public sealed class SqliteSessionStorageTests(ITestOutputHelper output) : IDispo
     private InFlightSession Session() => new()
     {
         SessionId = Guid.NewGuid(), DataKey = Game.DataKey, ProcessId = 10, NormalizedName = "game.exe",
-        StartedAt = _clock.Now.AddMinutes(-20), ProcessStartedAtUtc = _clock.Now.AddMinutes(-1), LaunchedByHelper = false
+        StartedAt = _clock.Now.AddMinutes(-20), ProcessStartedAtUtc = _clock.Now.AddMinutes(-1).ToUniversalTime(), LaunchedByHelper = false
     };
     private GameAutomationService Automation(SessionStorage storage, Monitor monitor, Probe probe, Power? power = null,
         IHdrController? hdr = null, IGameLauncher? launcher = null)
@@ -514,7 +514,7 @@ public sealed class SqliteSessionStorageTests(ITestOutputHelper output) : IDispo
     private sealed class Probe(DateTime created) : IProcessIdentityProbe
     {
         public bool TryGetImagePath(int id, out string? path) { path = "D:/Games/game.exe"; return true; }
-        public bool TryGetStartTimeUtc(int id, out DateTime start) { start = created; return true; }
+        public bool TryGetStartTimeUtc(int id, out DateTime start) { start = created.ToUniversalTime(); return true; }
     }
     private sealed class Monitor : IProcessMonitor
     {
@@ -541,7 +541,8 @@ public sealed class SqliteSessionStorageTests(ITestOutputHelper output) : IDispo
         private DateTimeOffset _now = DateTimeOffset.UnixEpoch.AddYears(55);
         public DateTime Now => GetLocalNow().DateTime;
         public override DateTimeOffset GetUtcNow() => _now;
-        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+        // Runtime snapshot DateTime values are machine-local; process creation identities are UTC.
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Local;
         public void Advance(int minutes) => _now = _now.AddMinutes(minutes);
         public void Tick() { foreach (var timer in _timers.ToArray()) timer.Callback(timer.State); }
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan due, TimeSpan period)

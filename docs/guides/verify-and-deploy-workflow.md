@@ -87,6 +87,20 @@ dotnet test GameHelper.sln
 
 两者必须全绿（既有 Skip 项除外）。
 
+本机已使用 SQLite 时，整套 testhost 也应放进空数据沙盒，不能只隔离端到端子进程。
+部分桌面存储单元测试会通过默认数据目录检测 SQLite 激活状态；未隔离时可能读取真实数据库，
+并因测试配置尚未导入而报“Desktop scope 尚未导入”。在当前 shell 为测试临时设置
+`GAMEHELPER_DATA_DIR` 到新建的唯一临时目录，执行 `dotnet test GameHelper.sln` 后恢复原环境变量。
+路径回退测试自行暂时清空高优先级变量并恢复；真实应用子进程仍各自使用独立沙盒与单实例隔离开关。
+不复制用户数据库、不删除激活标记，也不停止用户实例。需要验证本轮发布产物时，同时设置
+`GAMEHELPER_TEST_PUBLISH_EXE` 为隔离发布目录中的 ConsoleHost exe；真实子进程仍各自使用独立沙盒。
+
+本机管理员 ETW 验证若在 `probe-console-window.ps1` 的 `Add-Type` 处报“客户端没有所需的特权”，
+先检查测试宿主的完整性标签，不要改产品逻辑或跳过探针。2026-10-29 的 `git archive HEAD` 差分已确认：
+同一 Release DLL 下，`testhost.exe` 为 Medium 时，testhost／PowerShell／csc 均是 `S-1-16-8192` 并失败；
+仅把临时测试宿主改为与既有管理员 Debug 宿主一致的 High 后，三者均为 `S-1-16-12288`，两项测试通过。
+修正仅限本机测试输出目录；正式发布树仍遵循下文的 Medium 归一化规则。
+
 ### 2. 发布 + 实机验证 + 部署（一键脚本）
 
 ```powershell

@@ -243,8 +243,19 @@ public sealed class SqliteDesktopUiTests : IDisposable
     public void Dispose()
     {
         DesktopDocumentStore.DrainProjectionsAsync().GetAwaiter().GetResult();
-        Environment.SetEnvironmentVariable("GAMEHELPER_DATA_DIR", _previous);
-        if (Directory.Exists(_root)) Directory.Delete(_root, true);
+        try
+        {
+            // Cancellation does not join already-started presentation metadata reads. Allow their
+            // short SQLite connections to close before deleting this fixture's private database.
+            for (var attempt = 0; Directory.Exists(_root); attempt++)
+            {
+                try { Directory.Delete(_root, true); }
+                catch (IOException ex) when (attempt < 100 &&
+                    (ex.HResult == unchecked((int)0x80070020) || ex.HResult == unchecked((int)0x80070021)))
+                { Thread.Sleep(25); }
+            }
+        }
+        finally { Environment.SetEnvironmentVariable("GAMEHELPER_DATA_DIR", _previous); }
     }
     private sealed class Clock : TimeProvider
     {

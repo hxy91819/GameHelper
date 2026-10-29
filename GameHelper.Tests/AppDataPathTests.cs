@@ -7,8 +7,18 @@ using Xunit;
 namespace GameHelper.Tests
 {
     [Collection("AppDataPathSequential")]
-    public sealed class AppDataPathTests
+    public sealed class AppDataPathTests : IDisposable
     {
+        private readonly string? _inheritedDataDirectory = Environment.GetEnvironmentVariable(AppDataPath.DataDirectoryEnvironmentVariable);
+
+        public AppDataPathTests()
+        {
+            // These tests exercise lower-priority fallbacks even when the testhost is sandboxed.
+            Environment.SetEnvironmentVariable(AppDataPath.DataDirectoryEnvironmentVariable, null);
+        }
+
+        public void Dispose() => Environment.SetEnvironmentVariable(AppDataPath.DataDirectoryEnvironmentVariable, _inheritedDataDirectory);
+
         [Fact]
         public void GetBaseDirectory_PrefersXdgConfigHomeOverAppData()
         {

@@ -44,7 +44,7 @@ public sealed class SqliteStatisticsTests : IDisposable
             foreach (int? quarter in new int?[] { null, 1, 2, 3, 4 })
                 Assert.Equal(LegacyFixtures.Read($"report-{year}-{quarter?.ToString() ?? "year"}.expected.bin"),
                     JsonSerializer.SerializeToUtf8Bytes(PlaytimeReportBuilder.Build(snapshot.Records, [], new(year, quarter), _clock)));
-        var report = new StatsReportBuilder().Build(snapshot.Records, [], _clock.GetLocalNow().DateTime, true);
+        var report = new StatsReportBuilder().Build(LegacyFixtures.ReportUtcWallClock(snapshot.Records), [], _clock.GetLocalNow().DateTime, true);
         foreach (var file in report.Files)
             Assert.Equal(LegacyFixtures.Platform(file.RelativePath.Replace('/', '_')), Encoding.UTF8.GetBytes(file.Content));
 

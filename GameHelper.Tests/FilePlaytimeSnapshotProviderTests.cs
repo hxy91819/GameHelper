@@ -8,6 +8,7 @@ public sealed class FilePlaytimeSnapshotProviderTests : IDisposable
     private readonly string _tempRoot;
     private readonly string? _originalAppData;
     private readonly string? _originalXdg;
+    private readonly string? _originalDataDirectory;
 
     public FilePlaytimeSnapshotProviderTests()
     {
@@ -16,6 +17,8 @@ public sealed class FilePlaytimeSnapshotProviderTests : IDisposable
 
         _originalAppData = Environment.GetEnvironmentVariable("APPDATA");
         _originalXdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+        _originalDataDirectory = Environment.GetEnvironmentVariable("GAMEHELPER_DATA_DIR");
+        Environment.SetEnvironmentVariable("GAMEHELPER_DATA_DIR", null);
         Environment.SetEnvironmentVariable("APPDATA", _tempRoot);
         Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", null);
     }
@@ -157,6 +160,7 @@ public sealed class FilePlaytimeSnapshotProviderTests : IDisposable
     {
         Environment.SetEnvironmentVariable("APPDATA", _originalAppData);
         Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", _originalXdg);
+        Environment.SetEnvironmentVariable("GAMEHELPER_DATA_DIR", _originalDataDirectory);
 
         if (Directory.Exists(_tempRoot))
         {
