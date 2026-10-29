@@ -101,6 +101,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     }
 
     internal IEnumerable<LibraryGameItem> ConsoleGames => _games;
+    internal IGameLibrary ConsoleClient => _library;
     internal async Task<string> ConsoleRatingAsync(string key)
     {
         var response = await _library.ExecuteAsync(new() { Operation = GameLibraryOperation.SessionReviews, SessionReviews = new(key, null, 1, true) });

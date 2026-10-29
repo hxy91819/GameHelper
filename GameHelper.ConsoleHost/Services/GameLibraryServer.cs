@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace GameHelper.ConsoleHost.Services;
 
-internal sealed class GameLibraryServer(IGameLibrary library, IConfigPathProvider config, ILogger<GameLibraryServer> logger) : BackgroundService
+internal sealed class GameLibraryServer(IGameLibrary library, IConfigPathProvider config, ILogger<GameLibraryServer> logger, ConsoleRuntimeActions? console = null) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -25,7 +25,8 @@ internal sealed class GameLibraryServer(IGameLibrary library, IConfigPathProvide
                 GameLibraryResponse response;
                 try
                 {
-                    response = (await library.ExecuteAsync(request, timeout.Token).ConfigureAwait(false))
+                    response = (await (ConsoleRuntimeActions.Handles(request.Operation) && console is not null
+                        ? console.ExecuteAsync(request, timeout.Token) : library.ExecuteAsync(request, timeout.Token)).ConfigureAwait(false))
                         with { RuntimeProcessId = Environment.ProcessId };
                 }
                 catch (Exception ex)

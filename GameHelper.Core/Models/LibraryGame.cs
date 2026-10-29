@@ -2,6 +2,8 @@ namespace GameHelper.Core.Models;
 
 public sealed record LibraryGame
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<GameProcess>? Processes { get; init; }
     public GameConfig Config { get; init; } = new();
     /// <summary>Runtime-confirmed library request that owns this observed process; absent for external sessions.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]

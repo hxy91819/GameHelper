@@ -118,8 +118,11 @@ public static class ConsoleHostBootstrapper
         }
 
         services.AddSingleton<SqliteConnectionFactory>();
+        services.AddSingleton<ConsoleRatingInvitations>();
+        services.AddSingleton<ConsoleRuntimeActions>();
         services.AddSingleton<ISessionRatingNotifier>(sp => new SessionRatingNotifier(id =>
         {
+            sp.GetRequiredService<ConsoleRatingInvitations>().Add(id);
             if (sp.GetService<ISystemTrayService>() is WindowsSystemTrayService tray) tray.Invite(id);
         }, sp.GetRequiredService<ILogger<SessionRatingNotifier>>()));
         services.AddSingleton<SessionStorage>();

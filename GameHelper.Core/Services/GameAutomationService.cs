@@ -474,6 +474,8 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     }
 
     /// <inheritdoc />
+    public IReadOnlyList<GameProcess> GetRunningProcesses()
+    { lock (_stateLock) return _inFlightRecovery.GetRunningProcesses(); }
     public void Launch(string dataKey) => LaunchTracked(dataKey, null);
     public void Launch(string dataKey, Guid requestId) => LaunchTracked(dataKey, requestId);
     public IReadOnlyDictionary<string, (Guid RequestId, int ProcessId)> GetLaunchIdentities()

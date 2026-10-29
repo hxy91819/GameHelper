@@ -148,6 +148,7 @@ public sealed class GameLibrary(
             default: throw new ArgumentException("不支持的游戏库操作。");
         }
         var states = launch.GetGameStates();
+        var processes = launch.GetRunningProcesses() ?? [];
         var identities = launch.GetLaunchIdentities() ?? new Dictionary<string, (Guid RequestId, int ProcessId)>();
         // 松散 mock / 外部实现的健壮回退：会话开始时间缺失时保持界面旧行为（不显示计时）。
         var runningStarts = launch.GetRunningSessionStarts() ?? new Dictionary<string, DateTime?>(StringComparer.Ordinal);
@@ -161,6 +162,7 @@ public sealed class GameLibrary(
             MonitorRunning = monitor.IsRunning,
             Games = configs.Select(game => new LibraryGame
             {
+                Processes = processes.Where(p => p.DataKey.Equals(game.DataKey, StringComparison.OrdinalIgnoreCase)).ToArray(),
                 Config = game, Revision = GameConfigRevision.For(game), State = states.GetValueOrDefault(game.DataKey, game.IsEnabled ? "未运行" : "自动化已暂停"),
                 RunningStartedAt = runningStarts.GetValueOrDefault(game.DataKey),
                 LaunchRequestId = identities.TryGetValue(game.DataKey, out var identity) ? identity.RequestId : null,

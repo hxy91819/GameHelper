@@ -60,7 +60,7 @@ public sealed class LibraryGameItem : ObservableState
         _useSpeed = row.Config.SpeedMultiplier is not null;
         _speed = (row.Config.SpeedMultiplier ?? 1.5).ToString("0.##", CultureInfo.CurrentCulture);
         _speedHotkeys = SpeedHotkey.FormatLines(row.Config.SpeedHotkeys);
-        LaunchRequestId = row.LaunchRequestId; LaunchProcessId = row.LaunchProcessId;
+        Processes = row.Processes ?? []; LaunchRequestId = row.LaunchRequestId; LaunchProcessId = row.LaunchProcessId;
         _state = row.State;
         _minutes = row.TotalMinutes;
         _runningStartedAt = row.RunningStartedAt;
@@ -117,6 +117,7 @@ public sealed class LibraryGameItem : ObservableState
     public string Ds4WindowsPath { get => _ds4WindowsPath; set { if (Set(ref _ds4WindowsPath, value)) Edited(); } }
     public bool IsDirty { get => _dirty; private set => Set(ref _dirty, value); }
     public string State { get => _state; private set => Set(ref _state, value); }
+    internal IReadOnlyList<GameProcess> Processes { get; private set; } = [];
     internal Guid? LaunchRequestId { get; private set; }
     internal int? LaunchProcessId { get; private set; }
     public bool IsRunning => IsRunningState(_state);
@@ -156,7 +157,7 @@ public sealed class LibraryGameItem : ObservableState
         LastPlayedAt = row.LastPlayedAt; Changed(nameof(LastPlayedLabel)); Changed(nameof(LastPlayedShort)); Changed(nameof(CardBadge)); Changed(nameof(CardSummary)); Changed(nameof(TotalHours)); Changed(nameof(HoursValue));
         var startChanged = _runningStartedAt != row.RunningStartedAt;
         var stateChanged = _state != row.State;
-        LaunchRequestId = row.LaunchRequestId; LaunchProcessId = row.LaunchProcessId;
+        Processes = row.Processes ?? []; LaunchRequestId = row.LaunchRequestId; LaunchProcessId = row.LaunchProcessId;
         State = row.State;
         if (stateChanged) Changed(nameof(IsRunning));
         _runningStartedAt = row.RunningStartedAt;

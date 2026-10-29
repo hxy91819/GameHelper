@@ -2,7 +2,7 @@ namespace GameHelper.Desktop.Input;
 
 public enum ControllerKind { Unknown, Xbox, PlayStation }
 [Flags]
-public enum ControllerAction { None = 0, Up = 1, Down = 2, Left = 4, Right = 8, Confirm = 16, Back = 32, Menu = 64, PreviousPage = 128, NextPage = 256 }
+public enum ControllerAction { None = 0, Up = 1, Down = 2, Left = 4, Right = 8, Confirm = 16, Back = 32, Menu = 64, PreviousPage = 128, NextPage = 256, Auxiliary = 512, SearchFinish = 1024 }
 public sealed record ControllerState(uint Id, ControllerKind Kind, ControllerAction Buttons, short X = 0, short Y = 0);
 public interface IControllerSource : IDisposable { IReadOnlyList<ControllerState> Read(); }
 

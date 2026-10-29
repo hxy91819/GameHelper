@@ -89,6 +89,10 @@ internal sealed class InFlightSessionRecovery
     internal void ClearSessionStarts() { _inFlightStarts.Clear(); _sessionIds.Clear(); _sessionSources.Clear(); }
     internal void ClearProcessStarts() => _inFlightProcessStarts.Clear();
 
+    internal IReadOnlyList<GameProcess> GetRunningProcesses() => _sessionTracker.GetActiveEntriesSnapshot()
+        .Where(e => e.ProcessId is not null).Select(e => new GameProcess(e.DataKey, _sessionIds.GetValueOrDefault(e.DataKey),
+            e.ProcessId!.Value, _inFlightProcessStarts.TryGetValue(e.ProcessId.Value, out var start) ? start : null)).ToArray();
+
     internal IReadOnlyDictionary<string, DateTime?> GetRunningSessionStarts()
     {
         var starts = new Dictionary<string, DateTime?>(StringComparer.OrdinalIgnoreCase);
