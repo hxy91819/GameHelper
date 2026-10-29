@@ -181,3 +181,7 @@ sync 脏检查从 CSV mtime 改为 `database_id + history_revision` 加既有配
 - 邀请只由正常观察退出路径发出；存储提交返回的瞬态身份不序列化，不为通知增加数据库写入或持久队列。主动停止使用无邀请的完成路径，恢复与导入不补发。
 - 回顾入口按需分页（默认 30、上限 100），以稳定 sequence 游标倒序浏览；游戏评分曲线仅按需读取该游戏已评分记录，Core 按本地结束时间排序。平均分按星级算术平均，最高分并列选本地结束时间最早的一局，再按 session_id 排序。
 - 本地想法只在评分窗口／回顾列表显示。报告 Markdown 不导出想法；模型白名单仅增加平均分与样本数。无评分报告新增字段在 IPC JSON 中省略默认值，以保留旧固化报告样本；页面仍显示未评分。
+
+## 手柄支持元数据（schema 4）
+
+`controller_support_cache` 按 Steam AppID 保存 status（full/partial/unlisted/unknown）、dualshock/dualsense、UTC Unix 秒 retry_at 与 failures；可重建缓存不递增用户修订。`controller_support_overrides` 以 scope_id + DataKey（GH_ORDINAL_IGNORE_CASE）为主键，supported 为 0/1，删除即清除覆盖；手动变更递增 data_revision。新增编号迁移沿用升级前备份、原子升级及完整性检查。所有写入沿用批次 6 维护准入与五秒事件预算，HTTP 在事务和准入之外。新字段不进入旧版兼容投影及批量导出，准备降级时随封存数据库保留，旧版不可见。

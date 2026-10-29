@@ -6,7 +6,7 @@ namespace GameHelper.Infrastructure.Storage.Sqlite;
 public sealed class SqliteDatabaseInitializer
 {
     /// <summary>Highest embedded numbered SQL migration supported by this build.</summary>
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
     private readonly SqliteConnectionFactory _factory;
     private readonly TimeProvider _timeProvider;
     private readonly IReadOnlyList<string> _migrations;

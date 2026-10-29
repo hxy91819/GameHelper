@@ -7,6 +7,11 @@ namespace GameHelper.Desktop;
 
 public sealed class LibraryGameItem : ObservableState
 {
+    private ControllerSupport _controller = new();
+    public ControllerSupport Controller => _controller;
+    internal int ControllerVersion;
+    internal void SetController(ControllerSupport value)
+    { _controller = value; Changed(nameof(Controller)); }
     internal const string DefaultDs4WindowsPath = @"D:\Program Files\DS4Windows\DS4Windows\DS4Windows.exe";
     private bool _useDs4Windows;
     private string _ds4WindowsPath;

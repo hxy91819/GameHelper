@@ -27,6 +27,9 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private readonly GameHelper.Infrastructure.Artwork.SteamGenreClient _genreClient;
     private static readonly System.Net.Http.HttpClient GenreHttp = new(new System.Net.Http.SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(12) };
     private readonly bool _allowGenreNetwork;
+    private readonly GameHelper.Infrastructure.Storage.Sqlite.SqliteControllerSupportStore _controllerStore;
+    private readonly GameHelper.Infrastructure.Artwork.SteamControllerSupportClient _controllerClient;
+    private readonly string? _controllerConfig;
     private string? _genre;
     public ObservableCollection<GenreGroup> GenreGroups { get; } = [];
     public LibraryGameItem? ContinueGame => _genre is null ? _games.Where(game => game.InstallationState == GameInstallationState.Installed && (game.IsRunning || game.LastPlayedAt is not null)).OrderByDescending(game => game.IsRunning).ThenByDescending(game => game.LastPlayedAt).FirstOrDefault() : null;
@@ -57,6 +60,9 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     internal LibraryViewModel(IGameLibrary library, string? configPath, SteamPosterLibrary? posters, TimeProvider? timeProvider = null, string? metadataConfigPath = null, GameHelper.Infrastructure.Artwork.SteamGenreClient? genreClient = null, DesktopSideData? sideData = null)
     {
         _library = library;
+        _controllerConfig = configPath ?? metadataConfigPath;
+        _controllerStore = new(new(), timeProvider ?? TimeProvider.System);
+        _controllerClient = new(GenreHttp, _controllerStore, timeProvider ?? TimeProvider.System);
         _genreStore = sideData?.Genres ?? new LibraryGenreStore(configPath ?? metadataConfigPath);
         _scanStore = sideData?.Scan ?? new LibraryScanStore(configPath);
         _allowGenreNetwork = configPath is not null && (posters?.AllowNetwork ?? true);
@@ -188,6 +194,51 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         // Reset is immediate; network work belongs to the window lifetime, not the editor dialog.
         if (genres is null) game.SetGenres([]);
         game.GenresLoading = LoadGenresAsync(game);
+        QueueControllerLoad(game);
+    }
+    private void QueueControllerLoad(LibraryGameItem game)
+    {
+        // Presentation metadata starts after the current collection update, on the window dispatcher.
+        Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() =>
+        {
+            if (!_lifetime.IsCancellationRequested) _ = LoadControllerAsync(game);
+        }));
+    }
+    internal async Task LoadControllerAsync(LibraryGameItem game)
+    {
+        var version = ++game.ControllerVersion;
+        var target = game.Target;
+        var linked = _posters.AssociatedAppId(game.DataKey);
+        uint? id = Uri.TryCreate(target, UriKind.Absolute, out var uri) && uri.Scheme == "steam" && uri.Host == "rungameid"
+            && uint.TryParse(uri.AbsolutePath.Trim('/'), out var parsed) && parsed > 0 ? parsed : linked;
+        try
+        {
+            var initial = await Task.Run(() =>
+                (id is { } cachedId ? _controllerStore.Read(cachedId)?.Value : null) ?? new ControllerSupport(), _lifetime.Token);
+            var manual = await Task.Run(() => _controllerConfig is null ? null : _controllerStore.Manual(_controllerConfig, game.DataKey), _lifetime.Token);
+            if (game.ControllerVersion != version || _lifetime.IsCancellationRequested) return;
+            game.SetController(initial with { Manual = manual }); if (_filter == "unsupported") Filter();
+            var result = await Task.Run(async () =>
+            {
+                var value = id is { } app ? await _controllerClient.GetAsync(app, _allowGenreNetwork, _lifetime.Token) : new ControllerSupport();
+                return value with { Manual = _controllerConfig is null ? null : _controllerStore.Manual(_controllerConfig, game.DataKey) };
+            }, _lifetime.Token);
+            if (!_lifetime.IsCancellationRequested && game.ControllerVersion == version) { game.SetController(result); if (_filter == "unsupported") Filter(); }
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or Microsoft.Data.Sqlite.SqliteException or UnauthorizedAccessException)
+        { Status = "手柄支持信息暂不可用：" + ex.Message; }
+    }
+    internal async Task SetControllerManualAsync(bool? value)
+    {
+        if (Selected is not { } game || _controllerConfig is null) return;
+        try
+        {
+            await Task.Run(() => _controllerStore.SaveManual(_controllerConfig, game.DataKey, value));
+            ++game.ControllerVersion;
+            game.SetController(game.Controller with { Manual = value }); Filter();
+        }
+        catch (Exception ex) { Status = "手柄支持设置未保存：" + ex.Message; }
     }
     public void SetFilter(string filter) { _filter = filter; Filter(); }
     public void SetInstallationGroup(string group) { _group = group; Changed(nameof(InstallationGroup)); Filter(); }
@@ -204,6 +255,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         return (_group == "all" || (_group == "installed" && game.InstallationState == GameInstallationState.Installed)
                 || (_group == "missing" && game.InstallationState == GameInstallationState.Missing) || (_group == "unknown" && game.InstallationState == GameInstallationState.Unknown))
             && (_genre is null || (_genre == "未分类" ? game.Genres.Count == 0 : game.Genres.Contains(_genre, StringComparer.OrdinalIgnoreCase)))
+            && (_filter != "unsupported" || game.Controller.Unsupported)
             && (_filter != "hdr" || game.Hdr) && (_filter != "speed" || game.UseSpeed)
             && (game.Name.Contains(Search.Trim(), StringComparison.OrdinalIgnoreCase) || game.Executable.Contains(Search.Trim(), StringComparison.OrdinalIgnoreCase));
     }
@@ -337,6 +389,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             if (discardDrafts || !old.TryGetValue(row.Config.DataKey, out var existing) || existing.GenreIdentity != (item.Executable, item.Target))
                 item.GenresLoading = LoadGenresAsync(item);
             else if (!ReferenceEquals(existing, item)) item.GenresLoading = CarryGenresAsync(existing, item);
+            QueueControllerLoad(item);
             updated.Add(item);
         }
         for (var index = 0; index < updated.Count; index++)
@@ -459,6 +512,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         game.ArtworkLoading = game.LoadArtworkAsync(_posters, _lifetime.Token);
         await game.ArtworkLoading.WaitAsync(cancellationToken);
         game.GenresLoading = LoadGenresAsync(game);
+        QueueControllerLoad(game);
         return true;
     }
     internal Task<System.Windows.Media.ImageSource?> PreviewPosterAsync(uint appId, CancellationToken cancellationToken)
@@ -470,6 +524,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         await Task.Run(() => _posters.Associate(game.DataKey, appId));
         await game.LoadArtworkAsync(_posters, _lifetime.Token, refresh);
         game.GenresLoading = LoadGenresAsync(game);
+        QueueControllerLoad(game);
     }
     private void OnItemChanged(object? sender, PropertyChangedEventArgs e)
     {
