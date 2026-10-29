@@ -3,6 +3,9 @@ namespace GameHelper.Core.Models;
 public sealed record LibraryGame
 {
     public GameConfig Config { get; init; } = new();
+    /// <summary>Runtime-confirmed library request that owns this observed process; absent for external sessions.</summary>
+    public Guid? LaunchRequestId { get; init; }
+    public int? LaunchProcessId { get; init; }
     public string Revision { get; init; } = string.Empty;
     public string State { get; init; } = "未运行";
     public long TotalMinutes { get; init; }

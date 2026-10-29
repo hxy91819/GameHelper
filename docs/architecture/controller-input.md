@@ -9,3 +9,5 @@ GameHelper.Input.Tests 链接纯逻辑源文件，net8.0 可在 Linux 运行；W
 SDL 初始化前使用 `SetHintWithPriority(..., Override)` 禁用 enhanced reports，检查失败即拒绝初始化，通过现有窗口状态报告错误。Windows 测试验证继承环境变量为 1 时仍被覆盖为 0。
 
 WindowControllerInput 统一窗口激活、SDL 持有与释放，MainWindow 与 ConsoleModeWindow 共用；静态前台 owner 在新窗口建立 SDL 前先释放旧 owner，所有调用在 WPF Dispatcher 上。主机窗口不把其他窗口视作所属模态，桌面库继续支持自身模态返回。ConsoleModePolicy 是可在 Linux 测试的页签、提示和恢复判定边界。
+
+主机启动生命周期由 ConsoleLaunchState（TimeProvider）管理。IPC LaunchRequestId 随启动进入运行时待启动记录；仅有效等待期限内观察到的 PID 获得该请求关联，关联随该运行组退出清理，不持久化到跨重启快照。窗口按请求 ID + PID 跟踪，等待、运行、超时与覆盖层展示分开；返回关闭覆盖层不释放等待状态。Steam URI 沿用运行时现有的待启动匹配归属，不宣称可追溯 Steam 内部创建进程的因果关系。

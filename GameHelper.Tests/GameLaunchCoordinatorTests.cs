@@ -84,6 +84,26 @@ public sealed class GameLaunchCoordinatorTests
     }
 
     [Fact]
+    public void RequestIdentityBindsOnlyConfirmedProcessAndIsRemovedOnExit()
+    {
+        using var app = new Fixture(); var id = Guid.NewGuid();
+        app.Service.Launch("a", id);
+        Assert.Empty(app.Service.GetLaunchIdentities());
+        app.Start("a", 101);
+        Assert.Equal((id, 101), app.Service.GetLaunchIdentities()["a"]);
+        app.Stop("a", 101); Assert.Empty(app.Service.GetLaunchIdentities());
+        app.Start("a", 102); Assert.Empty(app.Service.GetLaunchIdentities());
+    }
+
+    [Fact]
+    public void ExpiredRequestCannotBindLaterExternalProcess()
+    {
+        using var app = new Fixture(); app.Service.Launch("a", Guid.NewGuid());
+        app.Clock.Advance(TimeSpan.FromMinutes(3)); app.Start("a", 101);
+        Assert.Empty(app.Service.GetLaunchIdentities());
+    }
+
+    [Fact]
     public void ProcessCreationFailure_RestoresOwnedHdr()
     {
         using var app = new Fixture();

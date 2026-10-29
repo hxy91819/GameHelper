@@ -5,6 +5,7 @@ public sealed record GameLibraryRequest
 {
     public GameLibraryOperation Operation { get; init; }
     public UpdateAppSettingsRequest? Settings { get; init; }
+    public Guid? LaunchRequestId { get; init; }
     public string? DataKey { get; init; }
     public string? ExpectedRevision { get; init; }
     public GameConfig? Game { get; init; }

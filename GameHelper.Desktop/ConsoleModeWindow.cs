@@ -23,14 +23,14 @@ internal sealed class ConsoleModeWindow : Window, ILaunchWindowHandoff
     private readonly GamePosterTile detailPoster = new() { Width = 220, Height = 310, HorizontalAlignment = HorizontalAlignment.Left };
     private string rating = "正在读取评分…";
     private bool closed;
-    private DateTimeOffset? launchDeadline;
+    private readonly ConsoleLaunchState launchState = new(TimeProvider.System);
     private readonly Border launchOverlay = new() { Background = new SolidColorBrush(Color.FromArgb(240, 13, 23, 34)), Child = new TextBlock { Text = "启动中…\n正在等待游戏进程 · 返回可关闭提示", FontSize = 32, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
     private readonly TextBlock status = new() { FontSize = 22 };
     private readonly WindowControllerInput input;
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(1) };
     private int tab;
-    private bool detail, confirm, menu, launching, seenRunning;
-    private string? launchedKey;
+    private bool detail, confirm, menu;
+    private bool ticking;
     private LibraryGameItem? Selected => shelf.SelectedItem as LibraryGameItem;
     internal ConsoleModeWindow(MainWindow library, LibraryViewModel model)
     {
@@ -72,7 +72,7 @@ internal sealed class ConsoleModeWindow : Window, ILaunchWindowHandoff
         input = new(this, actions => { UpdateHelp(); foreach (var a in actions) Handle(a); }, message => status.Text = message);
         Loaded += (_,_) => { PlaceOnLibraryMonitor(); library.Hide(); model.LaunchWindowHandoff = this; Reload(); };
         refresh.Tick += Tick; refresh.Start();
-        Closed += (_,_) => { closed = true; refresh.Stop(); input.Dispose(); model.LaunchWindowHandoff = previous; library.Show(); library.WindowState = WindowState.Normal; library.Activate(); };
+        Closed += (_,_) => { closed = true; model.ConsoleLaunchRequestId = null; refresh.Stop(); input.Dispose(); model.LaunchWindowHandoff = previous; library.Show(); library.WindowState = WindowState.Normal; library.Activate(); };
     }
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct Rect { public int Left, Top, Right, Bottom; }
@@ -104,29 +104,31 @@ internal sealed class ConsoleModeWindow : Window, ILaunchWindowHandoff
     private void UpdateHelp() => help.Text = input.Kind == ControllerKind.PlayStation ? "× 详情 / 启动    ○ 返回    L1 / R1 页签    Options 菜单" : "A 详情 / 启动    B 返回    LB / RB 页签    Start 菜单";
     private void Render()
     {
-        launchOverlay.Visibility = launching ? Visibility.Visible : Visibility.Collapsed;
+        launchOverlay.Visibility = launchState.ShowOverlay ? Visibility.Visible : Visibility.Collapsed;
         shelf.Visibility = detail || menu ? Visibility.Collapsed : Visibility.Visible;
         details.Visibility = detail || menu ? Visibility.Visible : Visibility.Collapsed;
         if (Selected is { } posterGame) { detailPoster.Artwork = posterGame.CoverArtwork; detailPoster.Label = posterGame.Name; }
         if (menu) info.Text = "退出主机模式？按确认返回桌面游戏库。";
         else if (Selected is { } g) info.Text = $"{g.Name}\n\n{g.Playtime} · {model.ConsoleJournal(g.DataKey).Status}\n{g.LastPlayedLabel} · 最近本局打分：{rating}\n{g.Controller.Label}\n{g.Controller.Description}\n\n启动设置（只读）：{g.Summary} · DS4Windows：{(g.UseDs4Windows ? "启用" : "关闭")}\n\n{(confirm ? "部分支持或不支持手柄，请备好键鼠。确认仍启动 / 返回取消" : "确认启动游戏")}";
-        status.Text = launching ? "启动中…" : !string.IsNullOrEmpty(model.ActionError) ? model.ActionError : model.Status;
+        status.Text = launchState.Message ?? ( !string.IsNullOrEmpty(model.ActionError) ? model.ActionError : model.Status);
         UpdateHelp();
     }
     private void Handle(ControllerAction action)
     {
-        if (launching) { if (action == ControllerAction.Back) { launching = false; Render(); } return; }
-        if (action == ControllerAction.Back) { if (confirm) confirm = false; else if (menu) menu = false; else if (detail) detail = false; else Close(); Render(); return; }
+        if (launchState.ShowOverlay) { if (action == ControllerAction.Back) { launchState.Back(); Render(); } return; }
+        if (action == ControllerAction.Back) { launchState.Back(); if (confirm) confirm = false; else if (menu) menu = false; else if (detail) detail = false; else Close(); Render(); return; }
         if (action == ControllerAction.Menu) { menu = !menu; Render(); return; }
         if (action == ControllerAction.Confirm)
         {
             if (menu) { Close(); return; }
             if (Selected is not { } game) return;
             if (!detail) { detail = true; rating = "正在读取评分…"; Render(); _ = LoadRatingAsync(game.DataKey); return; }
+            if (launchState.Tracking) { Render(); return; }
             if (!confirm && ConsoleModePolicy.Confirm(game.Controller.Status,game.Controller.Manual)) { confirm = true; Render(); return; }
             model.Selected = game;
             if (!model.LaunchCommand.CanExecute(null)) { Render(); return; }
-            launchDeadline = DateTimeOffset.UtcNow.AddMinutes(2); launchedKey = game.DataKey; seenRunning = false; launching = true; confirm = false; Render(); model.LaunchFromPoster(); return;
+            if (!launchState.Begin(game.DataKey, game.Name)) return;
+            model.ConsoleLaunchRequestId = launchState.RequestId; confirm = false; Render(); model.LaunchFromPoster(); return;
         }
         if (detail || menu) return;
         if (action is ControllerAction.PreviousPage or ControllerAction.NextPage) { tab = (tab + (action == ControllerAction.NextPage ? 1 : 3)) % 4; Reload(); return; }
@@ -140,18 +142,28 @@ internal sealed class ConsoleModeWindow : Window, ILaunchWindowHandoff
     }
     private async void Tick(object? sender, EventArgs e)
     {
-        if (launchedKey is { } key)
+        if (closed || ticking) return;
+        ticking = true;
+        try
         {
-            var game = model.ConsoleGames.FirstOrDefault(g => g.DataKey == key);
-            if (game?.IsRunning == true) { if (!seenRunning) WindowState = WindowState.Minimized; seenRunning = true; launching = false; }
-            else if (ConsoleModePolicy.Restore(true,seenRunning,game?.IsRunning == true)) { launchedKey = null; seenRunning = false; WindowState = WindowState.Normal; Activate(); Render(); }
-            if (!seenRunning && launchDeadline < DateTimeOffset.UtcNow) { launching = false; launchedKey = null; status.Text = "等待游戏进程超时，请返回详情检查启动状态。"; }
-            if (!model.IsBusy && model.HasActionError) { launching = false; launchedKey = null; Render(); }
-            if (!model.IsBusy) await model.RefreshAsync();
+            if (launchState.Tracking)
+            {
+                if (!model.IsBusy && model.HasActionError) launchState.Fail();
+                if (launchState.Tracking && !model.IsBusy) await model.RefreshAsync();
+                if (closed) return;
+                var game = model.ConsoleGames.FirstOrDefault(g => g.DataKey == launchState.Key);
+                if (!model.IsBusy && model.HasActionError) launchState.Fail();
+                var effect = launchState.Observe(game?.IsRunning == true, game?.LaunchRequestId, game?.LaunchProcessId);
+                Render();
+                if (effect == ConsoleLaunchState.Effect.Minimize) WindowState = WindowState.Minimized;
+                else if (effect == ConsoleLaunchState.Effect.Restore) { WindowState = WindowState.Normal; Activate(); }
+            }
+            else if (!detail && !menu) Reload();
+            else Render();
         }
-        else if (!detail && !menu) Reload();
-        else Render();
+        finally { ticking = false; }
     }
+
     void ILaunchWindowHandoff.AllowForeground() => WindowsForegroundPermission.AllowAnyProcess();
     void ILaunchWindowHandoff.Minimize() { /* Wait for the monitored game, rather than request acceptance. */ }
 }
