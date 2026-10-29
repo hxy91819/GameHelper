@@ -16,7 +16,7 @@ public sealed class SqliteStorageTests : IDisposable
     {
         await Initialize();
         using var connection = _factory.OpenConnection();
-        Assert.Equal(3L, Scalar(connection, "PRAGMA user_version;"));
+        Assert.Equal(4L, Scalar(connection, "PRAGMA user_version;"));
         Assert.Equal("wal", Scalar(connection, "PRAGMA journal_mode;"));
         Assert.Equal(5000L, Scalar(connection, "PRAGMA busy_timeout;"));
         Assert.Equal(1L, Scalar(connection, "PRAGMA foreign_keys;"));
@@ -43,7 +43,7 @@ public sealed class SqliteStorageTests : IDisposable
         await Initialize();
         using var upgraded = _factory.OpenConnection();
         Assert.Equal("旧游戏", Scalar(upgraded, "SELECT data_key FROM history_keys;"));
-        Assert.Equal(3L, Scalar(upgraded, "PRAGMA user_version;"));
+        Assert.Equal(4L, Scalar(upgraded, "PRAGMA user_version;"));
         var backup = Assert.Single(Directory.GetDirectories(Path.Combine(_directory, "backups"), "upgrade-*"));
         using var original = SqliteConnectionFactory.OpenFile(Path.Combine(backup, "userdata.db"), SqliteOpenMode.ReadOnly);
         Assert.Equal(1L, Scalar(original, "PRAGMA user_version;"));
@@ -73,7 +73,7 @@ public sealed class SqliteStorageTests : IDisposable
         Assert.Equal("note", Scalar(current, "SELECT note FROM journals;"));
         Assert.Equal("old.exe", Scalar(current, "SELECT normalized_name FROM inflight_processes;"));
         Assert.Equal(DBNull.Value, Scalar(current, "SELECT launched_by_helper FROM inflight_processes;"));
-        Assert.Equal(3L, Scalar(current, "PRAGMA user_version;"));
+        Assert.Equal(4L, Scalar(current, "PRAGMA user_version;"));
     }
 
     [Fact]
@@ -293,6 +293,7 @@ public sealed class SqliteStorageTests : IDisposable
     // Upgrade tests start from the actual old schema, not merely an old user_version on new tables.
     private const string RevertToVersionOne = """
         DROP INDEX ix_play_sessions_key_sequence; DROP INDEX ix_session_ratings_updated; DROP INDEX ix_inflight_sessions_key;
+        DROP TABLE controller_support_overrides; DROP TABLE controller_support_cache;
         DROP TABLE inflight_processes;
         CREATE TABLE inflight_processes(process_row_id INTEGER NOT NULL PRIMARY KEY,
             session_id TEXT NOT NULL REFERENCES inflight_sessions(session_id),pid INTEGER,

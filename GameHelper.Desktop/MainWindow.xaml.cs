@@ -181,7 +181,7 @@ public partial class MainWindow : Window
             ("重新扫描 " + directory.Replace("_", "__"), (RoutedEventHandler)(async (_, _) => await ScanAsync(await _model.RescanDirectoryAsync(directory)))))];
     private void OnFiltersMenu(object sender, RoutedEventArgs e) => ShowMenu(sender,
         ("本地未找到", (_, _) => SetInstallationGroup("missing")), ("安装状态待确认", (_, _) => SetInstallationGroup("unknown")),
-        ("倍速游戏", (_, _) => _model.SetFilter("speed")), ("清除能力筛选", (_, _) => _model.SetFilter("all")));
+        ("只看不支持手柄", (_, _) => _model.SetFilter("unsupported")), ("倍速游戏", (_, _) => _model.SetFilter("speed")), ("清除能力筛选", (_, _) => _model.SetFilter("all")));
 
     private void OnContinue(object sender, RoutedEventArgs e)
     {
@@ -211,6 +211,11 @@ public partial class MainWindow : Window
         finally { control.IsEnabled = true; }
     }
 
+    private async void OnControllerManual(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is LibraryViewModel vm && sender is FrameworkElement element)
+            await vm.SetControllerManualAsync((element.Tag as string) switch { "yes" => true, "no" => false, _ => null });
+    }
     private void OnEditGenres(object sender, RoutedEventArgs e)
     {
         if (_model.Selected is not { } game) return;
