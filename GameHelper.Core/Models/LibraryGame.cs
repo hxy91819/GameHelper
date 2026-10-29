@@ -4,7 +4,9 @@ public sealed record LibraryGame
 {
     public GameConfig Config { get; init; } = new();
     /// <summary>Runtime-confirmed library request that owns this observed process; absent for external sessions.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public Guid? LaunchRequestId { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public int? LaunchProcessId { get; init; }
     public string Revision { get; init; } = string.Empty;
     public string State { get; init; } = "未运行";
