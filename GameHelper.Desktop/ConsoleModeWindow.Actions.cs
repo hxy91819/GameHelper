@@ -142,6 +142,13 @@ internal sealed partial class ConsoleModeWindow
         }
         catch (Exception ex) { interactionStatus = ex.Message; }
     }
+    private Task SaveRatingAsync(int? stars = null, bool clear = false) => RunInteractionAsync(async () =>
+    {
+        if (ratingEditor is not { Busy: false } editor) return;
+        if (stars is { } value) editor.Stars = value;
+        if (!await editor.SaveAsync(clear)) throw new InvalidOperationException(editor.Status);
+        ratingEditor = null; overlayKind = ConsoleOverlay.None;
+    });
     private bool HandleActionOverlay(ControllerAction action)
     {
         if (actionBusy) return true;
@@ -185,11 +192,7 @@ internal sealed partial class ConsoleModeWindow
             else if (action == ControllerAction.Right) ratingEditor.Stars = Math.Min(5,ratingEditor.Stars+1);
             else if (action == ControllerAction.Back) { ratingEditor = null; overlayKind = ConsoleOverlay.None; }
             else if (action == ControllerAction.Auxiliary) OpenKeyboard(true);
-            else if (action == ControllerAction.Confirm) _ = RunInteractionAsync(async () =>
-            {
-                if (!await ratingEditor.SaveAsync()) throw new InvalidOperationException(ratingEditor.Status);
-                ratingEditor = null; overlayKind = ConsoleOverlay.None;
-            });
+            else if (action == ControllerAction.Confirm) _ = SaveRatingAsync();
         }
         Render(); return true;
     }
@@ -255,14 +258,23 @@ internal sealed partial class ConsoleModeWindow
         else if (ratingEditor is not null)
         {
             ConsoleOverlayVisuals.Header(panel, "本局体验如何？", ratingEditor.Description);
-            var stars = ConsoleModeVisuals.Label(new string('★',ratingEditor.Stars) + new string('☆',5-ratingEditor.Stars), 46, ConsoleModeVisuals.Accent);
+            var stars = new SessionRatingStars(ratingEditor, console: true) { IsEnabled = !actionBusy };
+            stars.StarClicked += value => _ = SaveRatingAsync(value);
             stars.Margin = new Thickness(0, 0, 0, 6); panel.Children.Add(stars);
-            var ratingHint = ConsoleModeVisuals.Label("左右选择星级", 17, ConsoleModeVisuals.Secondary);
+            var ratingHint = ConsoleModeVisuals.Label("点击星星即保存；可先填写想法。手柄左右选星、确认提交。", 17, ConsoleModeVisuals.Secondary);
             ratingHint.Margin = new Thickness(0, 0, 0, 12); panel.Children.Add(ratingHint);
             panel.Children.Add(ConsoleOverlayVisuals.Notice(ratingEditor.Thought.Length == 0 ? "想法：留空" : ratingEditor.Thought.Length > 100 ? ratingEditor.Thought[..100] + "…" : ratingEditor.Thought));
+            if (!string.IsNullOrWhiteSpace(ratingEditor.Status))
+                panel.Children.Add(ConsoleOverlayVisuals.Notice(ratingEditor.Status));
             var actions = new StackPanel { Margin = new Thickness(0, 20, 0, 0) }; panel.Children.Add(actions);
             actions.Children.Add(Button("提交评分",true,true,() => HandleActionOverlay(ControllerAction.Confirm),primary:true));
             actions.Children.Add(Button("填写想法",true,false,() => OpenKeyboard(true),"可选，记录当下感受"));
+            actions.Children.Add(Button("重载最新评分",true,false,() => _ = RunInteractionAsync(async () =>
+            {
+                if (ratingEditor is not { } editor) return;
+                await editor.ReloadAsync();
+            })));
+            actions.Children.Add(Button("清除评分",true,false,() => _ = SaveRatingAsync(clear: true)));
             actions.Children.Add(Button("跳过本次评分",true,false,() => HandleActionOverlay(ControllerAction.Back)));
         }
     }

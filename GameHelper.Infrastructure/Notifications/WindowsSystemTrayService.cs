@@ -77,6 +77,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
     // Native resources below are owned exclusively by the STA thread.
     private uint _taskbarCreated;
     private bool _hasIcon;
+    private SystemTrayIcon? _icon;
     private Guid? _ratingSession;
     private readonly Action<Guid>? _openRating;
 
@@ -179,6 +180,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             // Elevated monitoring still needs Explorer's lower-integrity restart broadcast.
             if (!NativeMethods.ChangeWindowMessageFilterEx(window, _taskbarCreated, 1, IntPtr.Zero))
                 throw new Win32Exception(Marshal.GetLastWin32Error());
+            _icon = SystemTrayIcon.Load();
             UpdateIcon(window);
             if (NativeMethods.SetTimer(window, 1, 5000, IntPtr.Zero) == 0)
                 throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -198,6 +200,8 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             _stopRequested = true;
             SafeCleanup(() => { if (window != IntPtr.Zero) NativeMethods.KillTimer(window, 1); });
             SafeCleanup(() => RemoveIcon(window));
+            SafeCleanup(() => _icon?.Dispose());
+            _icon = null;
             messageWindow?.Dispose();
             Volatile.Write(ref _window, IntPtr.Zero);
             _ready.Set();
@@ -366,7 +370,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
     {
         Size = (uint)Marshal.SizeOf<NativeMethods.IconData>(), Window = window, Id = 1,
         Flags = 1 | 2 | 4, Callback = CallbackMessage,
-        Icon = NativeMethods.LoadIcon(IntPtr.Zero, new IntPtr(32512)),
+        Icon = _icon?.DangerousGetHandle() ?? IntPtr.Zero,
         Tip = SystemTrayLogic.Tooltip(_cachedSummary), Text = string.Empty, Title = string.Empty
     };
 
@@ -441,7 +445,6 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             public IntPtr BalloonIcon;
         }
 
-        [DllImport("user32.dll", EntryPoint = "LoadIconW")] public static extern IntPtr LoadIcon(IntPtr instance, IntPtr resource);
         [DllImport("user32.dll")] public static extern nuint SetTimer(IntPtr window, nuint id, uint milliseconds, IntPtr callback);
         [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool KillTimer(IntPtr window, nuint id);
         [DllImport("shell32.dll", EntryPoint = "Shell_NotifyIconW", CharSet = CharSet.Unicode)]

@@ -22,6 +22,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Storage\Sqlite\Migrations\*.sql" />
     <EmbeddedResource Include="Controllers\CheatEngineSpeed.lua" />
+    <EmbeddedResource Include="Notifications\gamehelper-tray.ico" />
   </ItemGroup>
 
 </Project>
