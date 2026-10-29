@@ -11,7 +11,7 @@ public sealed class DesktopLibraryViewModelTests
     [Fact]
     public Task ConsoleRefreshWithoutDesktopPolling_UpdatesExternalGameActions() => OnDispatcher(async () =>
     {
-        var game = new LibraryGame { Config = new() { DataKey = "game", Executable = "game.exe", Launch = new() { Target = @"C:\Games\game.exe" } } };
+        var game = new LibraryGame { Config = new() { DataKey = "game", Executable = "game.exe", Launch = new() { Target = @"C:\Games\game.exe" } }, Installation = new(GameInstallationState.Installed, "installed") };
         var backend = new Mock<IGameLibrary>();
         backend.Setup(b => b.ExecuteAsync(It.IsAny<GameLibraryRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new GameLibraryResponse { Success = true, Games = [game] });
