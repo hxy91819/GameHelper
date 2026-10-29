@@ -221,6 +221,6 @@ games:
 
 方向长按 400ms 后每 90ms 重复；左摇杆死区约 49%，对角取主轴。确认、返回、菜单不连发。失焦、切换设备后须先松开按键，避免返回窗口意外启动游戏。
 
-同时可见多个设备时只读取一个：首次优先原生 PlayStation，其次按 SDL 设备 ID；当前设备完全松开（摇杆回死区）持续至少 0.5 秒后，其他已连接设备的新按下可接管；有输入或松开不足 0.5 秒时忽略其他设备，防止虚拟设备延迟镜像重复导航。冷却期内按住到期不触发接管，须松开再按；不支持多人同时操控或自动识别虚拟设备背后的型号，不改 DS4Windows/HidHide 配置。设备类型通过桌面输入层暴露，虚拟 Xbox 按 Xbox 类型返回。
+同时可见多个设备时只读取一个：首次优先原生 PlayStation，其次按 SDL 设备 ID；当前设备完全松开（摇杆回死区）持续至少 0.5 秒后，其他已连接设备的新按下可接管；有输入或松开不足 0.5 秒时忽略其他设备，防止虚拟设备延迟镜像重复导航。冷却期内按住到期不触发接管，须有新按下；接管仅执行新按键边沿，不重放之前按住的确认键；不支持多人同时操控或自动识别虚拟设备背后的型号，不改 DS4Windows/HidHide 配置。设备类型通过桌面输入层暴露，虚拟 Xbox 按 Xbox 类型返回。
 
-输入依赖 SDL3-CS 与 SDL3-CS.Windows 3.4.18.1（zlib），原生 SDL3.dll 随 NuGet runtime assets 发布；framework-dependent 与 self-contained 均需保留原生文件。读取前强制禁用 enhanced reports，避免切换蓝牙 PS 手柄的报告模式，不启用震动。USB/蓝牙、热插拔与输入转换软件共存仍需 Windows 真机验收。
+输入依赖 SDL3-CS 与 SDL3-CS.Windows 3.4.18.1（zlib），原生 SDL3.dll 随 NuGet runtime assets 发布；framework-dependent 与 self-contained 均需保留原生文件。初始化前以 Override 优先级强制禁用 enhanced reports（覆盖继承的环境变量）；若设置失败则停止初始化并在窗口显示错误，避免切换蓝牙 PS 手柄的报告模式，不启用震动。USB/蓝牙、热插拔与输入转换软件共存仍需 Windows 真机验收。

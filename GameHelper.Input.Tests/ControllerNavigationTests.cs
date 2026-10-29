@@ -77,6 +77,22 @@ public sealed class ControllerNavigationTests
         Assert.Equal(ControllerKind.Xbox, nav.DeviceKind);
     }
     [Fact]
+    public void TakeoverWithNewDirectionDoesNotReplayHeldConfirm()
+    {
+        var source = new Source { States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, 0)] };
+        var clock = new Clock(); var nav = new ControllerNavigation(source, clock); nav.Poll(true);
+        clock.Now = 100;
+        source.States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, ControllerAction.Confirm)];
+        Assert.Empty(nav.Poll(true));
+        clock.Now = 600; Assert.Empty(nav.Poll(true));
+        source.States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, ControllerAction.Confirm | ControllerAction.Right)];
+        Assert.Equal([ControllerAction.Right], nav.Poll(true));
+        Assert.Equal(ControllerKind.Xbox, nav.DeviceKind);
+        source.States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, 0)]; nav.Poll(true);
+        source.States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, ControllerAction.Confirm)];
+        Assert.Equal([ControllerAction.Confirm], nav.Poll(true));
+    }
+    [Fact]
     public void ActiveOwnerRejectsOtherDeviceEvenAfterLongTime()
     {
         var source = new Source { States = [new(1, ControllerKind.PlayStation, 0), new(2, ControllerKind.Xbox, 0)] };

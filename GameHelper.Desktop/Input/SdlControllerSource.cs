@@ -9,7 +9,8 @@ internal sealed class SdlControllerSource : IControllerSource
     private bool _initialized;
     public SdlControllerSource()
     {
-        SDL.SetHint("SDL_JOYSTICK_ENHANCED_REPORTS", "0");
+        if (!SDL.SetHintWithPriority("SDL_JOYSTICK_ENHANCED_REPORTS", "0", SDL.HintPriority.Override))
+            throw new InvalidOperationException("无法禁用 SDL 手柄增强报告，已取消初始化：" + SDL.GetError());
         // WPF owns foreground gating; SDL has no window of its own.
         SDL.SetHint("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
         _initialized = SDL.InitSubSystem(SDL.InitFlags.Gamepad);

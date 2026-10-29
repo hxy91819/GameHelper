@@ -35,12 +35,14 @@ public sealed class ControllerNavigation(IControllerSource source, TimeProvider 
             }
         }
         else device = devices.OrderByDescending(d => d.Kind == ControllerKind.PlayStation).ThenBy(d => d.Id).FirstOrDefault();
-        _lastDevices = states;
         if (device?.Id != _owner)
         {
-            _owner = device?.Id; _armed = takeover; _previous = 0;
+            // A takeover accepts only edges newly pressed on that device, never its held buttons.
+            _previous = takeover && device is not null ? _lastDevices[device.Id] : 0;
+            _owner = device?.Id; _armed = takeover;
             _idleSince = device is not null && states[device.Id] == 0 ? now : null;
         }
+        _lastDevices = states;
         DeviceKind = device?.Kind ?? ControllerKind.Unknown;
         var buttons = device is null ? ControllerAction.None : Map(device);
         if (!foreground) { _armed = false; _previous = buttons; return []; }
