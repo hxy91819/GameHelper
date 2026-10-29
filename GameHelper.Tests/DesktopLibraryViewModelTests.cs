@@ -9,6 +9,67 @@ namespace GameHelper.Tests;
 public sealed class DesktopLibraryViewModelTests
 {
     [Fact]
+    public Task ConsoleShelfHidesMissingInEveryTabAndSearch_PreservesUnknownAndRunningCatalogEntries() => OnDispatcher(async () =>
+    {
+        var clock = new FixedClock(DateTimeOffset.UnixEpoch.AddDays(100));
+        var now = clock.GetUtcNow();
+        LibraryGame Row(string key, GameInstallationState installation, string executable, bool running = false) => new()
+        {
+            Config = new() { DataKey = key, DisplayName = "Adventure " + key, Executable = executable },
+            Installation = new(installation, key), LastPlayedAt = now, State = running ? "运行中·外部" : "未运行"
+        };
+        LibraryGame[] games = [Row("installed", GameInstallationState.Installed, @"C:\Games\installed.exe"),
+            Row("missing", GameInstallationState.Missing, @"C:\Games\missing.exe"),
+            Row("platform", GameInstallationState.Unknown, "platform.exe"),
+            Row("exe-only", GameInstallationState.Unknown, "game.exe"),
+            Row("running", GameInstallationState.Missing, @"C:\Games\running.exe", true)];
+        var backend = new Mock<IGameLibrary>();
+        backend.Setup(b => b.ExecuteAsync(It.IsAny<GameLibraryRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GameLibraryResponse { Success = true, Games = games });
+        using var model = new LibraryViewModel(backend.Object);
+        await model.RefreshAsync();
+        Assert.Equal(new[] { "exe-only", "installed", "platform", "running" }, model.ConsoleShelfGames.Select(g => g.DataKey).OrderBy(key => key, StringComparer.Ordinal));
+        for (var tab = 0; tab < 4; tab++)
+        {
+            var rows = model.ConsoleShelfGames.ToArray();
+            var selection = ConsoleModePolicy.Select(rows.Select(g => new ConsoleModePolicy.Entry(g.DataKey, g.LastPlayedAt, false, "full", null)), tab, clock)
+                .Where(entry => ConsoleInteractionPolicy.Matches(rows.Single(g => g.DataKey == entry.Key).Name, "Adventure"));
+            Assert.Equal(new[] { "exe-only", "installed", "platform", "running" }, selection.Select(entry => entry.Key));
+        }
+        Assert.Equal(5, model.ConsoleGames.Count());
+        Assert.Equal("installed", model.InstallationGroup);
+        Assert.Equal("installed", Assert.Single(model.Games.Cast<LibraryGameItem>()).DataKey);
+        backend.Verify(b => b.ExecuteAsync(It.Is<GameLibraryRequest>(r => r.Operation != GameLibraryOperation.List), It.IsAny<CancellationToken>()), Times.Never);
+    });
+
+    [Fact]
+    public Task ConsoleShelfReappliesInstallationAndRunningStateAfterRefresh_WithoutRemovingCatalogEntry() => OnDispatcher(async () =>
+    {
+        var game = new LibraryGame { Config = new() { DataKey = "game", Executable = "game.exe" }, Installation = new(GameInstallationState.Installed, "installed") };
+        var backend = new Mock<IGameLibrary>();
+        backend.Setup(b => b.ExecuteAsync(It.IsAny<GameLibraryRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new GameLibraryResponse { Success = true, Games = [game] });
+        using var model = new LibraryViewModel(backend.Object);
+        await model.RefreshAsync();
+        var item = Assert.Single(model.ConsoleShelfGames);
+        game = game with { Installation = new(GameInstallationState.Missing, "missing") };
+        await model.RefreshAsync();
+        Assert.Empty(model.ConsoleShelfGames); Assert.Same(item, Assert.Single(model.ConsoleGames));
+        game = game with { State = "运行中·外部" };
+        await model.RefreshAsync();
+        Assert.Same(item, Assert.Single(model.ConsoleShelfGames));
+        game = game with { State = "未运行" };
+        await model.RefreshAsync();
+        Assert.Empty(model.ConsoleShelfGames);
+        game = game with { Installation = new(GameInstallationState.Unknown, "unknown") };
+        await model.RefreshAsync();
+        Assert.Same(item, Assert.Single(model.ConsoleShelfGames));
+        game = game with { Installation = new(GameInstallationState.Installed, "installed") };
+        await model.RefreshAsync();
+        Assert.Same(item, Assert.Single(model.ConsoleShelfGames));
+    });
+
+    [Fact]
     public Task ConsoleRefreshWithoutDesktopPolling_UpdatesExternalGameActions() => OnDispatcher(async () =>
     {
         var game = new LibraryGame { Config = new() { DataKey = "game", Executable = "game.exe", Launch = new() { Target = @"C:\Games\game.exe" } }, Installation = new(GameInstallationState.Installed, "installed") };

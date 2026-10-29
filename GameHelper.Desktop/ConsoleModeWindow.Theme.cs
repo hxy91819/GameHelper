@@ -144,7 +144,10 @@ internal sealed partial class ConsoleModeWindow
             tabButtons[i].Foreground = i == tab ? ConsoleModeVisuals.Text : ConsoleModeVisuals.Secondary;
         }
         emptyState.Visibility = !detail && shelf.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        emptyState.Text = query.Length > 0 ? "没有找到匹配的游戏\n按搜索键修改关键词" : model.ConsoleGames.Any() ? "这个分类暂时没有游戏\n切换分类试试" : "游戏库还没有内容\n返回桌面游戏库，添加你的第一款游戏";
+        emptyState.Text = query.Length > 0 ? "没有找到匹配的游戏\n按搜索键修改关键词"
+            : !model.ConsoleGames.Any() ? "游戏库还没有内容\n返回桌面游戏库，添加你的第一款游戏"
+            : !model.ConsoleShelfGames.Any() ? "本地未找到可显示的游戏\n返回桌面游戏库，检查安装位置"
+            : "这个分类暂时没有游戏\n切换分类试试";
         UpdatePresentationGeometry();
     }
 

@@ -15,6 +15,7 @@
 - [x] 10-29 追加：从 GameHelper 启动的游戏退出后，桌面库和主机模式恢复到前台并取得键盘焦点；跨进程替身实测通过，已随本轮部署
 - [x] 10-29 手柄操作增补：L2/R2 按屏翻页，□ 快速打开当前游戏自动化设置；完整测试、实际 WPF 与独立审查通过，已更新本机
 - [x] 10-29 主机 UI 精修：统一主页、详情、海报选中态、页签与设置/系统菜单视觉；三尺寸真实 WPF 截图、完整测试和独立审查通过，已更新本机
+- [x] 10-29 列表过滤：所有主机分类与搜索隐藏已确认本地程序不存在的游戏，保留待确认入口及运行中游戏；刷新后同步选择与详情，隔离 WPF 与完整测试通过，已更新本机
 
 ## 关键决策
 
@@ -44,6 +45,8 @@
 手柄操作增补：Debug/Release 构建通过；新发布产物的完整 Release 测试 1263 通过、5 项可选跳过；65 项输入逻辑及实际 WPF 翻页/快捷设置/键盘退格验收通过，独立审查 clean。隔离发布验证与 `verify-on-machine.ps1 -SkipVerify -Restart` 部署成功，运行时 PID 7804，后台 ETW 与游戏库 IPC 健康检查通过。
 
 主机 UI 精修：Debug/Release 构建 0 错误；针对隔离发布产物的完整 Release 测试 1270 通过、5 项既有可选测试跳过。假后端与本地缓存图片驱动真实 WPF，在 1920×1080、1280×720、960×650 验证主页、详情、菜单、设置、长名称、缺图与空态，独立视觉 QA 和代码审查均通过。`verify-on-machine.ps1 -SkipDeploy` 发布冒烟与 `-SkipVerify -Restart` 原子部署成功，运行时 PID 15136，无可见控制台、ETW 与库 IPC 健康检查通过；重启前后在途游戏 PID、原始计时起点和 HDR 接管标记一致，未执行真实游戏设置或自动化功能测试。视觉契约见 [主机模式设计](../design/console-mode.md)。
+
+本地缺失过滤：Debug/Release 构建 0 错误，针对隔离发布产物的 `dotnet test GameHelper.sln --configuration Release --no-build` 1272 通过、5 项既有可选跳过。真实 WPF 离屏验证四页签、搜索、详情与选择刷新、全缺失空态及恢复出现，独立 `autoreview` 子代理审查 clean；`git diff --check` 通过。`verify-on-machine.ps1 -SkipDeploy` 和 `-SkipVerify -Restart` 通过，运行时 PID 40116，无控制台、权限/数据、ETW 和库 IPC 健康；重启前后在途游戏身份、计时起点与 HDR 接管标记一致，未删除配置或历史。
 
 ## 用户待办
 

@@ -70,10 +70,20 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
     private void Reload()
     {
         var key = Selected?.DataKey;
-        var rows = model.ConsoleGames.ToArray();
+        var rows = model.ConsoleShelfGames.ToArray();
         var order = ConsoleModePolicy.Select(rows.Select(g => new ConsoleModePolicy.Entry(g.DataKey,g.LastPlayedAt,model.ConsoleJournal(g.DataKey).Status is "已通关" or "全成就",g.Controller.Status,g.Controller.Manual)),tab,TimeProvider.System).Select(e => e.Key).Where(k => ConsoleInteractionPolicy.Matches(rows.First(g => g.DataKey == k).Name, query));
         shelf.ItemsSource = order.Select(k => rows.First(g => g.DataKey == k)).ToArray();
         shelf.SelectedItem = shelf.Items.Cast<LibraryGameItem>().FirstOrDefault(g => g.DataKey == key);
+        if (key is not null && shelf.SelectedItem is null)
+        {
+            // A refreshed installation state may remove the open game. Return to the shelf rather
+            // than displaying another game's details with the old confirmation or rating.
+            detail = false; confirm = false; rating = "正在读取评分…";
+            if (overlayKind is ConsoleOverlay.SystemMenu or ConsoleOverlay.Confirm)
+            {
+                overlayKind = ConsoleOverlay.None; menuRows.Clear(); confirmationAction = null;
+            }
+        }
         if (shelf.SelectedIndex < 0 && shelf.Items.Count > 0) shelf.SelectedIndex = 0;
         UpdatePresentation();
         Render();
@@ -175,12 +185,11 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
             if (!model.IsBusy && model.HasActionError) launchState.Fail();
             if (game?.LaunchRequestId == launchState.RequestId && game?.IsRunning == true) ratingSession = game.Processes.FirstOrDefault()?.SessionId;
             var effect = launchState.Observe(game?.IsRunning == true, game?.LaunchRequestId, game?.LaunchProcessId);
-            Render();
+            Reload();
             if (effect == ConsoleLaunchState.Effect.Minimize) WindowState = WindowState.Minimized;
             else if (effect == ConsoleLaunchState.Effect.Restore) { WindowForegroundActivation.Restore(this, detail ? detailLaunchButton : shelf); ratingDeadline = DateTimeOffset.UtcNow.AddSeconds(15); }
         }
-        else if (!detail) Reload();
-        else Render();
+        else Reload();
         await CheckRatingInvitationAsync();
     }
 

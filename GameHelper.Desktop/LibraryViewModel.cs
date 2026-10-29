@@ -107,6 +107,8 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     }
 
     internal IEnumerable<LibraryGameItem> ConsoleGames => _games;
+    // Keep the complete catalog for launch/session tracking; hide only confirmed missing shelf entries.
+    internal IEnumerable<LibraryGameItem> ConsoleShelfGames => _games.Where(game => game.IsRunning || game.InstallationState != GameInstallationState.Missing);
     internal IGameLibrary ConsoleClient => _library;
     internal async Task<string> ConsoleRatingAsync(string key)
     {
