@@ -294,7 +294,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 normalizedName,
                 normalizedPath,
                 processInfo.ProcessId);
-            var isOwnLaunch = _launchOwnership.ObserveStart(config.DataKey);
+            var isOwnLaunch = _launchOwnership.ObserveStart(config.DataKey, processInfo.ProcessId, firstForDataKey, processInfo.Preexisting);
             var processStartedUtc = _inFlightRecovery.RecordProcessStart(processInfo.ProcessId);
 
             _logger.LogInformation(
@@ -474,7 +474,13 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     }
 
     /// <inheritdoc />
-    public void Launch(string dataKey)
+    public IReadOnlyList<GameProcess> GetRunningProcesses()
+    { lock (_stateLock) return _inFlightRecovery.GetRunningProcesses(); }
+    public void Launch(string dataKey) => LaunchTracked(dataKey, null);
+    public void Launch(string dataKey, Guid requestId) => LaunchTracked(dataKey, requestId);
+    public IReadOnlyDictionary<string, (Guid RequestId, int ProcessId)> GetLaunchIdentities()
+    { lock (_stateLock) return _launchOwnership.GetLaunchIdentities(); }
+    private void LaunchTracked(string dataKey, Guid? requestId)
     {
         long generation;
         lock (_stateLock) generation = _generation;
@@ -484,7 +490,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 if (!_started || generation != _generation) throw new InvalidOperationException("启动已取消。");
             _launchOwnership.Launch(dataKey,
                 game => ExecuteActions((game.Actions ?? []).Where(action => action.When == "beforeLaunch").ToArray(), generation),
-                () => _started && generation == _generation);
+                () => _started && generation == _generation, requestId);
         }
     }
 

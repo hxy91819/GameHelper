@@ -74,3 +74,6 @@ games:
 #     baseUrl: https://example.com/v1
 #     model: your-model
 #     apiKey: your-local-key
+
+# 游戏库默认进入全屏主机模式
+consoleModeOnLibraryOpen: false

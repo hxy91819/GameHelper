@@ -91,7 +91,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             if (targetKey is null) return;
             if (Selected?.IsDirty == true) await SaveSelectedAsync();
             LaunchWindowHandoff.AllowForeground();
-            await SendAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Launch, DataKey = targetKey });
+            await SendAsync(new GameLibraryRequest { Operation = GameLibraryOperation.Launch, DataKey = targetKey, LaunchRequestId = ConsoleLaunchRequestId });
             LaunchWindowHandoff.Minimize();
         }), () => Ready && Selected is not null && !string.IsNullOrWhiteSpace(Selected.Target) && !Selected.IsRunning && Selected.State != "启动中");
         // 秒级计时时钟只在 UI 线程泵下跳；测试线程可直接调 OnClockTick 驱动。
@@ -100,6 +100,14 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         _elapsedTimer.Start();
     }
 
+    internal IEnumerable<LibraryGameItem> ConsoleGames => _games;
+    internal IGameLibrary ConsoleClient => _library;
+    internal async Task<string> ConsoleRatingAsync(string key)
+    {
+        var response = await _library.ExecuteAsync(new() { Operation = GameLibraryOperation.SessionReviews, SessionReviews = new(key, null, 1, true) });
+        return response.Success ? response.SessionReviews?.Sessions.FirstOrDefault()?.Rating?.Stars.ToString() ?? "尚无评分" : "评分暂不可用";
+    }
+    internal JournalRecord ConsoleJournal(string key) => _journalStore.Read(key);
     public ICollectionView Games { get; }
     public StatisticsViewModel Statistics { get; }
     public ICommand RefreshCommand { get; }
@@ -109,6 +117,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public bool HasActionError => !string.IsNullOrEmpty(ActionError);
     public ICommand LaunchCommand { get; }
     /// <summary>Window hand-off used around a launch; attached by the window and replaceable in tests.</summary>
+    internal Guid? ConsoleLaunchRequestId { get; set; }
     internal ILaunchWindowHandoff LaunchWindowHandoff { get; set; } = NoopLaunchWindowHandoff.Instance;
     /// <summary>Double-clicking a poster uses the launch button's command, including all disabled cases.</summary>
     internal void LaunchFromPoster()

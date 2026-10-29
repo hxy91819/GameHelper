@@ -23,6 +23,8 @@ public class AppConfig
     /// When enabled, GameHelper will register itself to launch automatically on system startup.
     /// </summary>
     public bool LaunchOnSystemStartup { get; set; }
+    /// <summary>Open the library in full-screen console mode by default.</summary>
+    public bool ConsoleModeOnLibraryOpen { get; set; }
 
     /// <summary>
     /// Optional Cheat Engine integration settings.

@@ -12,6 +12,16 @@ namespace GameHelper.Desktop;
 
 public partial class MainWindow : Window
 {
+    private ConsoleModeWindow? _consoleMode;
+    internal void OpenConsoleMode()
+    {
+        if (_consoleMode is not null) { _consoleMode.WindowState = WindowState.Normal; _consoleMode.Activate(); return; }
+        _consoleMode = new ConsoleModeWindow(this, _model);
+        _consoleMode.Closed += (_,_) => _consoleMode = null;
+        _consoleMode.Show();
+    }
+    private void OnConsoleMode(object sender, RoutedEventArgs e) => OpenConsoleMode();
+
     private void OnAddAction(object sender, RoutedEventArgs e) => _model.Selected?.ActionEditor.Add();
     private void OnRemoveAction(object sender, RoutedEventArgs e)
     { if (sender is FrameworkElement { DataContext: GameActionItem item }) _model.Selected?.ActionEditor.Remove(item); }

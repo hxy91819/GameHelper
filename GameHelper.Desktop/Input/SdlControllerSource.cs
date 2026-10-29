@@ -43,6 +43,7 @@ internal sealed class SdlControllerSource : IControllerSource
         (SDL.GamepadButton.DPadUp, ControllerAction.Up), (SDL.GamepadButton.DPadDown, ControllerAction.Down),
         (SDL.GamepadButton.DPadLeft, ControllerAction.Left), (SDL.GamepadButton.DPadRight, ControllerAction.Right),
         (SDL.GamepadButton.South, ControllerAction.Confirm), (SDL.GamepadButton.East, ControllerAction.Back),
+        (SDL.GamepadButton.West, ControllerAction.Auxiliary), (SDL.GamepadButton.North, ControllerAction.SearchFinish),
         (SDL.GamepadButton.Start, ControllerAction.Menu), (SDL.GamepadButton.LeftShoulder, ControllerAction.PreviousPage),
         (SDL.GamepadButton.RightShoulder, ControllerAction.NextPage)
     ];

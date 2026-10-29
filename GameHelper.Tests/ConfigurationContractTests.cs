@@ -15,6 +15,18 @@ public sealed class ConfigurationContractTests : IDisposable
     public void Dispose() => Directory.Delete(_directory, true);
 
     [Fact]
+    public void ConsoleModePreference_RoundTripsAndDefaultsOff()
+    {
+        File.WriteAllText(ConfigPath, LegacyConfig);
+        var provider = new YamlConfigProvider(ConfigPath);
+        Assert.False(provider.Read().ConsoleModeOnLibraryOpen);
+        provider.Change(config => config.ConsoleModeOnLibraryOpen = true);
+        Assert.True(new YamlConfigProvider(ConfigPath).Read().ConsoleModeOnLibraryOpen);
+        provider.Change(config => config.ConsoleModeOnLibraryOpen = false);
+        Assert.False(new YamlConfigProvider(ConfigPath).Read().ConsoleModeOnLibraryOpen);
+    }
+
+    [Fact]
     public void HistoricalConfig_ReadWriteRead_PreservesAllSupportedFields()
     {
         // Verbatim debug.config.yml from 7f04da8, before autoStartMonitor was retired.

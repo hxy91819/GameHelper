@@ -14,6 +14,8 @@ public partial class App : Application
     private EventWaitHandle? _activate;
     private RegisteredWaitHandle? _activationWait;
     private bool _ownsInstance;
+    private EventWaitHandle? _consoleActivate;
+    private RegisteredWaitHandle? _consoleWait;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -61,7 +63,7 @@ public partial class App : Application
                 MainWindow.Show();
                 return;
             }
-            if (snapshot is null && !ClaimInstance(config, activate: !restore)) { Shutdown(0); return; }
+            if (snapshot is null && !ClaimInstance(config, activate: !restore, console: e.Args.Contains("--console-mode"))) { Shutdown(0); return; }
             var model = new LibraryViewModel(new GameLibraryPipe(config), snapshot is null ? config : null, null, metadataConfigPath: config, sideData: sideData);
             var window = new MainWindow(model);
             window.ShowActivated = snapshot is null && !restore;
@@ -76,6 +78,11 @@ public partial class App : Application
                 if (window.IsVisible) await model.RefreshAsync();
             }
             if (model.Connected) await model.LoadWeeklyAsync();
+            if (snapshot is null && !restore && model.Connected)
+            {
+                var settings = await new GameLibraryPipe(config).ExecuteAsync(new() { Operation = GameLibraryOperation.GetSettings });
+                if (e.Args.Contains("--console-mode") || settings.Settings?.ConsoleModeOnLibraryOpen == true) window.OpenConsoleMode();
+            }
             if (snapshot is not null)
             {
                 if (!model.Connected) throw new InvalidOperationException(model.Status);
@@ -91,21 +98,29 @@ public partial class App : Application
         }
     }
 
-    private bool ClaimInstance(string config, bool activate)
+    private bool ClaimInstance(string config, bool activate, bool console = false)
     {
         var name = @"Local\" + GameLibraryPipe.NameFor(config) + ".Desktop";
         _activate = new EventWaitHandle(false, EventResetMode.AutoReset, name + ".Activate");
+        _consoleActivate = new EventWaitHandle(false, EventResetMode.AutoReset, name + ".ConsoleMode");
         _instance = new Mutex(false, name);
         try { _ownsInstance = _instance.WaitOne(0); }
         catch (AbandonedMutexException) { _ownsInstance = true; }
-        if (!_ownsInstance) { if (activate) _activate.Set(); return false; }
+        if (!_ownsInstance) { if (activate) { if (console) _consoleActivate.Set(); else _activate.Set(); } return false; }
+        _consoleWait = ThreadPool.RegisterWaitForSingleObject(_consoleActivate, (_, _) => Dispatcher.InvokeAsync(() => (MainWindow as MainWindow)?.OpenConsoleMode()), null, Timeout.Infinite, false);
         _activationWait = ThreadPool.RegisterWaitForSingleObject(_activate, (_, _) =>
         {
-            _ = Dispatcher.InvokeAsync(() =>
+            _ = Dispatcher.InvokeAsync(async () =>
             {
                 if (MainWindow is null) return;
                 if (MainWindow.WindowState == WindowState.Minimized) MainWindow.WindowState = WindowState.Normal;
                 MainWindow.Activate();
+                try
+                {
+                    var settings = await new GameLibraryPipe(config).ExecuteAsync(new() { Operation = GameLibraryOperation.GetSettings });
+                    if (settings.Settings?.ConsoleModeOnLibraryOpen == true) (MainWindow as MainWindow)?.OpenConsoleMode();
+                }
+                catch { /* Keep the desktop available when runtime is offline. */ }
             });
         }, null, Timeout.Infinite, false);
         return true;
@@ -113,6 +128,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _consoleWait?.Unregister(null); _consoleActivate?.Dispose();
         _activationWait?.Unregister(null);
         _activate?.Dispose();
         if (_ownsInstance) _instance?.ReleaseMutex();

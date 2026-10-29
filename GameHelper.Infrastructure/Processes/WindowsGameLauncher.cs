@@ -8,28 +8,32 @@ namespace GameHelper.Infrastructure.Processes;
 public sealed class WindowsGameLauncher : IGameLauncher
 {
     private readonly Action<string> _ensureCompanion;
-    private readonly Action<GameLaunchOptions> _startEntry;
+    private readonly Func<GameLaunchOptions, int?> _startEntry;
     private readonly Action _stopCompanion;
     private readonly Action _allowForeground;
-    public WindowsGameLauncher() : this(Ds4WindowsProcess.EnsureRunning, StartEntry, Ds4WindowsProcess.StopRunning,
-        () => WindowsForegroundPermission.AllowAnyProcess()) { }
+    public WindowsGameLauncher()
+    {
+        _ensureCompanion = Ds4WindowsProcess.EnsureRunning; _startEntry = StartEntry;
+        _stopCompanion = Ds4WindowsProcess.StopRunning; _allowForeground = () => WindowsForegroundPermission.AllowAnyProcess();
+    }
     internal WindowsGameLauncher(Action<string> ensureCompanion, Action<GameLaunchOptions> startEntry, Action stopCompanion,
         Action? allowForeground = null)
     {
         _ensureCompanion = ensureCompanion;
-        _startEntry = startEntry;
+        _startEntry = options => { startEntry(options); return null; };
         _stopCompanion = stopCompanion;
         _allowForeground = allowForeground ?? (() => { });
     }
 
-    public void Start(GameLaunchOptions options)
+    public void Start(GameLaunchOptions options) => StartTracked(options);
+    public int? StartTracked(GameLaunchOptions options)
     {
         Validate(options);
         if (options.Ds4WindowsPath is { } companion) EnsureCompanionRunning(companion);
         else StopCompanion();
         // The game is created by this background host, so hand it the foreground right again.
         _allowForeground();
-        _startEntry(options);
+        return _startEntry(options);
     }
 
     public void ExecuteAction(GameAction action)
@@ -54,7 +58,7 @@ public sealed class WindowsGameLauncher : IGameLauncher
         _ensureCompanion(executablePath);
     }
 
-    private static void StartEntry(GameLaunchOptions options)
+    private static int? StartEntry(GameLaunchOptions options)
     {
         using var process = Process.Start(new ProcessStartInfo(options.Target)
         {
@@ -63,6 +67,7 @@ public sealed class WindowsGameLauncher : IGameLauncher
                 : (Path.IsPathFullyQualified(options.Target) ? Path.GetDirectoryName(options.Target) : null) ?? string.Empty,
             UseShellExecute = true
         });
+        return options.Target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? process?.Id : null;
     }
 
     public void Validate(GameLaunchOptions options)

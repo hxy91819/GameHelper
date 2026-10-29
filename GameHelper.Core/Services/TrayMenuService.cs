@@ -5,7 +5,7 @@ namespace GameHelper.Core.Services;
 
 /// <summary>Builds fresh tray snapshots and routes actions through the same library launch command.</summary>
 public sealed class TrayMenuService(IGameLibrary library, ITrayHdrControl hdr, IBreakReminderService reminders,
-    TimeProvider clock, Action openLibrary, Action exit)
+    TimeProvider clock, Action openLibrary, Action exit, Action? openConsoleMode = null)
 {
     public async Task<IReadOnlyList<TrayMenuItem>> GetMenuAsync(CancellationToken cancellationToken = default)
     {
@@ -27,6 +27,7 @@ public sealed class TrayMenuService(IGameLibrary library, ITrayHdrControl hdr, I
             rows.Add(new($"{Name(game)} · {duration}"));
         }
         rows.Add(new("打开 GameHelper 游戏库", TrayMenuAction.OpenLibrary, true));
+        rows.Add(new("主机模式", TrayMenuAction.OpenConsoleMode, true));
         var state = hdr.Enabled is { } enabled ? (enabled ? "已开启" : "已关闭") : "状态未知";
         rows.Add(new($"主显示器 HDR：{state}{(hdr.Reason is null ? "" : $"（{hdr.Reason}）")}", TrayMenuAction.ToggleHdr, hdr.CanToggle));
         if (remindersEnabled)
@@ -51,6 +52,7 @@ public sealed class TrayMenuService(IGameLibrary library, ITrayHdrControl hdr, I
         cancellationToken.ThrowIfCancellationRequested();
         switch (item.Action)
         {
+            case TrayMenuAction.OpenConsoleMode: (openConsoleMode ?? openLibrary)(); break;
             case TrayMenuAction.OpenLibrary: openLibrary(); break;
             case TrayMenuAction.Exit: exit(); break;
             case TrayMenuAction.ToggleHdr: hdr.Toggle(); break;

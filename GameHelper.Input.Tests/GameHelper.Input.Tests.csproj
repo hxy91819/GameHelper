@@ -5,5 +5,5 @@
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <Compile Include="../GameHelper.Desktop/Input/ControllerNavigation.cs" Link="ControllerNavigation.cs" />
-  </ItemGroup>
+  <Compile Include="../GameHelper.Desktop/ConsoleModePolicy.cs" Link="ConsoleModePolicy.cs" /><Compile Include="../GameHelper.Desktop/ConsoleLaunchState.cs" Link="ConsoleLaunchState.cs" /><Compile Include="../GameHelper.Desktop/ConsoleInteractionPolicy.cs" Link="ConsoleInteractionPolicy.cs" /><Compile Include="../GameHelper.Core/Services/LaunchSessionCorrelation.cs" Link="LaunchSessionCorrelation.cs" /><Compile Include="../GameHelper.Desktop/ConsoleRuntimeRefresh.cs" Link="ConsoleRuntimeRefresh.cs" /></ItemGroup>
 </Project>

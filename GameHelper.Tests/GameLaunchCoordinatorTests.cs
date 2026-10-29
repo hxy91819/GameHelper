@@ -84,6 +84,54 @@ public sealed class GameLaunchCoordinatorTests
     }
 
     [Fact]
+    public void RequestIdentityBindsOnlyConfirmedProcessAndIsRemovedOnExit()
+    {
+        using var app = new Fixture(); var id = Guid.NewGuid();
+        app.Service.Launch("a", id);
+        Assert.Empty(app.Service.GetLaunchIdentities());
+        app.Start("a", 101);
+        Assert.Equal((id, 101), app.Service.GetLaunchIdentities()["a"]);
+        app.Stop("a", 101); Assert.Empty(app.Service.GetLaunchIdentities());
+        app.Start("a", 102); Assert.Empty(app.Service.GetLaunchIdentities());
+    }
+
+    [Theory]
+    [InlineData(999)]
+    public void DifferentKnownPidCannotBindExternalStart(int? pid)
+    {
+        using var app = new Fixture(); app.Launcher.TrackedPid = pid;
+        app.Service.Launch("a", Guid.NewGuid()); app.Start("a", 101);
+        Assert.Empty(app.Service.GetLaunchIdentities());
+    }
+
+    [Fact]
+    public void OpaqueLaunchBindsFirstFreshProcessUntilSessionExit()
+    {
+        using var app = new Fixture(); app.Launcher.TrackedPid = null; var id = Guid.NewGuid();
+        app.Service.Launch("a", id); app.Start("a", 101);
+        Assert.Equal((id, 101), app.Service.GetLaunchIdentities()["a"]);
+        app.Start("a", 102);
+        app.Stop("a", 101); Assert.Equal((id, 101), app.Service.GetLaunchIdentities()["a"]);
+        app.Stop("a", 102); Assert.Empty(app.Service.GetLaunchIdentities());
+    }
+
+    [Fact]
+    public void AlreadyRunningCannotBecomeOpaqueLaunch()
+    {
+        using var app = new Fixture(); app.Launcher.TrackedPid = null; app.Start("a", 101);
+        Assert.Throws<InvalidOperationException>(() => app.Service.Launch("a", Guid.NewGuid()));
+        Assert.Empty(app.Service.GetLaunchIdentities());
+    }
+
+    [Fact]
+    public void ExpiredRequestCannotBindLaterExternalProcess()
+    {
+        using var app = new Fixture(); app.Launcher.TrackedPid = null; app.Service.Launch("a", Guid.NewGuid());
+        app.Clock.Advance(TimeSpan.FromMinutes(3)); app.Start("a", 101);
+        Assert.Empty(app.Service.GetLaunchIdentities());
+    }
+
+    [Fact]
     public void ProcessCreationFailure_RestoresOwnedHdr()
     {
         using var app = new Fixture();
@@ -224,6 +272,8 @@ public sealed class GameLaunchCoordinatorTests
     }
     private sealed class Launcher : IGameLauncher
     {
+        public int? TrackedPid { get; set; } = 101;
+        public int? StartTracked(GameLaunchOptions options) { Start(options); return TrackedPid; }
         public int Starts { get; private set; }
         public Action? OnStart { get; set; }
         public void ExecuteAction(GameAction action) { }
