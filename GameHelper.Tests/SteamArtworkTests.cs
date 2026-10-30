@@ -192,6 +192,27 @@ public sealed class SteamArtworkTests
     }
 
     [Fact]
+    public void BestMatch_StripsLauncherVersionTailsAndTrailingReleaseAliases()
+    {
+        var orc = new SteamArtworkGame(1129540, "Orc Massage", null, true);
+        var peeping = new SteamArtworkGame(2273420, "Peeping Dorm Manager", null, true);
+        var remix = new SteamArtworkGame(2173930, "NTRaholic Remix", null, true);
+        var sequel = new SteamArtworkGame(3412290, "NTRaholic SS", null, true);
+        // Launcher-style names with version tails bind their exact Steam base game.
+        Assert.Equal(orc, SteamArtworkNameMatcher.BestMatch("Orc.Massage.v07.08.2023", [orc]));
+        Assert.Equal(peeping, SteamArtworkNameMatcher.ExactMatch("Peeping.Dorm.Manager.v1.0.9", [peeping]));
+        // A trailing release alias on one side only stays a confident match on both directions.
+        Assert.Equal(remix, SteamArtworkNameMatcher.BestMatch("NTRaholic", [remix, sequel]));
+        Assert.Null(SteamArtworkNameMatcher.BestMatch("NTRaholic", [sequel]));
+        Assert.Equal(2897760u, SteamArtworkNameMatcher.BestMatch("NTRaholic Remix", [new(2897760, "NTRaholic", IsGame: true)])?.AppId);
+        Assert.Equal(1u, SteamArtworkNameMatcher.BestMatch("Wandering Sword HD", [new(1, "Wandering Sword", IsGame: true)])?.AppId);
+        // Stripping stops at bare sequel numbers and unknown tails; edition words still require both sides.
+        Assert.Null(SteamArtworkNameMatcher.BestMatch("Mass Effect 2.v1.0.3", [new(1, "Mass Effect", IsGame: true)]));
+        Assert.Null(SteamArtworkNameMatcher.BestMatch("Slay the Spire 2", [new(1, "Slay the Spire", IsGame: true)]));
+        Assert.Null(SteamArtworkNameMatcher.BestMatch("Astral Ascent", [new(1, "Astral Ascent Deluxe", IsGame: true)]));
+    }
+
+    [Fact]
     public async Task Search_MergesLocalizedAliasesAndVerifiesBaseGameTypeBeforeAutomaticChoice()
     {
         using var root = new TemporaryDirectory();
