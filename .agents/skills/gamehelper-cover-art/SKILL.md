@@ -60,6 +60,7 @@ description: "给 GameHelper 游戏库手动补充 Steam 封面（海报）。�
 - **灰色占位图**：直接拼 `library_600x900_2x.jpg` 对部分游戏返回纯灰图（如 Battlefield 6）。必须优先用 StoreBrowse `assets` 里的 `library_capsule_2x` 带哈希路径；脚本已按此顺序回退。
 - **同名多条**：同一游戏可能在配置里有多条（如 Shambles 的旧目录）；先确认要改的 `dataKey`，不要靠显示名猜。
 - **共享工作区**：可能还有别的实例或 worktree 在用同一份 AppData；不要杀进程、不要改 `config.yml`，只写海报关联和缓存。
+- **匹配器已升级（2026-10-30）**：桌面“海报补全”对话框的自动最佳匹配已能覆盖版本号文件名（`Orc.Massage.v07.08.2023` → Orc Massage）与结尾别词（`NTRaholic` → NTRaholic Remix）；本技能仍用于 CLI 批量盘点/写入及无商店页的如实报告。别词白名单与规则见 `docs/guides/game-library.md` 的 Steam 海报一节。
 
 ## 完成判据
 
