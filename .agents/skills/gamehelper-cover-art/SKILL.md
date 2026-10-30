@@ -61,6 +61,7 @@ description: "给 GameHelper 游戏库手动补充 Steam 封面（海报）。�
 - **同名多条**：同一游戏可能在配置里有多条（如 Shambles 的旧目录）；先确认要改的 `dataKey`，不要靠显示名猜。
 - **共享工作区**：可能还有别的实例或 worktree 在用同一份 AppData；不要杀进程、不要改 `config.yml`，只写海报关联和缓存。
 - **匹配器已升级（2026-10-30）**：桌面“海报补全”对话框的自动最佳匹配已能覆盖版本号文件名（`Orc.Massage.v07.08.2023` → Orc Massage）与结尾别词（`NTRaholic` → NTRaholic Remix）；本技能仍用于 CLI 批量盘点/写入及无商店页的如实报告。别词白名单与规则见 `docs/guides/game-library.md` 的 Steam 海报一节。
+- **无商店页走本地封面（2026-10-30）**：itch.io 等无 Steam 页游戏不写关联、不伪造 AppID——把图片放到 `%AppData%\GameHelper\covers\<dataKey>.jpg|jpeg|png` 即自动显示（poster-tool List 已把 covers 计入"有封面"）。本网络到 itch.io 直连不通（DuckDuckGo/jina 同样被墙），拿不到图时如实报告"图待用户放入 covers 文件夹"，别硬凑 Bing 国内版（成人内容全被过滤）。
 
 ## 完成判据
 
