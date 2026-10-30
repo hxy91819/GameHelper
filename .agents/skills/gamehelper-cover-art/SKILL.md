@@ -13,6 +13,17 @@ description: "给 GameHelper 游戏库手动补充 Steam 封面（海报）。�
 - 不删除游戏、不改 `executable` / `launch`、不动历史时长；用户要求合并重复条目时再单独处理。
 - 不伪造 AppID。找不到 Steam 商店页（如 古龙风云录、Harem Hotel、JinGu、That New Teacher）就如实报告并保留占位。
 - 关联文件只在游戏库窗口创建时读取一次；写完必须关闭并重新打开游戏库窗口才能看到。主机热重载配置与海报无关。
+- **SQLite 激活后关联真身在数据库里**：`%AppData%\GameHelper\userdata.db` 存在且 `migration_state` 有 `activated` 行时，桌面端从 `artwork_links` 表读关联，`config.yml.desktop-artwork.json` 只是单向兼容投影。此时 `poster-tool Add` 只写 JSON，会在几十秒内被下一次全量投影（任何桌面保存都会触发 `SqliteLegacyCompatibility.ExportAsync` 重写全部侧文件）按数据库真身覆写掉。先探明模式再动手。
+
+## SQLite 模式写入配方
+
+1. 只读探查用 python `sqlite3`（`file:...?mode=ro`），连接上必须 `create_collation('GH_ORDINAL_IGNORE_CASE', lambda a,b: (a.upper()>b.upper())-(a.upper()<b.upper()))`，否则索引扫描直接报 no such collation。
+2. 写入走发布目录里的真实代码路径（自带锁/修订/投影协议），临时 console 项目引用 publish 下的 `GameHelper.Infrastructure.dll`、`GameHelper.Core.dll`、`Microsoft.Data.Sqlite.dll` 及 SQLitePCLRaw 三件套：
+   - `store = new SqliteDesktopStore(factory, configPath)`，`baseline = store.Read("artwork")`；
+   - 反序列化 `Dictionary<string,uint>` 加上新键后 `store.Save("artwork", baseline, json)`；
+   - 再 `await new SqliteLegacyCompatibility(factory, TimeProvider.System).ExportAsync()` 让投影 JSON 同步。
+   - 演练时先把真库 `backup()` 到临时目录、跳过 ExportAsync（它会按 config_path 写真实文件）；运行中实例的会话写入会推进 `data_revision`，属正常竞争。
+3. 桌面端 `_links` 在进程构造时读取一次，**重开窗口没用**，必须整个 App 重启才生效；乐观修订协议会保护外部写入（旧进程后续保存会报"已被另一窗口修改"而非静默删除）。重启用部署脚本的手法：`Stop-Process -Force` 桌面进程（不碰 ConsoleHost 计时）+ `dot-source scripts/start-checked-instance.ps1` 后 `Start-RestoredDesktop <publish>\desktop\GameHelper.Desktop.exe`（`--restore`：不抢前台、不自动进主机模式）。用户游戏在飞时等会话结束再重启。
 
 ## 数据与解析顺序
 
@@ -52,5 +63,5 @@ description: "给 GameHelper 游戏库手动补充 Steam 封面（海报）。�
 
 ## 完成判据
 
-- `Verify` 的 stale 和 missing 为 0（或剩下的都确认没有 Steam 页）。
-- 重开后的游戏库窗口能看到新封面；没有 Steam 页的条目保持字母占位，并在汇报里列出来。
+- `Verify` 的 stale 和 missing 为 0（或剩下的都确认没有 Steam 页）；SQLite 模式下用 python 只读查询核对 `artwork_links` 行确实写入。
+- 重开后的游戏库窗口能看到新封面；没有 Steam 页的条目保持字母占位，并在汇报里列出来。SQLite 模式下"重开"指整个桌面 App 重启。
