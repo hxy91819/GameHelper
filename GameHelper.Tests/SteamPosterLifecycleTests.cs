@@ -152,6 +152,48 @@ public sealed class SteamPosterLifecycleTests
         finally { Directory.Delete(root, true); }
     });
 
+    [Fact]
+    public Task LocalCovers_FillPosterSlotsForGamesWithoutSteamIdentity() => OnSta(async () =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gh-poster-covers", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var covers = Path.Combine(root, "covers");
+            Directory.CreateDirectory(covers);
+            WriteImage(Path.Combine(covers, "portrait.jpg"), 200, 300);
+            WriteImage(Path.Combine(covers, "landscape.png"), 300, 200);
+            WriteImage(Path.Combine(covers, "tall-hero.jpg"), 200, 300);
+            // configPath null keeps the artwork document out of the way; only the local covers path is under test.
+            var posters = new SteamPosterLibrary(null, false,
+                new SteamArtworkClient(new HttpClient(NotFoundHandler.Instance), root, _ => false), _ => null, coversDirectory: covers);
+            var portrait = await posters.LoadAsync("portrait", "unlocated.exe", "", CancellationToken.None, false);
+            Assert.True(portrait.IsCover);
+            Assert.Contains("本地封面", portrait.Description);
+            var missing = await posters.LoadAsync("unknown", "unlocated.exe", "", CancellationToken.None, false);
+            Assert.False(missing.IsCover);
+            var wide = await posters.LoadBannerAsync("landscape", "unlocated.exe", "", CancellationToken.None);
+            Assert.NotNull(wide);
+            var tall = await posters.LoadBannerAsync("tall-hero", "unlocated.exe", "", CancellationToken.None);
+            Assert.Null(tall);
+        }
+        finally { Directory.Delete(root, true); }
+    });
+
+    private static void WriteImage(string path, int width, int height)
+    {
+        var bitmap = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, new byte[width * height * 4], width * 4);
+        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var file = File.Create(path); encoder.Save(file);
+    }
+
+    private sealed class NotFoundHandler : HttpMessageHandler
+    {
+        internal static readonly NotFoundHandler Instance = new();
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+    }
+
     private sealed class DelayedHandler(byte[] image) : HttpMessageHandler
     {
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

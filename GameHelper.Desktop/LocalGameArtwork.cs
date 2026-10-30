@@ -23,6 +23,19 @@ internal static class LocalGameArtwork
 
     public static bool IsValidPoster(byte[] bytes) => DecodePoster(bytes) is not null;
 
+    /// <summary>True when the file decodes to a wider-than-tall image usable in wide banner slots; oversized or broken files stay narrow.</summary>
+    public static bool IsWideBannerImage(string path)
+    {
+        try
+        {
+            if (!File.Exists(path) || new FileInfo(path).Length is < 32 or > 5 * 1024 * 1024) return false;
+            using var stream = File.OpenRead(path);
+            var frame = BitmapDecoder.Create(stream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None).Frames[0];
+            return frame.PixelWidth >= 200 && frame.PixelWidth >= frame.PixelHeight;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or System.IO.FileFormatException or COMException) { return false; }
+    }
+
     private static BitmapSource? DecodePoster(byte[] bytes, int decodeWidth = 320)
     {
         if (bytes.Length < 32 || bytes.Length > 5 * 1024 * 1024) return null;

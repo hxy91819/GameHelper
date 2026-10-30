@@ -83,6 +83,14 @@ function Write-Links([hashtable]$links) {
     Move-Item -LiteralPath $tmp -Destination $linksPath -Force
 }
 
+function Test-LocalCover([string]$dataKey, [string]$coversDir) {
+    if (-not $dataKey) { return $false }
+    foreach ($ext in @('jpg', 'jpeg', 'png')) {
+        if (Test-Path -LiteralPath (Join-Path $coversDir ($dataKey + '.' + $ext) -ErrorAction SilentlyContinue)) { return $true }
+    }
+    return $false
+}
+
 function Get-AutoAppId([string]$target) {
     if ($target -match 'rungameid/(\d+)') { return [uint32]$matches[1] }
     return $null
@@ -187,6 +195,7 @@ switch ($Action) {
     'List' {
         $games = Read-Games
         $links = Read-Links
+        $coversDir = Join-Path $dataDir 'covers'
         $rows = New-Object System.Collections.ArrayList
         $noPoster = New-Object System.Collections.ArrayList
         foreach ($game in $games) {
@@ -197,6 +206,7 @@ switch ($Action) {
             if ($null -ne $id) {
                 $cached = (Test-Path -LiteralPath (Join-Path $cacheDir ($id.ToString() + '.jpg'))) -or (Test-SteamClientPoster $id)
             }
+            if (-not $cached) { $cached = Test-LocalCover $game.DataKey $coversDir }
             [void]$rows.Add([pscustomobject]@{
                 DataKey = $game.DataKey; Name = $game.Name; AppId = $id; Poster = $cached
             })

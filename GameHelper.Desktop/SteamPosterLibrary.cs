@@ -17,20 +17,24 @@ internal sealed class SteamPosterLibrary
     { Timeout = TimeSpan.FromSeconds(20) };
     private readonly SteamArtworkClient _client;
     private readonly string? _linksPath;
+    private readonly string? _coversDirectory;
     private readonly bool _allowNetwork;
     private Dictionary<string, uint> _links;
     private readonly DesktopDocument<Dictionary<string, uint>> _document;
     private readonly Func<uint, string?> _localPoster;
 
     public SteamPosterLibrary(string? configPath, bool allowNetwork, IDesktopDocumentReader? reader = null) : this(configPath, allowNetwork,
-        new SteamArtworkClient(Http, Path.Combine(AppDataPath.GetGameHelperDirectory(), "cache", "steam-posters"), LocalGameArtwork.IsValidPoster), LocalPoster, reader) { }
+        new SteamArtworkClient(Http, Path.Combine(AppDataPath.GetGameHelperDirectory(), "cache", "steam-posters"), LocalGameArtwork.IsValidPoster), LocalPoster, reader,
+        Path.Combine(AppDataPath.GetGameHelperDirectory(), "covers")) { }
 
-    internal SteamPosterLibrary(string? configPath, bool allowNetwork, SteamArtworkClient client, Func<uint, string?> localPoster, IDesktopDocumentReader? reader = null)
+    internal SteamPosterLibrary(string? configPath, bool allowNetwork, SteamArtworkClient client, Func<uint, string?> localPoster, IDesktopDocumentReader? reader = null,
+        string? coversDirectory = null)
     {
         _allowNetwork = allowNetwork;
         _linksPath = configPath is null ? null : configPath + ".desktop-artwork.json";
         _client = client;
         _localPoster = localPoster;
+        _coversDirectory = string.IsNullOrWhiteSpace(coversDirectory) ? null : coversDirectory;
         _document = new(_linksPath, () => new(), reader: reader);
         var saved = _document.Read();
         _links = _document.UsesSqlite ? new(saved, StringComparer.OrdinalIgnoreCase) : saved;
@@ -80,7 +84,12 @@ internal sealed class SteamPosterLibrary
         uint? id = _links.TryGetValue(dataKey, out var linked) ? linked : null;
         id ??= await Task.Run(() => SteamArtworkIdentity.Resolve(executable, target), cancellationToken);
         var fallback = await Task.Run(() => LocalGameArtwork.LoadIcon(executable), cancellationToken);
-        if (id is null) return new GameArtwork(fallback, false, "尚未关联 Steam 海报");
+        if (id is null)
+        {
+            // Games without a Steam page (itch.io and friends) show a locally placed covers/<dataKey> file; a Steam id, once known, keeps outranking it.
+            var cover = await Task.Run(() => TryLocalCover(dataKey) is { } file ? LocalGameArtwork.LoadPoster(file) : null, cancellationToken);
+            return cover is not null ? new GameArtwork(cover, true, "本地封面") : new GameArtwork(fallback, false, "尚未关联 Steam 海报");
+        }
         try
         {
             var cached = await Task.Run(() => _client.GetCachedPoster(id.Value) ?? _localPoster(id.Value), cancellationToken);
@@ -99,7 +108,11 @@ internal sealed class SteamPosterLibrary
     {
         var linked = AssociatedAppId(dataKey);
         var id = linked ?? await Task.Run(() => SteamArtworkIdentity.Resolve(executable, target), cancellationToken);
-        if (id is null) return null;
+        if (id is null)
+        {
+            // A landscape local cover can stand in for the wide hero/detail/backdrop slots; portrait files stay out of wide slots.
+            return await Task.Run(() => TryLocalCover(dataKey) is { } file && LocalGameArtwork.IsWideBannerImage(file) ? (ImageSource?)LocalGameArtwork.LoadBanner(file) : null, cancellationToken);
+        }
         var path = await Task.Run(() => (header ? _client.GetCachedHeader(id.Value) : _client.GetCachedCapsule(id.Value)), cancellationToken);
         if ((path is null || refresh) && _allowNetwork) path = header ? await _client.GetHeaderAsync(id.Value, cancellationToken, refresh) : await _client.GetCapsuleAsync(id.Value, cancellationToken, refresh);
         return path is null ? null : await Task.Run(() => LocalGameArtwork.LoadBanner(path), cancellationToken);
@@ -117,5 +130,13 @@ internal sealed class SteamPosterLibrary
         if (!Directory.Exists(modern)) return null;
         return Directory.EnumerateFiles(modern, "*library_600x900*.jpg", SearchOption.TopDirectoryOnly)
             .FirstOrDefault(path => LocalGameArtwork.LoadPoster(path) is not null);
+    }
+
+    /// <summary>Locates covers/&lt;dataKey&gt;.{jpg,jpeg,png}; dataKey is a plain slug (letters, digits, '-' and '_') to keep the folder scoped.</summary>
+    private string? TryLocalCover(string dataKey)
+    {
+        if (_coversDirectory is null || !dataKey.All(item => char.IsLetterOrDigit(item) || item is '-' or '_')) return null;
+        return new[] { "jpg", "jpeg", "png" }.Select(ext => Path.Combine(_coversDirectory, dataKey + "." + ext))
+            .FirstOrDefault(File.Exists);
     }
 }
