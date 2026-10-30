@@ -180,7 +180,6 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             // Elevated monitoring still needs Explorer's lower-integrity restart broadcast.
             if (!NativeMethods.ChangeWindowMessageFilterEx(window, _taskbarCreated, 1, IntPtr.Zero))
                 throw new Win32Exception(Marshal.GetLastWin32Error());
-            _icon = SystemTrayIcon.Load();
             UpdateIcon(window);
             if (NativeMethods.SetTimer(window, 1, 5000, IntPtr.Zero) == 0)
                 throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -376,6 +375,13 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
 
     private void UpdateIcon(IntPtr window)
     {
+        var size = SystemTrayIcon.GetTaskbarIconSize();
+        if (_icon is null || _icon.Size != size)
+        {
+            _icon?.Dispose();
+            _icon = null;
+            _icon = SystemTrayIcon.Load(size);
+        }
         var data = IconData(window);
         if (!NativeMethods.ShellNotifyIcon(_hasIcon ? 1u : 0u, ref data))
         {
