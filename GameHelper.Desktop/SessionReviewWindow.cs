@@ -21,15 +21,17 @@ public sealed class SessionReviewWindow : Window
     private long? _cursor;
     private long? _nextCursor;
     private bool _busy;
-    public SessionReviewWindow(IGameLibrary library, string? dataKey = null)
+    public SessionReviewWindow(IGameLibrary library, string? dataKey = null, string? gameName = null)
     {
         _library = library; _dataKey = dataKey;
-        Title = dataKey is null ? "游玩档案 · 会话回顾与补评" : dataKey + " · 评分随时间变化";
+        Title = dataKey is null ? "游玩档案 · 会话回顾与补评" : (gameName ?? dataKey) + " · 评分随时间变化";
         Width = 680; Height = 650; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         SetResourceReference(BackgroundProperty, "Page"); SetResourceReference(ForegroundProperty, "TextPrimary");
         var panel = new DockPanel { Margin = new(24) };
         var controls = new StackPanel { Orientation = Orientation.Horizontal, Margin = new(0, 12, 0, 0) };
         controls.Children.Add(_previous); controls.Children.Add(_next); controls.Children.Add(_ratedOnly); DockPanel.SetDock(controls, Dock.Bottom); panel.Children.Add(controls);
+        var heading = new TextBlock { Text = gameName ?? (dataKey is null ? "会话回顾与补评" : "本局回顾与评分"), FontSize = 22, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 12), TextWrapping = TextWrapping.Wrap };
+        DockPanel.SetDock(heading, Dock.Top); panel.Children.Add(heading);
         DockPanel.SetDock(_status, Dock.Top); panel.Children.Add(_status);
         DockPanel.SetDock(_trend, Dock.Top); panel.Children.Add(_trend);
         panel.Children.Add(new ScrollViewer { Content = _rows, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }); Content = panel;
@@ -56,13 +58,14 @@ public sealed class SessionReviewWindow : Window
             }
             else _trend.Sessions = page.Sessions.Where(s => s.Rating is not null).Select(s => new SessionRatingPoint(s.SessionId, s.End, s.Rating!.Stars)).ToList();
             _trend.InvalidateVisual();
-            _status.Text = (_dataKey is null ? "曲线显示本页 · " : "曲线显示该游戏全部评分 · ") + "按记录顺序分组浏览，每页 30 局 · 评分曲线按本地结束时间排列 · 想法仅在本机展示";
+            _trend.Visibility = _trend.Sessions.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            _status.Text = "回顾每次旅程，也可以为过去的会话补评。想法仅保存在本机。";
             if (page.Sessions.Count == 0) _status.Text = "暂无会话记录。";
             foreach (var session in page.Sessions)
             {
                 var local = session.End.Kind == DateTimeKind.Utc ? session.End.ToLocalTime() : session.End;
                 var box = new StackPanel { Margin = new(0, 8, 0, 12) };
-                box.Children.Add(new TextBlock { Text = $"{local:yyyy-MM-dd HH:mm} · {session.DataKey} · {session.Minutes} 分钟", TextWrapping = TextWrapping.Wrap });
+                box.Children.Add(new TextBlock { Text = $"{local:yyyy-MM-dd HH:mm} · {(_dataKey is null ? session.DataKey + " · " : "")}{session.Minutes} 分钟", TextWrapping = TextWrapping.Wrap });
                 var button = new Button { Content = session.Rating is { } rating ? new string('★', rating.Stars) + " · 修改评分" : "补评", HorizontalAlignment = HorizontalAlignment.Left, Margin = new(0, 6, 0, 0) };
                 button.Click += async (_, _) =>
                 {

@@ -3,7 +3,7 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
  <Application.Resources>
  <ResourceDictionary>
-  <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="Assets/Brand.xaml" /><ResourceDictionary Source="Themes/Dark.xaml" /></ResourceDictionary.MergedDictionaries>
+  <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="Assets/Brand.xaml" /><ResourceDictionary Source="Themes/Dark.xaml" /><ResourceDictionary Source="Themes/FormControls.xaml" /></ResourceDictionary.MergedDictionaries>
   <Style TargetType="Window"><Setter Property="Background" Value="{DynamicResource Page}" /><Setter Property="Foreground" Value="{DynamicResource TextPrimary}" /><Setter Property="FontFamily" Value="Segoe UI, Microsoft YaHei UI" /></Style>
   <Style TargetType="ToolTip"><Setter Property="Background" Value="{DynamicResource TooltipSurface}" /><Setter Property="Foreground" Value="{DynamicResource TextPrimary}" /><Setter Property="BorderBrush" Value="{DynamicResource StrongBorder}" /><Setter Property="Padding" Value="12,8" /></Style>
   <BooleanToVisibilityConverter x:Key="BoolVisibility" />

@@ -13,7 +13,8 @@ public partial class StatisticsView : UserControl
     { _library = library; ReportPage.Connect(library, enrichReport); }
     private void OnSessionReviews(object sender, RoutedEventArgs e)
     {
-        if (_library is not null) new SessionReviewWindow(_library, (sender as FrameworkElement)?.DataContext is StatisticsGameRow row ? row.DataKey : null)
+        var row = (sender as FrameworkElement)?.DataContext as StatisticsGameRow;
+        if (_library is not null) new SessionReviewWindow(_library, row?.DataKey, row?.Name)
             { Owner = Window.GetWindow(this) }.ShowDialog();
     }
     internal void FocusSearch() { RankingSearch.Focus(); RankingSearch.SelectAll(); }

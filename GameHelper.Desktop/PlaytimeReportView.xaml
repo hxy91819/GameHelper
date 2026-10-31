@@ -11,7 +11,7 @@
     <Button x:Name="CommentButton" Content="生成大模型点评" Click="OnComment" IsEnabled="False" Margin="0,0,12,8" />
     <Button x:Name="ExportButton" Content="导出 Markdown…" Click="OnExport" IsEnabled="False" Margin="0,0,0,8" />
    </WrapPanel>
-   <TextBlock x:Name="Status" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" Margin="0,8,0,8" AutomationProperties.LiveSetting="Polite" />
+   <TextBlock x:Name="Status" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" Margin="0,8,0,8" AutomationProperties.LiveSetting="Polite"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
    <Expander Header="报告正文（展开查看）" x:Name="BodyPanel" Visibility="Collapsed">
     <TextBox x:Name="Body" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" BorderThickness="0" Background="Transparent" VerticalScrollBarVisibility="Disabled" AutomationProperties.Name="游玩报告正文" />
    </Expander>

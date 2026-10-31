@@ -10,6 +10,10 @@ public sealed class LibraryGameItem : ObservableState
     private ControllerSupport _controller = new();
     public ControllerSupport Controller => _controller;
     internal int ControllerVersion;
+    internal (string Executable, string Target, uint? AppId)? ControllerIdentity;
+    internal bool ControllerQueued;
+    internal Task ControllerLoading = Task.CompletedTask;
+    internal DateTimeOffset ControllerRefreshAfter;
     internal void SetController(ControllerSupport value)
     { _controller = value; Changed(nameof(Controller)); }
     internal const string DefaultDs4WindowsPath = @"D:\Program Files\DS4Windows\DS4Windows\DS4Windows.exe";
@@ -86,7 +90,7 @@ public sealed class LibraryGameItem : ObservableState
     public string LastPlayedLabel => LastPlayedAt is { } date ? $"最近游玩 {date.LocalDateTime:MM/dd HH:mm}" : "尚无已完成记录";
     public string Name { get => _name; set { if (Set(ref _name, value)) Edited(); } }
     public string Executable { get => _executable; set { if (Set(ref _executable, value)) Edited(); } }
-    public string Target { get => _target; set { if (Set(ref _target, value)) Edited(); } }
+    public string Target { get => _target; set { if (Set(ref _target, value)) { Edited(); Changed(nameof(LaunchHint)); } } }
     public string Arguments { get => _arguments; set { if (Set(ref _arguments, value)) Edited(); } }
     public string Directory { get => _directory; set { if (Set(ref _directory, value)) Edited(); } }
     public string Speed { get => _speed; set { if (Set(ref _speed, value)) Edited(); } }
@@ -121,6 +125,8 @@ public sealed class LibraryGameItem : ObservableState
     internal Guid? LaunchRequestId { get; private set; }
     internal int? LaunchProcessId { get; private set; }
     public bool IsRunning => IsRunningState(_state);
+    public string LaunchLabel => IsRunning ? "游戏运行中" : State == "启动中" ? "正在启动…" : "▷ 启动游戏";
+    public string LaunchHint => !IsRunning && string.IsNullOrWhiteSpace(Target) ? "请在设置与管理中配置启动入口" : string.Empty;
     internal static bool IsRunningState(string state) => state is "运行中" or "运行中·外部";
     /// <summary>状态徽章文本：运行中卡片附加本局实时计时的 mm:ss，其他状态原样。</summary>
     public string StateDisplay => IsRunning && _runningElapsed is not null ? $"{_state} · {_runningElapsed}" : _state;
@@ -159,7 +165,7 @@ public sealed class LibraryGameItem : ObservableState
         var stateChanged = _state != row.State;
         Processes = row.Processes ?? []; LaunchRequestId = row.LaunchRequestId; LaunchProcessId = row.LaunchProcessId;
         State = row.State;
-        if (stateChanged) Changed(nameof(IsRunning));
+        if (stateChanged) { Changed(nameof(IsRunning)); Changed(nameof(LaunchLabel)); Changed(nameof(LaunchHint)); }
         _runningStartedAt = row.RunningStartedAt;
         if (startChanged || !IsRunning) _runningElapsed = null;
         if (startChanged || stateChanged)

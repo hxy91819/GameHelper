@@ -105,6 +105,8 @@ internal sealed partial class ConsoleModeWindow
         var footer = new Border { BorderBrush = ConsoleModeVisuals.Stroke, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 12, 0, 0), Margin = new Thickness(0, 12, 0, 0) };
         var footerBody = new StackPanel(); footer.Child = footerBody; status.FontSize = 13; status.Foreground = ConsoleModeVisuals.Secondary;
         help.FontSize = 15; help.Foreground = ConsoleModeVisuals.Text; help.Margin = new Thickness(0, 5, 0, 0); footerBody.Children.Add(status); footerBody.Children.Add(help);
+        globalHelp.Foreground = ConsoleModeVisuals.Secondary; globalHelp.Margin = new Thickness(0, 5, 0, 0);
+        globalHelp.TextWrapping = TextWrapping.Wrap; footerBody.Children.Add(globalHelp);
         Grid.SetRow(footer, 2); presentation.Children.Add(footer);
         scene.Children.Add(launchOverlay); scene.Children.Add(actionOverlay);
         launchOverlay.Background = ConsoleModeVisuals.Brush("#F5101116");

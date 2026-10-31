@@ -16,7 +16,7 @@ The workflow that inspects an executable candidate, resolves duplicate identity 
 
 ## Playtime History
 
-The persisted sequence of completed play sessions keyed by DataKey. The current format is CSV; legacy JSON is import-only. [ADR-0004](docs/adr/0004-sqlite-user-data-and-session-ratings.md) records the planned storage migration.
+The persisted sequence of completed Play Sessions keyed by DataKey. History has one authoritative source; compatibility exports and synchronized reports are derived views, not independent records. [ADR-0004](docs/adr/0004-sqlite-user-data-and-session-ratings.md) records the storage decision.
 
 ## Play Session
 

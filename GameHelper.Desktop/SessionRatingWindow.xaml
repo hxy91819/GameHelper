@@ -1,10 +1,21 @@
-<Window x:Class="GameHelper.Desktop.SessionRatingWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="本局打分" Width="460" Height="400" WindowStartupLocation="CenterScreen" Background="{DynamicResource Page}" Foreground="{DynamicResource TextPrimary}" ResizeMode="CanResizeWithGrip">
- <Grid Margin="24"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <TextBlock Text="本局体验" FontSize="22"/>
-  <TextBlock Grid.Row="1" Text="{Binding Description}" TextWrapping="Wrap" Margin="0,12"/>
-  <StackPanel Grid.Row="2" Margin="0,0,0,12"><ContentControl x:Name="StarsHost" HorizontalAlignment="Left"/><TextBlock Text="点击星星即保存；可先填写下方想法" FontSize="12" TextWrapping="Wrap"/></StackPanel>
-  <TextBox Grid.Row="3" Text="{Binding Thought,UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" MaxLength="2000" ToolTip="可选想法，最多 2000 个 UTF-16 字符，仅保存在本机"/>
-  <TextBlock Grid.Row="4" Text="{Binding Status}" TextWrapping="Wrap" Margin="0,10"/>
-  <StackPanel x:Name="Actions" Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="重载" Click="OnReload"/><Button Content="清除评分" Click="OnClear" Margin="6,0"/><Button Content="取消" IsCancel="True" Click="OnCancel"/><Button Content="保存" Click="OnSave" Margin="6,0,0,0"/></StackPanel>
+<Window x:Class="GameHelper.Desktop.SessionRatingWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Title="本局打分" Width="500" Height="490" MinWidth="440" MinHeight="440" WindowStartupLocation="CenterScreen" Background="{DynamicResource Page}" Foreground="{DynamicResource TextPrimary}" ResizeMode="CanResizeWithGrip" FontSize="14" FontFamily="Segoe UI, Microsoft YaHei UI" UseLayoutRounding="True">
+ <Window.Resources><BooleanToVisibilityConverter x:Key="RatingVisibility"/></Window.Resources>
+ <Grid Margin="28"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <TextBlock Text="本局体验" FontSize="24" FontWeight="SemiBold"/>
+  <TextBlock Grid.Row="1" Text="{Binding Description}" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" Margin="0,8,0,18"/>
+  <StackPanel Grid.Row="2" Margin="0,0,0,20"><ContentControl x:Name="StarsHost" HorizontalAlignment="Left"/><TextBlock Text="点击星星即保存，也可以先写下想法" Foreground="{DynamicResource TextSecondary}" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/></StackPanel>
+  <Grid Grid.Row="3"><Grid.Style><Style TargetType="Grid"><Style.Triggers><DataTrigger Binding="{Binding Busy}" Value="True"><Setter Property="IsEnabled" Value="False"/></DataTrigger></Style.Triggers></Style></Grid.Style><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+   <DockPanel><TextBlock Text="本局想法" FontWeight="SemiBold"/><TextBlock Text="可选 · 仅保存在本机" Foreground="{DynamicResource Muted}" FontSize="12" Margin="10,0,0,0" VerticalAlignment="Center"/></DockPanel>
+   <Grid Grid.Row="1" Margin="0,8,0,0"><TextBox x:Name="ThoughtInput" Text="{Binding Thought,UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" MaxLength="2000" MinHeight="60" Margin="0" AutomationProperties.Name="本局想法，可选，最多2000个字符"/>
+    <TextBlock Text="有什么想记住的？进度、感受，或下一次的计划。" Foreground="{DynamicResource Muted}" Margin="10,9" TextWrapping="Wrap" IsHitTestVisible="False"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Thought}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
+   </Grid>
+   <TextBlock Grid.Row="2" Text="{Binding ThoughtCount}" HorizontalAlignment="Right" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,5,0,0"/>
+  </Grid>
+  <TextBlock Grid.Row="4" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" Margin="0,10" AutomationProperties.LiveSetting="Polite"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="{Binding Status}"/><Style.Triggers><DataTrigger Binding="{Binding Busy}" Value="True"><Setter Property="Text" Value="正在处理，请稍候…"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
+  <Grid x:Name="Actions" Grid.Row="5" Margin="0,6,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+   <StackPanel Orientation="Horizontal"><Button Content="重载" Click="OnReload" ToolTip="放弃当前输入，读取最新评分" Padding="8,8" Background="Transparent" BorderBrush="Transparent" FontSize="12"/><Button Content="清除评分" Click="OnClear" Visibility="{Binding HasRating,Converter={StaticResource RatingVisibility}}" Padding="8,8" Background="Transparent" BorderBrush="Transparent" FontSize="12"/></StackPanel>
+   <StackPanel Grid.Column="1" Orientation="Horizontal"><Button Content="取消" IsCancel="True" Click="OnCancel" Padding="14,8"/><Button Content="保存" Click="OnSave" Padding="18,8" Margin="8,0,0,0" Background="{DynamicResource TextPrimary}" Foreground="{DynamicResource Page}" BorderBrush="{DynamicResource TextPrimary}" FontWeight="SemiBold"/></StackPanel>
+  </Grid>
  </Grid>
 </Window>

@@ -11,6 +11,25 @@ namespace GameHelper.Tests;
 
 public sealed class SessionRatingWindowTests
 {
+    [Fact]
+    public Task ThoughtCounterAndClearActionReflectTheLoadedRating() => OnDispatcher(async () =>
+    {
+        var window = new SessionRatingWindow(Mock.Of<IGameLibrary>(), Row() with { Rating = null });
+        try
+        {
+            await Layout(window);
+            var model = Assert.IsType<SessionRatingEditorViewModel>(window.DataContext);
+            Assert.False(model.HasRating);
+            var clear = Descendants(window).OfType<Button>().Single(b => Equals(b.Content, "清除评分"));
+            Assert.Equal(Visibility.Collapsed, clear.Visibility);
+            Descendants(window).OfType<TextBox>().Single().Text = "新的想法🎮";
+            await Dispatcher.Yield(DispatcherPriority.DataBind);
+            Assert.Equal("6 / 2000", model.ThoughtCount);
+            Assert.Contains(Descendants(window).OfType<TextBlock>(), t => t.Text == model.ThoughtCount);
+        }
+        finally { window.Close(); }
+    });
+
     [Theory]
     [InlineData(1)]
     [InlineData(3)]

@@ -18,6 +18,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
     private readonly ListBox shelf = new();
     private readonly TextBlock heading = new() { FontSize = 44, Text = "今晚，继续冒险。" };
     private readonly TextBlock help = new() { FontSize = 22 };
+    private readonly TextBlock globalHelp = new() { FontSize = 13 };
     private readonly TextBlock info = new() { FontSize = 24, TextWrapping = TextWrapping.Wrap };
     private readonly Grid details = new();
     private readonly Button detailLaunchButton = new() { FontSize = 26, Margin = new Thickness(0,25,0,0), HorizontalAlignment = HorizontalAlignment.Left };
@@ -100,11 +101,11 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
             ConsoleOverlay.Settings => $"上下 选择   左右 调整   {a} 切换 / 保存   {b} 返回（放弃本页调整）",
             ConsoleOverlay.SystemMenu => $"上下 选择   {a} 确认   {b} 关闭",
             _ when launchState.ShowOverlay => $"{b} 关闭提示（保留等待）   {(ps ? "Options" : "Start")} 系统菜单",
-            _ when detail && Selected?.IsRunning == true => $"{a} 回到游戏   {x} 游戏设置   {b} 返回   系统菜单可结束游戏（需确认）   {(ps ? "Options" : "Start")} 系统菜单",
+            _ when detail && Selected?.IsRunning == true => $"{a} 回到游戏   {x} 游戏设置   {b} 返回   {(ps ? "Options" : "Start")} 系统菜单 / 结束游戏",
             _ when detail => $"{a} 启动 / 确认   {x} 游戏设置   {b} 返回   {(ps ? "Options" : "Start")} 系统菜单",
             _ => $"左右 浏览   {(ps ? "L2 / R2" : "LT / RT")} 翻页   {a} 详情   {x} 游戏设置   {b} 退出主机模式   {y} 搜索   {(ps ? "L1 / R1" : "LB / RB")} 页签   {(ps ? "Options" : "Start")} 系统菜单"
         };
-        help.Text += ps ? "   Share/Create + Options 切换模式（全局）" : "   View/Back + Menu/Start 切换模式（全局）";
+        globalHelp.Text = ps ? "全局切换  Share/Create + Options" : "全局切换  View/Back + Menu/Start";
         help.TextWrapping = TextWrapping.Wrap;
     }
     private void Render()

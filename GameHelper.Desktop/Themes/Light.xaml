@@ -8,7 +8,7 @@
  <SolidColorBrush x:Key="PanelBorder" Color="#EAEAE8" />
  <SolidColorBrush x:Key="StrongBorder" Color="#AAA1BA" />
  <SolidColorBrush x:Key="TextPrimary" Color="#202020" />
- <SolidColorBrush x:Key="Muted" Color="#777875" />
+ <SolidColorBrush x:Key="Muted" Color="#6E706D" />
  <SolidColorBrush x:Key="Accent" Color="#80659E" />
  <SolidColorBrush x:Key="AccentText" Color="#FFFFFF" />
  <SolidColorBrush x:Key="SelectedSurface" Color="#F8F8F7" />

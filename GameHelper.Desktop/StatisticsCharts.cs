@@ -193,7 +193,7 @@ public sealed class PlaytimeCalendar : FrameworkElement
         calendar._tooltip.Hide();
     }
 
-    private double Pitch => 17;
+    private double Pitch => Math.Min(17, Math.Max(0, ActualWidth - 34) / Math.Max(1, Math.Ceiling(((Days?.Count ?? 0) + Leading) / 7d)));
     private int Leading => Days is { Count: > 0 } days ? ((int)days[0].Date.DayOfWeek + 6) % 7 : 0;
 
     protected override void OnRender(DrawingContext dc)

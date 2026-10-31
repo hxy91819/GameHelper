@@ -21,6 +21,20 @@ public partial class MainWindow : Window
         _consoleMode.Show();
     }
     private void OnConsoleMode(object sender, RoutedEventArgs e) => OpenConsoleMode();
+    private void OnEmptyAction(object sender, RoutedEventArgs e)
+    {
+        if (_model.IsCatalogEmpty) OnAddMenu(sender, e);
+        else
+        {
+            var clearAll = string.IsNullOrWhiteSpace(_model.Search);
+            _model.ClearLibraryFilters();
+            if (clearAll)
+            {
+                SelectButton(new[] { AllType, HdrType, SpeedType }, "all");
+                SelectButton(new[] { InstalledGroup, MissingGroup, UnknownGroup, AllGroup }, "all");
+            }
+        }
+    }
 
     private void OnAddAction(object sender, RoutedEventArgs e) => _model.Selected?.ActionEditor.Add();
     private void OnRemoveAction(object sender, RoutedEventArgs e)
@@ -38,7 +52,7 @@ public partial class MainWindow : Window
 
     private void OnRatingHistory(object sender, RoutedEventArgs e)
     {
-        if (_model.Selected is { } game) new SessionReviewWindow(_model.Library, game.DataKey) { Owner = this }.ShowDialog();
+        if (_model.Selected is { } game) new SessionReviewWindow(_model.Library, game.DataKey, game.Name) { Owner = this }.ShowDialog();
     }
     private readonly LibraryViewModel _model;
     private readonly MainWindowLaunchWindowHandoff _launchHandoff;
@@ -94,7 +108,7 @@ public partial class MainWindow : Window
         var anchorTop = DetailHost.TranslatePoint(new Point(), WorkspaceScroll).Y;
         var top = Math.Max(16, anchorTop);
         DetailOffset.Y = Math.Max(0, 16 - anchorTop);
-        StickyDetails.MaxHeight = Math.Max(80, WorkspaceScroll.ViewportHeight - top - 16);
+        StickyDetailFrame.MaxHeight = Math.Max(160, WorkspaceScroll.ViewportHeight - top - 16);
     }
 
     public MainWindow(LibraryViewModel model)

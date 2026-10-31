@@ -9,6 +9,79 @@ namespace GameHelper.Tests;
 public sealed class DesktopLibraryViewModelTests
 {
     [Fact]
+    public Task FilteredEmptyStateHidesPreviousGameAndOffersRecovery() => OnDispatcher(async () =>
+    {
+        var backend = new Backend { State = "运行中" };
+        using var model = new LibraryViewModel(backend);
+        await model.RefreshAsync();
+        Assert.True(model.HasContinueGame); Assert.True(model.HasSelection);
+        model.Search = "__not_found__";
+        Assert.Null(model.ContinueGame); Assert.False(model.HasSelection);
+        Assert.Equal("没有找到匹配的游戏", model.EmptyTitle); Assert.Equal("清除搜索", model.EmptyActionLabel);
+        model.ClearLibraryFilters(); Assert.True(model.HasSelection); Assert.True(model.HasContinueGame);
+        model.SetInstallationGroup("missing"); Assert.False(model.HasContinueGame);
+        Assert.Equal("当前筛选下没有游戏", model.EmptyTitle);
+        model.ClearLibraryFilters(); Assert.True(model.HasSelection);
+        var empty = new Mock<IGameLibrary>();
+        empty.Setup(b => b.ExecuteAsync(It.IsAny<GameLibraryRequest>(), It.IsAny<CancellationToken>())).ReturnsAsync(new GameLibraryResponse { Success = true });
+        using var fresh = new LibraryViewModel(empty.Object); await fresh.RefreshAsync();
+        Assert.True(fresh.IsCatalogEmpty); Assert.Equal("＋ 添加第一款游戏", fresh.EmptyActionLabel);
+    });
+    [Fact]
+    public Task SaveKeepsOriginalGameWhileDraftFlushWaitsAndSelectionChanges() => OnDispatcher(async () =>
+    {
+        var rows = new[] { "a", "b" }.Select(key => new LibraryGame { Config = new()
+        { DataKey = key, Executable = key + ".exe", DisplayName = key }, Revision = key,
+            Installation = new(GameInstallationState.Installed, "test") }).ToArray();
+        var saved = new TaskCompletionSource<GameLibraryRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var backend = new Mock<IGameLibrary>();
+        backend.Setup(b => b.ExecuteAsync(It.IsAny<GameLibraryRequest>(), It.IsAny<CancellationToken>()))
+            .Returns<GameLibraryRequest, CancellationToken>((request, _) =>
+            {
+                if (request.Operation == GameLibraryOperation.Save) saved.TrySetResult(request);
+                return Task.FromResult(new GameLibraryResponse { Success = true, Games = rows });
+            });
+        using var model = new LibraryViewModel(backend.Object);
+        await model.RefreshAsync();
+        model.Selected = model.ConsoleGames.Single(g => g.DataKey == "a"); model.Selected.Name = "A edited";
+        var flush = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        typeof(LibraryViewModel).GetField("_draftWrite", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(model, flush.Task);
+        model.SaveCommand.Execute(null);
+        model.Selected = model.ConsoleGames.Single(g => g.DataKey == "b");
+        flush.SetResult();
+        var request = await saved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("a", request.DataKey); Assert.Equal("a", request.ExpectedRevision);
+        Assert.Equal("A edited", request.Game!.DisplayName); Assert.Equal("a", request.Game.DataKey);
+    });
+
+    [Fact]
+    public Task RuntimePollingCoalescesControllerMetadataButRefreshesChangedIdentityAndExpiry() => OnDispatcher(async () =>
+    {
+        var clock = new FixedClock(DateTimeOffset.UnixEpoch);
+        var row = new LibraryGame { Config = new() { DataKey = "a", Executable = "a.exe" }, Revision = "1" };
+        var backend = new Mock<IGameLibrary>();
+        backend.Setup(b => b.ExecuteAsync(It.IsAny<GameLibraryRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new GameLibraryResponse { Success = true, Games = [row] });
+        using var model = new LibraryViewModel(backend.Object, null, null, clock);
+        await model.RefreshAsync();
+        await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ContextIdle);
+        var game = Assert.Single(model.ConsoleGames); await game.ControllerLoading; var version = game.ControllerVersion;
+        for (var i = 0; i < 20; i++) await model.RefreshAsync();
+        await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ContextIdle);
+        Assert.Equal(version, game.ControllerVersion);
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await model.RefreshAsync();
+        await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ContextIdle);
+        Assert.True(game.ControllerVersion > version);
+        await game.ControllerLoading;
+        row = row with { Config = new() { DataKey = "a", Executable = "a.exe", Launch = new() { Target = "changed.exe" } }, Revision = "2" };
+        await model.RefreshAsync();
+        await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ContextIdle);
+        var changed = Assert.Single(model.ConsoleGames);
+        Assert.NotSame(game, changed); Assert.Equal("changed.exe", changed.ControllerIdentity!.Value.Target);
+    });
+
+    [Fact]
     public Task ConsoleShelfHidesMissingInEveryTabAndSearch_PreservesUnknownAndRunningCatalogEntries() => OnDispatcher(async () =>
     {
         var clock = new FixedClock(DateTimeOffset.UnixEpoch.AddDays(100));

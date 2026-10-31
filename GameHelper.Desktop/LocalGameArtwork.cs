@@ -9,15 +9,39 @@ namespace GameHelper.Desktop;
 
 internal static class LocalGameArtwork
 {
+    internal const int MaximumImageBytes = 5 * 1024 * 1024;
+
+    // Limit the read itself, including a file that grows after opening. Checking the
+    // length only after ReadAllBytes would already have allocated the oversized file.
+    internal static byte[]? ReadImageBytes(Stream stream)
+    {
+        if (stream.CanSeek && stream.Length > MaximumImageBytes) return null;
+        using var bytes = new MemoryStream();
+        var buffer = new byte[64 * 1024];
+        while (true)
+        {
+            var read = stream.Read(buffer, 0, Math.Min(buffer.Length, MaximumImageBytes + 1 - (int)bytes.Length));
+            if (read == 0) return bytes.ToArray();
+            if (bytes.Length + read > MaximumImageBytes) return null;
+            bytes.Write(buffer, 0, read);
+        }
+    }
+
+    private static BitmapSource? LoadImage(string path, int width)
+    {
+        using var stream = File.OpenRead(path);
+        return ReadImageBytes(stream) is { } bytes ? DecodePoster(bytes, width) : null;
+    }
+
     public static BitmapSource? LoadPoster(string path)
     {
-        try { return DecodePoster(File.ReadAllBytes(path)); }
+        try { return LoadImage(path, 320); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or System.IO.FileFormatException or COMException) { return null; }
     }
 
     public static BitmapSource? LoadBanner(string path)
     {
-        try { return DecodePoster(File.ReadAllBytes(path), 1280); }
+        try { return LoadImage(path, 1280); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or System.IO.FileFormatException or COMException) { return null; }
     }
 

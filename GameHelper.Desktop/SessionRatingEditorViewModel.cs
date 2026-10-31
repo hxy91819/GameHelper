@@ -14,7 +14,9 @@ public sealed class SessionRatingEditorViewModel(IGameLibrary library, RatedSess
     private bool _busy;
     public IReadOnlyList<int> StarOptions { get; } = [1, 2, 3, 4, 5];
     public int Stars { get => _stars; set => Set(ref _stars, value); }
-    public string Thought { get => _thought; set => Set(ref _thought, value); }
+    public string Thought { get => _thought; set { if (Set(ref _thought, value)) Changed(nameof(ThoughtCount)); } }
+    public string ThoughtCount => $"{Thought.Length} / {SessionRatings.ThoughtLimit}";
+    public bool HasRating => _session.Rating is not null;
     public string Status { get => _status; private set => Set(ref _status, value); }
     public bool Busy { get => _busy; private set => Set(ref _busy, value); }
     public string Description => $"{_session.DataKey} · {(_session.End.Kind == DateTimeKind.Utc ? _session.End.ToLocalTime() : _session.End):yyyy-MM-dd HH:mm} · {_session.Minutes} 分钟";
@@ -30,6 +32,7 @@ public sealed class SessionRatingEditorViewModel(IGameLibrary library, RatedSess
                 SessionRating = new(_session.SessionId, clear ? null : Stars, clear ? null : Thought, _session.Revision) });
             if (!response.Success || response.RatedSession is null) throw new InvalidOperationException(response.Error ?? "评分保存失败。");
             _session = response.RatedSession;
+            Changed(nameof(HasRating));
             return true;
         }
         catch (Exception ex) { Status = ex.Message; return false; }
@@ -44,6 +47,7 @@ public sealed class SessionRatingEditorViewModel(IGameLibrary library, RatedSess
             var response = await library.ExecuteAsync(new() { Operation = GameLibraryOperation.GetSessionRating, SessionId = _session.SessionId });
             if (!response.Success || response.RatedSession is null) throw new InvalidOperationException(response.Error);
             _session = response.RatedSession; Stars = _session.Rating?.Stars ?? 0; Thought = _session.Rating?.Thought ?? ""; Status = "已重载最新评分。";
+            Changed(nameof(HasRating));
         }
         catch (Exception ex) { Status = ex.Message; }
         finally { Busy = false; }

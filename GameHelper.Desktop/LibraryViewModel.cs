@@ -32,7 +32,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private readonly string? _controllerConfig;
     private string? _genre;
     public ObservableCollection<GenreGroup> GenreGroups { get; } = [];
-    public LibraryGameItem? ContinueGame => _genre is null ? _games.Where(game => game.InstallationState == GameInstallationState.Installed && (game.IsRunning || game.LastPlayedAt is not null)).OrderByDescending(game => game.IsRunning).ThenByDescending(game => game.LastPlayedAt).FirstOrDefault() : null;
+    public LibraryGameItem? ContinueGame => _genre is null ? Games.Cast<LibraryGameItem>().Where(game => game.InstallationState == GameInstallationState.Installed && (game.IsRunning || game.LastPlayedAt is not null)).OrderByDescending(game => game.IsRunning).ThenByDescending(game => game.LastPlayedAt).FirstOrDefault() : null;
     public bool HasContinueGame => ContinueGame is not null;
     public IReadOnlyList<DashboardBucket> WeeklyTrend { get; private set; } = [];
     private string _weeklyHours = "0.0";
@@ -87,16 +87,17 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         SaveCommand = Command(() => RunAsync(SaveSelectedAsync), () => Ready && Selected?.IsDirty == true);
         LaunchCommand = Command(() => RunAsync(async () =>
         {
-            var targetKey = Selected?.DataKey;
-            if (targetKey is null) return;
-            if (Selected?.IsDirty == true) await SaveSelectedAsync();
+            var selected = Selected;
+            var targetKey = selected?.DataKey;
+            if (selected is null) return;
+            if (selected.IsDirty) await SaveSelectedAsync();
             var handoff = LaunchWindowHandoff;
             var requestId = ConsoleLaunchRequestId ?? Guid.NewGuid();
             handoff.AllowForeground();
             var response = await _library.ExecuteAsync(new GameLibraryRequest
             { Operation = GameLibraryOperation.Launch, DataKey = targetKey, LaunchRequestId = requestId }, _lifetime.Token);
             if (!response.Success) throw new InvalidOperationException(response.Error ?? "游戏启动失败。");
-            handoff.Track(targetKey, Selected?.Name ?? targetKey, requestId);
+            handoff.Track(targetKey!, selected.Name, requestId);
             Apply(response);
             handoff.Minimize();
         }), () => Ready && Selected is not null && !string.IsNullOrWhiteSpace(Selected.Target) && !Selected.IsRunning && Selected.State != "启动中");
@@ -141,7 +142,18 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public string InstallationSummary => $"本机 {_games.Count(game => game.InstallationState == GameInstallationState.Installed)} · 未找到 {_games.Count(game => game.InstallationState == GameInstallationState.Missing)} · 待确认 {_games.Count(game => game.InstallationState == GameInstallationState.Unknown)}";
     public string InstallationGroup => _group;
     public string Search { get => _search; set { if (Set(ref _search, value)) Filter(); } }
-    public LibraryGameItem? Selected { get => _selected; set { if (Set(ref _selected, value)) { ActionError = string.Empty; Changed(nameof(SelectedJournalSummary)); } RefreshCommands(); } }
+    public LibraryGameItem? Selected { get => _selected; set { if (Set(ref _selected, value)) { ActionError = string.Empty; Changed(nameof(SelectedJournalSummary)); Changed(nameof(HasSelection)); } RefreshCommands(); } }
+    public bool HasSelection => Selected is not null;
+    public bool IsCatalogEmpty => _games.Count == 0;
+    public string EmptyTitle => IsCatalogEmpty ? "你的收藏，从这里开始" : !string.IsNullOrWhiteSpace(Search) ? "没有找到匹配的游戏" : "当前筛选下没有游戏";
+    public string EmptyDescription => IsCatalogEmpty ? "添加一款游戏，或扫描已有游戏目录。启动与游玩记录会在这里汇合。"
+        : !string.IsNullOrWhiteSpace(Search) ? $"没有找到“{Search.Trim()}”。试试其他名称，或清除搜索。" : "试试其他类型或安装状态，也可以查看全部收藏。";
+    public string EmptyActionLabel => IsCatalogEmpty ? "＋ 添加第一款游戏" : !string.IsNullOrWhiteSpace(Search) ? "清除搜索" : "查看全部游戏";
+    internal void ClearLibraryFilters()
+    {
+        if (!string.IsNullOrWhiteSpace(Search)) Search = string.Empty;
+        else { _genre = null; _filter = "all"; _group = "all"; Changed(nameof(InstallationGroup)); Changed(nameof(CollectionTitle)); Changed(nameof(CollectionCaption)); Filter(); }
+    }
     public string SelectedJournalSummary => Selected is null ? string.Empty : JournalSummary(_journalStore.Read(Selected.DataKey));
     internal Task<JournalEditorViewModel?> EditSelectedJournalAsync()
     {
@@ -215,11 +227,28 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     }
     private void QueueControllerLoad(LibraryGameItem game)
     {
+        var identity = (game.Executable, game.Target, _posters.AssociatedAppId(game.DataKey));
+        if (game.ControllerIdentity == identity && (game.ControllerQueued || !game.ControllerLoading.IsCompleted
+            || _timeProvider.GetUtcNow() < game.ControllerRefreshAfter)) return;
+        game.ControllerIdentity = identity;
+        game.ControllerQueued = true;
         // Presentation metadata starts after the current collection update, on the window dispatcher.
         Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() =>
         {
-            if (!_lifetime.IsCancellationRequested) _ = LoadControllerAsync(game);
+            if (game.ControllerIdentity != identity) return;
+            game.ControllerQueued = false;
+            if (!_lifetime.IsCancellationRequested) game.ControllerLoading = RefreshControllerAsync(game, identity);
         }));
+    }
+    private async Task RefreshControllerAsync(LibraryGameItem game, (string Executable, string Target, uint? AppId) identity)
+    {
+        try { await LoadControllerAsync(game); }
+        finally
+        {
+            // Bound local cache reads, including failed loads. Manual edits update immediately;
+            // changed launch/Steam identity bypasses this window and external edits appear within 30s.
+            if (game.ControllerIdentity == identity) game.ControllerRefreshAfter = _timeProvider.GetUtcNow().AddSeconds(30);
+        }
     }
     internal async Task LoadControllerAsync(LibraryGameItem game)
     {
@@ -283,6 +312,12 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         if (Selected is null || !visible.Contains(Selected)) Selected = visible.FirstOrDefault();
         Changed(nameof(Count));
         Changed(nameof(InstallationSummary));
+        RefreshEmptyPresentation();
+    }
+
+    private void RefreshEmptyPresentation()
+    {
+        foreach (var property in new[] { nameof(ContinueGame), nameof(HasContinueGame), nameof(IsCatalogEmpty), nameof(EmptyTitle), nameof(EmptyDescription), nameof(EmptyActionLabel) }) Changed(property);
     }
 
     public async Task RefreshAsync(bool discardDrafts = false)
@@ -350,13 +385,15 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
 
     private async Task SaveSelectedAsync()
     {
-        if (Selected is null) return;
-        var key = Selected.DataKey;
+        if (Selected is not { } selected) return;
+        var key = selected.DataKey;
+        var revision = selected.Revision;
+        var configuration = selected.ToConfig();
         await FlushDraftsAsync();
         var response = await _library.ExecuteAsync(new GameLibraryRequest
         {
             Operation = GameLibraryOperation.Save, DataKey = key,
-            ExpectedRevision = Selected.Revision, Game = Selected.ToConfig()
+            ExpectedRevision = revision, Game = configuration
         }, _lifetime.Token);
         if (!response.Success) throw new InvalidOperationException(response.Error);
         // Replace only the saved draft; other games may have unsaved changes.
@@ -422,6 +459,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         RebuildGenres(); Changed(nameof(CatalogCount));
         Changed(nameof(ContinueGame)); Changed(nameof(HasContinueGame));
         Changed(nameof(Count)); Changed(nameof(InstallationSummary));
+        RefreshEmptyPresentation();
         Selected = Games.Cast<LibraryGameItem>().FirstOrDefault(game => game.DataKey == key) ?? Games.Cast<LibraryGameItem>().FirstOrDefault();
         Connected = true;
         ConfigPath = response.ConfigPath;
