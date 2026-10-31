@@ -89,7 +89,6 @@ public sealed class DdcMonitorModeController : IMonitorModeController
     {
         T result = default!;
         Exception? error = null;
-        var completed = new ManualResetEventSlim(false);
         var worker = new Thread(() =>
         {
             try
@@ -111,16 +110,14 @@ public sealed class DdcMonitorModeController : IMonitorModeController
             {
                 error = ex;
             }
-            finally
-            {
-                completed.Set();
-            }
         });
         worker.SetApartmentState(ApartmentState.STA);
         worker.IsBackground = true;
         worker.Name = "GameHelper.DdcStaOp";
         worker.Start();
-        completed.Wait();
+        // Joining also publishes result/error and allocates no disposable wait event.
+        // Keep the existing synchronous hardware-completion semantics.
+        worker.Join();
         if (error is not null)
         {
             throw error;

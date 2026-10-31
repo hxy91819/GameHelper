@@ -18,6 +18,13 @@ namespace GameHelper.Infrastructure.Processes;
 /// </summary>
 public sealed class WmiProcessMonitor : IProcessMonitor
 {
+    // Lifecycle -> dispatch. Native watcher Stop/Dispose never holds dispatch:
+    // it can wait for a callback that is trying to acquire that gate.
+    private readonly object _lifecycleGate = new();
+    private readonly object _dispatchGate = new();
+    private long _generation;
+    private Action<ProcessEventInfo>? _startHandler;
+    private Action<ProcessEventInfo>? _stopHandler;
     private const string StartTraceQuery = "SELECT * FROM Win32_ProcessStartTrace";
     private const string StopTraceQuery = "SELECT * FROM Win32_ProcessStopTrace";
     private IProcessEventWatcher? _startWatcher;
@@ -68,6 +75,11 @@ public sealed class WmiProcessMonitor : IProcessMonitor
     /// </summary>
     public void Start()
     {
+        lock (_lifecycleGate) StartCore();
+    }
+
+    private void StartCore()
+    {
         if (_disposed) throw new ObjectDisposedException(nameof(WmiProcessMonitor));
         if (_running) return;
 
@@ -81,15 +93,17 @@ public sealed class WmiProcessMonitor : IProcessMonitor
                 _stopWatcher  = new WmiEventWatcher(StopTraceQuery, _eventResolver);
             }
 
-            _startWatcher.ProcessEvent += OnStartEvent;
-            _stopWatcher.ProcessEvent += OnStopEvent;
+            long generation;
+            lock (_dispatchGate) { generation = ++_generation; _running = true; }
+            _startHandler = info => Dispatch(generation, info, OnStartEvent);
+            _stopHandler = info => Dispatch(generation, info, OnStopEvent);
+            _startWatcher.ProcessEvent += _startHandler;
+            _stopWatcher.ProcessEvent += _stopHandler;
 
             _startWatcher.Start();
             // Keep the watcher active so every stop can evict PID cache entries. The policy
             // controls emission, not cleanup, matching the ETW adapter's semantics.
             _stopWatcher.Start();
-
-            _running = true;
         }
         catch
         {
@@ -103,9 +117,20 @@ public sealed class WmiProcessMonitor : IProcessMonitor
     /// </summary>
     public void Stop()
     {
-        if (_disposed) return;
-        if (!_running) return;
-        SafeTearDown();
+        lock (_lifecycleGate)
+        {
+            if (_disposed || !_running) return;
+            SafeTearDown();
+        }
+    }
+
+    private void Dispatch(long generation, ProcessEventInfo info, Action<ProcessEventInfo> callback)
+    {
+        lock (_dispatchGate)
+        {
+            if (!_running || generation != _generation) return;
+            callback(info);
+        }
     }
 
     private void OnStartEvent(ProcessEventInfo processInfo)
@@ -143,11 +168,11 @@ public sealed class WmiProcessMonitor : IProcessMonitor
 
     private void SafeTearDown()
     {
-        _running = false;
+        lock (_dispatchGate) { _running = false; ++_generation; }
 
         if (_startWatcher is not null)
         {
-            try { _startWatcher.ProcessEvent -= OnStartEvent; } catch { }
+            try { _startWatcher.ProcessEvent -= _startHandler; } catch { }
             try { _startWatcher.Stop(); } catch { }
             if (_ownsWatchers && _startWatcher is IDisposable d1)
             {
@@ -158,7 +183,7 @@ public sealed class WmiProcessMonitor : IProcessMonitor
 
         if (_stopWatcher is not null)
         {
-            try { _stopWatcher.ProcessEvent -= OnStopEvent; } catch { }
+            try { _stopWatcher.ProcessEvent -= _stopHandler; } catch { }
             try { _stopWatcher.Stop(); } catch { }
             if (_ownsWatchers && _stopWatcher is IDisposable d2)
             {
@@ -169,13 +194,17 @@ public sealed class WmiProcessMonitor : IProcessMonitor
 
         _eventResolver?.ClearCache();
         _eventResolver = null;
+        _startHandler = _stopHandler = null;
     }
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        SafeTearDown();
+        lock (_lifecycleGate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            SafeTearDown();
+        }
     }
 }
 

@@ -137,6 +137,10 @@ internal sealed class SessionTracker
                 return true;
             }
 
+            // A supplied PID identifies one instance. A different same-name process
+            // may predate monitoring or send a duplicate stop; never close its sibling.
+            if (processInfo.ProcessId.HasValue) { entry = default; return false; }
+
             var normalizedPath = PathNormalizer.NormalizePath(processInfo.ExecutablePath);
             if (normalizedPath is not null &&
                 _activeByPath.TryGetValue(normalizedPath, out var byPath) &&

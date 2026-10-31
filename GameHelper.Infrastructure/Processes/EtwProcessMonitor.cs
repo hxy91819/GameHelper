@@ -28,6 +28,7 @@ public sealed class EtwProcessMonitor : IProcessMonitor
     private bool _stopRequested = true;
     private bool _recovering;
     private long _generation;
+    private DateTime _monitorStartedAtUtc;
     private CancellationTokenSource? _runCancellation;
     private ITimer? _healthCheckTimer;
     private Task _recoveryTask = Task.CompletedTask;
@@ -71,6 +72,7 @@ public sealed class EtwProcessMonitor : IProcessMonitor
             _runCancellation = new CancellationTokenSource();
             _stopRequested = false;
             var generation = ++_generation;
+            _monitorStartedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
             try
             {
                 try { InitializeEtwSession(generation); }
@@ -84,18 +86,7 @@ public sealed class EtwProcessMonitor : IProcessMonitor
                     TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
                 // Subscribe first, then capture: a game starting during enumeration is queued by ETW.
                 // Restored identities and already delivered live starts must retain their original session.
-                try
-                {
-                    foreach (var existing in _runtime.CaptureExistingProcesses(CurrentPolicy))
-                    {
-                        if (existing.Info.ProcessId is int pid && !_observedProcesses.ContainsKey(pid))
-                            OnProcessStart(existing, preexisting: true);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogWarning(ex, "Could not finish discovering games already running; live ETW monitoring remains active");
-                }
+                CaptureUnobservedProcesses();
                 _logger?.LogInformation("ETW process monitor started successfully");
             }
             catch (Exception ex)
@@ -199,6 +190,34 @@ public sealed class EtwProcessMonitor : IProcessMonitor
         _recoveryTask = Task.Run(() => RunSessionRecoveryAsync(generation, token));
     }
 
+    private void CaptureUnobservedProcesses(bool recovering = false)
+    {
+        try
+        {
+            foreach (var existing in _runtime.CaptureExistingProcesses(CurrentPolicy))
+            {
+                if (existing.Info.ProcessId is not int pid || _observedProcesses.ContainsKey(pid)) continue;
+                // Initial capture is always preexisting. On recovery, a process known to
+                // have been created during this monitoring run can belong to a pending
+                // library launch. Unknown/older identities keep the conservative flag.
+                var preexisting = true;
+                if (recovering)
+                {
+                    var identity = _runtime.InspectProcess(pid);
+                    if (identity.HasExited) continue;
+                    // A newer incarnation is not the image captured by enumeration.
+                    if (identity.StartTimeUtc > existing.TimestampUtc) continue;
+                    preexisting = identity.StartTimeUtc is not { } created || created <= _monitorStartedAtUtc;
+                }
+                OnProcessStart(existing, preexisting);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Could not finish discovering games already running; live ETW monitoring remains active");
+        }
+    }
+
     private async Task RunSessionRecoveryAsync(long generation, CancellationToken cancellationToken)
     {
         try
@@ -222,6 +241,9 @@ public sealed class EtwProcessMonitor : IProcessMonitor
                         if (!IsCurrent(generation)) return;
                         if (_session?.IsAlive != true)
                             throw new InvalidOperationException("Replacement ETW reader has already ended");
+                        // Games can start while the old session is down. Subscribe first,
+                        // then capture just as on startup; delayed live starts deduplicate.
+                        CaptureUnobservedProcesses(recovering: true);
                         _logger?.LogInformation("ETW session recovered on attempt {Attempt}; process monitoring resumed", attempt);
                         return;
                     }

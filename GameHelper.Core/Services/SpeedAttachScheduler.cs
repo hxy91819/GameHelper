@@ -273,6 +273,16 @@ public sealed class SpeedAttachScheduler
             return true;
         }
 
+        if (request.ProcessStartedUtc is { } expectedStart
+            && probe.TryGetStartTimeUtc(request.ProcessId, out var actualStart)
+            && actualStart != expectedStart)
+        {
+            _logger.LogInformation(
+                "PID {ProcessId} for {DataKey} was reused by another launch of the same image; skipping the deferred speed attach.",
+                request.ProcessId, request.DataKey);
+            return true;
+        }
+
         return false;
     }
 

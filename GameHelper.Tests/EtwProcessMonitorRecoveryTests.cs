@@ -12,6 +12,87 @@ public sealed class EtwProcessMonitorRecoveryTests
 {
     private static readonly DateTime StartTime = new(2026, 9, 6, 12, 0, 0, DateTimeKind.Utc);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Recovery_OldOrUnknownCreationTime_RemainsPreexisting(bool knownOldCreation)
+    {
+        var runtime = new FakeRuntime();
+        using var monitor = new EtwProcessMonitor(runtime, timeProvider: new ManualClock());
+        var starts = new List<ProcessEventInfo>();
+        monitor.ProcessStarted += starts.Add;
+        monitor.Start();
+        runtime.Sessions.Single().End();
+        await runtime.DelayEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        if (knownOldCreation) runtime.Processes[222] = new(false, StartTime.AddMinutes(-1));
+        runtime.ExistingProcesses.Add(new(new("game.exe", null, 222), StartTime.AddSeconds(2)));
+        runtime.Continue.TrySetResult();
+        await monitor.RecoveryTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(Assert.Single(starts).Preexisting);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Recovery_LibraryLaunchDuringGap_RetainsRequestAndPidCorrelation(bool opaqueLauncher)
+    {
+        var runtime = new FakeRuntime();
+        var clock = new ManualClock();
+        using var monitor = new EtwProcessMonitor(runtime, timeProvider: clock);
+        var configuration = new Mock<IGameConfiguration>();
+        configuration.Setup(c => c.Read()).Returns(new AppConfig
+        {
+            Games = [new() { DataKey = "game", Executable = "game.exe", IsEnabled = true,
+                Launch = new() { Target = @"D:\Game\game.exe" } }]
+        });
+        var launcher = new Mock<IGameLauncher>();
+        launcher.Setup(l => l.StartTracked(It.IsAny<GameLaunchOptions>())).Returns(opaqueLauncher ? null : 222);
+        var automation = new GameAutomationService(monitor, configuration.Object, Mock.Of<IHdrController>(),
+            Mock.Of<IPlayTimeService>(), NullLogger<GameAutomationService>.Instance,
+            gameLauncher: launcher.Object, timeProvider: clock);
+        var control = new MonitorControlService(monitor, automation);
+        try
+        {
+            control.Start();
+            runtime.Sessions.Single().End();
+            await runtime.DelayEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var requestId = Guid.NewGuid();
+            automation.Launch("game", requestId);
+            clock.Advance(TimeSpan.FromSeconds(2));
+            runtime.Processes[222] = new(false, clock.GetUtcNow().UtcDateTime.AddSeconds(-1));
+            runtime.ExistingProcesses.Add(new(new("game.exe", null, 222), clock.GetUtcNow().UtcDateTime));
+            runtime.Continue.TrySetResult();
+            await monitor.RecoveryTask.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal((requestId, 222), automation.GetLaunchIdentities()["game"]);
+            runtime.Sessions.Last().StopProcess(222);
+            Assert.Empty(automation.GetLaunchIdentities());
+        }
+        finally { control.Stop(); }
+    }
+
+    [Fact]
+    public async Task Recovery_GameStartsDuringGap_IsCapturedAndItsExitIsDelivered()
+    {
+        var runtime = new FakeRuntime();
+        using var monitor = new EtwProcessMonitor(runtime);
+        var starts = new List<ProcessEventInfo>();
+        var stops = new List<ProcessEventInfo>();
+        monitor.ProcessStarted += starts.Add;
+        monitor.ProcessStopped += stops.Add;
+        monitor.Start();
+        runtime.Sessions.Single().End();
+        await runtime.DelayEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        runtime.ExistingProcesses.Add(new(new("game.exe", null, 222), StartTime));
+        runtime.Continue.TrySetResult();
+        await monitor.RecoveryTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(222, Assert.Single(starts).ProcessId);
+        Assert.True(starts[0].Preexisting);
+        runtime.Sessions.Last().StartProcess(222); // delayed event must not duplicate capture
+        Assert.Single(starts);
+        runtime.Sessions.Last().StopProcess(222);
+        Assert.Equal(222, Assert.Single(stops).ProcessId);
+    }
+
     [Fact]
     public void Start_GameAlreadyRunningWithoutSnapshot_AppliesSpeedAndTracksExitOnce()
     {
@@ -380,6 +461,9 @@ public sealed class EtwProcessMonitorRecoveryTests
 
     private sealed class ManualClock : TimeProvider
     {
+        private DateTimeOffset _utcNow = new(StartTime);
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+        public void Advance(TimeSpan duration) => _utcNow += duration;
         private Action? _tick;
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {

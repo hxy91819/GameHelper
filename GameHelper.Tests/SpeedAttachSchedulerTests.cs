@@ -16,6 +16,28 @@ public sealed class SpeedAttachSchedulerTests : IDisposable
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(25);
 
     [Fact]
+    public async Task PidReusedBySameImageButDifferentCreationTime_SkipsAttach()
+    {
+        var expectedStart = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var probe = new SameImageNewProcessProbe(expectedStart.AddMinutes(1));
+        var applied = new ConcurrentQueue<SpeedAttachRequest>();
+        var scheduler = new SpeedAttachScheduler(TimeProvider.System, NullLogger.Instance, applied.Enqueue,
+            probe, pollInterval: PollInterval, timeout: TimeSpan.Zero);
+        scheduler.ScheduleDeferred(new("game", 100, 1.5, null, expectedStart, @"D:\Game\game.exe"));
+        var pending = (ConcurrentDictionary<int, CancellationTokenSource>)typeof(SpeedAttachScheduler)
+            .GetField("_pending", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(scheduler)!;
+        await WaitForConditionAsync(() => pending.IsEmpty, TimeSpan.FromSeconds(5));
+        Assert.Empty(applied);
+    }
+
+    private sealed class SameImageNewProcessProbe(DateTime started) : IProcessIdentityProbe
+    {
+        public bool TryGetImagePath(int processId, out string? path) { path = @"D:\Game\game.exe"; return true; }
+        public bool TryGetStartTimeUtc(int processId, out DateTime result) { result = started; return true; }
+    }
+
+    [Fact]
     public async Task Shutdown_WaitsForCallbackThatAlreadyEnteredExecution()
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
