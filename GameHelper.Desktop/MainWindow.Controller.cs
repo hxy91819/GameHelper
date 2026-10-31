@@ -13,7 +13,12 @@ public partial class MainWindow
         foreach (var action in actions)
         {
             if (dialog is not null) { if (action == ControllerAction.Back) dialog.Close(); continue; }
-            if (action == ControllerAction.ToggleConsoleMode) { OpenConsoleMode(); return; }
+            if (action == ControllerAction.ToggleConsoleMode)
+            {
+                // A modal can remain open while another app owns the foreground.
+                if (IsEnabled && !OwnedWindows.Cast<Window>().Any(w => w.IsVisible)) OpenConsoleMode();
+                return;
+            }
             if (action == ControllerAction.Back)
             {
                 if (SettingsPanel.Visibility == Visibility.Visible) SettingsPanel.Visibility = Visibility.Collapsed;

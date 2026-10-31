@@ -17,10 +17,14 @@ public sealed class ControllerNavigation(IControllerSource source, TimeProvider 
     private long? _idleSince;
     private Dictionary<uint, ControllerAction> _lastDevices = new();
     private readonly Dictionary<uint, ControllerAction> _triggerStates = new();
+    private readonly Dictionary<uint, ControllerAction> _globalPrevious = new();
+    private readonly HashSet<uint> _globalArmed = new();
+    private bool _globalConsumed;
     public ControllerKind DeviceKind { get; private set; }
-    public IReadOnlyList<ControllerAction> Poll(bool foreground)
+    public IReadOnlyList<ControllerAction> Poll(bool foreground, bool globalModeChord = false)
     {
         var devices = source.Read();
+        var globalToggle = globalModeChord && ReadGlobalChord(devices);
         var now = clock.GetTimestamp();
         foreach (var id in _triggerStates.Keys.Except(devices.Select(device => device.Id)).ToArray()) _triggerStates.Remove(id);
         var states = devices.ToDictionary(d => d.Id, MapWithTriggers);
@@ -49,6 +53,11 @@ public sealed class ControllerNavigation(IControllerSource source, TimeProvider 
         _lastDevices = states;
         DeviceKind = device?.Kind ?? ControllerKind.Unknown;
         var buttons = device is null ? ControllerAction.None : states[device.Id];
+        if (globalModeChord && (globalToggle || _globalConsumed))
+        {
+            _armed = false; _menuPending = _modeChordConsumed = false; _previous = buttons;
+            return globalToggle ? [ControllerAction.ToggleConsoleMode] : [];
+        }
         if (!foreground) { _armed = false; _menuPending = _modeChordConsumed = false; _previous = buttons; return []; }
         if (!_armed) { _armed = buttons == 0; _previous = buttons; return []; }
         var pressed = buttons & ~_previous;
@@ -61,7 +70,7 @@ public sealed class ControllerNavigation(IControllerSource source, TimeProvider 
             return [];
         }
         if ((pressed & ControllerAction.Menu) != 0) _menuPending = true;
-        if ((buttons & chord) == chord && (pressed & chord) != 0)
+        if (!globalModeChord && (buttons & chord) == chord && (pressed & chord) != 0)
         {
             _modeChordConsumed = true; _menuPending = false; _previous = buttons;
             return [ControllerAction.ToggleConsoleMode];
@@ -77,6 +86,25 @@ public sealed class ControllerNavigation(IControllerSource source, TimeProvider 
         else if (direction != 0 && now >= _next) { pressed |= direction; _next = now + (long)(clock.TimestampFrequency * .09); }
         _previous = buttons;
         return Enum.GetValues<ControllerAction>().Where(a => a != 0 && (pressed & a) != 0).ToArray();
+    }
+    private bool ReadGlobalChord(IReadOnlyList<ControllerState> devices)
+    {
+        const ControllerAction chord = ControllerAction.ModeModifier | ControllerAction.Menu;
+        foreach (var id in _globalPrevious.Keys.Except(devices.Select(d => d.Id)).ToArray())
+        { _globalPrevious.Remove(id); _globalArmed.Remove(id); }
+        var toggle = false;
+        foreach (var device in devices)
+        {
+            var keys = device.Buttons & chord;
+            if (keys == 0) _globalArmed.Add(device.Id);
+            if (!_globalConsumed && !toggle && _globalArmed.Contains(device.Id) &&
+                _globalPrevious.TryGetValue(device.Id, out var previous) && keys == chord && keys != previous)
+                toggle = true;
+            _globalPrevious[device.Id] = keys;
+        }
+        if (toggle) _globalConsumed = true;
+        else if (devices.All(d => (d.Buttons & chord) == 0)) _globalConsumed = false;
+        return toggle;
     }
     private ControllerAction MapWithTriggers(ControllerState state)
     {

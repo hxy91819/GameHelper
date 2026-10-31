@@ -2,7 +2,7 @@ using System.Windows;
 using System.Windows.Threading;
 namespace GameHelper.Desktop.Input;
 
-/// <summary>Owns SDL only while this window (or an opted-in modal) is foreground.</summary>
+/// <summary>Polls the global mode chord; ordinary navigation stays limited to the foreground window.</summary>
 internal sealed class WindowControllerInput : IDisposable
 {
     private static WindowControllerInput? owner;
@@ -19,16 +19,20 @@ internal sealed class WindowControllerInput : IDisposable
     {
         this.window = window; this.receive = receive; this.error = error; this.modals = modals;
         window.Activated += Changed; window.Deactivated += Changed; window.StateChanged += Changed;
+        window.IsVisibleChanged += VisibilityChanged;
         Application.Current.Activated += Changed; Application.Current.Deactivated += Changed;
         timer.Tick += Tick; Update();
     }
     private bool Foreground => window.WindowState != WindowState.Minimized &&
         ((window.IsActive && window.IsEnabled) || (modals && window.OwnedWindows.Cast<Window>().Any(w => w.IsActive)));
     private void Changed(object? sender, EventArgs e) { Update(); window.Dispatcher.BeginInvoke(new Action(Update)); }
+    private void VisibilityChanged(object sender, DependencyPropertyChangedEventArgs e) => Update();
     private void Update()
     {
         if (disposed) return;
-        if (!Foreground) { Stop(); return; }
+        // The hidden desktop yields to the console window. Minimized visible windows
+        // retain the global chord listener, including while a game owns the foreground.
+        if (!window.IsVisible) { Stop(); return; }
         if (source is not null) return;
         try
         {
@@ -40,7 +44,7 @@ internal sealed class WindowControllerInput : IDisposable
     private void Tick(object? sender, EventArgs e)
     {
         Update(); if (navigation is null) return;
-        try { receive(navigation.Poll(Foreground)); }
+        try { receive(navigation.Poll(Foreground, globalModeChord: true)); }
         catch (Exception ex) { Stop(); error("手柄输入已停止：" + ex.Message); }
     }
     private void Stop()
@@ -54,6 +58,7 @@ internal sealed class WindowControllerInput : IDisposable
     {
         disposed = true; Stop(); timer.Tick -= Tick;
         window.Activated -= Changed; window.Deactivated -= Changed; window.StateChanged -= Changed;
+        window.IsVisibleChanged -= VisibilityChanged;
         Application.Current.Activated -= Changed; Application.Current.Deactivated -= Changed;
     }
 }

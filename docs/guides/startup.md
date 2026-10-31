@@ -35,6 +35,10 @@
 
 菜单读取和动作在工作线程执行，消息线程只负责原生菜单与图标；操作失败写日志并显示托盘气泡。异步读取完成后才呈现菜单，避免磁盘或显示器查询阻塞消息循环。退出仍关闭后台监控。
 
+后台摘要每 5 秒刷新。图标更新或注册失败时，先删除自身注册再重新添加，兼容图标仍存在与已经丢失两种状态；本轮仍失败则等下次刷新重试。后台刷新与消息处理故障只写日志，不显示“操作失败”气泡；图标连续失败只在首次记录警告，恢复后记录恢复信息。用户主动菜单操作与评分窗口打开失败仍显示气泡。评分邀请保持每个符合条件的已结束会话一次，不随摘要刷新重复发送。
+
+`Shell_NotifyIconW` 的[官方返回值契约](https://learn.microsoft.com/windows/win32/api/shellapi/nf-shellapi-shell_notifyiconw)只保证 BOOL，没有保证设置 `GetLastError`；图标注册失败不再把陈旧的错误码 0 包成“操作成功完成”的异常。`TaskbarCreated` 与原生通知调用在托盘 STA 消息线程串行执行；恢复只操作本进程的窗口与图标 ID，不重启 Explorer。
+
 2026-10-30 本机“似乎没有图标”排查：实际图标已注册且位于主任务栏内，未复现注册失败或折叠；旧入口使用通用系统应用图标，本轮改为清晰品牌标记。隔离原生验收覆盖注册、主动移除测试图标后的缺失检测、仅向测试窗口发送 `TaskbarCreated` 后恢复、停止清理，不重启 Explorer 或干扰用户实例。
 
 同日清晰度反馈复现：在与后台一致的 DPI unaware 上下文，任务栏 DPI 为 192，原 `GetSystemMetrics` 返回 16，实际 HICON 也是 16×16，低于所需 32×32；资源已经包含 32 像素图，问题在加载尺寸。改用目标任务栏 DPI 的显式尺寸查询，保留后台及其他窗口的 DPI 行为；依据见 [GetDpiForWindow](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-getdpiforwindow) 与 [Windows 图标尺寸](https://learn.microsoft.com/windows/win32/menurc/about-icons)。

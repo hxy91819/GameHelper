@@ -104,7 +104,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
             _ when detail => $"{a} 启动 / 确认   {x} 游戏设置   {b} 返回   {(ps ? "Options" : "Start")} 系统菜单",
             _ => $"左右 浏览   {(ps ? "L2 / R2" : "LT / RT")} 翻页   {a} 详情   {x} 游戏设置   {b} 退出主机模式   {y} 搜索   {(ps ? "L1 / R1" : "LB / RB")} 页签   {(ps ? "Options" : "Start")} 系统菜单"
         };
-        help.Text += ps ? "   Share/Create + Options 切换模式（仅 GameHelper 前台）" : "   View/Back + Menu/Start 切换模式（仅 GameHelper 前台）";
+        help.Text += ps ? "   Share/Create + Options 切换模式（全局）" : "   View/Back + Menu/Start 切换模式（全局）";
         help.TextWrapping = TextWrapping.Wrap;
     }
     private void Render()

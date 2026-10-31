@@ -3,6 +3,41 @@ using Xunit;
 
 public sealed class ControllerNavigationTests
 {
+    [Theory]
+    [InlineData(ControllerAction.Menu)]
+    [InlineData(ControllerAction.ModeModifier)]
+    public void GlobalModeChordWorksInBackgroundWithoutOtherActions(ControllerAction first)
+    {
+        var source = new Source { States = [new(1, ControllerKind.Xbox, 0)] };
+        var nav = new ControllerNavigation(source, new Clock()); nav.Poll(false, true);
+        source.States = [new(1, ControllerKind.Xbox, ControllerAction.Confirm | first)];
+        Assert.Empty(nav.Poll(false, true));
+        source.States = [new(1, ControllerKind.Xbox, ControllerAction.Menu | ControllerAction.ModeModifier | ControllerAction.Confirm)];
+        Assert.Equal([ControllerAction.ToggleConsoleMode], nav.Poll(false, true));
+        Assert.Empty(nav.Poll(true, true));
+        Assert.Empty(nav.Poll(false, true));
+        source.States = [new(1, ControllerKind.Xbox, first)]; Assert.Empty(nav.Poll(false, true));
+        source.States = [new(1, ControllerKind.Xbox, ControllerAction.Menu | ControllerAction.ModeModifier)]; Assert.Empty(nav.Poll(false, true));
+        source.States = [new(1, ControllerKind.Xbox, 0)]; Assert.Empty(nav.Poll(false, true));
+        source.States = [new(1, ControllerKind.Xbox, ControllerAction.Menu | ControllerAction.ModeModifier)];
+        Assert.Equal([ControllerAction.ToggleConsoleMode], nav.Poll(false, true));
+        var nextWindow = new ControllerNavigation(source, new Clock());
+        Assert.Empty(nextWindow.Poll(true, true)); // Held chord cannot replay into the new window.
+    }
+
+    [Fact]
+    public void GlobalChordCannotCombineDevicesOrReplayVirtualDuplicate()
+    {
+        var chord = ControllerAction.Menu | ControllerAction.ModeModifier;
+        var source = new Source { States = [new(1, ControllerKind.Xbox, 0), new(2, ControllerKind.PlayStation, 0)] };
+        var nav = new ControllerNavigation(source, new Clock()); nav.Poll(false, true);
+        source.States = [new(1, ControllerKind.Xbox, ControllerAction.Menu), new(2, ControllerKind.PlayStation, ControllerAction.ModeModifier)];
+        Assert.Empty(nav.Poll(false, true));
+        source.States = [new(1, ControllerKind.Xbox, chord), new(2, ControllerKind.PlayStation, ControllerAction.ModeModifier)];
+        Assert.Equal([ControllerAction.ToggleConsoleMode], nav.Poll(false, true));
+        source.States = [new(1, ControllerKind.Xbox, chord), new(2, ControllerKind.PlayStation, chord)];
+        Assert.Empty(nav.Poll(false, true));
+    }
     private sealed class Clock : TimeProvider
     {
         public long Now;

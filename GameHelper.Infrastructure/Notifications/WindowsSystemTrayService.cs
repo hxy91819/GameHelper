@@ -77,6 +77,9 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
     // Native resources below are owned exclusively by the STA thread.
     private uint _taskbarCreated;
     private bool _hasIcon;
+    private bool _iconRefreshFailed;
+    internal delegate bool NotifyIcon(uint operation, ref NativeMethods.IconData data);
+    private readonly NotifyIcon _notifyIcon = NativeMethods.ShellNotifyIcon;
     private SystemTrayIcon? _icon;
     private Guid? _ratingSession;
     private readonly Action<Guid>? _openRating;
@@ -91,6 +94,10 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
         _logger = logger;
     }
 
+    internal WindowsSystemTrayService(Func<string> summary, TrayMenuService menus,
+        ILogger<WindowsSystemTrayService> logger, NotifyIcon notifyIcon)
+        : this(summary, menus, logger) => _notifyIcon = notifyIcon;
+
     public void Invite(Guid sessionId)
     {
         var window = Volatile.Read(ref _window);
@@ -101,7 +108,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             _ratingSession = sessionId;
             var data = IconData(window); data.Flags = 0x10;
             data.Title = "本局体验如何？"; data.Text = "点击为刚结束的一局打 1–5 星，也可以写下想法。"; data.InfoFlags = 1;
-            if (!NativeMethods.ShellNotifyIcon(1, ref data)) _ratingSession = null;
+            if (!_notifyIcon(1, ref data)) _ratingSession = null;
         });
     }
 
@@ -243,7 +250,9 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
                 case 0x0002: NativeMessageWindow.PostQuitMessage(0); return IntPtr.Zero;
             }
         }
-        catch (Exception ex) { ReportFailure(window, ex); return IntPtr.Zero; }
+        // Native/background failures must not generate another tray notification.
+        // Explicit menu/rating actions report their own failures at their call sites.
+        catch (Exception ex) { _logger.LogWarning(ex, "Tray message handling failed"); return IntPtr.Zero; }
         return NativeMessageWindow.DefWindowProc(window, message, wParam, lParam);
     }
 
@@ -261,7 +270,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             catch (Exception ex)
             {
                 // Storage failures can also break the summary read. Still refresh the storage warning.
-                if (_storageWarning?.Invoke() is null) ReportFailure(window, ex, generation);
+                _logger.LogWarning(ex, "Tray summary refresh failed");
                 PostUpdate(window, generation, () => UpdateIcon(window));
             }
             finally { Volatile.Write(ref _refreshing, 0); }
@@ -281,6 +290,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
                 PostUpdate(window, generation, () =>
                 {
                     try { ShowMenu(window, items); }
+                    catch (Exception ex) { ReportFailure(window, ex, generation); }
                     finally { Volatile.Write(ref _openingMenu, 0); }
                 });
             }
@@ -335,7 +345,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
                 data.Title = "GameHelper 操作失败";
                 data.Text = exception.Message.Length > 255 ? exception.Message[..255] : exception.Message;
                 data.InfoFlags = 3;
-                NativeMethods.ShellNotifyIcon(1, ref data);
+                _notifyIcon(1, ref data);
             });
         });
     }
@@ -373,7 +383,20 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
         Tip = SystemTrayLogic.Tooltip(_cachedSummary), Text = string.Empty, Title = string.Empty
     };
 
-    private void UpdateIcon(IntPtr window)
+    internal void UpdateIcon(IntPtr window)
+    {
+        try { UpdateIconCore(window); }
+        catch (Exception ex) { LogIconRefreshFailure(ex); }
+    }
+
+    private void LogIconRefreshFailure(Exception? exception = null)
+    {
+        if (!_iconRefreshFailed)
+            _logger.LogWarning(exception, "Tray icon refresh failed; retrying silently on the next refresh");
+        _iconRefreshFailed = true;
+    }
+
+    private void UpdateIconCore(IntPtr window)
     {
         var size = SystemTrayIcon.GetTaskbarIconSize();
         if (_icon is null || _icon.Size != size)
@@ -383,12 +406,23 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             _icon = SystemTrayIcon.Load(size);
         }
         var data = IconData(window);
-        if (!NativeMethods.ShellNotifyIcon(_hasIcon ? 1u : 0u, ref data))
+        if (!_notifyIcon(_hasIcon ? 1u : 0u, ref data))
         {
+            // A failed MODIFY does not prove the icon disappeared; a failed ADD can
+            // mean it still exists. Remove our own identity before registering again.
+            // Shell_NotifyIcon only promises BOOL, not a meaningful GetLastError.
+            _ratingSession = null;
+            _notifyIcon(2, ref data);
             _hasIcon = false;
-            throw new Win32Exception(Marshal.GetLastWin32Error());
+            if (!_notifyIcon(0, ref data))
+            {
+                LogIconRefreshFailure();
+                return;
+            }
         }
         _hasIcon = true;
+        if (_iconRefreshFailed) _logger.LogInformation("Tray icon refresh recovered");
+        _iconRefreshFailed = false;
         var warning = _storageWarning?.Invoke();
         if (warning is not null && warning != _shownStorageWarning)
         {
@@ -397,7 +431,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
             data.Title = "GameHelper 存储提示";
             data.Text = warning.Length > 255 ? warning[..255] : warning;
             data.InfoFlags = 2;
-            NativeMethods.ShellNotifyIcon(1, ref data);
+            _notifyIcon(1, ref data);
         }
         _shownStorageWarning = warning;
         // Keep legacy callback semantics for native double-click delivery.
@@ -405,9 +439,10 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
 
     private void RemoveIcon(IntPtr window)
     {
-        if (!_hasIcon) return;
+        // Local state can be uncertain after a failed shell call. Still remove our identity.
+        if (window == IntPtr.Zero) return;
         var data = new NativeMethods.IconData { Size = (uint)Marshal.SizeOf<NativeMethods.IconData>(), Window = window, Id = 1 };
-        NativeMethods.ShellNotifyIcon(2, ref data);
+        _notifyIcon(2, ref data);
         _hasIcon = false;
     }
 
@@ -417,7 +452,7 @@ public sealed class WindowsSystemTrayService : ISystemTrayService
         catch (Exception ex) { _logger.LogWarning(ex, "Tray cleanup failed"); }
     }
 
-    private static class NativeMethods
+    internal static class NativeMethods
     {
         [StructLayout(LayoutKind.Sequential)]
         public struct Point { public int X, Y; }
