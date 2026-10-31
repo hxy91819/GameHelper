@@ -22,16 +22,18 @@ internal sealed class FileDropIpcServer : IHostedService, IFileDropIpcServer, ID
 
     private readonly FileDropIntake _handler;
     private readonly ILogger<FileDropIpcServer> _logger;
-    private readonly object _sync = new();
+    private readonly string _pipeName;
+    private readonly TimeProvider _clock;
+    private readonly BackgroundLoopLifecycle _lifecycle;
 
-    private CancellationTokenSource? _cts;
-    private Task? _loopTask;
-    private bool _started;
-
-    public FileDropIpcServer(FileDropIntake handler, ILogger<FileDropIpcServer> logger)
+    public FileDropIpcServer(FileDropIntake handler, ILogger<FileDropIpcServer> logger,
+        string? pipeName = null, TimeProvider? clock = null)
     {
         _handler = handler;
         _logger = logger;
+        _pipeName = pipeName ?? FileDropIpcProtocol.PipeName;
+        _clock = clock ?? TimeProvider.System;
+        _lifecycle = new BackgroundLoopLifecycle(ListenLoopAsync, logger);
     }
 
     Task IHostedService.StartAsync(CancellationToken cancellationToken) => StartAsync(cancellationToken);
@@ -40,64 +42,12 @@ internal sealed class FileDropIpcServer : IHostedService, IFileDropIpcServer, ID
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        lock (_sync)
-        {
-            if (_started)
-            {
-                return Task.CompletedTask;
-            }
-
-            _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            _loopTask = Task.Run(() => ListenLoopAsync(_cts.Token), CancellationToken.None);
-            _started = true;
-            _logger.LogInformation("FileDrop IPC server started: Pipe={PipeName}", FileDropIpcProtocol.PipeName);
-            return Task.CompletedTask;
-        }
+        if (_lifecycle.Start(cancellationToken))
+            _logger.LogInformation("FileDrop IPC server started: Pipe={PipeName}", _pipeName);
+        return Task.CompletedTask;
     }
 
-    public async Task StopAsync(CancellationToken cancellationToken)
-    {
-        CancellationTokenSource? cts;
-        Task? loopTask;
-        lock (_sync)
-        {
-            if (!_started)
-            {
-                return;
-            }
-
-            _started = false;
-            cts = _cts;
-            loopTask = _loopTask;
-        }
-
-        if (cts is not null)
-        {
-            await cts.CancelAsync().ConfigureAwait(false);
-        }
-
-        if (loopTask is not null)
-        {
-            try
-            {
-                await loopTask.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "FileDrop IPC server stopped with non-fatal error");
-            }
-        }
-
-        lock (_sync)
-        {
-            _cts?.Dispose();
-            _cts = null;
-            _loopTask = null;
-        }
-    }
+    public Task StopAsync(CancellationToken cancellationToken) => _lifecycle.StopAsync(cancellationToken);
 
     private async Task ListenLoopAsync(CancellationToken cancellationToken)
     {
@@ -106,18 +56,22 @@ internal sealed class FileDropIpcServer : IHostedService, IFileDropIpcServer, ID
             try
             {
                 await using var pipe = new NamedPipeServerStream(
-                    FileDropIpcProtocol.PipeName,
+                    _pipeName,
                     PipeDirection.InOut,
                     NamedPipeServerStream.MaxAllowedServerInstances,
                     PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous);
+                    PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
 
                 await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
                 await HandleConnectionAsync(pipe, cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 break;
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogDebug("FileDrop IPC request deadline exceeded; accepting the next client");
             }
             catch (Exception ex)
             {
@@ -129,10 +83,9 @@ internal sealed class FileDropIpcServer : IHostedService, IFileDropIpcServer, ID
 
     private async Task HandleConnectionAsync(Stream stream, CancellationToken cancellationToken)
     {
-        using var reader = new StreamReader(stream);
         using var writer = new StreamWriter(stream) { AutoFlush = true };
 
-        var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+        var line = await FileDropIpcProtocol.ReadLineAsync(stream, cancellationToken, _clock).ConfigureAwait(false);
         DropAddResponse response;
         if (string.IsNullOrWhiteSpace(line))
         {
@@ -153,59 +106,8 @@ internal sealed class FileDropIpcServer : IHostedService, IFileDropIpcServer, ID
         }
 
         var payload = JsonSerializer.Serialize(response, JsonOptions);
-        await writer.WriteLineAsync(payload).ConfigureAwait(false);
+        await writer.WriteLineAsync(payload.AsMemory(), cancellationToken).ConfigureAwait(false);
     }
 
-    public void Dispose()
-    {
-        CancellationTokenSource? cts;
-        Task? loopTask;
-        lock (_sync)
-        {
-            if (!_started)
-            {
-                _cts?.Dispose();
-                _cts = null;
-                return;
-            }
-            _started = false;
-            cts = _cts;
-            loopTask = _loopTask;
-        }
-
-        if (cts is not null)
-        {
-            _ = cts.CancelAsync();
-        }
-
-        if (loopTask is null)
-        {
-            DisposeStoppedState();
-            return;
-        }
-
-        _ = loopTask.ContinueWith(
-            task =>
-            {
-                if (task.IsFaulted && task.Exception is not null)
-                {
-                    _logger.LogDebug(task.Exception, "FileDrop IPC server dispose completed with non-fatal error");
-                }
-
-                DisposeStoppedState();
-            },
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
-    }
-
-    private void DisposeStoppedState()
-    {
-        lock (_sync)
-        {
-            _cts?.Dispose();
-            _cts = null;
-            _loopTask = null;
-        }
-    }
+    public void Dispose() => _lifecycle.Dispose();
 }

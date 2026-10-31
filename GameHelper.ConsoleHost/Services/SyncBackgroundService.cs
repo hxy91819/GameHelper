@@ -22,81 +22,23 @@ internal sealed class SyncBackgroundService : IHostedService, IDisposable
 
     private readonly ISyncService _syncService;
     private readonly ILogger<SyncBackgroundService> _logger;
-    private readonly object _sync = new();
-
-    private CancellationTokenSource? _cts;
-    private Task? _loopTask;
-    private bool _started;
+    private readonly BackgroundLoopLifecycle _lifecycle;
 
     public SyncBackgroundService(ISyncService syncService, ILogger<SyncBackgroundService> logger)
     {
         _syncService = syncService;
         _logger = logger;
+        _lifecycle = new BackgroundLoopLifecycle(RunLoopAsync, logger);
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        lock (_sync)
-        {
-            if (_started)
-            {
-                return Task.CompletedTask;
-            }
-
-            _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            _loopTask = Task.Run(() => RunLoopAsync(_cts.Token), CancellationToken.None);
-            _started = true;
-            _logger.LogInformation(
-                "Stats sync loop started (first check delay {InitialDelay}, check interval {CheckInterval})",
-                InitialDelay,
-                CheckInterval);
-            return Task.CompletedTask;
-        }
+        if (_lifecycle.Start(cancellationToken))
+            _logger.LogInformation("Stats sync loop started (first check delay {InitialDelay}, check interval {CheckInterval})", InitialDelay, CheckInterval);
+        return Task.CompletedTask;
     }
 
-    public async Task StopAsync(CancellationToken cancellationToken)
-    {
-        CancellationTokenSource? cts;
-        Task? loopTask;
-        lock (_sync)
-        {
-            if (!_started)
-            {
-                return;
-            }
-
-            _started = false;
-            cts = _cts;
-            loopTask = _loopTask;
-        }
-
-        if (cts is not null)
-        {
-            await cts.CancelAsync().ConfigureAwait(false);
-        }
-
-        if (loopTask is not null)
-        {
-            try
-            {
-                await loopTask.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Non-fatal error while stopping the stats sync loop");
-            }
-        }
-
-        lock (_sync)
-        {
-            _cts?.Dispose();
-            _cts = null;
-            _loopTask = null;
-        }
-    }
+    public Task StopAsync(CancellationToken cancellationToken) => _lifecycle.StopAsync(cancellationToken);
 
     private async Task RunLoopAsync(CancellationToken cancellationToken)
     {
@@ -146,20 +88,5 @@ internal sealed class SyncBackgroundService : IHostedService, IDisposable
         }
     }
 
-    public void Dispose()
-    {
-        lock (_sync)
-        {
-            if (_started)
-            {
-                // 宿主未调用 StopAsync 直接释放时的兜底：取消循环，但不等待。
-                _cts?.Cancel();
-                _started = false;
-            }
-
-            _cts?.Dispose();
-            _cts = null;
-            _loopTask = null;
-        }
-    }
+    public void Dispose() => _lifecycle.Dispose();
 }

@@ -27,7 +27,6 @@ internal static class FileDropIpcClient
 
         await pipe.ConnectAsync(timeoutCts.Token).ConfigureAwait(false);
 
-        using var reader = new StreamReader(pipe);
         using var writer = new StreamWriter(pipe) { AutoFlush = true };
 
         var request = new DropAddRequest
@@ -36,9 +35,9 @@ internal static class FileDropIpcClient
         };
 
         var requestText = JsonSerializer.Serialize(request, JsonOptions);
-        await writer.WriteLineAsync(requestText).ConfigureAwait(false);
+        await writer.WriteLineAsync(requestText.AsMemory(), timeoutCts.Token).ConfigureAwait(false);
 
-        var responseText = await reader.ReadLineAsync(timeoutCts.Token).ConfigureAwait(false);
+        var responseText = await FileDropIpcProtocol.ReadLineAsync(pipe, timeoutCts.Token).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(responseText))
         {
             return new DropAddResponse { Success = false, Error = "IPC response is empty." };
