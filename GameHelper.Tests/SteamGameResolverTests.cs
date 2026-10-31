@@ -7,6 +7,33 @@ public sealed class SteamGameResolverTests
     private static readonly object SteamRootEnvironmentLock = new();
 
     [Fact]
+    public void TryEnumerateInstalledGames_PrefersNameMatchOverLargerEarlierHelper()
+    {
+        lock (SteamRootEnvironmentLock)
+        {
+            var root = Path.Combine(Path.GetTempPath(), "gh-steam-rank-" + Guid.NewGuid().ToString("N"));
+            var previous = Environment.GetEnvironmentVariable("GAMEHELPER_STEAM_ROOT");
+            try
+            {
+                CreateInstalledGame(root, "101", "ZGame", "ZGame", "AHelper.exe");
+                var install = Path.Combine(root, "steamapps", "common", "ZGame");
+                File.WriteAllBytes(Path.Combine(install, "AHelper.exe"), new byte[4096]);
+                var bin = Path.Combine(install, "bin"); Directory.CreateDirectory(bin);
+                File.WriteAllBytes(Path.Combine(bin, "ZGame.exe"), [0]);
+                Environment.SetEnvironmentVariable("GAMEHELPER_STEAM_ROOT", root);
+                // The resolver enumerates root files before subdirectories, independent of filesystem ordering.
+                var game = Assert.Single(new SteamGameResolver().TryEnumerateInstalledGames());
+                Assert.Equal(Path.Combine(bin, "ZGame.exe"), game.ExecutablePath);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("GAMEHELPER_STEAM_ROOT", previous);
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+    }
+
+    [Fact]
     public void TryEnumerateInstalledGames_ReturnsInstalledGamesFromAllLibraries()
     {
         lock (SteamRootEnvironmentLock)

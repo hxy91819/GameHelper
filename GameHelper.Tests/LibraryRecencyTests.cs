@@ -1,6 +1,8 @@
 using GameHelper.Core.Models;
 using GameHelper.Core.Services;
 using GameHelper.Infrastructure.Providers;
+using GameHelper.Core.Abstractions;
+using Moq;
 
 namespace GameHelper.Tests;
 
@@ -19,12 +21,14 @@ public sealed class LibraryRecencyTests
         var clock = new Clock();
         var end = DateTime.SpecifyKind(clock.Now.UtcDateTime.AddHours(7), DateTimeKind.Unspecified);
         PlaySession Session(DateTime finish, long minutes = 1) => new("a", finish.AddMinutes(-1), finish, TimeSpan.FromMinutes(minutes), minutes);
-        var values = LibraryRecency.LastPlayed([
+        var history = new Mock<IPlaytimeSnapshotProvider>();
+        history.Setup(item => item.GetSnapshot()).Returns(new PlaytimeSnapshot([
             new() { GameName = "A", Sessions = [Session(end), Session(end.AddDays(2)), Session(end.AddMinutes(1), -1)] },
             new() { GameName = "a", Sessions = [Session(end.AddMinutes(-5))] }
-        ], clock);
+        ], null));
+        var values = new LibraryHistorySummary(history.Object, clock).Read()!;
         Assert.Single(values);
-        Assert.Equal(clock.Now.AddHours(-1), values["a"]);
+        Assert.Equal(clock.Now.AddHours(-1), values["a"].LastPlayedAt);
     }
 
     [Fact]

@@ -258,7 +258,9 @@ public sealed class SyncService : ISyncService
         var referenceUtc = state.LastSuccessUtc == default ? DateTime.MinValue : state.LastSuccessUtc;
         var version = _snapshotProvider.GetHistoryVersion();
         return (version is not null ? version != state.HistoryVersion : IsModifiedAfter(_playtimeCsvPath, referenceUtc))
-            || IsModifiedAfter(_configPath, referenceUtc);
+            || IsModifiedAfter(_configPath, referenceUtc)
+            || state.LastSuccessUtc == default
+            || TimeZoneInfo.ConvertTimeFromUtc(state.LastSuccessUtc, _timeProvider.LocalTimeZone).Date != _timeProvider.GetLocalNow().Date;
     }
 
     private static bool IsModifiedAfter(string? path, DateTime referenceUtc)
@@ -275,7 +277,9 @@ public sealed class SyncService : ISyncService
     {
         Provider = settings.Provider,
         Repo = settings.NormalizedRepo,
-        Method = settings.NormalizedMethod
+        Method = settings.NormalizedMethod,
+        Branch = settings.NormalizedBranch,
+        Directory = settings.NormalizedDirectory
     };
 
     private void MarkSuccess(SyncSettings settings, SyncState state, DateTime nowUtc, string contentHash, PlaytimeHistoryVersion? historyVersion)
@@ -283,6 +287,8 @@ public sealed class SyncService : ISyncService
         state.Provider = settings.Provider;
         state.Repo = settings.NormalizedRepo;
         state.Method = settings.NormalizedMethod;
+        state.Branch = settings.NormalizedBranch;
+        state.Directory = settings.NormalizedDirectory;
         state.LastSuccessUtc = nowUtc;
         state.LastAttemptUtc = nowUtc;
         state.LastError = null;

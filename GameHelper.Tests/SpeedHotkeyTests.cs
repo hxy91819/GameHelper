@@ -124,6 +124,7 @@ public sealed class SpeedHotkeyTests
             launch.Setup(item => item.GetGameStates()).Returns(new Dictionary<string, string>());
             var history = new Mock<IPlaytimeSnapshotProvider>();
             history.Setup(item => item.GetPlaytimeRecords()).Returns([]);
+            history.Setup(item => item.GetSnapshot()).Returns(new PlaytimeSnapshot([], null));
             var library = new GameLibrary(source, new GameCatalogService(source), Mock.Of<IGameAutomationService>(),
                 Mock.Of<IMonitorControlService>(), launch.Object, Mock.Of<ISteamGameResolver>(), history.Object);
             var original = (await library.ExecuteAsync(new() { Operation = GameLibraryOperation.List })).Games.Single();

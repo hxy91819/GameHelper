@@ -192,6 +192,7 @@ public sealed class GameLibraryTests
     {
         var history = new Mock<IPlaytimeSnapshotProvider>();
         history.Setup(item => item.GetPlaytimeRecords()).Returns([]);
+        history.Setup(item => item.GetSnapshot()).Returns(new PlaytimeSnapshot([], null));
         return history.Object;
     }
     private sealed class MemoryConfiguration(AppConfig config) : IGameConfiguration

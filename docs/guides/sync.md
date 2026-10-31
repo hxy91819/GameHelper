@@ -32,7 +32,7 @@ sync:
   provider: github
   method: git            # git（默认）或 api
   repo: yourname/game-stats
-  branch: main           # 可省略：git 方式用克隆默认分支，api 方式用仓库默认分支
+  branch: main           # 可省略：使用远端仓库当前默认分支
   directory: game-stats  # 可省略，默认 game-stats
   token: ""              # 仅 method: api 需要；留空时读取环境变量 GAMEHELPER_GITHUB_TOKEN
   intervalMinutes: 1440  # 自动推送最小间隔（分钟），默认每天最多一次
@@ -68,7 +68,11 @@ sync:
 
 3. 运行 `sync test` 校验凭据；如提示凭据未就绪，手动对任意该仓库的克隆执行一次 `git push` 让凭据管理器记住凭据，或改用 `api` 方式。
 
-工作机制：GameHelper 在数据目录维护专属浅克隆（`%AppData%\GameHelper\sync\<owner-repo>\`），每次上传先 `fetch` 并把本地分支强制对齐到远端，再重写受管文件、按需提交、推送。该克隆仅供 GameHelper 使用，不要在其中手工编辑。
+工作机制：GameHelper 在数据目录维护专属浅克隆（`%AppData%\GameHelper\sync\repo-<仓库身份 SHA-256>\`），每次上传先核对 origin 的读取与推送 URL 均指向配置仓库，再 `fetch` 并把本地分支强制对齐到远端，重写受管文件、按需提交、推送。仓库身份保留完整 owner/name，避免连字符组合相同的两个仓库误用同一克隆；旧版按 owner-repo 命名的克隆不复用、不删除。该克隆仅供 GameHelper 使用，不要在其中手工编辑或修改 remote。
+
+显式指定非默认分支时，会先确认远端分支是否存在，并定向获取该分支的最新浅历史后再对齐；远端不存在的分支仍可首次创建。配置中的仓库、上传方式、分支或目录变更会使旧同步书签失效，下一次自动检查重新上传，不受旧目标的成功时间或内容指纹抑制。分支与远端目录按大小写区分，首尾空白及目录分隔符按配置规范归一化。旧版缺少分支/目录身份的状态文件会安全地重新上传一次。
+
+清空 `sync.branch` 后，每次通过远端 HEAD 解析默认分支，跟随仓库默认分支变更，不沿用专属工作副本之前检出的显式分支。远端空仓库尚无 HEAD 时，才使用克隆的初始分支首次提交。
 
 ## 方式二：GitHub REST API + token
 

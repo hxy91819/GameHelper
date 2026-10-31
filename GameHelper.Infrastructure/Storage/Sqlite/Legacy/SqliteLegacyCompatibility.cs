@@ -43,6 +43,13 @@ public sealed class SqliteLegacyCompatibility
         return ExportUnderLock(cancellationToken);
     }
 
+    /// <summary>Runtime requests materialize only dirty, unregistered or missing projection targets.</summary>
+    internal async Task ExportPendingAsync(CancellationToken cancellationToken = default)
+    {
+        using var lease = await SqliteDirectoryLock.AcquireAsync(_factory.DataDirectory, cancellationToken).ConfigureAwait(false);
+        ExportUnderLock(cancellationToken, pendingOnly: true);
+    }
+
     /// <summary>Compatibility window projection for the session writer; Desktop remains on legacy files.</summary>
     public LegacyProjection ExportSessions()
     {
@@ -204,11 +211,12 @@ public sealed class SqliteLegacyCompatibility
         Commit(tx, "reupgrade");
     }
 
-    private LegacyProjection ExportUnderLock(CancellationToken token, bool sessionsOnly = false)
+    private LegacyProjection ExportUnderLock(CancellationToken token, bool sessionsOnly = false, bool pendingOnly = false)
     {
         LegacyProjection projection;
         using var c = _factory.OpenConnection();
-        using (var tx = c.BeginTransaction(deferred: true)) projection = Capture(c, tx, sessionsOnly);
+        using (var tx = c.BeginTransaction(deferred: true)) projection = Capture(c, tx, sessionsOnly, pendingOnly);
+        if (projection.Files.Count == 0) return projection;
         using (var tx = c.BeginTransaction(deferred: false))
         {
             foreach (var (path, bytes) in projection.Files)
@@ -245,17 +253,31 @@ public sealed class SqliteLegacyCompatibility
         return projection;
     }
 
-    private LegacyProjection Capture(SqliteConnection c, SqliteTransaction tx, bool sessionsOnly = false)
+    private LegacyProjection Capture(SqliteConnection c, SqliteTransaction tx, bool sessionsOnly = false, bool pendingOnly = false)
     {
-        var files = new Dictionary<string, byte[]?>(StringComparer.OrdinalIgnoreCase)
-        { [Path.Combine(_factory.DataDirectory, "playtime.csv")] = LegacyDatabaseReader.Csv(LegacyDatabaseReader.History(c, tx), _preserveHistoryKinds) };
-        var snapshot = LegacyDatabaseReader.Snapshot(c, tx);
-        files[Path.Combine(_factory.DataDirectory, "inflight-sessions.json")] = snapshot is null ? null : LegacyDatabaseReader.SnapshotBytes(snapshot);
+        bool Pending(string path) => !pendingOnly || !File.Exists(path) ||
+            Scalar(c, tx, "SELECT dirty FROM compatibility_exports WHERE target=$0;", path) is not long dirty || dirty != 0;
+        var files = new Dictionary<string, byte[]?>(StringComparer.OrdinalIgnoreCase);
+        var csv = Path.Combine(_factory.DataDirectory, "playtime.csv");
+        if (Pending(csv))
+        {
+            Hit("projection.capture.history");
+            files[csv] = LegacyDatabaseReader.Csv(LegacyDatabaseReader.History(c, tx), _preserveHistoryKinds);
+        }
+        var inflight = Path.Combine(_factory.DataDirectory, "inflight-sessions.json");
+        if (Pending(inflight))
+        {
+            var snapshot = LegacyDatabaseReader.Snapshot(c, tx);
+            files[inflight] = snapshot is null ? null : LegacyDatabaseReader.SnapshotBytes(snapshot);
+        }
         foreach (var config in sessionsOnly ? [] : Configs(c, tx))
         {
             var scope = Convert.ToInt64(Scalar(c, tx, "SELECT scope_id FROM config_scopes WHERE config_path=$0;", config));
             foreach (var kind in LegacyDecoder.SideKinds)
-                files[config + ".desktop-" + kind + ".json"] = LegacyDatabaseReader.Side(c, tx, scope, kind);
+            {
+                var path = config + ".desktop-" + kind + ".json";
+                if (Pending(path)) files[path] = LegacyDatabaseReader.Side(c, tx, scope, kind);
+            }
         }
         return new(Convert.ToInt64(Scalar(c, tx, "SELECT data_revision FROM storage_meta;")),
             Convert.ToInt64(Scalar(c, tx, "SELECT coalesce((SELECT revision FROM runtime_snapshot),0);")), files);

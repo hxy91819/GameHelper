@@ -29,11 +29,18 @@ public sealed class SyncState
 
     public string? Method { get; set; }
 
+    public string? Branch { get; set; }
+    public string? Directory { get; set; }
+
     /// <summary>状态是否仍与当前同步目标匹配（换了仓库/方式后需要全量重推）。</summary>
     public bool MatchesTarget(SyncSettings settings)
     {
         return string.Equals(Provider, settings.Provider, StringComparison.OrdinalIgnoreCase)
             && string.Equals(Repo, settings.NormalizedRepo, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(Method, settings.NormalizedMethod, StringComparison.OrdinalIgnoreCase);
+            && string.Equals(Method, settings.NormalizedMethod, StringComparison.OrdinalIgnoreCase)
+            // Git branches and remote paths are case sensitive. Missing legacy directory
+            // deliberately invalidates old bookmarks for one safe initial upload.
+            && string.Equals(Branch, settings.NormalizedBranch, StringComparison.Ordinal)
+            && string.Equals(Directory, settings.NormalizedDirectory, StringComparison.Ordinal);
     }
 }

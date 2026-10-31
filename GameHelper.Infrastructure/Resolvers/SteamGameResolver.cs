@@ -246,7 +246,7 @@ public sealed class SteamGameResolver : ISteamGameResolver
             {
                 var len = new FileInfo(path).Length;
                 // Prefer larger exe as a heuristic for main binary
-                if (len > bestSize && score >= bestScore)
+                if (score > bestScore || score == bestScore && len > bestSize)
                 {
                     best = path;
                     bestScore = score;

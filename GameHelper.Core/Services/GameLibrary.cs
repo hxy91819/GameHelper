@@ -11,6 +11,7 @@ public sealed class GameLibrary(
     IPlaytimeSnapshotProvider history, TimeProvider? timeProvider = null, ILocalGameDiscovery? localGames = null,
     ISettingsService? settings = null, IMonitorModeController? monitorMode = null, ISyncService? sync = null, SessionRatings? ratings = null) : IGameLibrary
 {
+    private readonly LibraryHistorySummary _historySummary = new(history, timeProvider ?? TimeProvider.System);
     private PlaytimeReport BuildReport(PlaytimeSnapshot snapshot, ReportPeriod period)
     {
         var games = configuration.Read().Games;
@@ -152,8 +153,8 @@ public sealed class GameLibrary(
         var identities = launch.GetLaunchIdentities() ?? new Dictionary<string, (Guid RequestId, int ProcessId)>();
         // 松散 mock / 外部实现的健壮回退：会话开始时间缺失时保持界面旧行为（不显示计时）。
         var runningStarts = launch.GetRunningSessionStarts() ?? new Dictionary<string, DateTime?>(StringComparer.Ordinal);
-        var records = history.GetPlaytimeRecords();
-        var lastPlayed = LibraryRecency.LastPlayed(records, timeProvider ?? TimeProvider.System);
+        var overview = _historySummary.Read();
+        if (overview is null) return Task.FromResult(new GameLibraryResponse { Success = false, Error = "无法读取历史数据，请稍后刷新重试。" });
         var configs = configuration.Read().Games;
         var installations = localGames?.Assess(configs);
         return Task.FromResult(new GameLibraryResponse
@@ -168,9 +169,8 @@ public sealed class GameLibrary(
                 LaunchRequestId = identities.TryGetValue(game.DataKey, out var identity) ? identity.RequestId : null,
                 LaunchProcessId = identities.TryGetValue(game.DataKey, out identity) ? identity.ProcessId : null,
                 Installation = installations?.GetValueOrDefault(game.DataKey) ?? new(GameInstallationState.Unknown, "尚未检查本地安装位置"),
-                LastPlayedAt = lastPlayed.TryGetValue(game.DataKey, out var playedAt) ? playedAt : null,
-                TotalMinutes = records.Where(record => record.GameName.Equals(game.DataKey, StringComparison.OrdinalIgnoreCase))
-                    .SelectMany(record => record.Sessions).Sum(session => session.DurationMinutes)
+                LastPlayedAt = overview.GetValueOrDefault(game.DataKey)?.LastPlayedAt,
+                TotalMinutes = overview.GetValueOrDefault(game.DataKey)?.TotalMinutes ?? 0
             }).ToList()
         });
     }

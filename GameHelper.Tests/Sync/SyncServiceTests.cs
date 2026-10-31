@@ -103,6 +103,45 @@ public class SyncServiceTests : IDisposable
         });
     }
 
+    [Theory]
+    [InlineData("branch")]
+    [InlineData("directory")]
+    [InlineData("branch-case")]
+    [InlineData("directory-case")]
+    public async Task SyncNowAsync_TargetChangesUploadUnchangedHistoryImmediately(string field)
+    {
+        EnableSync();
+        _config.Config.SyncSettings!.Branch = "main";
+        _config.Config.SyncSettings.Directory = "stats";
+        await FirstSyncAsync();
+        if (field == "branch") _config.Config.SyncSettings.Branch = "archive";
+        if (field == "directory") _config.Config.SyncSettings.Directory = "other";
+        if (field == "branch-case") _config.Config.SyncSettings.Branch = "Main";
+        if (field == "directory-case") _config.Config.SyncSettings.Directory = "Stats";
+
+        var result = await _service.SyncNowAsync();
+
+        Assert.Equal(SyncOutcomeStatus.Uploaded, result.Status);
+        Assert.Equal(2, _channels.Channel.UploadCalls);
+    }
+
+    [Fact]
+    public async Task SyncNowAsync_NormalizedTargetRetainsBookmarkButLegacyStateIsReuploaded()
+    {
+        EnableSync();
+        _config.Config.SyncSettings!.Branch = "main";
+        await FirstSyncAsync();
+        _config.Config.SyncSettings.Branch = " main ";
+        _config.Config.SyncSettings.Directory = "/game-stats/";
+        Assert.Equal(SyncOutcomeStatus.Skipped, (await _service.SyncNowAsync()).Status);
+        var state = ReadState();
+        state.Directory = null; // Old state files have no target-directory identity.
+        File.WriteAllText(_statePath, System.Text.Json.JsonSerializer.Serialize(state,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+        Assert.Equal(SyncOutcomeStatus.Uploaded, (await _service.SyncNowAsync()).Status);
+        Assert.Equal(2, _channels.Channel.UploadCalls);
+    }
+
     [Fact]
     public async Task SyncNowAsync_WithinInterval_SkipsEvenWithNewData()
     {
@@ -119,7 +158,7 @@ public class SyncServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task SyncNowAsync_AfterInterval_WithoutNewData_Skips()
+    public async Task SyncNowAsync_AfterInterval_WithoutNewData_RefreshesCalendarWindows()
     {
         EnableSync();
         await FirstSyncAsync();
@@ -128,8 +167,8 @@ public class SyncServiceTests : IDisposable
 
         var outcome = await _service.SyncNowAsync();
 
-        Assert.Equal(SyncOutcomeStatus.Skipped, outcome.Status);
-        Assert.Equal(1, _channels.Channel.UploadCalls);
+        Assert.Equal(SyncOutcomeStatus.Uploaded, outcome.Status);
+        Assert.Equal(2, _channels.Channel.UploadCalls);
     }
 
     [Fact]

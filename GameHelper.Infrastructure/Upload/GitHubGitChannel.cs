@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -108,7 +109,7 @@ public sealed class GitHubGitChannel : IStatsUploadChannel
     private async Task<string> EnsureCloneAsync(SyncSettings settings, CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(_cloneRoot);
-        var dirName = SanitizeRepoName(settings.NormalizedRepo);
+        var dirName = CloneDirectoryName(settings.NormalizedRepo);
         var repoDir = Path.Combine(_cloneRoot, dirName);
 
         if (!Directory.Exists(Path.Combine(repoDir, ".git")))
@@ -137,9 +138,11 @@ public sealed class GitHubGitChannel : IStatsUploadChannel
                 throw new InvalidOperationException(
                     $"git clone 失败：{clone.DescribeError()}。请确认仓库 {settings.NormalizedRepo} 存在且本机 git 有访问权限。");
             }
+            await VerifyRemoteAsync(repoDir, settings.NormalizedRepo, cancellationToken).ConfigureAwait(false);
         }
         else
         {
+            await VerifyRemoteAsync(repoDir, settings.NormalizedRepo, cancellationToken).ConfigureAwait(false);
             var fetch = await _git
                 .RunAsync(repoDir, new[] { "fetch", "origin", "--prune" }, cancellationToken)
                 .ConfigureAwait(false);
@@ -152,13 +155,43 @@ public sealed class GitHubGitChannel : IStatsUploadChannel
 
         // 显式指定分支或使用克隆当前分支，都强制对齐到对应远端分支，
         // 避免远端被他人推进后本地提交因非快进被拒。
-        var branch = settings.NormalizedBranch ?? await ResolveCurrentBranchAsync(repoDir, cancellationToken).ConfigureAwait(false);
+        var branch = settings.NormalizedBranch ?? await ResolveDefaultBranchAsync(repoDir, cancellationToken).ConfigureAwait(false);
+        if (branch is { } requestedBranch)
+        {
+            // --depth 1 clones normally track only the default branch. Probe existence
+            // so a genuinely new branch still follows the existing creation path.
+            var remote = await _git.RunAsync(repoDir,
+                new[] { "ls-remote", "--exit-code", "--heads", "origin", $"refs/heads/{requestedBranch}" }, cancellationToken).ConfigureAwait(false);
+            if (remote.Succeeded)
+            {
+                var fetch = await _git.RunAsync(repoDir,
+                    new[] { "fetch", "--depth", "1", "origin", $"+refs/heads/{requestedBranch}:refs/remotes/origin/{requestedBranch}" }, cancellationToken).ConfigureAwait(false);
+                EnsureSucceeded(fetch, "git fetch configured branch");
+            }
+            else if (remote.ExitCode != 2) EnsureSucceeded(remote, "git ls-remote configured branch");
+        }
         if (branch is not null)
         {
             await CheckoutBranchAsync(repoDir, branch, cancellationToken).ConfigureAwait(false);
         }
 
         return repoDir;
+    }
+
+    private async Task<string?> ResolveDefaultBranchAsync(string repoDir, CancellationToken cancellationToken)
+    {
+        var remote = await _git.RunAsync(repoDir,
+            new[] { "ls-remote", "--symref", "origin", "HEAD" }, cancellationToken).ConfigureAwait(false);
+        EnsureSucceeded(remote, "git ls-remote default branch");
+        const string prefix = "ref: refs/heads/";
+        var head = remote.StandardOutput.Split('\n').Select(line => line.TrimEnd('\r'))
+            .FirstOrDefault(line => line.StartsWith(prefix, StringComparison.Ordinal) && line.EndsWith("\tHEAD", StringComparison.Ordinal));
+        if (head is not null) return head[prefix.Length..^5];
+        if (!string.IsNullOrWhiteSpace(remote.StandardOutput))
+            throw new InvalidOperationException("远端 HEAD 未指向默认分支，已停止同步；请显式配置 sync.branch。");
+        // Empty repositories have no remote HEAD yet. Their initial clone's branch
+        // remains the bootstrap target; an established remote never uses local HEAD.
+        return await ResolveCurrentBranchAsync(repoDir, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<string?> ResolveCurrentBranchAsync(string repoDir, CancellationToken cancellationToken)
@@ -173,6 +206,23 @@ public sealed class GitHubGitChannel : IStatsUploadChannel
 
         var branch = current.StandardOutput.Trim();
         return branch.Length == 0 ? null : branch;
+    }
+
+    private async Task VerifyRemoteAsync(string repoDir, string repo, CancellationToken cancellationToken)
+    {
+        foreach (var arguments in new[]
+        {
+            new[] { "remote", "get-url", "--all", "origin" },
+            new[] { "remote", "get-url", "--push", "--all", "origin" }
+        })
+        {
+            var result = await _git.RunAsync(repoDir, arguments, cancellationToken).ConfigureAwait(false);
+            EnsureSucceeded(result, "git remote get-url");
+            var urls = result.StandardOutput.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            // git push sends to every pushurl, not merely get-url's default first result.
+            if (urls.Length != 1 || !string.Equals(urls[0], CloneUrl(repo), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("同步工作副本的 origin 与配置仓库不一致，已停止上传；请删除该专属工作副本后重试。");
+        }
     }
 
     private async Task CheckoutBranchAsync(string repoDir, string branch, CancellationToken cancellationToken)
@@ -279,15 +329,10 @@ public sealed class GitHubGitChannel : IStatsUploadChannel
 
     private static string CloneUrl(string repo) => $"https://github.com/{repo}.git";
 
-    private static string SanitizeRepoName(string repo)
+    private static string CloneDirectoryName(string repo)
     {
-        var sanitized = repo.Replace('/', '-');
-        var builder = new StringBuilder(sanitized.Length);
-        foreach (var c in sanitized)
-        {
-            builder.Append(char.IsLetterOrDigit(c) || c is '-' or '.' or '_' ? c : '_');
-        }
-
-        return builder.ToString();
+        // Slash-to-hyphen aliases distinct repositories (a-b/c and a/b-c).
+        // Hash the full GitHub identity; bounded names also avoid Windows path-length growth.
+        return "repo-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(repo.ToUpperInvariant())));
     }
 }

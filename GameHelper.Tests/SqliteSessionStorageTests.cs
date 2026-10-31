@@ -447,7 +447,7 @@ public sealed class SqliteSessionStorageTests(ITestOutputHelper output) : IDispo
         var storage = Storage();
         await storage.InitializeAsync(Config, [Game], checkpoint: point =>
         {
-            if (Volatile.Read(ref block) && point == "projection.replace.before:playtime.csv")
+            if (Volatile.Read(ref block) && point == "projection.replace.before:inflight-sessions.json")
             {
                 reached.Set();
                 if (!release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("projection test barrier");

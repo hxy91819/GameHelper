@@ -27,7 +27,7 @@ public sealed class SyncSettings
     /// <summary>目标仓库，格式 <c>owner/name</c>。</summary>
     public string Repo { get; set; } = string.Empty;
 
-    /// <summary>目标分支；为空时 git 方式使用克隆的默认分支，api 方式使用仓库默认分支。</summary>
+    /// <summary>目标分支；为空时使用远端仓库的当前默认分支，空仓库首次提交使用克隆初始分支。</summary>
     public string? Branch { get; set; }
 
     /// <summary>仓库内写入的子目录，默认 <see cref="DefaultDirectory"/>。</summary>

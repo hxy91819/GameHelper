@@ -86,7 +86,7 @@ public sealed class SessionStorage : IDisposable
         }
         await migration.ImportScopeAsync(configPath, cancellationToken).ConfigureAwait(false);
         _compatibility = new SqliteLegacyCompatibility(_factory, _clock, games, checkpoint, preserveHistoryKinds: true);
-        var projections = new SerialCompatibilityProjection(ExportProjection, ReportProjectionFailure);
+        var projections = new SerialCompatibilityProjection(ExportProjection, ReportProjectionFailure, ExportPendingProjection);
         _projections = projections;
         var store = new SqliteSessionStore(_factory, _clock, projections.Request, checkpoint, ReportStorageFailure, () => Volatile.Write(ref _storageFailure, null));
         _sessionStore = store;
@@ -113,7 +113,7 @@ public sealed class SessionStorage : IDisposable
         if (!UsesSqlite) return;
         try
         {
-            await _projections!.FlushAsync().ConfigureAwait(false);
+            await _projections!.FlushAsync(full: false).ConfigureAwait(false);
         }
         catch { /* Projection worker reports and retains its own warning. */ }
         try
@@ -145,6 +145,12 @@ public sealed class SessionStorage : IDisposable
     private void ExportProjection()
     {
         _compatibility!.ExportAsync().GetAwaiter().GetResult();
+        Volatile.Write(ref _warning, null);
+    }
+
+    private void ExportPendingProjection()
+    {
+        _compatibility!.ExportPendingAsync().GetAwaiter().GetResult();
         Volatile.Write(ref _warning, null);
     }
 

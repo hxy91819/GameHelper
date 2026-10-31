@@ -52,8 +52,12 @@ public class GitHubGitChannelTests : IDisposable
         Assert.Equal(
             new[]
             {
+                "remote",
+                "remote",
                 "fetch",
-                "symbolic-ref",
+                "ls-remote",
+                "ls-remote",
+                "fetch",
                 "rev-parse",
                 "checkout",
                 "add",
@@ -72,6 +76,25 @@ public class GitHubGitChannelTests : IDisposable
     }
 
     [Fact]
+    public async Task UploadAsync_ShallowCloneFetchesConfiguredNonDefaultBranchBeforeCheckout()
+    {
+        EnsureExistingClone();
+        var targetFetched = false;
+        _runner.Responder = arguments =>
+        {
+            if (arguments[0] == "fetch" && arguments.Contains("+refs/heads/archive:refs/remotes/origin/archive")) targetFetched = true;
+            if (arguments[0] == "rev-parse" && arguments.Contains("--quiet"))
+                return new(targetFetched ? 0 : 1, "", "");
+            if (arguments[0] == "status") return new(0, "M game-stats/README.md", "");
+            return new(0, "value", "");
+        };
+        await _channel.UploadAsync(Settings("archive"), SingleFile(), "msg");
+        Assert.True(targetFetched);
+        var checkout = _runner.Calls.Single(c => c.Arguments[0] == "checkout");
+        Assert.Contains("origin/archive", checkout.Arguments);
+    }
+
+    [Fact]
     public async Task UploadAsync_WhenCloneMissing_ClonesFirst()
     {
         _runner.Responder = arguments => arguments[0] switch
@@ -87,7 +110,7 @@ public class GitHubGitChannelTests : IDisposable
 
         var cloneCall = _runner.Calls.First(call => call.Arguments[0] == "clone");
         Assert.Equal(
-            new[] { "clone", "--depth", "1", "https://github.com/owner/repo.git", "owner-repo" },
+            new[] { "clone", "--depth", "1", "https://github.com/owner/repo.git", CloneName("owner/repo") },
             cloneCall.Arguments);
         Assert.DoesNotContain(_runner.Calls, call => call.Arguments[0] == "fetch");
     }
@@ -98,7 +121,7 @@ public class GitHubGitChannelTests : IDisposable
         EnsureExistingClone();
         _runner.Responder = arguments => arguments[0] switch
         {
-            "fetch" => new GitRunResult(0, string.Empty, string.Empty),
+            "fetch" or "ls-remote" => new GitRunResult(0, string.Empty, string.Empty),
             "rev-parse" => new GitRunResult(0, "origin/main" + Environment.NewLine, string.Empty),
             "checkout" => new GitRunResult(0, string.Empty, string.Empty),
             "add" => new GitRunResult(0, string.Empty, string.Empty),
@@ -269,9 +292,79 @@ public class GitHubGitChannelTests : IDisposable
 
     private string EnsureExistingClone()
     {
-        var repoDir = Path.Combine(_cloneRoot, "owner-repo");
+        var repoDir = Path.Combine(_cloneRoot, CloneName("owner/repo"));
         Directory.CreateDirectory(Path.Combine(repoDir, ".git"));
         return repoDir;
+    }
+
+    private static string CloneName(string repo) => "repo-" + Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(repo.ToUpperInvariant())));
+
+    [Fact]
+    public async Task UploadAsync_DifferentRepositoriesCannotShareSanitizedCloneDirectory()
+    {
+        var first = Settings(); first.Repo = "a-b/c";
+        var second = Settings(); second.Repo = "a/b-c";
+        await _channel.UploadAsync(first, SingleFile(), "first");
+        await _channel.UploadAsync(second, SingleFile(), "second");
+        var clones = _runner.Calls.Where(c => c.Arguments[0] == "clone").ToArray();
+        Assert.Equal(2, clones.Length);
+        Assert.NotEqual(clones[0].Arguments[^1], clones[1].Arguments[^1]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UploadAsync_UnexpectedFetchOrPushRemoteFailsBeforeWriting(bool push)
+    {
+        EnsureExistingClone();
+        _runner.ChangedPushOnly = push;
+        _runner.RemoteUrl = "https://github.com/other/repository.git";
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _channel.UploadAsync(Settings(), SingleFile(), "msg"));
+        Assert.DoesNotContain(_runner.Calls, c => c.Arguments[0] is "add" or "push" or "fetch");
+    }
+
+    [Fact]
+    public async Task UploadAsync_AdditionalPushUrlIsRejectedBeforeAnyManagedFileWrite()
+    {
+        var repoDir = EnsureExistingClone();
+        _runner.ChangedPushOnly = true;
+        _runner.RemoteUrl = "https://github.com/owner/repo.git\nhttps://github.com/other/repository.git";
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _channel.UploadAsync(Settings(), SingleFile(), "msg"));
+        Assert.False(Directory.Exists(Path.Combine(repoDir, "game-stats")));
+        Assert.DoesNotContain(_runner.Calls, c => c.Arguments[0] is "add" or "push" or "fetch");
+    }
+
+    [Fact]
+    public async Task UploadAsync_ClearingConfiguredBranchReturnsToRemoteDefaultNotLocalCheckout()
+    {
+        EnsureExistingClone();
+        _runner.RemoteDefaultBranch = "main";
+        _runner.Responder = arguments => new GitRunResult(0,
+            arguments[0] == "symbolic-ref" ? "stats" : arguments[0] == "status" ? "M game-stats/README.md" : "value", "");
+        var settings = Settings("stats");
+        await _channel.UploadAsync(settings, SingleFile(), "stats");
+        _runner.Calls.Clear();
+        settings.Branch = null;
+        await _channel.UploadAsync(settings, SingleFile(), "default");
+        Assert.Contains("origin/main", _runner.Calls.Single(c => c.Arguments[0] == "checkout").Arguments);
+    }
+
+    [Fact]
+    public async Task UploadAsync_RemoteDefaultChangeFetchesNewDefaultBeforeCheckout()
+    {
+        EnsureExistingClone();
+        _runner.RemoteDefaultBranch = "new-default";
+        var fetched = false;
+        _runner.Responder = arguments =>
+        {
+            if (arguments[0] == "fetch" && arguments.Contains("+refs/heads/new-default:refs/remotes/origin/new-default")) fetched = true;
+            if (arguments[0] == "rev-parse" && arguments.Contains("--quiet")) return new(fetched ? 0 : 1, "", "");
+            return new(0, arguments[0] == "symbolic-ref" ? "main" : "", "");
+        };
+        await _channel.UploadAsync(Settings(), SingleFile(), "default changed");
+        Assert.True(fetched);
+        Assert.Contains("origin/new-default", _runner.Calls.Single(c => c.Arguments[0] == "checkout").Arguments);
     }
 
     private static SyncSettings Settings(string? branch = null) => new()
@@ -287,6 +380,9 @@ public class GitHubGitChannelTests : IDisposable
 
     private sealed class FakeGitRunner : IGitRunner
     {
+        public string? RemoteUrl { get; set; }
+        public bool ChangedPushOnly { get; set; }
+        public string? RemoteDefaultBranch { get; set; }
         public List<(string? WorkingDirectory, IReadOnlyList<string> Arguments)> Calls { get; } = new();
 
         public Func<IReadOnlyList<string>, GitRunResult> Responder { get; set; } =
@@ -298,6 +394,22 @@ public class GitHubGitChannelTests : IDisposable
             CancellationToken cancellationToken = default)
         {
             Calls.Add((workingDirectory, arguments));
+            if (arguments[0] == "ls-remote" && arguments.Contains("--symref"))
+            {
+                var local = Responder(["symbolic-ref", "--short", "HEAD"]);
+                var branch = RemoteDefaultBranch ?? (local.Succeeded ? local.StandardOutput.Trim() : null);
+                return Task.FromResult(new GitRunResult(0, string.IsNullOrEmpty(branch) ? "" : $"ref: refs/heads/{branch}\tHEAD\ncommit\tHEAD", ""));
+            }
+            if (arguments[0] == "ls-remote" && arguments.Contains("--heads"))
+                return Task.FromResult(new GitRunResult(0, $"commit\t{arguments[^1]}", ""));
+            if (arguments[0] == "remote")
+            {
+                var urls = RemoteUrl is not null && (!ChangedPushOnly || arguments.Contains("--push"))
+                    ? RemoteUrl : Calls.LastOrDefault(c => c.Arguments[0] == "clone").Arguments?[3]
+                        ?? "https://github.com/owner/repo.git";
+                // Like git, get-url returns only the first URL unless --all is supplied.
+                return Task.FromResult(new GitRunResult(0, arguments.Contains("--all") ? urls : urls.Split('\n')[0], ""));
+            }
             return Task.FromResult(Responder(arguments));
         }
     }
