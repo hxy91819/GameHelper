@@ -43,9 +43,12 @@ internal static class YamlConfigCodec
         // Computed views never belong in YAML; discover new writable fields automatically.
         foreach (var type in new[] { typeof(AppConfig), typeof(GameConfig), typeof(SyncSettings), typeof(ReportLlmSettings) })
             foreach (var property in type.GetProperties())
-                builder.WithAttributeOverride(type, property.Name, property.CanWrite
-                    ? new YamlMemberAttribute { Alias = WireName(property), ApplyNamingConventions = false, Order = LegacyOrder(property) }
-                    : new YamlIgnoreAttribute());
+            {
+                if (!property.CanWrite) { builder.WithAttributeOverride(type, property.Name, new YamlIgnoreAttribute()); continue; }
+                var member = new YamlMemberAttribute { Alias = WireName(property), ApplyNamingConventions = false, Order = LegacyOrder(property) };
+                if (type == typeof(GameConfig) && property.Name == nameof(GameConfig.Adult)) member.DefaultValuesHandling = DefaultValuesHandling.OmitDefaults;
+                builder.WithAttributeOverride(type, property.Name, member);
+            }
         return builder.WithNamingConvention(CamelCaseNamingConvention.Instance)
             .WithTypeConverter(new TimestampConverter());
     }

@@ -127,6 +127,7 @@ public sealed class GameCatalogService : IGameCatalogService
             updated.DisplayName = request.ClearDisplayName ? null : request.DisplayName ?? existing.DisplayName;
             updated.IsEnabled = request.IsEnabled ?? existing.IsEnabled;
             updated.HdrEnabled = request.HdrEnabled ?? existing.HdrEnabled;
+            updated.Adult = request.Adult ?? existing.Adult;
             updated.SpeedMultiplier = request.ClearSpeedMultiplier ? null : request.SpeedMultiplier ?? existing.SpeedMultiplier;
             updated.SpeedHotkeys = request.ClearSpeedHotkeys ? null : request.SpeedHotkeys ?? existing.SpeedHotkeys;
             updated.Actions = request.ClearActions ? null : request.Actions?.ToList() ?? existing.Actions;
@@ -251,6 +252,7 @@ public sealed class GameCatalogService : IGameCatalogService
         DisplayName = config.DisplayName,
         IsEnabled = config.IsEnabled,
         HdrEnabled = config.HdrEnabled,
+        Adult = config.Adult,
         SpeedMultiplier = config.SpeedMultiplier,
         SpeedAttach = config.SpeedAttach,
         SpeedHotkeys = config.SpeedHotkeys,

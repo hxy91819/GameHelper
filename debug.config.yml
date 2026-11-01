@@ -37,6 +37,7 @@ monitorMode:
   # daylightStart: "07:00"
   # daylightEnd: "18:30"
 games:
+  # 单款条目可设置 adult: true，仅在成人分类展示；默认不标记，不影响监控与统计。
   - dataKey: cheatengine
     executable: Cheat Engine.exe
     displayName: Cheat Engine

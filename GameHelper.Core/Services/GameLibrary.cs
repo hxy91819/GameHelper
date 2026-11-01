@@ -83,7 +83,7 @@ public sealed class GameLibrary(
                 {
                     Executable = ExecutableIdentity.Parse(game.Executable ?? string.Empty),
                     DisplayName = game.DisplayName, ClearDisplayName = string.IsNullOrWhiteSpace(game.DisplayName),
-                    IsEnabled = game.IsEnabled, HdrEnabled = game.HdrEnabled,
+                    IsEnabled = game.IsEnabled, HdrEnabled = game.HdrEnabled, Adult = game.Adult,
                     SpeedMultiplier = game.SpeedMultiplier, ClearSpeedMultiplier = game.SpeedMultiplier is null,
                     SpeedHotkeys = game.SpeedHotkeys, ClearSpeedHotkeys = game.SpeedHotkeys is null,
                     Actions = game.Actions, ClearActions = game.Actions is null,

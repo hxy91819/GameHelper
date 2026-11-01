@@ -16,6 +16,9 @@ public sealed record GameEntry
 
     public bool HdrEnabled { get; init; }
 
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Adult { get; init; }
+
     public double? SpeedMultiplier { get; init; }
 
     /// <summary>Optional in-game CE speed presets and primary/original toggle shortcuts.</summary>

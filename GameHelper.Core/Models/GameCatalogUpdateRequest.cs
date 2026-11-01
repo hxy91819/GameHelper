@@ -12,6 +12,8 @@ public sealed record GameCatalogUpdateRequest
 
     public bool? HdrEnabled { get; init; }
 
+    public bool? Adult { get; init; }
+
     public double? SpeedMultiplier { get; init; }
 
     public List<SpeedHotkey>? SpeedHotkeys { get; init; }

@@ -36,6 +36,10 @@ public class GameConfig
     /// </summary>
     public string? DisplayName { get; set; }
 
+    /// <summary>Hide this game from ordinary library collections; explicit adult collection only.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Adult { get; set; }
+
     /// <summary>
     /// Whether this game participates in automation (monitoring/HDR/playtime).
     /// </summary>

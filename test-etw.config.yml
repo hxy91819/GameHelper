@@ -31,6 +31,7 @@ monitorMode:
   enabled: false
   displays: []  # 请在全局设置选择实际设备并绑定；空列表不执行任何预设
 games:
+  # 单款条目可设置 adult: true，仅在成人分类展示；默认不标记，不影响监控与统计。
   - dataKey: notepad
     executable: notepad.exe
     displayName: Notepad
