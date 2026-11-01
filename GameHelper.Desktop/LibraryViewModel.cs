@@ -31,7 +31,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private readonly GameHelper.Infrastructure.Artwork.SteamControllerSupportClient _controllerClient;
     private readonly string? _controllerConfig;
     private string? _genre;
-    public const string AdultCollection = "成人游戏";
+    public const string AdultCollection = "私人收藏";
     public bool InAdultCollection => _genre == AdultCollection;
     public ObservableCollection<GenreGroup> GenreGroups { get; } = [];
     public LibraryGameItem? ContinueGame => _genre is null ? Games.Cast<LibraryGameItem>().Where(game => game.InstallationState == GameInstallationState.Installed && (game.IsRunning || game.LastPlayedAt is not null)).OrderByDescending(game => game.IsRunning).ThenByDescending(game => game.LastPlayedAt).FirstOrDefault() : null;
@@ -232,7 +232,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     internal async Task SaveGenresAsync(LibraryGameItem game, string[]? genres)
     {
         if (genres?.Contains(AdultCollection, StringComparer.OrdinalIgnoreCase) == true)
-            throw new ArgumentException("成人分类请在游戏设置中勾选“成人游戏（默认隐藏）”并保存；该标记独立于 Steam 类型。");
+            throw new ArgumentException("私人收藏请在游戏设置中勾选“私人收藏（默认隐藏）”并保存；该标记独立于 Steam 类型。");
         await Task.Run(() => _genreStore.Save(game.DataKey, genres));
         // Reset is immediate; network work belongs to the window lifetime, not the editor dialog.
         if (genres is null) game.SetGenres([]);

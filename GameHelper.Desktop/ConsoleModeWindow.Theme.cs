@@ -63,7 +63,7 @@ internal sealed partial class ConsoleModeWindow
         selectionSummary.Margin = new Thickness(0, 6, 0, 16); selectionSummary.TextWrapping = TextWrapping.NoWrap; selectionSummary.TextTrimming = TextTrimming.CharacterEllipsis;
         header.Children.Add(selectionSummary);
         var tabs = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 18) }; header.Children.Add(tabs);
-        string[] names = ["全部游戏", "最近游玩", "未通关", "支持手柄", "成人游戏"];
+        string[] names = ["全部游戏", "最近游玩", "未通关", "支持手柄", "私人收藏"];
         for (int i = 0; i < names.Length; i++)
         {
             int index = i;
@@ -150,7 +150,7 @@ internal sealed partial class ConsoleModeWindow
         emptyState.Visibility = !detail && shelf.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         emptyState.Text = query.Length > 0 ? "没有找到匹配的游戏\n按搜索键修改关键词"
             : !model.ConsoleGames.Any() ? "游戏库还没有内容\n返回桌面游戏库，添加你的第一款游戏"
-            : !model.ConsoleCollectionGames(tab == 4).Any() ? (tab == 4 ? "成人分类暂无可显示的游戏\n在游戏设置中标记并保存" : "普通游戏库暂无可显示的游戏\n可检查安装位置，或进入已标记的成人分类")
+            : !model.ConsoleCollectionGames(tab == 4).Any() ? (tab == 4 ? "私人收藏暂无可显示的游戏\n在游戏设置中标记并保存" : "普通游戏库暂无可显示的游戏\n可检查安装位置，或进入已标记的私人收藏")
             : "这个分类暂时没有游戏\n切换分类试试";
         UpdatePresentationGeometry();
     }

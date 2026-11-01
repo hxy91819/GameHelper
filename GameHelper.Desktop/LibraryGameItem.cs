@@ -76,7 +76,7 @@ public sealed class LibraryGameItem : ObservableState
 
     private IReadOnlyList<string> _genres = [];
     public IReadOnlyList<string> Genres => _genres;
-    public string GenreLabel => SavedAdult ? "成人游戏" + (_genres.Count == 0 ? "" : " · " + string.Join(" · ", _genres))
+    public string GenreLabel => SavedAdult ? "私人收藏" + (_genres.Count == 0 ? "" : " · " + string.Join(" · ", _genres))
         : _genres.Count == 0 ? "未分类" : string.Join(" · ", _genres);
     /// <summary>Privacy filtering follows the saved classification, never an unsaved checkbox.</summary>
     internal bool SavedAdult => _savedAdult;

@@ -16,7 +16,7 @@ internal sealed class GenreEditorWindow : Window
         var input = new TextBox { Text = string.Join("，", game.Genres), Margin = new Thickness(0, 16, 0, 12) };
         System.Windows.Automation.AutomationProperties.SetName(input, "游戏类型，用逗号分隔");
         panel.Children.Add(input);
-        var status = new TextBlock { Text = "手动类型会保留，不随 Steam 更新覆盖。成人分类请在游戏设置中勾选“成人游戏（默认隐藏）”并保存；恢复 Steam 类型不会改变该标记。", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16) };
+        var status = new TextBlock { Text = "手动类型会保留，不随 Steam 更新覆盖。私人收藏请在游戏设置中勾选“私人收藏（默认隐藏）”并保存；恢复 Steam 类型不会改变该标记。", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16) };
         status.SetResourceReference(ForegroundProperty, "Muted"); panel.Children.Add(status);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal };
         var save = new Button { Content = "保存类型", Margin = new Thickness(0, 0, 8, 0) };

@@ -44,7 +44,7 @@ internal sealed partial class ConsoleModeWindow
     {
         overlayKind = ConsoleOverlay.SystemMenu; menuIndex = 0;
         menuRows = [new("退出主机模式", true, () => { Close(); return Task.CompletedTask; })];
-        menuRows.Add(new(tab == 4 ? "返回普通游戏库" : "进入成人游戏分类", true,
+        menuRows.Add(new(tab == 4 ? "返回普通游戏库" : "进入私人收藏", true,
             () => { OpenCollection(tab == 4 ? 0 : 4); return Task.CompletedTask; }));
         if (Selected is { } selectedGame)
         {

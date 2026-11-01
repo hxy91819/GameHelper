@@ -58,10 +58,10 @@ internal sealed partial class ConsoleModeWindow
     {
         if (gameSettings is not { } draft) return;
         ConsoleOverlayVisuals.Header(panel, "游戏自动化设置", $"{draft.Name}\nDS4Windows 与倍速下次启动生效；HDR 在后续自动调度时应用。");
-        string[] labels = ["自动 HDR", "启动 DS4Windows", "游戏倍速", "倍速倍率", "成人游戏（默认隐藏）", "保存设置", "重新载入已保存配置", "取消，返回主机模式"];
+        string[] labels = ["自动 HDR", "启动 DS4Windows", "游戏倍速", "倍速倍率", "私人收藏（默认隐藏）", "保存设置", "重新载入已保存配置", "取消，返回主机模式"];
         string?[] values = [draft.Hdr ? "开启" : "关闭", draft.UseDs4Windows ? "开启" : "关闭", draft.UseSpeed ? "开启" : "关闭", $"{draft.Speed:0.##}×", draft.Adult ? "开启" : "关闭", null, null, null];
         string[] descriptions = ["用于游戏自动化，与显示器临时 HDR 开关独立", "在启动游戏前准备手柄配套软件", "启用后使用已配置的 Cheat Engine", "左右调整 0.1× · 范围 0.1–10×",
-            "保存后只在成人分类展示；普通列表、搜索与最近游玩隐藏", "应用本页调整，桌面未保存草稿独立保留", "放弃本页调整，读取最新设置", "放弃本页尚未保存的调整"];
+            "保存后只在私人收藏展示；普通列表、搜索与最近游玩隐藏", "应用本页调整，桌面未保存草稿独立保留", "放弃本页调整，读取最新设置", "放弃本页尚未保存的调整"];
         for (var index = 0; index < labels.Length; index++)
         {
             var captured = index;
