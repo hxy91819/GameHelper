@@ -93,12 +93,13 @@ internal sealed partial class ConsoleModeWindow
         detailBody.Children.Add(ConsoleModeVisuals.PanelFrame(controllerPanel, 16));
         var settingsPanel = new StackPanel(); settingsPanel.Children.Add(ConsoleModeVisuals.Label("启动配置", 13, ConsoleModeVisuals.Accent));
         detailSettings.Margin = new Thickness(0, 8, 0, 0); settingsPanel.Children.Add(detailSettings);
+        detailSettingsHint.Margin = new Thickness(0, 8, 0, 0); settingsPanel.Children.Add(detailSettingsHint);
         var settingsFrame = ConsoleModeVisuals.PanelFrame(settingsPanel, 16); settingsFrame.Margin = new Thickness(0, 12, 0, 0); detailBody.Children.Add(settingsFrame);
         info.FontSize = 16; info.Foreground = ConsoleModeVisuals.Secondary; info.Margin = new Thickness(0, 16, 0, 14); detailBody.Children.Add(info);
         var actions = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) }; Grid.SetRow(actions, 1); details.Children.Add(actions);
         detailLaunchButton.FontSize = 19; detailLaunchButton.FontWeight = FontWeights.SemiBold; detailLaunchButton.Background = ConsoleModeVisuals.Accent; detailLaunchButton.Foreground = ConsoleModeVisuals.Surface;
         detailLaunchButton.Margin = new Thickness(0, 0, 10, 10); detailLaunchButton.Click += (_, _) => Handle(ControllerAction.Confirm); actions.Children.Add(detailLaunchButton);
-        var settingsButton = new Button { Content = "游戏设置  □ / X", Margin = new Thickness(0, 0, 10, 10) };
+        var settingsButton = new Button { Content = settingsButtonHint, Margin = new Thickness(0, 0, 10, 10) };
         settingsButton.Click += (_, _) => Handle(ControllerAction.Auxiliary); actions.Children.Add(settingsButton);
         stopButton.FontSize = 17; stopButton.Margin = new Thickness(0, 0, 10, 10); stopButton.Click += (_, _) => ConfirmStop(); actions.Children.Add(stopButton);
         var back = new Button { Content = "返回", Background = Brushes.Transparent, Margin = new Thickness(0, 0, 0, 10) }; back.Click += (_, _) => Handle(ControllerAction.Back); actions.Children.Add(back);
@@ -106,7 +107,7 @@ internal sealed partial class ConsoleModeWindow
         var footerBody = new StackPanel(); footer.Child = footerBody; status.FontSize = 13; status.Foreground = ConsoleModeVisuals.Secondary;
         help.FontSize = 15; help.Foreground = ConsoleModeVisuals.Text; help.Margin = new Thickness(0, 5, 0, 0); footerBody.Children.Add(status); footerBody.Children.Add(help);
         globalHelp.Foreground = ConsoleModeVisuals.Secondary; globalHelp.Margin = new Thickness(0, 5, 0, 0);
-        globalHelp.TextWrapping = TextWrapping.Wrap; footerBody.Children.Add(globalHelp);
+        footerBody.Children.Add(globalHelp);
         Grid.SetRow(footer, 2); presentation.Children.Add(footer);
         scene.Children.Add(launchOverlay); scene.Children.Add(actionOverlay);
         launchOverlay.Background = ConsoleModeVisuals.Brush("#F5101116");
@@ -122,6 +123,7 @@ internal sealed partial class ConsoleModeWindow
         presentation.Margin = compact ? new Thickness(28, 18, 28, 14) : new Thickness(44, 26, 44, 20);
         heading.FontSize = compact ? 28 : 36;
         help.FontSize = compact ? 15 : 18;
+        if (input is not null) UpdateHelp();
         var shelfViewport = FindVisual<ScrollContentPresenter>(shelf)?.ActualHeight;
         var posterHeight = ShelfPosterHeight(shelfViewport is > 0 ? shelfViewport.Value : contentBody.ActualHeight - 30);
         if (!Equals(shelf.Tag, posterHeight)) shelf.Tag = posterHeight;

@@ -201,18 +201,9 @@ internal sealed partial class ConsoleModeWindow
         actionOverlay.Visibility = overlayKind == ConsoleOverlay.None ? Visibility.Collapsed : Visibility.Visible;
         if (overlayKind == ConsoleOverlay.None) return;
         var panel = new StackPanel();
-        var playStation = input.Kind == ControllerKind.PlayStation;
-        var confirmButton = playStation ? "×" : "A"; var backButton = playStation ? "○" : "B";
-        var auxiliaryButton = playStation ? "□" : "X"; var finishButton = playStation ? "△" : "Y";
-        var hint = overlayKind switch
-        {
-            ConsoleOverlay.Settings => $"上下 选择  ·  左右 调整  ·  {confirmButton} 切换 / 保存  ·  {backButton} 返回（放弃调整）",
-            ConsoleOverlay.Keyboard => $"方向键 选字符  ·  {confirmButton} 输入  ·  {auxiliaryButton} 退格  ·  {finishButton} 完成  ·  {backButton} 取消",
-            ConsoleOverlay.Rating => $"左右 选星  ·  {confirmButton} 提交  ·  {auxiliaryButton} 填写想法  ·  {backButton} 跳过",
-            ConsoleOverlay.Confirm => $"{confirmButton} 确认执行  ·  {backButton} 取消",
-            _ => $"上下 选择  ·  {confirmButton} 确认  ·  {backButton} 关闭菜单"
-        };
-        actionOverlay.Child = ConsoleOverlayVisuals.Surface(panel, hint, interactionStatus);
+        overlayHelp = new ControllerHintBar { Foreground = ConsoleModeVisuals.Secondary };
+        overlayHelp.Set(input.Kind, OverlayHints());
+        actionOverlay.Child = ConsoleOverlayVisuals.SurfaceWithHints(panel, overlayHelp, interactionStatus);
         Button Button(string label, bool enabled, bool selected, Action click, string? description = null, bool primary = false) =>
             ConsoleOverlayVisuals.Row(label, description, null, selected, enabled && !actionBusy, click, primary);
         if (overlayKind == ConsoleOverlay.Settings) RenderSettingsOverlay(panel);

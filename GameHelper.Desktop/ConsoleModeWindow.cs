@@ -17,8 +17,8 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
     private readonly ILaunchWindowHandoff previous;
     private readonly ListBox shelf = new();
     private readonly TextBlock heading = new() { FontSize = 44, Text = "今晚，继续冒险。" };
-    private readonly TextBlock help = new() { FontSize = 22 };
-    private readonly TextBlock globalHelp = new() { FontSize = 13 };
+    private readonly ControllerHintBar help = new();
+    private readonly ControllerHintBar globalHelp = new() { FontSize = 13 };
     private readonly TextBlock info = new() { FontSize = 24, TextWrapping = TextWrapping.Wrap };
     private readonly Grid details = new();
     private readonly Button detailLaunchButton = new() { FontSize = 26, Margin = new Thickness(0,25,0,0), HorizontalAlignment = HorizontalAlignment.Left };
@@ -89,25 +89,6 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
         UpdatePresentation();
         Render();
     }
-    private void UpdateHelp()
-    {
-        var ps = input.Kind == ControllerKind.PlayStation;
-        var a = ps ? "×" : "A"; var b = ps ? "○" : "B"; var x = ps ? "□" : "X"; var y = ps ? "△" : "Y";
-        help.Text = overlayKind switch
-        {
-            ConsoleOverlay.Keyboard => $"方向键 选字符   {a} 输入   {x} 退格   {y} 完成   {b} 取消",
-            ConsoleOverlay.Rating => $"左右 选星   {a} 提交   {x} 填写想法   {b} 跳过",
-            ConsoleOverlay.Confirm => $"{a} 确认   {b} 取消",
-            ConsoleOverlay.Settings => $"上下 选择   左右 调整   {a} 切换 / 保存   {b} 返回（放弃本页调整）",
-            ConsoleOverlay.SystemMenu => $"上下 选择   {a} 确认   {b} 关闭",
-            _ when launchState.ShowOverlay => $"{b} 关闭提示（保留等待）   {(ps ? "Options" : "Start")} 系统菜单",
-            _ when detail && Selected?.IsRunning == true => $"{a} 回到游戏   {x} 游戏设置   {b} 返回   {(ps ? "Options" : "Start")} 系统菜单 / 结束游戏",
-            _ when detail => $"{a} 启动 / 确认   {x} 游戏设置   {b} 返回   {(ps ? "Options" : "Start")} 系统菜单",
-            _ => $"左右 浏览   {(ps ? "L2 / R2" : "LT / RT")} 翻页   {a} 详情   {x} 游戏设置   {b} 退出主机模式   {y} 搜索   {(ps ? "L1 / R1" : "LB / RB")} 页签   {(ps ? "Options" : "Start")} 系统菜单"
-        };
-        globalHelp.Text = ps ? "全局切换  Share/Create + Options" : "全局切换  View/Back + Menu/Start";
-        help.TextWrapping = TextWrapping.Wrap;
-    }
     private void Render()
     {
         launchOverlay.Visibility = launchState.ShowOverlay ? Visibility.Visible : Visibility.Collapsed;
@@ -121,7 +102,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
             detailTitle.Text = g.Name;
             detailSummary.Text = $"{g.Playtime}  ·  {model.ConsoleJournal(g.DataKey).Status}\n{g.LastPlayedLabel}  ·  最近本局评分：{rating}";
             detailController.Text = $"{g.Controller.Label}\n{g.Controller.Description}";
-            detailSettings.Text = $"{g.Summary}  ·  DS4Windows {(g.UseDs4Windows ? "启用" : "关闭")}\n□ / X 快速打开游戏设置";
+            detailSettings.Text = $"{g.Summary}  ·  DS4Windows {(g.UseDs4Windows ? "启用" : "关闭")}";
             info.Text = confirm ? "这款游戏仅部分支持或不支持手柄。请备好键鼠，再次确认即可启动。" : g.IsRunning ? "游戏正在运行。回到游戏继续冒险，或从系统菜单结束游戏。" : "准备好就出发。启动时会应用已保存的游戏自动化设置。";
         }
         status.Text = launchState.Message ?? (interactionStatus.Length > 0 ? interactionStatus : !string.IsNullOrEmpty(model.ActionError) ? model.ActionError : settingsStatus.Length > 0 ? settingsStatus : model.Status);

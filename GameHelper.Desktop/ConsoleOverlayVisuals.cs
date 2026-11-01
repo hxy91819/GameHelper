@@ -11,11 +11,14 @@ internal static class ConsoleOverlayVisuals
     private static readonly SolidColorBrush PrimaryText = ConsoleModeVisuals.Brush("#191320");
 
     internal static Border Surface(StackPanel content, string? hint = null, string? status = null)
+        => SurfaceWithHints(content, string.IsNullOrWhiteSpace(hint) ? null : ConsoleModeVisuals.Label(hint, 16, ConsoleModeVisuals.Secondary), status);
+
+    internal static Border SurfaceWithHints(StackPanel content, UIElement? hint, string? status = null)
     {
         var scroll = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, PanningMode = PanningMode.VerticalOnly };
         var body = new DockPanel();
-        if (!string.IsNullOrWhiteSpace(hint) || !string.IsNullOrWhiteSpace(status))
+        if (hint is not null || !string.IsNullOrWhiteSpace(status))
         {
             var messages = new StackPanel();
             if (!string.IsNullOrWhiteSpace(status))
@@ -23,7 +26,7 @@ internal static class ConsoleOverlayVisuals
                 var feedback = ConsoleModeVisuals.Label(status, 17, ConsoleModeVisuals.Accent);
                 feedback.Margin = new Thickness(0, 0, 0, 8); messages.Children.Add(feedback);
             }
-            if (!string.IsNullOrWhiteSpace(hint)) messages.Children.Add(ConsoleModeVisuals.Label(hint, 16, ConsoleModeVisuals.Secondary));
+            if (hint is not null) messages.Children.Add(hint);
             var help = new Border { Child = messages,
                 BorderBrush = ConsoleModeVisuals.Stroke, BorderThickness = new Thickness(0, 1, 0, 0),
                 Padding = new Thickness(0, 14, 0, 0), Margin = new Thickness(0, 14, 0, 0) };
