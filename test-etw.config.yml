@@ -25,10 +25,11 @@ breakReminder:
   repeatMinutes: 10
   sound: true
 # 显示器预设自动切换默认关闭；完整规则见 docs/guides/monitor-mode.md。
-# U2720QM 默认护眼为单笔 F0=0x0C；其它型号可覆盖 comfortPresets。
-# HDR 开启或状态无法确认时自动跳过 DDC；关闭后恢复规则。
+# 每台设备必须单独绑定与录制配方；旧顶层配方仅作待绑定模板，不自动执行。
+# 只按绑定设备自己的 HDR 状态暂停；未配置电视不会执行预设。
 monitorMode:
   enabled: false
+  displays: []  # 请在全局设置选择实际设备并绑定；空列表不执行任何预设
 games:
   - dataKey: notepad
     executable: notepad.exe

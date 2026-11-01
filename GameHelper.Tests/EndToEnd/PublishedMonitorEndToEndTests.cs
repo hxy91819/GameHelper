@@ -619,10 +619,21 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
         Assert.True(hdr.TryGetEnabled(out var hdrEnabled), "HDR state must be known before physical preset verification.");
         Assert.False(hdrEnabled, "Physical preset verification requires HDR off; this test never toggles HDR.");
         using var sandbox = CreateSandbox();
-        var controller = new DdcMonitorModeController(NullLogger<DdcMonitorModeController>.Instance);
+        var selectedPath = Environment.GetEnvironmentVariable("GAMEHELPER_TEST_DDC_DEVICE_PATH");
+        Assert.False(string.IsNullOrWhiteSpace(selectedPath), "Explicit GAMEHELPER_TEST_DDC_DEVICE_PATH is required; never default to the first screen.");
+        Assert.True(hdr.TryGetDisplays(out var displays));
+        var selected = Assert.Single(displays, display => display.DevicePath.Equals(selectedPath, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("U2720QM", selected.Name, StringComparison.OrdinalIgnoreCase); // This test deliberately uses Dell-specific recipes.
+        var device = selected.Identity!;
+        var controller = new DdcMonitorModeController(NullLogger<DdcMonitorModeController>.Instance, hdr).ForDevice(device)!;
         Assert.True(controller.IsAvailable, "Physical DDC/CI monitor must be online for this verification.");
         var plan = new MonitorModePlan(new GameHelper.Core.Models.MonitorModeSettings { Enabled = true });
-        File.AppendAllText(sandbox.ConfigPath, "\nmonitorMode:\n  enabled: true\n  daylightStart: '00:00'\n  daylightEnd: '23:59'\n");
+        var recipes = new MonitorModeSettings();
+        new YamlConfigProvider(sandbox.ConfigPath).Change(config => config.MonitorMode = new()
+        {
+            Enabled = true, DaylightStart = "00:00", DaylightEnd = "23:59",
+            Displays = [new() { Device = device, GamePresets = recipes.GamePresets, ComfortPresets = recipes.ComfortPresets }]
+        });
         using var app = StartApp(exePath!, sandbox);
         Process? child = null;
         try
@@ -632,7 +643,7 @@ public sealed class PublishedMonitorEndToEndTests(ITestOutputHelper output)
             child = StartProbe(sandbox, "600");
             await VerifyRegistersAsync(GameHelper.Core.Abstractions.MonitorMode.Game, "daylight game start");
             var dayConfig = File.ReadAllText(sandbox.ConfigPath);
-            File.WriteAllText(sandbox.ConfigPath, dayConfig.Replace("daylightEnd: '23:59'", "daylightEnd: '00:00'"));
+            new YamlConfigProvider(sandbox.ConfigPath).Change(config => config.MonitorMode!.DaylightEnd = "00:00");
             await VerifyRegistersAsync(GameHelper.Core.Abstractions.MonitorMode.Comfort, "hot reload to night while game stays alive");
             File.WriteAllText(sandbox.ConfigPath, dayConfig);
             await VerifyRegistersAsync(GameHelper.Core.Abstractions.MonitorMode.Game, "hot reload to day while game stays alive");

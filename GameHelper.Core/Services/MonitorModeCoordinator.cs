@@ -21,16 +21,20 @@ internal sealed class MonitorModeCoordinator
     private readonly Func<Snapshot> _captureSnapshot;
     private readonly MonitorModeScheduler _monitorModeScheduler = new();
     private readonly object _monitorModeUpdateLock = new();
-    private MonitorModePlan? _monitorModePlan;
     private MonitorModeSettings? _monitorModeSettings;
     private UserCoordinate? _monitorModeCoordinates;
     private DateTime? _monitorModeCoordinatesAt;
-    private bool? _lastMonitorModeControllerAvailable;
     private int _locationBootstrapInFlight;
     private long? _locationBootstrapKickTimestamp;
-    private bool? _lastMonitorModeAnyGameActive;
-    private bool? _lastMonitorModeDaylight;
-    private bool _lastMonitorModeHdrPause;
+    private Entry[] _entries = [];
+    private sealed class Entry(MonitorDeviceIdentity device, MonitorModePlan plan, IMonitorModeController controller)
+    {
+        internal readonly MonitorDeviceIdentity Device = device;
+        internal readonly MonitorModePlan Plan = plan;
+        internal readonly IMonitorModeController Controller = controller;
+        internal (bool Game, bool Daylight, bool Available, string Path)? Last;
+        internal string? Pause;
+    }
 
     internal MonitorModeCoordinator(IMonitorModeController? controller, IHdrController hdr,
         IUserLocationSource? locationSource, ILocationCacheStore? locationCacheStore,
@@ -50,21 +54,34 @@ internal sealed class MonitorModeCoordinator
 
     internal object UpdateLock => _monitorModeUpdateLock;
 
-    internal sealed record Snapshot(bool AnyGameActive, IReadOnlyList<string> HdrGameKeys, bool OwnsHdr, bool Started);
+    internal sealed record Snapshot(bool AnyGameActive, bool Started);
 
     // Called with the service state lock held; these methods never enter UpdateLock.
     internal void Configure(MonitorModeSettings? settings)
     {
         _monitorModeSettings = settings;
-        _monitorModePlan = MonitorModePlan.TryCreate(settings, _logger, ResolveMonitorModeCoordinates);
+        var entries = new List<Entry>();
+        if (settings?.Enabled == true)
+        {
+            try
+            {
+                settings.Validate();
+                foreach (var profile in settings.Displays.Where(profile => profile.Enabled))
+                {
+                    var plan = MonitorModePlan.TryCreate(settings.ForDisplay(profile), _logger, ResolveMonitorModeCoordinates);
+                    var controller = _monitorModeController?.ForDevice(profile.Device);
+                    if (plan is not null && controller is not null) entries.Add(new(profile.Device, plan, controller));
+                }
+                if (settings.Displays.Count == 0) _logger.LogInformation("显示器预设待绑定：旧配方已保留，未绑定设备时不执行自动切换。");
+            }
+            catch (ArgumentException ex) { entries.Clear(); _logger.LogWarning(ex, "Invalid bound monitor profiles; preset automation disabled."); }
+        }
+        _entries = entries.ToArray();
     }
 
     internal void Reset()
     {
-        _lastMonitorModeAnyGameActive = null;
-        _lastMonitorModeDaylight = null;
-        _lastMonitorModeControllerAvailable = null;
-        _lastMonitorModeHdrPause = false;
+        foreach (var entry in _entries) { entry.Last = null; entry.Pause = null; }
     }
 
     /// <summary>
@@ -82,18 +99,14 @@ internal sealed class MonitorModeCoordinator
                 return;
             }
 
-            MonitorModePlan? plan;
+            Entry[] entries;
             var anyGameActive = false;
-            IReadOnlyList<string> hdrGameKeys;
-            var ownsHdr = false;
             lock (_stateLock)
             {
                 var snapshot = _captureSnapshot();
-                ownsHdr = snapshot.OwnsHdr;
-                plan = _monitorModePlan;
-                if (!snapshot.Started || plan is null) return;
+                entries = _entries;
+                if (!snapshot.Started || entries.Length == 0) return;
                 anyGameActive = snapshot.AnyGameActive;
-                hdrGameKeys = snapshot.HdrGameKeys;
                 // 显示器从系统消失/回来会改变控制器可用性：这属于必须重新评估的变化
                 // （显示器离线期间档位可能停在被强制写入过的状态，回来需要对齐）。
                 // location=auto 且还没有坐标时，随 tick 自愈式重试坐标引导：
@@ -124,70 +137,48 @@ internal sealed class MonitorModeCoordinator
 
             }
 
-            try
+            // HDR and availability are evaluated for the bound display, not another screen.
+            IReadOnlyList<HdrDisplayInfo> displays = [];
+            bool known;
+            try { known = _hdr.TryGetDisplays(out displays); }
+            catch (Exception) { known = false; }
+            foreach (var entry in entries)
             {
-                // 规则排除且无租约的库内游戏可降级为 SDR 预设；
-                // 系统 HDR 已开启或无法确认时，始终不做 DDC/CI 探测与写档。
-                // 暂停路径让变更门失效，HDR 退出后无需新事件即可重评档位。
-                var hdrKnown = _hdr.TryGetEnabled(out var hdrEnabled);
-                var excludedWithoutLease = hdrGameKeys.Count > 0 && !ownsHdr && hdrKnown && !hdrEnabled &&
-                    _hdr.GetAutomationAvailability() == HdrAutomationAvailability.ExcludedByPolicy;
-                var hdrPresetPause = !hdrKnown || hdrEnabled || (hdrGameKeys.Count > 0 && !excludedWithoutLease);
-                if (hdrPresetPause)
+                try
                 {
+                    lock (_stateLock) if (!_captureSnapshot().Started || !ReferenceEquals(entries, _entries)) return;
+                    var display = known ? entry.Device.Resolve(displays) : null;
+                    var pause = !known ? "无法确认显示设备状态" : display is null ? "设备离线或身份不唯一" : display.Enabled ? "该设备 HDR 已开启" : null;
+                    if (pause is null && entries.Count(other => string.Equals(other.Device.Resolve(displays)?.DevicePath, display!.DevicePath, StringComparison.OrdinalIgnoreCase)) > 1)
+                        pause = "多份配方指向同一设备";
                     lock (_stateLock)
                     {
-                        _lastMonitorModeDaylight = null;
-                        _lastMonitorModeControllerAvailable = null;
+                        if (pause is not null)
+                        {
+                            entry.Last = null;
+                            if (entry.Pause != pause) _logger.LogInformation("显示器 {Device} 预设暂停：{Reason}。", entry.Device.Name, pause);
+                            entry.Pause = pause;
+                            continue;
+                        }
+                        if (entry.Pause is not null) _logger.LogInformation("显示器 {Device} 预设恢复。", entry.Device.Name);
+                        entry.Pause = null;
                     }
-                    if (!_lastMonitorModeHdrPause)
+                    var available = entry.Controller.IsAvailable;
+                    var daylight = entry.Plan.Daylight.IsDaylight(_timeProvider.GetLocalNow());
+                    var state = (anyGameActive, daylight, available, display!.DevicePath);
+                    lock (_stateLock)
                     {
-                        _lastMonitorModeHdrPause = true;
-                        _logger.LogInformation(
-                            "显示器预设自动化暂停：{Reason}。",
-                            hdrGameKeys.Count > 0
-                                ? $"HDR 自动化游戏活跃（{string.Join("、", hdrGameKeys)}）"
-                                : "系统 HDR 已开启或状态未知");
+                        if (!_captureSnapshot().Started || !ReferenceEquals(entries, _entries)) return;
+                        if (!forced && entry.Last == state) continue;
+                        entry.Last = state;
                     }
-                    return;
+                    if (!_monitorModeScheduler.Update(entry.Plan, anyGameActive, entry.Controller, _logger, _timeProvider.GetLocalNow()))
+                        lock (_stateLock) entry.Last = null;
                 }
-                if (_lastMonitorModeHdrPause)
+                catch (Exception ex)
                 {
-                    _lastMonitorModeHdrPause = false;
-                    _logger.LogInformation("显示器预设自动化恢复：系统确认 SDR，且没有需要让位的 HDR 自动化。");
-                }
-                // Availability probing can perform DDC I/O; never hold the session state lock.
-                var controllerAvailable = controller.IsAvailable;
-                var daylight = plan.Daylight.IsDaylight(_timeProvider.GetLocalNow());
-                lock (_stateLock)
-                {
-                    if (!_captureSnapshot().Started) return;
-                    if (!forced
-                        && _lastMonitorModeAnyGameActive == anyGameActive
-                        && _lastMonitorModeDaylight == daylight
-                        && _lastMonitorModeControllerAvailable == controllerAvailable)
-                    {
-                        return;
-                    }
-
-                    _lastMonitorModeAnyGameActive = anyGameActive;
-                    _lastMonitorModeDaylight = daylight;
-                    _lastMonitorModeControllerAvailable = controllerAvailable;
-                }
-
-                if (!_monitorModeScheduler.Update(plan, anyGameActive, controller, _logger, _timeProvider.GetLocalNow()))
-                {
-                    lock (_stateLock) _lastMonitorModeDaylight = null;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Monitor mode update failed; the next event or tick will retry.");
-                lock (_stateLock)
-                {
-                    // Invalidate the change gate so subsequent ticks retry even without a state change.
-                    _lastMonitorModeDaylight = null;
-                    _lastMonitorModeControllerAvailable = null;
+                    _logger.LogWarning(ex, "Monitor mode update failed for {Device}; the next tick will retry.", entry.Device.Name);
+                    lock (_stateLock) entry.Last = null;
                 }
             }
         }
@@ -207,7 +198,7 @@ internal sealed class MonitorModeCoordinator
             settings = _monitorModeSettings;
             if (!NeedsAutoLocation(settings)) return null;
             if (_monitorModeCoordinates.HasValue) return _monitorModeCoordinates;
-            if (_locationCacheStore is null || _monitorModePlan is null) return null;
+            if (_locationCacheStore is null || _entries.Length == 0) return null;
         }
 
         var cached = _locationCacheStore.Load();

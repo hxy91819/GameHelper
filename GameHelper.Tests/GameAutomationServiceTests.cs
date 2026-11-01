@@ -30,6 +30,9 @@ namespace GameHelper.Tests
 
     file sealed class FakeHdr : IHdrController
     {
+        public bool TryGetDisplays(out IReadOnlyList<HdrDisplayInfo> displays)
+        { displays = [new("desk", "desk-path", true, IsEnabled, false, true)]; return true; }
+
         public int EnableCalls { get; private set; }
         public int DisableCalls { get; private set; }
         public bool IsEnabled { get; private set; }
@@ -576,6 +579,7 @@ namespace GameHelper.Tests
             var monitor = new FakeMonitor();
             var launcher = new FakeLauncher();
             var controller = new Mock<IMonitorModeController>();
+            controller.Setup(c => c.ForDevice(It.IsAny<MonitorDeviceIdentity>())).Returns(controller.Object);
             controller.SetupGet(c => c.IsAvailable).Returns(true);
             Action? onApply = null;
             controller.Setup(c => c.Apply(It.IsAny<IReadOnlyList<MonitorModeWrite>>())).Callback(() => onApply?.Invoke());
@@ -1583,28 +1587,17 @@ namespace GameHelper.Tests
             Assert.Equal(MonitorMode.Comfort, controller.Modes[^1]);
         }
 
-        private static MonitorModeSettings AlwaysDaylightPresets() => new()
+        private static MonitorModeSettings AlwaysDaylightPresets()
         {
-            Enabled = true,
-            DaylightStart = "00:00",
-            DaylightEnd = "23:59",
-            GamePresets =
-            [
-                new() { Code = "DC", Value = "0x05" },
-                new() { Code = "E2", Value = "0x04" },
-                new() { Code = "F0", Value = "0x00" }
-            ],
-            ComfortPresets =
-            [
-                new() { Code = "DC", Value = "0x00" },
-                new() { Code = "E2", Value = "0x1D" },
-                new() { Code = "F0", Value = "0x0C" }
-            ]
-        };
+            var recipes = new MonitorModeSettings();
+            return new() { Enabled = true, DaylightStart = "00:00", DaylightEnd = "23:59", Displays =
+                [new() { Device = new() { Name = "desk", DevicePath = "desk-path" }, GamePresets = recipes.GamePresets, ComfortPresets = recipes.ComfortPresets }] };
+        }
     }
 
     file sealed class RecordingMonitorModeController : IMonitorModeController
     {
+        public IMonitorModeController ForDevice(MonitorDeviceIdentity device) => this;
         public List<IReadOnlyList<MonitorModeWrite>> Recipes { get; } = new();
         public List<MonitorMode> Modes { get; } = new();
         public int ReadCount { get; private set; }

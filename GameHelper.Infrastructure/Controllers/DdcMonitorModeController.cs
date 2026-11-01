@@ -20,6 +20,7 @@ namespace GameHelper.Infrastructure.Controllers;
 public sealed class DdcMonitorModeController : IMonitorModeController
 {
     private readonly IHdrController? _hdr;
+    private readonly MonitorDeviceIdentity? _target;
     private const int ReadAttempts = 2;
     private const int ReadRetryDelayMs = 50;
     private const int WriteSettleDelayMs = 400;
@@ -54,6 +55,18 @@ public sealed class DdcMonitorModeController : IMonitorModeController
         public int Right;
         public int Bottom;
     }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct MONITORINFOEX
+    {
+        public uint Size;
+        public RECT Monitor, Work;
+        public uint Flags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string Device;
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW")]
+    private static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFOEX info);
 
     [DllImport("user32.dll")]
     private static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr rect, MonitorEnumProc callback, IntPtr data);
@@ -140,17 +153,19 @@ public sealed class DdcMonitorModeController : IMonitorModeController
         private readonly int _slotSize;
         private bool _disposed;
 
-        public PhysicalMonitorSession(IntPtr[] handles, string description, uint count, int slotSize)
+        public PhysicalMonitorSession(IntPtr[] handles, string description, uint count, int slotSize, HdrDisplayInfo? display = null)
         {
             _handles = handles;
             Description = description;
             _count = count;
             _slotSize = slotSize;
+            Display = display;
         }
 
         public IntPtr Handle => _handles.Length > 0 ? _handles[0] : IntPtr.Zero;
 
         public string Description { get; }
+        public HdrDisplayInfo? Display { get; }
 
         public bool IsValid => !_disposed && _handles.Length > 0 && _handles[0] != IntPtr.Zero;
 
@@ -196,20 +211,36 @@ public sealed class DdcMonitorModeController : IMonitorModeController
     }
 
     public DdcMonitorModeController(ILogger<DdcMonitorModeController> logger, IHdrController? hdr = null)
-        : this(logger, null, null)
+        : this(logger, null, null, false)
     {
         _hdr = hdr;
+    }
+
+    private DdcMonitorModeController(ILogger<DdcMonitorModeController> logger, IHdrController? hdr, MonitorDeviceIdentity target, object busLock)
+        : this(logger, null, null, false)
+    {
+        _hdr = hdr;
+        _busLock = busLock;
+        _target = new() { Name = target.Name, DevicePath = target.DevicePath, HardwareKey = target.HardwareKey };
+    }
+
+    /// <inheritdoc />
+    public IMonitorModeController? ForDevice(MonitorDeviceIdentity device)
+    {
+        if (string.IsNullOrWhiteSpace(device.DevicePath)) return null;
+        return new DdcMonitorModeController(_logger, _hdr, device, _busLock);
     }
 
     internal DdcMonitorModeController(
         ILogger<DdcMonitorModeController> logger,
         Func<(bool Available, string Description)>? availabilityProbe,
-        Func<int>? tickCount)
+        Func<int>? tickCount, bool probeImmediately = true)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _availabilityProbe = availabilityProbe ?? (() => RunOnSta(ProbeControllableMonitor));
         _tickCount = tickCount ?? (() => Environment.TickCount);
         _detectedAvailable = false;
+        if (!probeImmediately) { _lastAvailabilityProbeTick = unchecked(_tickCount() - AvailabilityReProbeCooldownMs); return; }
 
         if (!OperatingSystem.IsWindows())
         {
@@ -308,15 +339,12 @@ public sealed class DdcMonitorModeController : IMonitorModeController
             {
                 lock (_busLock)
                 {
-                    if (!_hdr.TryGetDisplays(out var displays) || displays.Count == 0 || displays.Any(display => display.Enabled)) return null;
-                    using var session = AcquireFirstPhysicalMonitor();
+                    using var session = AcquireTargetPhysicalMonitor();
                     if (!session.IsValid) return null;
                     var values = ReadCandidates(code => TryReadCode(session.Handle, code, out var value) ? value : null);
                     // A second query rejects topology/HDR changes during the potentially slow bus reads.
-                    var identity = string.Join("|", displays.Select(d => d.DevicePath).OrderBy(p => p, StringComparer.Ordinal));
-                    if (!_hdr.TryGetDisplays(out var current) || current.Any(d => d.Enabled) ||
-                        identity != string.Join("|", current.Select(d => d.DevicePath).OrderBy(p => p, StringComparer.Ordinal))) return null;
-                    return values.Count == 0 ? null : new MonitorModeSnapshot(identity + "|" + session.Description, values);
+                    if (!IsCurrent(session)) return null;
+                    return values.Count == 0 ? null : new MonitorModeSnapshot(session.Display!.DevicePath + "|" + _target!.Key(), values);
                 }
             });
         }
@@ -343,7 +371,7 @@ public sealed class DdcMonitorModeController : IMonitorModeController
 
     private IReadOnlyDictionary<byte, uint>? TryReadStateCore(IReadOnlyList<MonitorModeWrite> probeCodes)
     {
-        using var session = AcquireFirstPhysicalMonitor();
+        using var session = AcquireTargetPhysicalMonitor();
         if (!session.IsValid)
         {
             return null;
@@ -364,7 +392,7 @@ public sealed class DdcMonitorModeController : IMonitorModeController
             state[probe.Code] = value;
         }
 
-        return state;
+        return IsCurrent(session) ? state : null;
     }
 
     /// <inheritdoc />
@@ -395,7 +423,7 @@ public sealed class DdcMonitorModeController : IMonitorModeController
 
     private void ApplyCore(IReadOnlyList<MonitorModeWrite> writes)
     {
-        using var session = AcquireFirstPhysicalMonitor();
+        using var session = AcquireTargetPhysicalMonitor();
         if (!session.IsValid)
         {
             _logger.LogWarning("No controllable monitor available; preset recipe skipped.");
@@ -406,6 +434,8 @@ public sealed class DdcMonitorModeController : IMonitorModeController
         for (var index = 0; index < writes.Count; index++)
         {
             var write = writes[index];
+            // Never reuse a handle after a disconnect, topology change, or HDR transition.
+            if (!IsCurrent(session)) return;
             if (!SetVCPFeature(session.Handle, write.Code, write.Value))
             {
                 allWritten = false;
@@ -435,12 +465,36 @@ public sealed class DdcMonitorModeController : IMonitorModeController
     /// <summary>Probes for a controllable monitor; runs on the STA worker via <see cref="RunOnSta{T}"/>.</summary>
     private (bool Available, string Description) ProbeControllableMonitor()
     {
-        using var session = AcquireFirstPhysicalMonitor();
+        using var session = AcquireTargetPhysicalMonitor();
         return (session.IsValid, session.Description);
     }
 
-    private PhysicalMonitorSession AcquireFirstPhysicalMonitor()
+    private bool IsCurrent(PhysicalMonitorSession session)
     {
+        var current = ResolveDisplay();
+        return current is not null && session.Display is not null &&
+            string.Equals(current.DevicePath, session.Display.DevicePath, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(current.GdiDeviceName, session.Display.GdiDeviceName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private HdrDisplayInfo? ResolveDisplay()
+    {
+        if (_target is null || _hdr is null || !_hdr.TryGetDisplays(out var displays)) return null;
+        return ResolveDevice(_target, displays);
+    }
+
+    internal static HdrDisplayInfo? ResolveDevice(MonitorDeviceIdentity target, IReadOnlyList<HdrDisplayInfo> displays)
+    {
+        var display = target.Resolve(displays);
+        // Clone paths and multiple physical monitors cannot be safely mapped by array order.
+        return display is not null && !display.Enabled && !string.IsNullOrWhiteSpace(display.GdiDeviceName) &&
+            displays.Count(d => string.Equals(d.GdiDeviceName, display.GdiDeviceName, StringComparison.OrdinalIgnoreCase)) == 1 ? display : null;
+    }
+
+    private PhysicalMonitorSession AcquireTargetPhysicalMonitor()
+    {
+        var display = ResolveDisplay();
+        if (display is null) return PhysicalMonitorSession.Invalid();
         var handles = new List<IntPtr>();
         var enumProc = new MonitorEnumProc((IntPtr hMonitor, IntPtr hdcMonitor, ref RECT rect, IntPtr data) =>
         {
@@ -459,8 +513,10 @@ public sealed class DdcMonitorModeController : IMonitorModeController
 
         foreach (var hMonitor in handles)
         {
+            var monitorInfo = new MONITORINFOEX { Size = (uint)Marshal.SizeOf<MONITORINFOEX>() };
+            if (!GetMonitorInfo(hMonitor, ref monitorInfo) || !string.Equals(monitorInfo.Device, display.GdiDeviceName, StringComparison.OrdinalIgnoreCase)) continue;
             var count = 0u;
-            if (!GetNumberOfPhysicalMonitorsFromHMONITOR(hMonitor, ref count) || count == 0)
+            if (!GetNumberOfPhysicalMonitorsFromHMONITOR(hMonitor, ref count) || count != 1)
             {
                 continue;
             }
@@ -506,7 +562,7 @@ public sealed class DdcMonitorModeController : IMonitorModeController
                     continue;
                 }
 
-                return new PhysicalMonitorSession(monitorHandles, description, count, slotSize);
+                return new PhysicalMonitorSession(monitorHandles, description, count, slotSize, display);
             }
             finally
             {

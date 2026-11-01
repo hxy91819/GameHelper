@@ -128,7 +128,8 @@ public sealed class WindowsHdrController : IHdrController, IPrimaryDisplayHdrCon
         {
             if (!RefreshState()) { displays = Array.Empty<HdrDisplayInfo>(); return false; }
             displays = _displays.Select(d => new HdrDisplayInfo(d.Name, d.DevicePath,
-                d.Supported, d.Enabled, d.ForceDisabled, Allows(d))).ToArray();
+                d.Supported, d.Enabled, d.ForceDisabled, Allows(d),
+                MonitorEdidIdentity.Read(d.Name, d.DevicePath), d.GdiDeviceName)).ToArray();
             return true;
         }
     }
@@ -419,6 +420,17 @@ public sealed class WindowsHdrController : IHdrController, IPrimaryDisplayHdrCon
                 throw new Win32Exception((int)status, "Cannot identify an active display for HDR selection.");
             var name = status == ErrorSuccess ? GetDisplayName(targetName) : $"Display {i + 1}";
 
+            var sourceName = new DISPLAYCONFIG_SOURCE_DEVICE_NAME
+            {
+                header = new DISPLAYCONFIG_DEVICE_INFO_HEADER
+                {
+                    type = DISPLAYCONFIG_DEVICE_INFO_TYPE.DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+                    size = (uint)Marshal.SizeOf<DISPLAYCONFIG_SOURCE_DEVICE_NAME>(),
+                    adapterId = paths[i].sourceInfo.adapterId, id = paths[i].sourceInfo.id
+                }
+            };
+            var sourceKnown = DisplayConfigGetDeviceInfo(ref sourceName) == ErrorSuccess;
+
             result.Add(new DisplayAdvancedColorInfo(
                 name,
                 info.AdvancedColorSupported,
@@ -431,7 +443,8 @@ public sealed class WindowsHdrController : IHdrController, IPrimaryDisplayHdrCon
                 paths[i].sourceInfo.modeInfoIdx < modeCount &&
                 modes[paths[i].sourceInfo.modeInfoIdx].infoType == 1 &&
                 modes[paths[i].sourceInfo.modeInfoIdx].sourceX == 0 &&
-                modes[paths[i].sourceInfo.modeInfoIdx].sourceY == 0));
+                modes[paths[i].sourceInfo.modeInfoIdx].sourceY == 0,
+                sourceKnown ? sourceName.viewGdiDeviceName : ""));
         }
 
         return result;
@@ -609,6 +622,9 @@ public sealed class WindowsHdrController : IHdrController, IPrimaryDisplayHdrCon
     private static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_TARGET_DEVICE_NAME requestPacket);
 
     [DllImport("user32.dll")]
+    private static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_SOURCE_DEVICE_NAME requestPacket);
+
+    [DllImport("user32.dll")]
     private static extern int DisplayConfigSetDeviceInfo(ref DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE requestPacket);
 
     [DllImport("user32.dll", SetLastError = true)]
@@ -718,6 +734,13 @@ public sealed class WindowsHdrController : IHdrController, IPrimaryDisplayHdrCon
         public string monitorDevicePath;
     }
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct DISPLAYCONFIG_SOURCE_DEVICE_NAME
+    {
+        public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string viewGdiDeviceName;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO
     {
@@ -781,7 +804,7 @@ public sealed class WindowsHdrController : IHdrController, IPrimaryDisplayHdrCon
     }
 
     internal readonly record struct DisplayAdvancedColorInfo(string Name, bool Supported, bool Enabled, bool ForceDisabled,
-        string DevicePath = "", uint AdapterLow = 0, int AdapterHigh = 0, uint TargetId = 0, bool Primary = false);
+        string DevicePath = "", uint AdapterLow = 0, int AdapterHigh = 0, uint TargetId = 0, bool Primary = false, string GdiDeviceName = "");
 
     #endregion
 }

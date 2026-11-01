@@ -14,14 +14,17 @@ public sealed class MonitorModePresetData
 }
 
 /// <summary>
-/// Global monitor preset-mode automation settings. Missing configuration disables the feature.
-/// Default presets fit a Dell U2720QM (Game mode / ComfortView over DDC/CI); other monitors
-/// can override the recipes below.
+/// Shared daylight policy and explicitly bound per-display preset automation.
+/// Legacy top-level recipes remain as explicit binding templates for Dell U2720QM;
+/// automation evaluates only the recipes stored under bound display profiles.
 /// </summary>
 public sealed class MonitorModeSettings
 {
     /// <summary>Master switch for automatic preset switching.</summary>
     public bool Enabled { get; set; }
+
+    /// <summary>Only these bound devices can receive automatic writes. Empty means no writes.</summary>
+    public List<MonitorModeDisplayProfile> Displays { get; set; } = [];
 
     /// <summary>
     /// Coordinate source: "off" (default; use the fixed daylight window only) or "auto"
@@ -46,10 +49,10 @@ public sealed class MonitorModeSettings
     /// </summary>
     public string? DaylightEnd { get; set; } = "18:30";
 
-    /// <summary>DDC/CI recipe applied when the game preset is wanted. Order matters.</summary>
+    /// <summary>Legacy game recipe template. Inert until explicitly copied into a device profile.</summary>
     public List<MonitorModePresetData> GamePresets { get; set; } = U2720QMGamePresets();
 
-    /// <summary>DDC/CI recipe applied when the comfort preset is wanted. Order matters.</summary>
+    /// <summary>Legacy comfort recipe template. Inert until explicitly copied into a device profile.</summary>
     public List<MonitorModePresetData> ComfortPresets { get; set; } = U2720QMComfortPresets();
 
     /// <summary>Rejects invalid configuration without silently rewriting user values.</summary>
@@ -57,6 +60,16 @@ public sealed class MonitorModeSettings
     {
         ValidatePresets(GamePresets, nameof(GamePresets));
         ValidatePresets(ComfortPresets, nameof(ComfortPresets));
+        if (Displays is null) throw new ArgumentException("monitorMode.displays cannot be null.");
+        var identities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var profile in Displays)
+        {
+            if (profile?.Device is null) throw new ArgumentException("显示器预设缺少设备绑定。");
+            profile.Device.Validate();
+            if (!identities.Add(profile.Device.Key())) throw new ArgumentException("同一显示设备只能保存一套预设配置。");
+            ValidatePresets(profile.GamePresets, "displays.gamePresets");
+            ValidatePresets(profile.ComfortPresets, "displays.comfortPresets");
+        }
 
         ParseTime(DaylightStart, "monitorMode.daylightStart");
         ParseTime(DaylightEnd, "monitorMode.daylightEnd");
@@ -95,6 +108,14 @@ public sealed class MonitorModeSettings
     {
         // U2720QM firmware applies DC=00 and E2=1D together when F0 selects ComfortView.
         new MonitorModePresetData { Code = "F0", Value = "0x0C" }
+    };
+
+    /// <summary>Builds a detached recipe/daylight input for one configured device.</summary>
+    public MonitorModeSettings ForDisplay(MonitorModeDisplayProfile profile) => new()
+    {
+        Enabled = Enabled && profile.Enabled, Location = Location, Latitude = Latitude, Longitude = Longitude,
+        DaylightStart = DaylightStart, DaylightEnd = DaylightEnd,
+        GamePresets = profile.GamePresets, ComfortPresets = profile.ComfortPresets
     };
 
     private static void ValidatePresets(List<MonitorModePresetData> presets, string fieldName)

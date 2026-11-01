@@ -14,6 +14,9 @@ namespace GameHelper.Core.Abstractions;
 /// </summary>
 public interface IMonitorModeController
 {
+    /// <summary>Creates a controller bound to exactly one device; unsupported adapters fail closed.</summary>
+    IMonitorModeController? ForDevice(MonitorDeviceIdentity device) => null;
+
     /// <summary>Reads recording candidates without writing; null when HDR state is unknown/on or the monitor is offline.</summary>
     MonitorModeSnapshot? ReadSnapshot() => null;
 
@@ -21,8 +24,8 @@ public interface IMonitorModeController
     bool IsAvailable { get; }
 
     /// <summary>
-    /// Reads the current value of the given VCP codes from the first controllable
-    /// physical monitor. Returns null when any value could not be read (unsupported
+    /// Reads the current value of the given VCP codes from the bound physical
+    /// monitor. Returns null when any value could not be read (unsupported
     /// code, bus failure, monitor asleep, ...).
     /// </summary>
     IReadOnlyDictionary<byte, uint>? TryReadState(IReadOnlyList<MonitorModeWrite> probeCodes);

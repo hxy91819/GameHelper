@@ -173,6 +173,7 @@ public sealed class GlobalSettingsTests : IDisposable
         var snapshot = new AppSettingsSnapshot { LaunchOnSystemStartup = true };
         settings.Setup(service => service.Get()).Returns(snapshot);
         settings.Setup(service => service.Update(It.IsAny<UpdateAppSettingsRequest>())).Returns(snapshot);
+        monitorMode.Setup(controller => controller.ForDevice(It.IsAny<MonitorDeviceIdentity>())).Returns(monitorMode.Object);
         monitorMode.Setup(controller => controller.ReadSnapshot()).Returns(new MonitorModeSnapshot("test", [new(0xDC, 1)]));
         sync.Setup(service => service.GetStatus()).Returns(new SyncStatusInfo { Repo = "owner/repo" });
         sync.Setup(service => service.ValidateAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new SyncOutcome(SyncOutcomeStatus.Validated));
@@ -184,7 +185,7 @@ public sealed class GlobalSettingsTests : IDisposable
                      GameLibraryOperation.DdcSnapshot, GameLibraryOperation.SyncStatus, GameLibraryOperation.SyncValidate, GameLibraryOperation.SyncPush })
         {
             var request = await PipeRoundTripAsync(new GameLibraryRequest
-                { Operation = operation, Settings = new() { LaunchOnSystemStartup = true } });
+                { Operation = operation, MonitorDevice = new() { Name = "desk", DevicePath = "desk-path" }, Settings = new() { LaunchOnSystemStartup = true } });
             var response = await PipeRoundTripAsync(await library.ExecuteAsync(request));
             Assert.True(response.Success);
             switch (operation)

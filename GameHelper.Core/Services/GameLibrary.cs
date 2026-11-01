@@ -52,9 +52,9 @@ public sealed class GameLibrary(
             case GameLibraryOperation.DdcSnapshot:
                 if (configuration.Read().MonitorMode?.Enabled == true)
                     throw new InvalidOperationException("请先保存关闭显示器自动预设，再录制，以免自动切换影响采样。");
-                var sample = monitorMode?.ReadSnapshot();
+                var sample = request.MonitorDevice is null ? null : monitorMode?.ForDevice(request.MonitorDevice)?.ReadSnapshot();
                 return Task.FromResult(new GameLibraryResponse { Success = sample is not null, DdcSnapshot = sample,
-                    Error = sample is null ? "无法读取显示器：请确认显示器在线、DDC/CI 已开启且所有显示器 HDR 已关闭。" : null });
+                    Error = sample is null ? "无法读取选定显示器：请确认已选择具体设备、设备在线、DDC/CI 已开启且该设备 HDR 已关闭。" : null });
             case GameLibraryOperation.SyncStatus:
                 return Task.FromResult(new GameLibraryResponse { Success = true, SyncStatus = RequireSync().GetStatus() });
             case GameLibraryOperation.SyncValidate:

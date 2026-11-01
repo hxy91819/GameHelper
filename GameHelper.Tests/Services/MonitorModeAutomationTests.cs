@@ -33,7 +33,7 @@ public sealed class MonitorModeAutomationTests
         {
             Hdr = whitelist ? new HdrSettings { AllowedDisplays = ["TV"] }
                 : new HdrSettings { DisabledDisplays = ["desk-path"] },
-            MonitorMode = new MonitorModeSettings { Enabled = true, DaylightStart = "00:00", DaylightEnd = "23:59" },
+            MonitorMode = new MonitorModeSettings { Displays = Profiles(), Enabled = true, DaylightStart = "00:00", DaylightEnd = "23:59" },
             Games = [new() { DataKey = "game", Executable = "game.exe", HdrEnabled = true, IsEnabled = true,
                 Launch = new() { Target = @"C:\Games\game.exe" } }]
         };
@@ -62,7 +62,8 @@ public sealed class MonitorModeAutomationTests
             if (televisionConnected)
             {
                 Assert.Equal(new[] { ("TV", true) }, hdrWrites);
-                Assert.Equal(initialTouches, ddc.Touches);
+                Assert.True(ddc.Touches > initialTouches);
+                Assert.Equal(0u, ddc.State[0xF0]); // Television HDR does not pause the SDR desk display.
                 // Hot reload must not treat an existing lease as a policy-skipped launch,
                 // even if an external actor turns HDR off before the next evaluation.
                 config.Hdr = new HdrSettings { DisabledDisplays = ["desk", "TV"] };
@@ -70,7 +71,8 @@ public sealed class MonitorModeAutomationTests
                 automation.ReloadConfig();
                 Assert.Equal(HdrAutomationAvailability.ExcludedByPolicy, hdr.GetAutomationAvailability());
                 clock.Tick();
-                Assert.Equal(initialTouches, ddc.Touches);
+                Assert.True(ddc.Touches > initialTouches);
+                Assert.Equal(0u, ddc.State[0xF0]); // Television HDR does not pause the SDR desk display.
             }
             else
             {
@@ -103,7 +105,7 @@ public sealed class MonitorModeAutomationTests
         var config = new AppConfig
         {
             Hdr = new HdrSettings { AllowedDisplays = ["TV"] },
-            MonitorMode = new MonitorModeSettings { Enabled = true, DaylightStart = "00:00", DaylightEnd = "23:59" },
+            MonitorMode = new MonitorModeSettings { Displays = Profiles(), Enabled = true, DaylightStart = "00:00", DaylightEnd = "23:59" },
             Games = [new() { DataKey = "game", Executable = "game.exe", HdrEnabled = true, IsEnabled = true }]
         };
         var source = new Mock<IGameConfiguration>();
@@ -138,7 +140,7 @@ public sealed class MonitorModeAutomationTests
     {
         var config = new AppConfig
         {
-            MonitorMode = new MonitorModeSettings { Enabled = true },
+            MonitorMode = new MonitorModeSettings { Displays = Profiles(), Enabled = true },
             Games = new() { new GameConfig { DataKey = "game", Executable = "game.exe", IsEnabled = true } }
         };
         var source = new Mock<IGameConfiguration>();
@@ -169,7 +171,7 @@ public sealed class MonitorModeAutomationTests
     public void HdrEnabledOrUnknown_ThenSdr_ReevaluatesUnchangedPresetRule(bool querySucceeded)
     {
         var source = new Mock<IGameConfiguration>();
-        source.Setup(c => c.Read()).Returns(new AppConfig { MonitorMode = new MonitorModeSettings { Enabled = true } });
+        source.Setup(c => c.Read()).Returns(new AppConfig { MonitorMode = new MonitorModeSettings { Displays = Profiles(), Enabled = true } });
         var clock = new Clock();
         var controller = new Controller();
         var hdr = new Hdr();
@@ -198,7 +200,7 @@ public sealed class MonitorModeAutomationTests
     [Fact]
     public async Task AutoLocation_CooldownTicksDoNotPreventLaterRetry()
     {
-        var config = new AppConfig { MonitorMode = new MonitorModeSettings { Enabled = true, Location = "auto" } };
+        var config = new AppConfig { MonitorMode = new MonitorModeSettings { Displays = Profiles(), Enabled = true, Location = "auto" } };
         var source = new Mock<IGameConfiguration>();
         source.Setup(c => c.Read()).Returns(config);
         var location = new Mock<IUserLocationSource>();
@@ -225,7 +227,7 @@ public sealed class MonitorModeAutomationTests
     [Fact]
     public void Reload_ChangesRecipeImmediately_AndStoppedTicksDoNotWrite()
     {
-        var config = new AppConfig { MonitorMode = new MonitorModeSettings { Enabled = true } };
+        var config = new AppConfig { MonitorMode = new MonitorModeSettings { Displays = Profiles(), Enabled = true } };
         var source = new Mock<IGameConfiguration>();
         source.Setup(c => c.Read()).Returns(() => config);
         var clock = new Clock();
@@ -235,7 +237,7 @@ public sealed class MonitorModeAutomationTests
             monitorModeController: controller, timeProvider: clock);
         automation.Start();
         Assert.Equal(0x0Cu, controller.State[0xF0]);
-        config.MonitorMode.ComfortPresets.Single(p => p.Code == "F0").Value = "0x0D";
+        config.MonitorMode.Displays[0].ComfortPresets.Single(p => p.Code == "F0").Value = "0x0D";
         automation.ReloadConfig();
         Assert.Equal(0x0Du, controller.State[0xF0]);
         automation.Stop();
@@ -248,7 +250,7 @@ public sealed class MonitorModeAutomationTests
     public void FailedHardwareWrite_IsRetriedOnNextTickWithoutGameStateChange()
     {
         var source = new Mock<IGameConfiguration>();
-        source.Setup(c => c.Read()).Returns(new AppConfig { MonitorMode = new MonitorModeSettings { Enabled = true } });
+        source.Setup(c => c.Read()).Returns(new AppConfig { MonitorMode = new MonitorModeSettings { Displays = Profiles(), Enabled = true } });
         var clock = new Clock();
         var controller = new Controller { FailWrites = true };
         var automation = new GameAutomationService(Mock.Of<IProcessMonitor>(), source.Object,
@@ -267,7 +269,7 @@ public sealed class MonitorModeAutomationTests
         var source = new Mock<IGameConfiguration>();
         source.Setup(c => c.Read()).Returns(new AppConfig
         {
-            MonitorMode = new MonitorModeSettings { Enabled = true, Location = "auto" }
+            MonitorMode = new MonitorModeSettings { Displays = Profiles(), Enabled = true, Location = "auto" }
         });
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
@@ -296,8 +298,15 @@ public sealed class MonitorModeAutomationTests
         }
     }
 
+    private static List<MonitorModeDisplayProfile> Profiles()
+    {
+        var recipes = new MonitorModeSettings();
+        return [new() { Device = new() { Name = "desk", DevicePath = "desk-path" }, GamePresets = recipes.GamePresets, ComfortPresets = recipes.ComfortPresets }];
+    }
+
     private sealed class Controller : IMonitorModeController
     {
+        public IMonitorModeController ForDevice(MonitorDeviceIdentity device) => this;
         public int Touches { get; private set; }
         public bool IsAvailable { get { Touches++; return true; } }
         public bool FailWrites { get; set; }
@@ -320,6 +329,8 @@ public sealed class MonitorModeAutomationTests
         public bool Enabled { get; set; }
         public bool Known { get; set; } = true;
         public bool IsEnabled => Enabled;
+        public bool TryGetDisplays(out IReadOnlyList<HdrDisplayInfo> displays)
+        { displays = [new("desk", "desk-path", true, Enabled, false, true)]; return Known; }
         public bool TryGetEnabled(out bool enabled) { enabled = Enabled; return Known; }
         public void Enable() => Enabled = true;
         public void Disable() => Enabled = false;

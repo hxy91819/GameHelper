@@ -3,6 +3,8 @@ namespace GameHelper.Core.Models;
 /// <summary>Explicit library actions; clients never select an alternate server configuration.</summary>
 public sealed record GameLibraryRequest
 {
+    /// <summary>Explicit display selection for read-only DDC recording.</summary>
+    public MonitorDeviceIdentity? MonitorDevice { get; init; }
     public TrayMenuAction? TrayAction { get; init; }
     public GameLibraryOperation Operation { get; init; }
     public UpdateAppSettingsRequest? Settings { get; init; }

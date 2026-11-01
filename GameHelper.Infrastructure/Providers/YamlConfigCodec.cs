@@ -110,7 +110,10 @@ internal static class YamlConfigCodec
             config.Report,
             config.Games
         };
-        return Configure(new SerializerBuilder()).ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
+        return Configure(new SerializerBuilder())
+            .WithAttributeOverride(typeof(MonitorModeSettings), nameof(MonitorModeSettings.Displays), new YamlMemberAttribute
+            { Alias = "displays", DefaultValuesHandling = DefaultValuesHandling.OmitEmptyCollections | DefaultValuesHandling.OmitNull })
+            .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
             .WithIndentedSequences().WithNewLine("\n").Build().Serialize(stored);
     }
 

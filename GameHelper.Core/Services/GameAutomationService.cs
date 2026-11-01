@@ -539,9 +539,7 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
     private MonitorModeCoordinator.Snapshot CaptureMonitorModeSnapshot()
     {
         var active = _sessionTracker.GetActiveDataKeysSnapshot();
-        return new(active.Count > 0, active.Where(key => _launchOwnership.IsOwnLaunched(key)
-            && _configIndex.ByDataKey.TryGetValue(key, out var config) && config.HdrEnabled).ToArray(),
-            _launchOwnership.OwnsEnabledHdr, _started);
+        return new(active.Count > 0, _started);
     }
 
     // Deferred callback for launch ownership; invoked only after construction, under _stateLock.

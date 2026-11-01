@@ -1,5 +1,7 @@
 using GameHelper.Core.Abstractions;
 using GameHelper.Core.Models;
+using System.Collections.ObjectModel;
+using System.Text.Json;
 
 namespace GameHelper.Desktop;
 
@@ -16,7 +18,9 @@ public sealed class GlobalSettingsViewModel
         var reminder = snapshot.BreakReminder ?? new();
         ReminderEnabled = reminder.Enabled; PlayMinutes = reminder.PlayMinutes; BreakMinutes = reminder.BreakMinutes;
         RepeatMinutes = reminder.RepeatMinutes; Sound = reminder.Sound;
-        MonitorMode = snapshot.MonitorMode ?? new();
+        MonitorMode = snapshot.MonitorMode is null ? new() : JsonSerializer.Deserialize<MonitorModeSettings>(JsonSerializer.Serialize(snapshot.MonitorMode))!;
+        MonitorDevices = snapshot.DisplaysAvailable ? snapshot.Displays.Where(display => !string.IsNullOrWhiteSpace(display.DevicePath)).ToList() : [];
+        MonitorProfiles = new(MonitorMode.Displays.Select(profile => new MonitorModeProfileChoice(profile, snapshot.Displays)));
         CheatEnginePath = snapshot.CheatEngine?.Executable ?? string.Empty;
         DefaultSpeedHotkeys = SpeedHotkey.FormatLines(snapshot.CheatEngine?.SpeedHotkeys);
         ReportBaseUrl = snapshot.Report?.Llm?.BaseUrl ?? "";
@@ -36,6 +40,41 @@ public sealed class GlobalSettingsViewModel
     public int RepeatMinutes { get; set; }
     public bool Sound { get; set; }
     public MonitorModeSettings MonitorMode { get; }
+    public IReadOnlyList<HdrDisplayInfo> MonitorDevices { get; }
+    public HdrDisplayInfo? SelectedMonitorDevice { get; set; }
+    public ObservableCollection<MonitorModeProfileChoice> MonitorProfiles { get; }
+    public string MonitorBindingStatus => (MonitorProfiles.Count == 0 ? "旧配方尚未绑定设备，当前不会自动切换。请选择对应显示器后绑定。"
+        : "预设只对绑定设备生效。离线设备保留配置，重新连接后恢复。") +
+        (MonitorDevices.Count == 0 ? "\n当前没有可确认的在线显示设备。" : "\n" + string.Join("\n", MonitorDevices.Select(display =>
+            display.Name + (MonitorMode.Displays.Any(profile => profile.Device.Resolve(MonitorDevices)?.DevicePath == display.DevicePath)
+                ? " · 已绑定独立预设" : " · 未配置，不执行预设"))));
+
+    public MonitorDeviceIdentity RequireMonitorDevice()
+    {
+        var display = SelectedMonitorDevice ?? throw new InvalidOperationException("请先选择要配置的具体显示设备。");
+        var identity = display.Identity;
+        return new() { Name = display.Name, DevicePath = display.DevicePath, HardwareKey = identity?.HardwareKey };
+    }
+
+    public void BindMonitorRecipes(List<MonitorModePresetData> game, List<MonitorModePresetData> comfort, bool replace)
+    {
+        var device = RequireMonitorDevice();
+        var existing = MonitorMode.Displays.FirstOrDefault(profile => profile.Device.Key() == device.Key() || profile.Device.Resolve(MonitorDevices)?.DevicePath == device.DevicePath);
+        if (existing is not null && !replace) throw new InvalidOperationException("该设备已有独立预设；如需修改，请对这台设备重新录制。");
+        if (existing is not null) RemoveMonitorProfile(existing);
+        var profile = new MonitorModeDisplayProfile { Device = device,
+            GamePresets = game.Select(p => new MonitorModePresetData { Code = p.Code, Value = p.Value }).ToList(),
+            ComfortPresets = comfort.Select(p => new MonitorModePresetData { Code = p.Code, Value = p.Value }).ToList() };
+        MonitorMode.Displays.Add(profile);
+        MonitorProfiles.Add(new(profile, MonitorDevices));
+    }
+
+    public void RemoveMonitorProfile(MonitorModeDisplayProfile profile)
+    {
+        MonitorMode.Displays.Remove(profile);
+        var choice = MonitorProfiles.FirstOrDefault(choice => ReferenceEquals(choice.Profile, profile));
+        if (choice is not null) MonitorProfiles.Remove(choice);
+    }
     public string CheatEnginePath { get; set; }
     public string DefaultSpeedHotkeys { get; set; }
     public string ReportBaseUrl { get; set; }
@@ -81,4 +120,13 @@ public sealed class HdrDisplayChoice(HdrDisplayInfo display, bool selected)
     public HdrDisplayInfo Display { get; } = display;
     public bool Selected { get; set; } = selected;
     public string Label => $"{Display.Name} · {(Display.Enabled ? "HDR 已开启" : Display.Supported ? "HDR 可用" : "不支持 HDR")}";
+}
+
+public sealed class MonitorModeProfileChoice(MonitorModeDisplayProfile profile, IReadOnlyList<HdrDisplayInfo> displays)
+{
+    public MonitorModeDisplayProfile Profile { get; } = profile;
+    public string Label => Profile.Device.Name;
+    public string Status => Profile.Device.Resolve(displays) is { } display ? (display.Enabled ? "已连接 · 该设备 HDR 开启时暂停预设" : "已连接 · 仅此设备生效") : "等待设备连接或身份确认";
+    public string IdentityHint => Profile.Device.HardwareKey is { Length: > 0 } ? "已绑定设备硬件身份（型号与序列号）" : "已绑定 Windows 设备路径；接口身份变化时需要重新绑定";
+    public string Recipes => "游戏：" + string.Join(" · ", Profile.GamePresets.Select(p => $"{p.Code}={p.Value}")) + "\n舒适：" + string.Join(" · ", Profile.ComfortPresets.Select(p => $"{p.Code}={p.Value}"));
 }
