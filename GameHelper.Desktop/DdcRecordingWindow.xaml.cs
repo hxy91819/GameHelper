@@ -7,14 +7,17 @@ namespace GameHelper.Desktop;
 public partial class DdcRecordingWindow : Window
 {
     private readonly IGameLibrary _library;
+    private readonly MonitorDeviceIdentity _device;
     private MonitorModeSnapshot? _before;
     private bool _busy;
     private readonly CancellationTokenSource _lifetime = new();
     public List<MonitorModePresetData> GamePresets { get; private set; } = [];
     public List<MonitorModePresetData> ComfortPresets { get; private set; } = [];
-    public DdcRecordingWindow(IGameLibrary library)
+    public DdcRecordingWindow(IGameLibrary library, MonitorDeviceIdentity device)
     {
-        _library = library; InitializeComponent();
+        _library = library; _device = device; InitializeComponent();
+        Title = "录制显示器预设 · " + device.Name;
+        Instruction.Text = "选定设备：" + device.Name + "。关闭该设备 HDR，并用这台显示器的实体菜单切到舒适模式后读取。";
         Closed += (_, _) => { _lifetime.Cancel(); _lifetime.Dispose(); };
     }
     private async void OnCapture(object sender, RoutedEventArgs e)
@@ -24,7 +27,7 @@ public partial class DdcRecordingWindow : Window
         Status.Text = "正在读取候选码 0xDC、0xE2、0xF0、0x14…";
         try
         {
-            var response = await _library.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.DdcSnapshot }, _lifetime.Token);
+            var response = await _library.ExecuteAsync(new GameLibraryRequest { Operation = GameLibraryOperation.DdcSnapshot, MonitorDevice = _device }, _lifetime.Token);
             if (_lifetime.IsCancellationRequested) return;
             if (!response.Success || response.DdcSnapshot is null) throw new InvalidOperationException(response.Error ?? "无法读取显示器。");
             if (_before is null)
@@ -56,7 +59,7 @@ public partial class DdcRecordingWindow : Window
     {
         if (_busy) return;
         _before = null; Accept.IsEnabled = false; Step.Text = "1 / 2 · 舒适模式";
-        Instruction.Text = "关闭所有显示器 HDR，并用显示器实体菜单切到舒适模式后读取。";
+        Instruction.Text = "选定设备：" + _device.Name + "。关闭该设备 HDR，并用这台显示器的实体菜单切到舒适模式后读取。";
         Capture.Content = "读取舒适模式"; Status.Text = "";
     }
     private void OnAccept(object sender, RoutedEventArgs e) => DialogResult = true;

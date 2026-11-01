@@ -147,7 +147,7 @@ dotnet publish .\GameHelper.ConsoleHost\GameHelper.ConsoleHost.csproj -c Release
 
 ### 显示器预设自动切换（游戏/护眼）
 
-在 `config.yml` 添加 `monitorMode: { enabled: true }` 后，GameHelper 通过 DDC/CI 直接切换显示器预设档位：白天打游戏切游戏模式（如 Dell Game），白天不玩、特别是日落后统一切护眼模式（如 Dell ComfortView）。日照窗口默认按固定时间（07:00–18:30）判定，配置经纬度则逐日按日出日落实时判定，也可以 `location: auto` 让 Windows 定位自动提供坐标（一次定位本地缓存，无第三方网络请求；需系统"定位"开关开启，拿不到就自动回落固定时间窗）。默认关闭；默认配方针对 Dell U2720QM 实测定标，其他显示器可覆盖。热重载可用，无需重启。详情见[显示器预设切换指南](docs/guides/monitor-mode.md)。
+显示器预设自动化默认关闭，需要在全局设置选择具体设备并绑定独立配方，再开启 `monitorMode`。戴尔配方只对绑定的戴尔生效，未配置的电视或显示器不执行预设；旧全局配方保留待绑定，升级时不会自动绑定当前屏幕。有可靠硬件身份时可跨接口识别，否则仅匹配已保存设备路径；离线或身份不明确时暂停。白天打游戏切游戏模式，空闲或日落后切舒适模式，日照支持固定时段、经纬度及 Windows 自动定位。HDR 暂停按目标设备判断，电视 HDR 不影响另一台绑定的 SDR 显示器。详见[显示器预设切换指南](docs/guides/monitor-mode.md)。
 
 U2720QM 默认护眼配方改为单笔 `F0=0x0C`，固件联动完成 `DC=00 / E2=1D / F0=0C`，从游戏模式直接进入护眼；自定义配方仍按原顺序写入。`SetVCPFeature` 每次只写一个码，没有多码原子事务。
 

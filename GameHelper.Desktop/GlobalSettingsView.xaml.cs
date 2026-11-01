@@ -48,9 +48,7 @@ public partial class GlobalSettingsView : UserControl
         ReportApiKey.Password = settings.Report?.Llm?.ApiKey ?? string.Empty;
         UpdateRecipeSummary();
     }
-    private void UpdateRecipeSummary() => Recipes.Text = Draft is null ? "" :
-        "游戏：" + string.Join(" · ", Draft.MonitorMode.GamePresets.Select(p => $"{p.Code}={p.Value}")) +
-        "\n舒适：" + string.Join(" · ", Draft.MonitorMode.ComfortPresets.Select(p => $"{p.Code}={p.Value}"));
+    private void UpdateRecipeSummary() => Recipes.Text = Draft?.MonitorBindingStatus ?? "";
     private static bool HasInvalidInput(DependencyObject parent)
     {
         if (Validation.GetHasError(parent)) return true;
@@ -81,11 +79,29 @@ public partial class GlobalSettingsView : UserControl
     private void OnRecord(object sender, RoutedEventArgs e)
     {
         if (Draft is null || _library is null) return;
-        var dialog = new DdcRecordingWindow(_library) { Owner = Window.GetWindow(this) };
-        if (dialog.ShowDialog() != true) return;
-        Draft.MonitorMode.GamePresets = dialog.GamePresets;
-        Draft.MonitorMode.ComfortPresets = dialog.ComfortPresets;
-        UpdateRecipeSummary(); Result.Text = "已将录制配方放入草稿，点击保存全局设置后生效。";
+        try
+        {
+            var dialog = new DdcRecordingWindow(_library, Draft.RequireMonitorDevice()) { Owner = Window.GetWindow(this) };
+            if (dialog.ShowDialog() != true) return;
+            Draft.BindMonitorRecipes(dialog.GamePresets, dialog.ComfortPresets, replace: true);
+            UpdateRecipeSummary(); Result.Text = "已将录制配方绑定到所选设备的草稿，点击保存后生效。";
+        }
+        catch (InvalidOperationException ex) { Result.Text = ex.Message; }
+    }
+    private void OnBindLegacy(object sender, RoutedEventArgs e)
+    {
+        if (Draft is null) return;
+        try
+        {
+            Draft.BindMonitorRecipes(Draft.MonitorMode.GamePresets, Draft.MonitorMode.ComfortPresets, replace: false);
+            UpdateRecipeSummary(); Result.Text = "旧配方已绑定到所选设备的草稿，请确认设备与配方对应后保存。";
+        }
+        catch (InvalidOperationException ex) { Result.Text = ex.Message; }
+    }
+    private void OnRemoveMonitorProfile(object sender, RoutedEventArgs e)
+    {
+        if (Draft is null || sender is not FrameworkElement { DataContext: MonitorModeProfileChoice choice }) return;
+        Draft.RemoveMonitorProfile(choice.Profile); UpdateRecipeSummary(); Result.Text = "已从草稿解除此设备的预设绑定，保存后生效。";
     }
     private async Task ShowSyncAsync(GameLibraryOperation operation)
     {
