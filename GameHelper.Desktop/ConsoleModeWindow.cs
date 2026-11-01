@@ -71,7 +71,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
     private void Reload()
     {
         var key = Selected?.DataKey;
-        var rows = model.ConsoleShelfGames.ToArray();
+        var rows = model.ConsoleCollectionGames(tab == 4).ToArray();
         var order = ConsoleModePolicy.Select(rows.Select(g => new ConsoleModePolicy.Entry(g.DataKey,g.LastPlayedAt,model.ConsoleJournal(g.DataKey).Status is "已通关" or "全成就",g.Controller.Status,g.Controller.Manual)),tab,TimeProvider.System).Select(e => e.Key).Where(k => ConsoleInteractionPolicy.Matches(rows.First(g => g.DataKey == k).Name, query));
         shelf.ItemsSource = order.Select(k => rows.First(g => g.DataKey == k)).ToArray();
         shelf.SelectedItem = shelf.Items.Cast<LibraryGameItem>().FirstOrDefault(g => g.DataKey == key);
@@ -91,6 +91,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
     }
     private void Render()
     {
+        if (!CanRevealLaunch) launchState.Back(); // Keep process tracking, dismiss presentation from another collection.
         launchOverlay.Visibility = launchState.ShowOverlay ? Visibility.Visible : Visibility.Collapsed;
         shelf.Visibility = detail ? Visibility.Collapsed : Visibility.Visible;
         details.Visibility = detail ? Visibility.Visible : Visibility.Collapsed;
@@ -105,7 +106,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
             detailSettings.Text = $"{g.Summary}  ·  DS4Windows {(g.UseDs4Windows ? "启用" : "关闭")}";
             info.Text = confirm ? "这款游戏仅部分支持或不支持手柄。请备好键鼠，再次确认即可启动。" : g.IsRunning ? "游戏正在运行。回到游戏继续冒险，或从系统菜单结束游戏。" : "准备好就出发。启动时会应用已保存的游戏自动化设置。";
         }
-        status.Text = launchState.Message ?? (interactionStatus.Length > 0 ? interactionStatus : !string.IsNullOrEmpty(model.ActionError) ? model.ActionError : settingsStatus.Length > 0 ? settingsStatus : model.Status);
+        status.Text = (CanRevealLaunch ? launchState.Message : null) ?? (interactionStatus.Length > 0 ? interactionStatus : !string.IsNullOrEmpty(model.ActionError) ? model.ActionError : settingsStatus.Length > 0 ? settingsStatus : model.Status);
         UpdatePresentation(); RenderActionOverlay(); UpdateHelp();
     }
     private void Handle(ControllerAction action)
@@ -129,7 +130,8 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
         if (detail) return;
         if (action is ControllerAction.PreviousShelfPage or ControllerAction.NextShelfPage)
         { PageShelf(shelf, action == ControllerAction.NextShelfPage); UpdatePresentation(); return; }
-        if (action is ControllerAction.PreviousPage or ControllerAction.NextPage) { tab = (tab + (action == ControllerAction.NextPage ? 1 : 3)) % 4; Reload(); return; }
+        if (action is ControllerAction.PreviousPage or ControllerAction.NextPage)
+        { OpenCollection(tab == 4 ? 0 : (tab + (action == ControllerAction.NextPage ? 1 : 3)) % 4); return; }
         var offset = action == ControllerAction.Left ? -1 : action == ControllerAction.Right ? 1 : 0;
         if (offset != 0 && shelf.Items.Count > 0) { shelf.SelectedIndex = Math.Clamp(shelf.SelectedIndex + offset,0,shelf.Items.Count-1); shelf.ScrollIntoView(shelf.SelectedItem); UpdatePresentation(); }
     }

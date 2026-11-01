@@ -9,6 +9,7 @@ internal sealed class ConsoleGameSettings(IGameLibrary library, LibraryGame base
     internal string DataKey => baseline.Config.DataKey;
     internal string Name => baseline.Config.DisplayName ?? DataKey;
     internal bool Hdr { get; set; } = baseline.Config.HdrEnabled;
+    internal bool Adult { get; set; } = baseline.Config.Adult;
     internal bool UseDs4Windows { get; set; } = baseline.Config.Launch?.Ds4WindowsPath is not null;
     internal bool UseSpeed { get; set; } = baseline.Config.SpeedMultiplier is not null;
     // Reading a historical out-of-range value does not silently rewrite it.
@@ -26,6 +27,7 @@ internal sealed class ConsoleGameSettings(IGameLibrary library, LibraryGame base
     {
         var config = baseline.Config.Copy();
         config.HdrEnabled = Hdr;
+        config.Adult = Adult;
         config.SpeedMultiplier = UseSpeed ? Speed : null;
         if (UseDs4Windows != (baseline.Config.Launch?.Ds4WindowsPath is not null))
         {

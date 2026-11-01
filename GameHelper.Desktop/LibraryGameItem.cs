@@ -27,6 +27,8 @@ public sealed class LibraryGameItem : ObservableState
     private string _speed;
     private string _speedHotkeys;
     private bool _hdr;
+    private bool _adult;
+    private bool _savedAdult;
     private bool _enabled;
     private bool _useSpeed;
     private bool _dirty;
@@ -60,6 +62,8 @@ public sealed class LibraryGameItem : ObservableState
         _arguments = row.Config.Launch?.Arguments ?? string.Empty;
         _directory = row.Config.Launch?.WorkingDirectory ?? string.Empty;
         _hdr = row.Config.HdrEnabled;
+        _adult = row.Config.Adult;
+        _savedAdult = row.Config.Adult;
         _enabled = row.Config.IsEnabled;
         _useSpeed = row.Config.SpeedMultiplier is not null;
         _speed = (row.Config.SpeedMultiplier ?? 1.5).ToString("0.##", CultureInfo.CurrentCulture);
@@ -72,7 +76,11 @@ public sealed class LibraryGameItem : ObservableState
 
     private IReadOnlyList<string> _genres = [];
     public IReadOnlyList<string> Genres => _genres;
-    public string GenreLabel => _genres.Count == 0 ? "未分类" : string.Join(" · ", _genres);
+    public string GenreLabel => SavedAdult ? "成人游戏" + (_genres.Count == 0 ? "" : " · " + string.Join(" · ", _genres))
+        : _genres.Count == 0 ? "未分类" : string.Join(" · ", _genres);
+    /// <summary>Privacy filtering follows the saved classification, never an unsaved checkbox.</summary>
+    internal bool SavedAdult => _savedAdult;
+    public bool Adult { get => _adult; set { if (Set(ref _adult, value)) Edited(); } }
     internal Task GenresLoading { get; set; } = Task.CompletedTask;
     internal int GenreVersion { get; set; }
     internal (string Executable, string Target)? GenreIdentity { get; set; }
@@ -160,6 +168,7 @@ public sealed class LibraryGameItem : ObservableState
 
     public void RefreshRuntime(LibraryGame row)
     {
+        if (_savedAdult != row.Config.Adult) { _savedAdult = row.Config.Adult; Changed(nameof(GenreLabel)); }
         LastPlayedAt = row.LastPlayedAt; Changed(nameof(LastPlayedLabel)); Changed(nameof(LastPlayedShort)); Changed(nameof(CardBadge)); Changed(nameof(CardSummary)); Changed(nameof(TotalHours)); Changed(nameof(HoursValue));
         var startChanged = _runningStartedAt != row.RunningStartedAt;
         var stateChanged = _state != row.State;
@@ -227,7 +236,7 @@ public sealed class LibraryGameItem : ObservableState
         { if (version == _artworkVersion) PosterStatus = "海报暂不可用，可重新匹配后重试"; }
     }
 
-    internal LibraryDraft ExportDraft() => new(_baseline, Name, Executable, Target, Arguments, Directory, Speed, Hdr, Enabled, UseSpeed, UseDs4Windows, Ds4WindowsPath, SpeedHotkeys, ActionEditor.Snapshot() ?? []);
+    internal LibraryDraft ExportDraft() => new(_baseline, Name, Executable, Target, Arguments, Directory, Speed, Hdr, Enabled, UseSpeed, UseDs4Windows, Ds4WindowsPath, SpeedHotkeys, ActionEditor.Snapshot() ?? [], Adult);
     internal static LibraryGameItem RestoreDraft(LibraryDraft draft)
     {
         var item = new LibraryGameItem(draft.Baseline)
@@ -235,6 +244,7 @@ public sealed class LibraryGameItem : ObservableState
             _name = draft.Name, _executable = draft.Executable, _target = draft.Target,
             _arguments = draft.Arguments, _directory = draft.Directory, _speed = draft.Speed, _speedHotkeys = draft.SpeedHotkeys,
             _hdr = draft.Hdr, _enabled = draft.Enabled, _useSpeed = draft.UseSpeed, _dirty = true,
+            _adult = draft.Adult ?? draft.Baseline.Config.Adult,
             _useDs4Windows = draft.UseDs4Windows, _ds4WindowsPath = draft.Ds4WindowsPath ?? DefaultDs4WindowsPath
         };
         item.ActionEditor = new GameActionEditor(draft.Actions ?? draft.Baseline.Config.Actions, item.ActionsEdited);
@@ -256,7 +266,7 @@ public sealed class LibraryGameItem : ObservableState
         {
             DataKey = DataKey, DisplayName = Name.Trim(), Executable = Executable.Trim(),
             Actions = ActionEditor.Save(),
-            IsEnabled = Enabled, HdrEnabled = Hdr, SpeedMultiplier = speed, SpeedHotkeys = hotkeys,
+            IsEnabled = Enabled, HdrEnabled = Hdr, Adult = Adult, SpeedMultiplier = speed, SpeedHotkeys = hotkeys,
             Launch = string.IsNullOrWhiteSpace(Target) ? null : new GameLaunchOptions
             {
                 Target = Target.Trim(), Arguments = NullIfEmpty(Arguments), WorkingDirectory = NullIfEmpty(Directory),

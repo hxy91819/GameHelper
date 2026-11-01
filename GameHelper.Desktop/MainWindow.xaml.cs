@@ -120,6 +120,7 @@ public partial class MainWindow : Window
         SizeChanged += (_, _) => UpdateStudioGeometry();
         Loaded += (_, _) => UpdateStickyDetails();
         DataContext = model;
+        model.PropertyChanged += OnSettingsSelectionChanged;
         UpdateThemeButton();
         SetInstallationGroup(_model.InstallationGroup);
         StatisticsPage.DataContext = model.Statistics;
@@ -140,7 +141,7 @@ public partial class MainWindow : Window
             try { await _model.FlushDraftsAsync(); closingAfterSave = true; Dispatcher.BeginInvoke(new Action(Close)); }
             catch (InvalidOperationException ex) { IsEnabled = true; _refreshTimer.Start(); MessageBox.Show(this, ex.Message, "草稿未保存"); }
         };
-        Closed += (_, _) => { _refreshTimer.Stop(); _refreshTimer.Tick -= OnTick; DisconnectControllerLifecycle(); _model.Dispose(); };
+        Closed += (_, _) => { _model.PropertyChanged -= OnSettingsSelectionChanged; _refreshTimer.Stop(); _refreshTimer.Tick -= OnTick; DisconnectControllerLifecycle(); _model.Dispose(); };
     }
 
     private void UpdateThemeButton() => ThemeButton.Content = (Application.Current as App)?.Theme?.IsLight == true ? "深色主题" : "浅色主题";
@@ -186,7 +187,14 @@ public partial class MainWindow : Window
     private async void OnStatistics(object sender, RoutedEventArgs e) { Navigate(true); await _model.Statistics.EnsureLoadedAsync(); }
     private async void OnLibrary(object sender, RoutedEventArgs e) { _model.SetGenre(null); SetInstallationGroup("installed"); Navigate(false); await _model.RefreshAsync(); await _model.LoadWeeklyAsync(); }
     private async void OnRefreshLibrary(object sender, RoutedEventArgs e) { if (_showGlobalSettings) { await GlobalSettingsPage.LoadAsync(); return; } await _model.RefreshAsync(); await _model.LoadWeeklyAsync(); }
-    private void OnSettings(object sender, RoutedEventArgs e) { if (_model.Selected is not null) SettingsPanel.Visibility = Visibility.Visible; }
+    private string? _settingsGameKey;
+    private void OnSettings(object sender, RoutedEventArgs e)
+    { if (_model.Selected is not null) { _settingsGameKey = _model.Selected.DataKey; SettingsPanel.Visibility = Visibility.Visible; } }
+    private void OnSettingsSelectionChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(LibraryViewModel.Selected) && SettingsPanel.Visibility == Visibility.Visible && _model.Selected?.DataKey != _settingsGameKey)
+            SettingsPanel.Visibility = Visibility.Collapsed;
+    }
     private void OnCloseSettings(object sender, RoutedEventArgs e) => SettingsPanel.Visibility = Visibility.Collapsed;
     private void OnContinueDetails(object sender, RoutedEventArgs e)
     {

@@ -31,15 +31,17 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private readonly GameHelper.Infrastructure.Artwork.SteamControllerSupportClient _controllerClient;
     private readonly string? _controllerConfig;
     private string? _genre;
+    public const string AdultCollection = "成人游戏";
+    public bool InAdultCollection => _genre == AdultCollection;
     public ObservableCollection<GenreGroup> GenreGroups { get; } = [];
     public LibraryGameItem? ContinueGame => _genre is null ? Games.Cast<LibraryGameItem>().Where(game => game.InstallationState == GameInstallationState.Installed && (game.IsRunning || game.LastPlayedAt is not null)).OrderByDescending(game => game.IsRunning).ThenByDescending(game => game.LastPlayedAt).FirstOrDefault() : null;
     public bool HasContinueGame => ContinueGame is not null;
     public IReadOnlyList<DashboardBucket> WeeklyTrend { get; private set; } = [];
     private string _weeklyHours = "0.0";
     public string WeeklyHours { get => _weeklyHours; private set => Set(ref _weeklyHours, value); }
-    public string CatalogCount => _games.Count.ToString("00");
+    public string CatalogCount => _games.Count(game => !game.SavedAdult).ToString("00");
     public string CollectionTitle => _genre ?? "我的游戏";
-    public string CollectionCaption => _genre is null ? "每一段冒险，都值得珍藏。" : "按游戏类型浏览 · 一款游戏可以属于多个类型";
+    public string CollectionCaption => InAdultCollection ? "仅在此分类展示 · 返回普通游戏库后隐藏" : _genre is null ? "每一段冒险，都值得珍藏。" : "按游戏类型浏览 · 一款游戏可以属于多个类型";
     private Dictionary<string, LibraryDraft> _restoredDrafts = new(StringComparer.OrdinalIgnoreCase);
     private LibraryGameItem? _selected;
     private bool _busy;
@@ -109,7 +111,16 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
 
     internal IEnumerable<LibraryGameItem> ConsoleGames => _games;
     // Keep the complete catalog for launch/session tracking; hide only confirmed missing shelf entries.
-    internal IEnumerable<LibraryGameItem> ConsoleShelfGames => _games.Where(game => game.IsRunning || game.InstallationState != GameInstallationState.Missing);
+    internal IEnumerable<LibraryGameItem> ConsoleShelfGames => ConsoleCollectionGames(false);
+    internal IEnumerable<LibraryGameItem> ConsoleCollectionGames(bool adult) => _games.Where(game => game.SavedAdult == adult && (game.IsRunning || game.InstallationState != GameInstallationState.Missing));
+    internal string ConsoleRunningSummary(bool revealAdult)
+    {
+        var running = _games.Where(game => game.IsRunning).ToArray();
+        var visible = running.Where(game => revealAdult || !game.SavedAdult).Select(game => game.Name).ToArray();
+        var hidden = revealAdult ? 0 : running.Count(game => game.SavedAdult);
+        return (visible.Length == 0 ? "" : "正在运行：" + string.Join("、", visible)) +
+            (hidden == 0 ? "" : (visible.Length == 0 ? "" : "\n") + $"另有 {hidden} 款隐藏游戏正在运行");
+    }
     internal IGameLibrary ConsoleClient => _library;
     internal async Task<string> ConsoleRatingAsync(string key)
     {
@@ -139,7 +150,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     public string Status { get => _status; set => Set(ref _status, value); }
     public string ConfigPath { get => _configPath; private set => Set(ref _configPath, value); }
     public string Count => $"{Games.Cast<object>().Count()} 款收藏";
-    public string InstallationSummary => $"本机 {_games.Count(game => game.InstallationState == GameInstallationState.Installed)} · 未找到 {_games.Count(game => game.InstallationState == GameInstallationState.Missing)} · 待确认 {_games.Count(game => game.InstallationState == GameInstallationState.Unknown)}";
+    public string InstallationSummary => $"本机 {_games.Count(game => game.SavedAdult == InAdultCollection && game.InstallationState == GameInstallationState.Installed)} · 未找到 {_games.Count(game => game.SavedAdult == InAdultCollection && game.InstallationState == GameInstallationState.Missing)} · 待确认 {_games.Count(game => game.SavedAdult == InAdultCollection && game.InstallationState == GameInstallationState.Unknown)}";
     public string InstallationGroup => _group;
     public string Search { get => _search; set { if (Set(ref _search, value)) Filter(); } }
     public LibraryGameItem? Selected { get => _selected; set { if (Set(ref _selected, value)) { ActionError = string.Empty; Changed(nameof(SelectedJournalSummary)); Changed(nameof(HasSelection)); } RefreshCommands(); } }
@@ -152,7 +163,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     internal void ClearLibraryFilters()
     {
         if (!string.IsNullOrWhiteSpace(Search)) Search = string.Empty;
-        else { _genre = null; _filter = "all"; _group = "all"; Changed(nameof(InstallationGroup)); Changed(nameof(CollectionTitle)); Changed(nameof(CollectionCaption)); Filter(); }
+        else { _genre = null; _filter = "all"; _group = "all"; Changed(nameof(InAdultCollection)); Changed(nameof(InstallationGroup)); Changed(nameof(CollectionTitle)); Changed(nameof(CollectionCaption)); Filter(); }
     }
     public string SelectedJournalSummary => Selected is null ? string.Empty : JournalSummary(_journalStore.Read(Selected.DataKey));
     internal Task<JournalEditorViewModel?> EditSelectedJournalAsync()
@@ -184,14 +195,15 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             : ex.Message;
     }
 
-    public void SetGenre(string? genre) { _genre = genre; Changed(nameof(CollectionTitle)); Changed(nameof(CollectionCaption)); Changed(nameof(ContinueGame)); Changed(nameof(HasContinueGame)); Filter(); }
+    public void SetGenre(string? genre) { _genre = genre; Changed(nameof(InAdultCollection)); Changed(nameof(CollectionTitle)); Changed(nameof(CollectionCaption)); Changed(nameof(ContinueGame)); Changed(nameof(HasContinueGame)); Filter(); }
     private static int GenreOrder(string genre) => genre switch
     { "动作" => 0, "冒险" => 1, "角色扮演" => 2, "策略" => 3, "模拟" => 4, "独立" => 5, "未分类" => int.MaxValue, _ => 6 };
     private void RebuildGenres()
     {
-        var groups = _games.SelectMany(game => game.Genres.Count == 0 ? new[] { "未分类" } : game.Genres)
+        var groups = _games.Where(game => !game.SavedAdult).SelectMany(game => game.Genres.Count == 0 ? new[] { "未分类" } : game.Genres.Where(genre => genre != AdultCollection))
             .Append("未分类").GroupBy(genre => genre, StringComparer.OrdinalIgnoreCase).OrderBy(group => GenreOrder(group.Key)).ThenBy(group => group.Key)
             .Select(group => new GenreGroup(group.Key, group.Count() - (group.Key == "未分类" ? 1 : 0))).ToList();
+        groups.Add(new(AdultCollection, _games.Count(game => game.SavedAdult)));
         if (!GenreGroups.SequenceEqual(groups)) { GenreGroups.Clear(); foreach (var group in groups) GenreGroups.Add(group); }
     }
     internal async Task LoadGenresAsync(LibraryGameItem game)
@@ -219,6 +231,8 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     }
     internal async Task SaveGenresAsync(LibraryGameItem game, string[]? genres)
     {
+        if (genres?.Contains(AdultCollection, StringComparer.OrdinalIgnoreCase) == true)
+            throw new ArgumentException("成人分类请在游戏设置中勾选“成人游戏（默认隐藏）”并保存；该标记独立于 Steam 类型。");
         await Task.Run(() => _genreStore.Save(game.DataKey, genres));
         // Reset is immediate; network work belongs to the window lifetime, not the editor dialog.
         if (genres is null) game.SetGenres([]);
@@ -298,9 +312,9 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private bool Matches(object value)
     {
         var game = (LibraryGameItem)value;
-        return (_group == "all" || (_group == "installed" && game.InstallationState == GameInstallationState.Installed)
+        return game.SavedAdult == InAdultCollection && (_group == "all" || (_group == "installed" && game.InstallationState == GameInstallationState.Installed)
                 || (_group == "missing" && game.InstallationState == GameInstallationState.Missing) || (_group == "unknown" && game.InstallationState == GameInstallationState.Unknown))
-            && (_genre is null || (_genre == "未分类" ? game.Genres.Count == 0 : game.Genres.Contains(_genre, StringComparer.OrdinalIgnoreCase)))
+            && (_genre is null || InAdultCollection || (_genre == "未分类" ? game.Genres.Count == 0 : game.Genres.Contains(_genre, StringComparer.OrdinalIgnoreCase)))
             && (_filter != "unsupported" || game.Controller.Unsupported)
             && (_filter != "hdr" || game.Hdr) && (_filter != "speed" || game.UseSpeed)
             && (game.Name.Contains(Search.Trim(), StringComparison.OrdinalIgnoreCase) || game.Executable.Contains(Search.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -558,7 +572,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     }
     public Task ImportDirectoryAsync(IReadOnlyList<LocalGameCandidate> games) => RunAsync(() => SendAsync(new GameLibraryRequest { Operation = GameLibraryOperation.ImportDirectory, LocalGames = games }));
     internal Task<IReadOnlyList<GameHelper.Infrastructure.Artwork.SteamArtworkGame>> SearchPostersAsync(string query, CancellationToken cancellationToken) => _posters.SearchAsync(query, cancellationToken);
-    internal IReadOnlyList<LibraryGameItem> MissingPosters(bool includeUnavailable) => _games.Where(game => !game.ArtworkIsCover
+    internal IReadOnlyList<LibraryGameItem> MissingPosters(bool includeUnavailable) => _games.Where(game => game.SavedAdult == InAdultCollection && !game.ArtworkIsCover
         && (includeUnavailable || game.InstallationState == GameInstallationState.Installed)).ToList();
     internal bool HasPosterAssociation(LibraryGameItem game) => _posters.HasAssociation(game.DataKey);
     internal async Task<bool> AutoMatchPosterAsync(LibraryGameItem game, CancellationToken cancellationToken)
@@ -587,7 +601,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         RefreshCommands();
         if (e.PropertyName == nameof(LibraryGameItem.Genres)) { RebuildGenres(); Filter(); }
         if (e.PropertyName is nameof(LibraryGameItem.Artwork) or nameof(LibraryGameItem.ArtworkIsCover)) Statistics.RefreshArtwork();
-        if (e.PropertyName is nameof(LibraryGameItem.Name) or nameof(LibraryGameItem.Executable) or nameof(LibraryGameItem.Target)
+        if (e.PropertyName is nameof(LibraryGameItem.Adult) or nameof(LibraryGameItem.Name) or nameof(LibraryGameItem.Executable) or nameof(LibraryGameItem.Target)
             or nameof(LibraryGameItem.Arguments) or nameof(LibraryGameItem.Directory) or nameof(LibraryGameItem.Speed)
             or nameof(LibraryGameItem.Hdr) or nameof(LibraryGameItem.Enabled) or nameof(LibraryGameItem.UseSpeed) or nameof(LibraryGameItem.IsDirty)
             or nameof(LibraryGameItem.UseDs4Windows) or nameof(LibraryGameItem.Ds4WindowsPath) or nameof(LibraryGameItem.ActionEditor) or nameof(LibraryGameItem.SpeedHotkeys)) PersistDrafts();

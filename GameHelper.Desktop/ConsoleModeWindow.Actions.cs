@@ -44,6 +44,8 @@ internal sealed partial class ConsoleModeWindow
     {
         overlayKind = ConsoleOverlay.SystemMenu; menuIndex = 0;
         menuRows = [new("退出主机模式", true, () => { Close(); return Task.CompletedTask; })];
+        menuRows.Add(new(tab == 4 ? "返回普通游戏库" : "进入成人游戏分类", true,
+            () => { OpenCollection(tab == 4 ? 0 : 4); return Task.CompletedTask; }));
         if (Selected is { } selectedGame)
         {
             var key = selectedGame.DataKey;
@@ -80,9 +82,9 @@ internal sealed partial class ConsoleModeWindow
     private void ConfirmPower(ConsoleMenuCommand command)
     {
         if (!ConsoleInteractionPolicy.NeedsConfirmation(command)) return;
-        var running = model.ConsoleGames.Where(g => g.IsRunning).Select(g => g.Name).ToArray();
+        var running = model.ConsoleRunningSummary(tab == 4);
         var label = command switch { ConsoleMenuCommand.Sleep => "睡眠", ConsoleMenuCommand.Restart => "重启电脑", _ => "关闭电脑" };
-        confirmationText = $"确认{label}？" + (running.Length == 0 ? "" : $"\n正在运行：{string.Join("、",running)}\n" +
+        confirmationText = $"确认{label}？" + (running.Length == 0 ? "" : $"\n{running}\n" +
             (command == ConsoleMenuCommand.Sleep ? "睡眠会暂停游戏。" : "这些游戏将被关闭，未保存的进度可能丢失。"));
         confirmationAction = async () => { await Task.Run(() => ConsolePower.Execute(command)); overlayKind = ConsoleOverlay.None; };
         overlayKind = ConsoleOverlay.Confirm; Render();
@@ -134,6 +136,8 @@ internal sealed partial class ConsoleModeWindow
         try
         {
             var response = await ConsoleRequestAsync(new() { Operation = GameLibraryOperation.ConsoleRating, SessionId = ratingSession });
+            if (tab != 4 && response.RatedSession is { } hiddenSession && model.ConsoleGames.Any(game => game.DataKey == hiddenSession.DataKey && game.SavedAdult))
+            { ratingDeadline = null; return; }
             if (response.RatedSession is { } session && ConsoleInteractionPolicy.Invite(ratingSession,session.SessionId,true,session.Rating is not null))
             {
                 ratingDeadline = null; ratingEditor = new(model.ConsoleClient,session) { Stars = 3 };

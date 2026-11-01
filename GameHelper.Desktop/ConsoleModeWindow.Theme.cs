@@ -63,12 +63,12 @@ internal sealed partial class ConsoleModeWindow
         selectionSummary.Margin = new Thickness(0, 6, 0, 16); selectionSummary.TextWrapping = TextWrapping.NoWrap; selectionSummary.TextTrimming = TextTrimming.CharacterEllipsis;
         header.Children.Add(selectionSummary);
         var tabs = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 18) }; header.Children.Add(tabs);
-        string[] names = ["全部游戏", "最近游玩", "未通关", "支持手柄"];
+        string[] names = ["全部游戏", "最近游玩", "未通关", "支持手柄", "成人游戏"];
         for (int i = 0; i < names.Length; i++)
         {
             int index = i;
             var button = new Button { Content = names[i], FontSize = 16, Padding = new Thickness(18, 8, 18, 8), Margin = new Thickness(0, 0, 8, 0) };
-            button.Click += (_, _) => { tab = index; Reload(); }; tabButtons.Add(button); tabs.Children.Add(button);
+            button.Click += (_, _) => OpenCollection(index); tabButtons.Add(button); tabs.Children.Add(button);
         }
         var search = new Button { Content = "搜索  /  屏幕键盘", FontSize = 16, Padding = new Thickness(18, 8, 18, 8), Margin = new Thickness(12, 0, 0, 0), Background = Brushes.Transparent };
         search.Click += (_, _) => OpenKeyboard(false); tabs.Children.Add(search);
@@ -150,7 +150,7 @@ internal sealed partial class ConsoleModeWindow
         emptyState.Visibility = !detail && shelf.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         emptyState.Text = query.Length > 0 ? "没有找到匹配的游戏\n按搜索键修改关键词"
             : !model.ConsoleGames.Any() ? "游戏库还没有内容\n返回桌面游戏库，添加你的第一款游戏"
-            : !model.ConsoleShelfGames.Any() ? "本地未找到可显示的游戏\n返回桌面游戏库，检查安装位置"
+            : !model.ConsoleCollectionGames(tab == 4).Any() ? (tab == 4 ? "成人分类暂无可显示的游戏\n在游戏设置中标记并保存" : "普通游戏库暂无可显示的游戏\n可检查安装位置，或进入已标记的成人分类")
             : "这个分类暂时没有游戏\n切换分类试试";
         UpdatePresentationGeometry();
     }
