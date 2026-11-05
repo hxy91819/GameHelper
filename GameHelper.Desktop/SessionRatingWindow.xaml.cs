@@ -10,11 +10,10 @@ public partial class SessionRatingWindow : Window
     {
         InitializeComponent(); DataContext = _model = new(library, session);
         var stars = new SessionRatingStars(_model);
-        stars.StarClicked += async value =>
+        stars.StarClicked += value =>
         {
             if (_model.Busy) return;
             _model.Stars = value;
-            await SaveAsync(false);
         };
         StarsHost.Content = stars;
     }

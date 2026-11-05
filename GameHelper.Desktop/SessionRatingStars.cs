@@ -7,7 +7,7 @@ using System.Windows.Media;
 
 namespace GameHelper.Desktop;
 
-/// <summary>Five explicit rating actions. Binding, focus and preview never submit.</summary>
+/// <summary>Five rating choices. Selection, binding, focus and preview never submit.</summary>
 internal sealed class SessionRatingStars : UniformGrid
 {
     private static readonly DependencyProperty StarsProperty = DependencyProperty.Register(
@@ -45,7 +45,7 @@ internal sealed class SessionRatingStars : UniformGrid
             var button = new Button { Tag = stars, Content = "☆", Style = style,
                 FontFamily = new FontFamily("Segoe UI Symbol"), FontSize = console ? 46 : 38,
                 Width = console ? 78 : 60, Height = console ? 76 : 60, Margin = new Thickness(2),
-                Cursor = System.Windows.Input.Cursors.Hand, ToolTip = $"{stars} 星，点击保存" };
+                Cursor = System.Windows.Input.Cursors.Hand, ToolTip = $"选择 {stars} 星" };
             if (console) button.Foreground = ConsoleModeVisuals.Accent;
             else button.SetResourceReference(Control.ForegroundProperty, "Accent");
             AutomationProperties.SetName(button, $"{stars} 星");

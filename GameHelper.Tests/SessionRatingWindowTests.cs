@@ -34,7 +34,7 @@ public sealed class SessionRatingWindowTests
     [InlineData(1)]
     [InlineData(3)]
     [InlineData(5)]
-    public Task ClickingStar_SavesThatScoreAndThoughtWithRevision_AndCloses(int score) => OnDispatcher(async () =>
+    public Task ClickingStar_KeepsEditorOpen_ThenSavesScoreAndLaterThoughtWithRevision(int score) => OnDispatcher(async () =>
     {
         var row = Row();
         var backend = new Mock<IGameLibrary>(MockBehavior.Strict);
@@ -48,8 +48,28 @@ public sealed class SessionRatingWindowTests
             await Layout(window);
             var buttons = Stars(window);
             Assert.Equal(new[] { 1, 2, 3, 4, 5 }, buttons.Select(b => (int)b.Tag));
-            Descendants(window).OfType<TextBox>().Single().Text = "本局想法";
             Click(buttons[score - 1]);
+            await Dispatcher.Yield(DispatcherPriority.Background);
+            Assert.False(closed);
+            backend.VerifyNoOtherCalls();
+            Assert.Equal(score, Assert.IsType<SessionRatingEditorViewModel>(window.DataContext).Stars);
+            Descendants(window).OfType<TextBox>().Single().Text = "本局想法";
+            if (Environment.GetEnvironmentVariable("GAMEHELPER_TEST_VISUAL_OUTPUT") is { Length: > 0 } output)
+            {
+                window.Resources.MergedDictionaries.Add((ResourceDictionary)Application.LoadComponent(
+                    new Uri("/GameHelper.Desktop;component/Themes/Dark.xaml", UriKind.Relative)));
+                var content = (FrameworkElement)window.Content;
+                content.Measure(new Size(444, 434)); content.Arrange(new Rect(0, 0, 444, 434));
+                content.UpdateLayout();
+                var image = new System.Windows.Media.Imaging.RenderTargetBitmap(444, 434, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                image.Render(content);
+                var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(image));
+                System.IO.Directory.CreateDirectory(output);
+                using var file = System.IO.File.Create(System.IO.Path.Combine(output, $"rating-before-save-{score}.png"));
+                encoder.Save(file);
+            }
+            Click(Descendants(window).OfType<Button>().Single(b => Equals(b.Content, "保存")));
             await Dispatcher.Yield(DispatcherPriority.Background);
             Assert.True(closed);
             backend.VerifyAll(); backend.VerifyNoOtherCalls();
@@ -73,6 +93,7 @@ public sealed class SessionRatingWindowTests
             var model = Assert.IsType<SessionRatingEditorViewModel>(window.DataContext);
             var thought = Descendants(window).OfType<TextBox>().Single(); thought.Text = "失败后保留";
             var stars = Stars(window); Click(stars[4]);
+            Click(Descendants(window).OfType<Button>().Single(b => Equals(b.Content, "保存")));
             Assert.True(model.Busy);
             // Raise a second event even before WPF applies the disabled binding: it must not change the draft.
             Click(stars[0]);
@@ -112,6 +133,7 @@ public sealed class SessionRatingWindowTests
             await Dispatcher.Yield(DispatcherPriority.Background);
             Assert.Equal(2, stars.Count(b => Equals(b.Content, "★")));
             Assert.Equal("最新想法", Descendants(window).OfType<TextBox>().Single().Text);
+            Click(stars[4]);
             window.Close();
             backend.Verify(b => b.ExecuteAsync(It.IsAny<GameLibraryRequest>(), default), Times.Once);
             backend.VerifyAll(); backend.VerifyNoOtherCalls();

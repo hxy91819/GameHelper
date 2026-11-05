@@ -146,10 +146,9 @@ internal sealed partial class ConsoleModeWindow
         }
         catch (Exception ex) { interactionStatus = ex.Message; }
     }
-    private Task SaveRatingAsync(int? stars = null, bool clear = false) => RunInteractionAsync(async () =>
+    private Task SaveRatingAsync(bool clear = false) => RunInteractionAsync(async () =>
     {
         if (ratingEditor is not { Busy: false } editor) return;
-        if (stars is { } value) editor.Stars = value;
         if (!await editor.SaveAsync(clear)) throw new InvalidOperationException(editor.Status);
         ratingEditor = null; overlayKind = ConsoleOverlay.None;
     });
@@ -254,9 +253,13 @@ internal sealed partial class ConsoleModeWindow
         {
             ConsoleOverlayVisuals.Header(panel, "本局体验如何？", ratingEditor.Description);
             var stars = new SessionRatingStars(ratingEditor, console: true) { IsEnabled = !actionBusy };
-            stars.StarClicked += value => _ = SaveRatingAsync(value);
+            stars.StarClicked += value =>
+            {
+                if (actionBusy || ratingEditor is not { Busy: false } editor) return;
+                editor.Stars = value;
+            };
             stars.Margin = new Thickness(0, 0, 0, 6); panel.Children.Add(stars);
-            var ratingHint = ConsoleModeVisuals.Label("点击星星即保存；可先填写想法。手柄左右选星、确认提交。", 17, ConsoleModeVisuals.Secondary);
+            var ratingHint = ConsoleModeVisuals.Label("选择星级后可填写想法，再提交评分。手柄左右选星、确认提交。", 17, ConsoleModeVisuals.Secondary);
             ratingHint.Margin = new Thickness(0, 0, 0, 12); panel.Children.Add(ratingHint);
             panel.Children.Add(ConsoleOverlayVisuals.Notice(ratingEditor.Thought.Length == 0 ? "想法：留空" : ratingEditor.Thought.Length > 100 ? ratingEditor.Thought[..100] + "…" : ratingEditor.Thought));
             if (!string.IsNullOrWhiteSpace(ratingEditor.Status))
