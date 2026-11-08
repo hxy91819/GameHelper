@@ -24,7 +24,11 @@ public sealed class SqliteDesktopStore(SqliteConnectionFactory factory, string c
     public static bool IsActivated(SqliteConnectionFactory factory)
     {
         if (!File.Exists(factory.DatabasePath)) return false;
-        using var c = factory.OpenConnection();
+        using var c = SqliteConnectionFactory.OpenFile(factory.DatabasePath, SqliteOpenMode.ReadWrite);
+        // Startup upgrades the schema before Desktop reads. A leftover older database (for example an
+        // unactivated file from a previous build) is not an activated store for this build, so callers
+        // keep their legacy-file fallback instead of treating a successful open as activation.
+        if (SqliteConnectionFactory.ReadVersion(c) != SqliteDatabaseInitializer.CurrentVersion) return false;
         return Scalar(c, null, "SELECT value FROM migration_state WHERE name='activated';") is not null;
     }
 

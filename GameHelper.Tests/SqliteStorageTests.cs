@@ -16,7 +16,7 @@ public sealed class SqliteStorageTests : IDisposable
     {
         await Initialize();
         using var connection = _factory.OpenConnection();
-        Assert.Equal(4L, Scalar(connection, "PRAGMA user_version;"));
+        Assert.Equal(5L, Scalar(connection, "PRAGMA user_version;"));
         Assert.Equal("wal", Scalar(connection, "PRAGMA journal_mode;"));
         Assert.Equal(5000L, Scalar(connection, "PRAGMA busy_timeout;"));
         Assert.Equal(1L, Scalar(connection, "PRAGMA foreign_keys;"));
@@ -43,7 +43,7 @@ public sealed class SqliteStorageTests : IDisposable
         await Initialize();
         using var upgraded = _factory.OpenConnection();
         Assert.Equal("旧游戏", Scalar(upgraded, "SELECT data_key FROM history_keys;"));
-        Assert.Equal(4L, Scalar(upgraded, "PRAGMA user_version;"));
+        Assert.Equal(5L, Scalar(upgraded, "PRAGMA user_version;"));
         var backup = Assert.Single(Directory.GetDirectories(Path.Combine(_directory, "backups"), "upgrade-*"));
         using var original = SqliteConnectionFactory.OpenFile(Path.Combine(backup, "userdata.db"), SqliteOpenMode.ReadOnly);
         Assert.Equal(1L, Scalar(original, "PRAGMA user_version;"));
@@ -73,7 +73,35 @@ public sealed class SqliteStorageTests : IDisposable
         Assert.Equal("note", Scalar(current, "SELECT note FROM journals;"));
         Assert.Equal("old.exe", Scalar(current, "SELECT normalized_name FROM inflight_processes;"));
         Assert.Equal(DBNull.Value, Scalar(current, "SELECT launched_by_helper FROM inflight_processes;"));
-        Assert.Equal(4L, Scalar(current, "PRAGMA user_version;"));
+        Assert.Equal(5L, Scalar(current, "PRAGMA user_version;"));
+    }
+
+    [Fact]
+    public async Task Initialize_VersionFour_RebuildsJournalTagsAndKeepsRows()
+    {
+        Directory.CreateDirectory(_directory);
+        using (var old = SqliteConnectionFactory.OpenFile(_factory.DatabasePath, SqliteOpenMode.ReadWriteCreate))
+        {
+            var migrations = ReadMigrations();
+            Execute(old, migrations[0] + migrations[1] + migrations[2] + migrations[3]);
+            Execute(old, """
+                INSERT INTO storage_meta VALUES(1,'existing',2,3,'legacy');
+                INSERT INTO config_scopes VALUES(1,'D:/config.yml');
+                INSERT INTO journals(scope_id,data_key,status,completed_on,note,revision,position)
+                    VALUES(1,'Old','在玩','2025-01-01','note',1,0);
+                PRAGMA user_version=4;
+                """);
+        }
+        await Initialize();
+        using var current = _factory.OpenConnection();
+        Assert.Equal(5L, Scalar(current, "PRAGMA user_version;"));
+        Assert.Equal("note", Scalar(current, "SELECT note FROM journals WHERE data_key='Old';"));
+        Execute(current, "INSERT INTO journals(scope_id,data_key,status,completed_on,note,revision) VALUES(1,'Tags','已通关,全成就',NULL,'多标签',2);");
+        Assert.Equal("已通关,全成就", Scalar(current, "SELECT status FROM journals WHERE data_key='Tags';"));
+        Execute(current, $"INSERT INTO journals(scope_id,data_key,status,completed_on,note,revision) VALUES(1,'Long','在玩',NULL,'{new string('字', 500)}',3);");
+        AssertConstraint(current, $"INSERT INTO journals(scope_id,data_key,status,completed_on,note,revision) VALUES(1,'TooLong','在玩',NULL,'{new string('字', 501)}',4);");
+        AssertConstraint(current, "INSERT INTO journals(scope_id,data_key,status,completed_on,note,revision) VALUES(1,'Bad','全成就,已通关',NULL,'',5);");
+        AssertConstraint(current, "INSERT INTO journals(scope_id,data_key,status,completed_on,note,revision) VALUES(1,'Mixed','未开始,在玩',NULL,'',6);");
     }
 
     [Fact]

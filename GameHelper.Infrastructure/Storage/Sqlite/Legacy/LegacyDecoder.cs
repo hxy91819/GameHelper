@@ -58,10 +58,13 @@ internal static class LegacyDecoder
                 break;
             case "journal":
                 foreach (var (key, value) in root.Deserialize<Dictionary<string, LegacyJournal?>>() ?? [])
-                    Add(key, value, string.IsNullOrWhiteSpace(key) || value is null ||
-                        !new[] { "未开始", "在玩", "已通关", "全成就", "搁置" }.Contains(value.Status) ||
-                        value.Note is null || value.Note.Length > 80 || value.Note.Contains('\r') || value.Note.Contains('\n')
-                        ? "legacy journal validation rejected item" : "");
+                {
+                    // Single-status files stay valid; multi-tag values must be a canonical subset.
+                    if (value is null || !JournalStatus.TryNormalize(value.Status, out var status) ||
+                        value.Note is null || value.Note.Length > 500 || value.Note.Contains('\r') || value.Note.Contains('\n'))
+                    { Add(key, value, "legacy journal validation rejected item"); continue; }
+                    Add(key, value with { Status = status }, string.IsNullOrWhiteSpace(key) ? "legacy journal validation rejected item" : "");
+                }
                 break;
             case "genres":
                 var genres = new Dictionary<string, string[]>(root.Deserialize<Dictionary<string, string[]>>() ?? [], StringComparer.OrdinalIgnoreCase);

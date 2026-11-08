@@ -175,7 +175,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         await JournalEditorViewModel.LoadAsync(_journalStore, selected.DataKey, selected.Name, _timeProvider);
     internal JournalEditorViewModel? EditSelectedJournal() => Selected is null ? null : new(_journalStore, Selected.DataKey, Selected.Name, _timeProvider);
     private void OnJournalSaved(object? sender, EventArgs e) => Changed(nameof(SelectedJournalSummary));
-    internal static string JournalSummary(JournalRecord record) => record.Status
+    internal static string JournalSummary(JournalRecord record) => JournalStatus.Describe(record.Status)
         + (record.CompletedOn is { } date ? $" · 通关 {date:yyyy/MM/dd}" : string.Empty)
         + (record.Note.Length > 0 ? "\n" + record.Note : "\n还没有留下短评");
     public bool HasUnsavedChanges => _games.Any(game => game.IsDirty);

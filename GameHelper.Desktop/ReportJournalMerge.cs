@@ -5,7 +5,7 @@ namespace GameHelper.Desktop;
 /// <summary>Legacy fallback only: joins file journal completions when the report provider has no scoped journal snapshot.</summary>
 internal static class ReportJournalMerge
 {
-    internal static bool IsCompleted(string status) => status is "已通关" or "全成就";
+    internal static bool IsCompleted(string status) => JournalStatus.IsCompleted(status);
 
     internal static PlaytimeReport Apply(PlaytimeReport report, IEnumerable<KeyValuePair<string, JournalRecord>> journal,
         Func<string, string?>? displayName = null)
@@ -16,7 +16,7 @@ internal static class ReportJournalMerge
         var completed = new List<ReportClearedGame>();
         foreach (var (key, record) in journal)
             if (IsCompleted(record.Status) && record.CompletedOn is { } completedOn)
-                completed.Add(new(key, Name(key, displayName), completedOn, record.Status, record.Note));
+                completed.Add(new(key, Name(key, displayName), completedOn, JournalStatus.Describe(record.Status), record.Note));
         return report with
         {
             ClearedGames = completed.Where(game => game.CompletedOn >= start && game.CompletedOn < end)

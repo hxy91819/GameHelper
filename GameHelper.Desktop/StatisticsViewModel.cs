@@ -152,7 +152,7 @@ public sealed class StatisticsViewModel : ObservableState, IDisposable
     private void ApplyJournal(StatisticsGameRow row)
     {
         var record = _journal.Read(row.DataKey);
-        row.JournalSummary = record.Status + (record.CompletedOn is { } date ? $"\n{date:yyyy/MM/dd}" : string.Empty);
+        row.JournalSummary = JournalStatus.Describe(record.Status) + (record.CompletedOn is { } date ? $"\n{date:yyyy/MM/dd}" : string.Empty);
         row.Note = record.Note.Length == 0 ? "还没有留下短评" : record.Note;
     }
     public int Days => _days;

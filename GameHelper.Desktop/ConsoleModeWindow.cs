@@ -4,6 +4,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using GameHelper.Core.Models;
 using GameHelper.Desktop.Input;
 using GameHelper.Infrastructure.Processes;
 
@@ -72,7 +73,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
     {
         var key = Selected?.DataKey;
         var rows = model.ConsoleCollectionGames(tab == 4).ToArray();
-        var order = ConsoleModePolicy.Select(rows.Select(g => new ConsoleModePolicy.Entry(g.DataKey,g.LastPlayedAt,model.ConsoleJournal(g.DataKey).Status is "已通关" or "全成就",g.Controller.Status,g.Controller.Manual)),tab,TimeProvider.System).Select(e => e.Key).Where(k => ConsoleInteractionPolicy.Matches(rows.First(g => g.DataKey == k).Name, query));
+        var order = ConsoleModePolicy.Select(rows.Select(g => new ConsoleModePolicy.Entry(g.DataKey,g.LastPlayedAt,JournalStatus.IsCompleted(model.ConsoleJournal(g.DataKey).Status),g.Controller.Status,g.Controller.Manual)),tab,TimeProvider.System).Select(e => e.Key).Where(k => ConsoleInteractionPolicy.Matches(rows.First(g => g.DataKey == k).Name, query));
         shelf.ItemsSource = order.Select(k => rows.First(g => g.DataKey == k)).ToArray();
         shelf.SelectedItem = shelf.Items.Cast<LibraryGameItem>().FirstOrDefault(g => g.DataKey == key);
         if (key is not null && shelf.SelectedItem is null)
@@ -101,7 +102,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
         if (Selected is { } g)
         {
             detailTitle.Text = g.Name;
-            detailSummary.Text = $"{g.Playtime}  ·  {model.ConsoleJournal(g.DataKey).Status}\n{g.LastPlayedLabel}  ·  最近本局评分：{rating}";
+            detailSummary.Text = $"{g.Playtime}  ·  {JournalStatus.Describe(model.ConsoleJournal(g.DataKey).Status)}\n{g.LastPlayedLabel}  ·  最近本局评分：{rating}";
             detailController.Text = $"{g.Controller.Label}\n{g.Controller.Description}";
             detailSettings.Text = $"{g.Summary}  ·  DS4Windows {(g.UseDs4Windows ? "启用" : "关闭")}";
             info.Text = confirm ? "这款游戏仅部分支持或不支持手柄。请备好键鼠，再次确认即可启动。" : g.IsRunning ? "游戏正在运行。回到游戏继续冒险，或从系统菜单结束游戏。" : "准备好就出发。启动时会应用已保存的游戏自动化设置。";

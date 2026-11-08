@@ -1,3 +1,4 @@
+using GameHelper.Core.Models;
 using GameHelper.Desktop;
 
 namespace GameHelper.Tests;
@@ -12,7 +13,7 @@ public sealed class JournalTests : IDisposable
     public void Store_RoundTripsByStableKeyWithoutChangingConfiguration()
     {
         File.WriteAllText(Config, "original");
-        var record = new JournalRecord("已通关", new DateOnly(2032, 2, 29), "旅程结束");
+        var record = new JournalRecord("已通关,全成就", new DateOnly(2032, 2, 29), "旅程结束");
         var store = new LibraryJournalStore(Config);
         store.Save("game", record);
         store.Save("another", new("搁置", null, "稍后再玩"));
@@ -24,17 +25,36 @@ public sealed class JournalTests : IDisposable
         Assert.Empty(Directory.GetFiles(_root, "*.tmp"));
     }
 
+    [Fact]
+    public void Store_NormalizesTagOrderAndMatchesEverySelectedTag()
+    {
+        var store = new LibraryJournalStore(Config);
+        store.Save("a", new("全成就, 已通关", null, ""));
+        Assert.Equal("已通关,全成就", store.Read("a").Status);
+        foreach (var tag in new[] { "已通关", "全成就" }) Assert.True(store.Matches("a", tag));
+        Assert.False(store.Matches("a", "搁置"));
+        Assert.False(store.Matches("a", "未开始"));
+        Assert.Throws<ArgumentException>(() => store.Save("b", new("已通关,未知")));
+        Assert.Throws<ArgumentException>(() => store.Save("b", new("未开始,在玩")));
+        Assert.Throws<ArgumentException>(() => store.Save("b", new("")));
+        Assert.Equal(new JournalRecord(), store.Read("b"));
+    }
+
     [Theory]
     [InlineData("{broken")]
     [InlineData("null")]
     [InlineData("[]")]
     [InlineData("{\"a\":null}")]
     [InlineData("{\"a\":{\"Status\":\"unknown\"}}")]
+    [InlineData("{\"a\":{\"Status\":\"未开始,在玩\"}}")]
     [InlineData("{\"a\":{\"Status\":\"在玩\",\"CompletedOn\":\"bad date\"}}")]
     public void Store_CorruptDocumentFallsBack(string json)
     {
         File.WriteAllText(Config + ".desktop-journal.json", json);
-        Assert.Equal(new JournalRecord(), new LibraryJournalStore(Config).Read("a"));
+        var record = new LibraryJournalStore(Config).Read("a");
+        Assert.Equal("未开始", record.Status);
+        Assert.Null(record.CompletedOn);
+        Assert.Equal("", record.Note);
     }
 
     [Theory]
@@ -58,6 +78,48 @@ public sealed class JournalTests : IDisposable
         reopened.CompletedOn = null;
         Assert.True(reopened.Save());
         Assert.Null(store.Read("a").CompletedOn);
+    }
+
+    [Fact]
+    public void Editor_SelectsIndependentTagsAndKeepsNotStartedExclusive()
+    {
+        var store = new LibraryJournalStore(Config);
+        var editor = new JournalEditorViewModel(store, "a", "游戏", new Clock());
+        JournalStatusOption Option(string name) => editor.StatusOptions.Single(item => item.Name == name);
+        Assert.Equal("未开始", editor.Status);
+        Assert.True(Option("未开始").IsSelected);
+
+        Option("已通关").IsSelected = true;
+        Option("全成就").IsSelected = true;
+        Assert.Equal("已通关,全成就", editor.Status);
+        Assert.True(editor.IsCompleted);
+        Assert.False(Option("未开始").IsSelected);
+        Assert.True(editor.Save());
+        Assert.Equal("已通关,全成就", store.Read("a").Status);
+
+        Option("未开始").IsSelected = true;
+        Assert.Equal("未开始", editor.Status);
+        Assert.All(editor.StatusOptions.Where(item => item.Name != "未开始"), item => Assert.False(item.IsSelected));
+        Assert.False(editor.IsCompleted);
+        Option("搁置").IsSelected = true;
+        Assert.Equal("搁置", editor.Status);
+        Assert.False(Option("未开始").IsSelected);
+        Option("搁置").IsSelected = false;
+        Assert.True(Option("未开始").IsSelected);
+        Assert.Equal("未开始", editor.Status);
+    }
+
+    [Fact]
+    public void Editor_ReopeningPrefillsEverySavedTag()
+    {
+        var store = new LibraryJournalStore(Config);
+        store.Save("a", new("在玩,已通关", new DateOnly(2031, 12, 24), "重玩中"));
+        var editor = new JournalEditorViewModel(store, "a", "游戏", new Clock());
+        Assert.Equal("在玩,已通关", editor.Status);
+        Assert.True(editor.StatusOptions.Single(item => item.Name == "在玩").IsSelected);
+        Assert.True(editor.StatusOptions.Single(item => item.Name == "已通关").IsSelected);
+        Assert.False(editor.StatusOptions.Single(item => item.Name == "全成就").IsSelected);
+        Assert.Equal(new DateTime(2031, 12, 24), editor.CompletedOn);
     }
 
     [Fact]
@@ -101,16 +163,16 @@ public sealed class JournalTests : IDisposable
     public void Save_RejectsLongOrMultilineNoteAndKeepsPreviousRecord()
     {
         var store = new LibraryJournalStore(Config);
-        var editor = new JournalEditorViewModel(store, "a", "游戏", new Clock()) { Note = new string('字', 80) };
+        var editor = new JournalEditorViewModel(store, "a", "游戏", new Clock()) { Note = new string('字', LibraryJournalStore.NoteLimit) };
         Assert.True(editor.Save());
         var bytes = File.ReadAllText(Config + ".desktop-journal.json");
-        foreach (var invalid in new[] { new string('字', 81), "多\n行", "多\r行" })
+        foreach (var invalid in new[] { new string('字', LibraryJournalStore.NoteLimit + 1), "多\n行", "多\r行" })
         {
             editor.Note = invalid;
             Assert.False(editor.Save());
             Assert.NotEmpty(editor.Error);
             Assert.Equal(bytes, File.ReadAllText(Config + ".desktop-journal.json"));
-            Assert.Equal(new string('字', 80), store.Read("a").Note);
+            Assert.Equal(new string('字', LibraryJournalStore.NoteLimit), store.Read("a").Note);
         }
     }
 

@@ -14,7 +14,7 @@
 
 唯一版本事实源是 `PRAGMA user_version`。嵌入资源 `001_tables.sql` 建立 ADR 全部 20 张表，`002_indexes.sql` 增加 4 个显式查询索引；批次 2 的 `003_legacy_projection.sql` 增加顺序、可空快照身份和维护状态（详见[导入工具](./sqlite-import-tools.md)）；主键、导入记录来源/序号及来源关联另外由唯一约束保护。所有待执行版本的 DDL、初始 metadata 和 user_version 同事务提交，失败全部回滚。初始化不会导入任何旧数据，初始 compatibility_mode 为 `legacy`，修订为零；后续适配器负责业务修订递增。
 
-手帐状态保存现有中文值。SQLite 的 note 长度 CHECK 按 Unicode code point 计数；后续 Core/侧数据适配器仍须沿用现有 .NET UTF-16 长度 ≤80 的用户校验。DateTime 值与 Kind 分列，不添加会改变旧历史语义的日期排序或 duration 等值约束。history_keys.first_sequence 显式保存首次出现顺序，未来导入器分配序号并按其排序，不依赖无 ORDER BY 查询或 VACUUM 可改变的隐式 rowid。
+手帐状态保存现有中文标签；多选后按产品固定顺序以逗号连接（如 `已通关,全成就`），`未开始` 表示无标签且不与其它标签组合，SQLite CHECK 枚举 16 种合法值，顺序不符或未知标签会被拒绝。SQLite 的 note 长度 CHECK 按 Unicode code point 计数并随产品放宽到 500；Core/侧数据适配器仍须沿用 .NET UTF-16 长度 ≤500 的用户校验（代理对在 .NET 计数更严格）。DateTime 值与 Kind 分列，不添加会改变旧历史语义的日期排序或 duration 等值约束。history_keys.first_sequence 显式保存首次出现顺序，未来导入器分配序号并按其排序，不依赖无 ORDER BY 查询或 VACUUM 可改变的隐式 rowid。
 
 初始化日常执行 quick_check 和独立 foreign_key_check；新建/升级在提交前执行完整 integrity_check 和 foreign_key_check。失败抛出故障，不返回空数据，也不回退旧文件写入。WAL 在初始化锁内启用并读回确认。每日维护调度、运行时故障提示与生产写入停用策略由后续批次接入。
 

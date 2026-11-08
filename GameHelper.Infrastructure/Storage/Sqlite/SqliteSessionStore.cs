@@ -153,11 +153,14 @@ public sealed class SqliteSessionStore : IInFlightSessionStore, IPlaytimeSnapsho
         var journal = new List<ReportClearedGame>();
         using var command = Command(c, tx, """
             SELECT data_key,status,completed_on,note FROM journals j JOIN config_scopes s ON s.scope_id=j.scope_id
-            WHERE config_path=$0 AND status IN ('已通关','全成就') AND completed_on IS NOT NULL;
+            WHERE config_path=$0 AND completed_on IS NOT NULL;
             """, Path.GetFullPath(configPath));
         using var reader = command.ExecuteReader();
-        while (reader.Read()) journal.Add(new(reader.GetString(0), reader.GetString(0),
-            DateOnly.Parse(reader.GetString(2), System.Globalization.CultureInfo.InvariantCulture), reader.GetString(1), reader.GetString(3)));
+        while (reader.Read())
+            if (JournalStatus.IsCompleted(reader.GetString(1)))
+                journal.Add(new(reader.GetString(0), reader.GetString(0),
+                    DateOnly.Parse(reader.GetString(2), System.Globalization.CultureInfo.InvariantCulture),
+                    JournalStatus.Describe(reader.GetString(1)), reader.GetString(3)));
         reader.Close();
         return new PlaytimeSnapshot(history, null, HistoryVersion: version, Journal: journal, Ratings: SqliteSessionRatingStore.ReadRatings(c, tx));
     });
