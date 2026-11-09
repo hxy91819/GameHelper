@@ -61,12 +61,16 @@ public partial class MainWindow : Window
     private bool _showGlobalSettings;
     private string _layout = "grid";
 
+    // Poster geometry is fixed; a wider window gains columns instead of stretching cards.
+    // Keep these values in sync with CardTemplate and CardsPanel in MainWindow.xaml.
+    internal const double CardWidth = 164;
+    internal const double CardHeight = 246;
+    internal const double CardColumnGap = 16;
+    internal const double CardItemWidth = CardWidth + CardColumnGap;
     public static readonly DependencyProperty CardColumnsProperty = DependencyProperty.Register(nameof(CardColumns), typeof(int), typeof(MainWindow), new PropertyMetadata(4));
     public int CardColumns { get => (int)GetValue(CardColumnsProperty); set => SetValue(CardColumnsProperty, value); }
-    public static readonly DependencyProperty CardPosterHeightProperty = DependencyProperty.Register(nameof(CardPosterHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(246d));
+    public static readonly DependencyProperty CardPosterHeightProperty = DependencyProperty.Register(nameof(CardPosterHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(CardHeight));
     public double CardPosterHeight { get => (double)GetValue(CardPosterHeightProperty); set => SetValue(CardPosterHeightProperty, value); }
-    public static readonly DependencyProperty CardSelectionHeightProperty = DependencyProperty.Register(nameof(CardSelectionHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(254d));
-    public double CardSelectionHeight { get => (double)GetValue(CardSelectionHeightProperty); set => SetValue(CardSelectionHeightProperty, value); }
     public static readonly DependencyProperty HeroHeightProperty = DependencyProperty.Register(nameof(HeroHeight), typeof(double), typeof(MainWindow), new PropertyMetadata(243d));
     public double HeroHeight { get => (double)GetValue(HeroHeightProperty); set => SetValue(HeroHeightProperty, value); }
     public static readonly DependencyProperty SidebarWidthProperty = DependencyProperty.Register(nameof(SidebarWidth), typeof(GridLength), typeof(MainWindow), new PropertyMetadata(new GridLength(210)));
@@ -81,12 +85,17 @@ public partial class MainWindow : Window
     public double BrandFontSize { get => (double)GetValue(BrandFontSizeProperty); set => SetValue(BrandFontSizeProperty, value); }
     public static readonly DependencyProperty SplitGapProperty = DependencyProperty.Register(nameof(SplitGap), typeof(GridLength), typeof(MainWindow), new PropertyMetadata(new GridLength(27)));
     public GridLength SplitGap { get => (GridLength)GetValue(SplitGapProperty); set => SetValue(SplitGapProperty, value); }
+    /// <summary>Number of fixed-width cards that fit on one wrapped row.</summary>
+    /// <remarks>CardsPanel offsets the default ListBox template's 2 DIP side padding, so this matches the real wrapped row.</remarks>
+    internal static int CardColumnsFor(double gameListWidth) =>
+        Math.Max(1, (int)(gameListWidth / CardItemWidth));
+
     private void UpdateStudioGeometry()
     {
         var narrow = ActualWidth <= 1100;
-        CardColumns = narrow ? 3 : 4;
-        CardPosterHeight = Math.Max(0, GameList.ActualWidth / CardColumns - 16) * 1.5;
-        CardSelectionHeight = CardPosterHeight + 8; HeroHeight = ActualWidth >= 1450 ? 295 : 243;
+        if (GameList.ActualWidth > 0) CardColumns = CardColumnsFor(GameList.ActualWidth);
+        CardPosterHeight = CardHeight;
+        HeroHeight = ActualWidth >= 1450 ? 295 : 243;
         SidebarInsets = narrow ? new Thickness(13, 26, 13, 26) : new Thickness(20, 30, 20, 30);
         BrandFontSize = narrow ? 16 : 19; SplitGap = new GridLength(narrow ? 20 : 27);
         SidebarWidth = new GridLength(narrow ? 175 : 210); DetailWidth = new GridLength(narrow ? 220 : 252);
@@ -118,7 +127,7 @@ public partial class MainWindow : Window
         _launchHandoff = new MainWindowLaunchWindowHandoff(this, GameList);
         _model.LaunchWindowHandoff = _launchHandoff;
         SizeChanged += (_, _) => UpdateStudioGeometry();
-        Loaded += (_, _) => UpdateStickyDetails();
+        Loaded += (_, _) => { UpdateStudioGeometry(); UpdateStickyDetails(); };
         DataContext = model;
         model.PropertyChanged += OnSettingsSelectionChanged;
         UpdateThemeButton();
