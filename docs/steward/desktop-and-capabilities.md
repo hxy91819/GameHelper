@@ -21,7 +21,7 @@
 
 ## 关键决策
 
-- 2026-11-09 模型派发遵循用户级默认配置：simple 为 DeepSeek Harness 4.1 Flash/max，medium 为 Codex 6.1 Sol/medium，complex 为同模型/high；用户本轮指定，覆盖旧模型约定。
+- 2026-11-09 派发默认 auto 权限：simple 为 DeepSeek Harness 4.1 Flash/max，medium 为 Codex 6.1 Sol/medium，complex 为同模型/high；用户本轮指定，覆盖旧约定。
 
 - 2026-11-05 评分交互修订：点星只选分数并保持窗口／浮层打开，允许继续写想法，再由「保存」／「提交评分」一起提交并关闭；替代 10-30 点星即保存的约定。原因：用户反馈先打星就关闭，无法继续写评论。影响：桌面和主机评分界面。
 

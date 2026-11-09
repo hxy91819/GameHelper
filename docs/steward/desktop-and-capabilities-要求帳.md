@@ -4,6 +4,7 @@
 
 | 日期 | 要求 | 狀態 | 結果 | 材料 |
 | --- | --- | --- | --- | --- |
+| 11-09 | 海报任务可以按 auto 权限重新启动 | 採納 | 默认配置确认已为 auto；停止原运行回合后在同一线程以 auto 续跑，保留任务上下文与已完成工作 | BB 线程 thr_263gxu3yuw；會話回覆 11-09 |
 | 11-09 | 放大页面时海报保持默认尺寸，用更多列容纳更多游戏 | 進行中 | 已定位固定列数导致拉伸；正实现固定海报尺寸、自适应列数及 WPF 回归 | BB 线程 thr_263gxu3yuw |
 | 11-09 | 维护派发默认值：simple 用 DeepSeek Harness 4.1 Flash/max，medium 用 Codex 6.1 Sol/medium，complex 用 high | 採納 | 用户级配置已保存，三档 dry-run 校验通过，首个 simple 任务实际按新默认派发 | 本机 C:/Users/Administrator/.config/bb-dispatch/config.yaml；會話回覆 11-09 |
 | 10-30 | 托盘品牌图标看起来分辨率低，继续优化 | 完成 | 实测 DPI unaware 把所需 32×32 加载为 16×16；按任务栏 DPI 选图，补缺档缩小与尺寸变化重载，原生验证/回归/独立审查通过，发布目录验证原生 32×32，已更新本机 | [启动与托盘](../guides/startup.md#托盘快捷操作) |
