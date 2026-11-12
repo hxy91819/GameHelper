@@ -4,6 +4,7 @@
 
 | 日期 | 要求 | 狀態 | 結果 | 材料 |
 | --- | --- | --- | --- | --- |
+| 11-12 | 私人收藏改成需要密码才能用 | 完成 | 首次进入设置 4–32 位字母或数字密码，桌面与主机进入前验证、离开即重新锁定；未设密码拒绝新增私人标记；PBKDF2 加盐哈希只存本机，不进 SQLite/备份/sync；构建 0 错误，隔离数据全量 1340 过/5 既有跳过，WPF 设置/输入/错误态截图核对，直接部署 PID 32068，无控制台、数据/ETW/IPC 健康 | commit 648ddcc；[游戏库说明](../guides/game-library.md#私人收藏--默认隐藏) |
 | 11-09 | 海报任务可以按 auto 权限重新启动 | 採納 | 默认配置确认已为 auto；停止原运行回合后在同一线程以 auto 续跑，保留任务上下文与已完成工作 | BB 线程 thr_263gxu3yuw；會話回覆 11-09 |
 | 11-09 | 放大页面时海报保持默认尺寸，用更多列容纳更多游戏 | 完成 | 海报固定 164×246，窄/默认/宽窗口 3/4/7 列且末行不拉伸；构建通过，全量 1391 过/5 既有跳过、新产物端到端 10 过/2 既有跳过，独立审查 clean；已直接更新本机，PID 12612，后台无控制台、权限/数据/ETW 与 IPC 健康，父线程复核存活、无控制台和 IPC 成功 | commit 5309645；BB 线程 thr_263gxu3yuw；审查 thr_u3ws95zcqp；[游戏库说明](../guides/game-library.md) |
 | 11-09 | 维护派发默认值：simple 用 DeepSeek Harness 4.1 Flash/max，medium 用 Codex 6.1 Sol/medium，complex 用 high | 採納 | 用户级配置已保存，三档 dry-run 校验通过，首个 simple 任务实际按新默认派发 | 本机 C:/Users/Administrator/.config/bb-dispatch/config.yaml；會話回覆 11-09 |
@@ -42,3 +43,5 @@
 最终组合收尾：封面任务随后以 `fe1d275` / `c80b663` 提交，已在最新主干与托盘修复组合上重新执行 Release 构建、`verify-on-machine.ps1 -SkipDeploy`、完整 `dotnet test GameHelper.sln --configuration Release --no-build`，**1292 通过、5 项既有可选跳过、0 失败**。最后执行原目录的标准 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-on-machine.ps1 -SkipVerify -Restart`，运行时 PID 35432，完整健康探针、库 IPC 和原生托盘注册均通过；在途会话身份/起点及 HDR 接管状态保持一致。最终发布同时保留最新主干成果，临时隔离发布仅为前阶段验证记录。
 
 2026-11-05 评分评论流程验证：`dotnet build GameHelper.sln` 0 错误；隔离数据下 `dotnet test GameHelper.sln` 共 1370 通过、5 项既有跳过、0 失败。真实 WPF 评分回归验证点选 1/3/5 星后保持窗口、继续写想法再保存关闭、失败保留、防重复及选星后取消零写入；离屏渲染确认提示和保存入口可见。`verify-on-machine.ps1 -SkipDeploy -VerifyRuntime` 通过（含两次强杀续算）；`verify-on-machine.ps1 -SkipVerify -Restart` 原子部署成功，PID 18588，无控制台、权限/数据/ETW 和库 IPC 健康。README、评分指南、主机使用／验收指南和 ADR 同步更新。
+
+2026-11-12 私人收藏密码验证：`dotnet build GameHelper.sln` 0 错误；隔离数据全量 `dotnet test GameHelper.sln` 1340 通过、5 项既有可选跳过、0 失败；离屏 WPF 渲染核对设置、输入与错误三种对话框布局。`verify-on-machine.ps1 -SkipVerify -Restart` 原子换入发布目录后报告 PID 30668，完整性/数据目录/ETW 与库 IPC 通过；外层包装进程因继承句柄未退出被结束，运行时随之退出，随后以发布目录 `desktop\GameHelper.Desktop.exe --background` 重新拉起，PID 32068，无控制台探针、完整性/数据目录/ETW 与库 IPC 全部再次通过。该密码文件为本机侧车，不进入既有 SQLite 六类文档、备份或 sync。
