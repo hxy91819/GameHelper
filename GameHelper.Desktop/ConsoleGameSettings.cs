@@ -8,6 +8,7 @@ internal sealed class ConsoleGameSettings(IGameLibrary library, LibraryGame base
 {
     internal string DataKey => baseline.Config.DataKey;
     internal string Name => baseline.Config.DisplayName ?? DataKey;
+    internal bool SavedAdult => baseline.Config.Adult;
     internal bool Hdr { get; set; } = baseline.Config.HdrEnabled;
     internal bool Adult { get; set; } = baseline.Config.Adult;
     internal bool UseDs4Windows { get; set; } = baseline.Config.Launch?.Ds4WindowsPath is not null;

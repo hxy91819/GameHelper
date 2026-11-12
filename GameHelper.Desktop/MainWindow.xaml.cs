@@ -242,10 +242,15 @@ public partial class MainWindow : Window
     }
     private void OnGenre(object sender, RoutedEventArgs e)
     {
+        var genre = (string)((Button)sender).Tag;
+        if (genre == LibraryViewModel.AdultCollection && !_model.PrivateCollection.IsUnlocked
+            && !PrivateCollectionPasswordWindow.Enter(this, _model.PrivateCollection)) return;
         Navigate(false);
-        _model.SetGenre((string)((Button)sender).Tag);
+        _model.SetGenre(genre);
         SetInstallationGroup("installed");
     }
+    private void OnPrivatePassword(object sender, RoutedEventArgs e) =>
+        PrivateCollectionPasswordWindow.Manage(this, _model.PrivateCollection);
     private async void OnEditJournal(object sender, RoutedEventArgs e)
     {
         var control = (FrameworkElement)sender;

@@ -33,6 +33,10 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private string? _genre;
     public const string AdultCollection = "私人收藏";
     public bool InAdultCollection => _genre == AdultCollection;
+    /// <summary>Shared verifier; each window owns its own unlock state.</summary>
+    internal PrivateCollectionPasswordStore PrivatePasswords { get; }
+    /// <summary>Desktop unlock state; leaving the private collection locks it again.</summary>
+    internal PrivateCollectionAccess PrivateCollection { get; }
     public ObservableCollection<GenreGroup> GenreGroups { get; } = [];
     public LibraryGameItem? ContinueGame => _genre is null ? Games.Cast<LibraryGameItem>().Where(game => game.InstallationState == GameInstallationState.Installed && (game.IsRunning || game.LastPlayedAt is not null)).OrderByDescending(game => game.IsRunning).ThenByDescending(game => game.LastPlayedAt).FirstOrDefault() : null;
     public bool HasContinueGame => ContinueGame is not null;
@@ -63,6 +67,8 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     {
         _library = library;
         _controllerConfig = configPath ?? metadataConfigPath;
+        PrivatePasswords = sideData?.PrivatePasswords ?? new(configPath ?? metadataConfigPath);
+        PrivateCollection = new(PrivatePasswords);
         _controllerStore = new(new(), timeProvider ?? TimeProvider.System);
         _controllerClient = new(GenreHttp, _controllerStore, timeProvider ?? TimeProvider.System);
         _genreStore = sideData?.Genres ?? new LibraryGenreStore(configPath ?? metadataConfigPath);
@@ -163,7 +169,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     internal void ClearLibraryFilters()
     {
         if (!string.IsNullOrWhiteSpace(Search)) Search = string.Empty;
-        else { _genre = null; _filter = "all"; _group = "all"; Changed(nameof(InAdultCollection)); Changed(nameof(InstallationGroup)); Changed(nameof(CollectionTitle)); Changed(nameof(CollectionCaption)); Filter(); }
+        else { _genre = null; _filter = "all"; _group = "all"; PrivateCollection.Lock(); Changed(nameof(InAdultCollection)); Changed(nameof(InstallationGroup)); Changed(nameof(CollectionTitle)); Changed(nameof(CollectionCaption)); Filter(); }
     }
     public string SelectedJournalSummary => Selected is null ? string.Empty : JournalSummary(_journalStore.Read(Selected.DataKey));
     internal Task<JournalEditorViewModel?> EditSelectedJournalAsync()
@@ -195,7 +201,12 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
             : ex.Message;
     }
 
-    public void SetGenre(string? genre) { _genre = genre; Changed(nameof(InAdultCollection)); Changed(nameof(CollectionTitle)); Changed(nameof(CollectionCaption)); Changed(nameof(ContinueGame)); Changed(nameof(HasContinueGame)); Filter(); }
+    public void SetGenre(string? genre)
+    {
+        _genre = genre;
+        if (!InAdultCollection) PrivateCollection.Lock();
+        Changed(nameof(InAdultCollection)); Changed(nameof(CollectionTitle)); Changed(nameof(CollectionCaption)); Changed(nameof(ContinueGame)); Changed(nameof(HasContinueGame)); Filter();
+    }
     private static int GenreOrder(string genre) => genre switch
     { "动作" => 0, "冒险" => 1, "角色扮演" => 2, "策略" => 3, "模拟" => 4, "独立" => 5, "未分类" => int.MaxValue, _ => 6 };
     private void RebuildGenres()
@@ -403,6 +414,8 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         var key = selected.DataKey;
         var revision = selected.Revision;
         var configuration = selected.ToConfig();
+        if (!selected.SavedAdult && configuration.Adult && !PrivateCollection.HasPassword)
+            throw new InvalidOperationException("私人收藏需要密码：请先打开侧栏“私人收藏”设置密码，再保存这个标记。");
         await FlushDraftsAsync();
         var response = await _library.ExecuteAsync(new GameLibraryRequest
         {

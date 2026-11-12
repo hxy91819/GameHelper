@@ -21,8 +21,8 @@ internal static class ConsoleInteractionPolicy
     }
 }
 
-/// <summary>Small character grid shared by search and optional rating thought entry.</summary>
-internal sealed class ConsoleKeyboard(string original, int limit = 100)
+/// <summary>Small character grid shared by search, optional rating thought and password entry.</summary>
+internal sealed class ConsoleKeyboard(string original, int limit = 100, bool alphanumericOnly = false)
 {
     internal static readonly string[] Keys = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".Select(c => c.ToString()).Concat(["空格", "清空", "完成", "取消"]).ToArray();
     internal const int Columns = 10;
@@ -34,6 +34,10 @@ internal sealed class ConsoleKeyboard(string original, int limit = 100)
     {
         var key = Keys[Index];
         if (key == "清空") Text = "";
-        else if (key is not ("完成" or "取消") && Text.Length < limit) Text += key == "空格" ? " " : key;
+        else if (key is not ("完成" or "取消") && Text.Length < limit)
+        {
+            var value = key == "空格" ? " " : key;
+            if (!alphanumericOnly || value.All(char.IsAsciiLetterOrDigit)) Text += value;
+        }
     }
 }

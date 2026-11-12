@@ -126,6 +126,64 @@ public sealed class AdultCollectionTests
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
+    [Fact]
+    public Task MarkingPrivateWithoutPasswordIsRejectedUntilAPasswordIsSet() => OnDispatcher(async () =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gh-adult-password-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root); var path = Path.Combine(root, "config.yml"); File.WriteAllText(path, "games: []");
+        try
+        {
+            var rows = new[] { Row("game", false) };
+            var saved = new TaskCompletionSource<GameLibraryRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var backend = new Mock<IGameLibrary>();
+            backend.Setup(b => b.ExecuteAsync(It.IsAny<GameLibraryRequest>(), It.IsAny<CancellationToken>()))
+                .Returns<GameLibraryRequest, CancellationToken>((request, _) =>
+                {
+                    if (request.Operation == GameLibraryOperation.Save) saved.TrySetResult(request);
+                    return Task.FromResult(new GameLibraryResponse { Success = true, ConfigPath = path, Games = rows });
+                });
+            using var model = new LibraryViewModel(backend.Object, path, new SteamPosterLibrary(path, allowNetwork: false));
+            await model.RefreshAsync();
+            model.Selected!.Adult = true;
+            model.SaveCommand.Execute(null);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Assert.Contains("私人收藏需要密码", model.ActionError);
+            Assert.False(saved.Task.IsCompleted);
+            Assert.False(new PrivateCollectionPasswordStore(path).HasPassword);
+
+            model.PrivateCollection.SetPassword("abcd12");
+            model.SaveCommand.Execute(null);
+            var request = await saved.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(request.Game!.Adult);
+        }
+        finally { Directory.Delete(root, true); }
+    });
+
+    [Fact]
+    public Task PrivateCollectionLocksAgainAfterLeavingTheCollection() => OnDispatcher(async () =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gh-adult-lock-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root); var path = Path.Combine(root, "config.yml"); File.WriteAllText(path, "games: []");
+        try
+        {
+            var backend = new Mock<IGameLibrary>();
+            backend.Setup(b => b.ExecuteAsync(It.IsAny<GameLibraryRequest>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new GameLibraryResponse { Success = true, ConfigPath = path, Games = [Row("private-title", true)] });
+            using var model = new LibraryViewModel(backend.Object, path, new SteamPosterLibrary(path, allowNetwork: false));
+            await model.RefreshAsync();
+            Assert.False(model.PrivateCollection.IsUnlocked);
+            model.PrivateCollection.SetPassword("abcd12");
+            model.SetGenre(LibraryViewModel.AdultCollection);
+            Assert.True(model.PrivateCollection.IsUnlocked);
+            model.SetGenre(null);
+            Assert.False(model.PrivateCollection.IsUnlocked);
+            model.SetGenre(LibraryViewModel.AdultCollection);
+            Assert.False(model.PrivateCollection.TryUnlock("wrong"));
+            model.SetGenre(null);
+        }
+        finally { Directory.Delete(root, true); }
+    });
+
     private static Task OnDispatcher(Func<Task> test)
     {
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

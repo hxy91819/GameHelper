@@ -41,6 +41,8 @@ internal sealed partial class ConsoleModeWindow
             else if (action == ControllerAction.Confirm && settingsIndex == 5)
                 _ = RunInteractionAsync(async () =>
                 {
+                    if (draft.Adult && !draft.SavedAdult && !privateCollection.HasPassword)
+                        throw new InvalidOperationException("私人收藏需要密码：请先在桌面游戏库进入私人收藏设置密码，再保存这个标记。");
                     await draft.SaveAsync();
                     gameSettings = null; overlayKind = ConsoleOverlay.None;
                     // Keep a distinct success message: RunInteractionAsync clears its transient status.

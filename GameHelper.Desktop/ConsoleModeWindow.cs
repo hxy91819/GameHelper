@@ -27,6 +27,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
     private string rating = "正在读取评分…";
     private bool closed;
     private readonly ConsoleLaunchState launchState = new(TimeProvider.System);
+    private readonly PrivateCollectionAccess privateCollection;
     private readonly Border launchOverlay = new() { Background = new SolidColorBrush(Color.FromArgb(240, 13, 23, 34)), Child = new TextBlock { Text = "启动中…\n正在等待游戏进程 · 返回可关闭提示", FontSize = 32, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
     private readonly TextBlock status = new() { FontSize = 22 };
     private readonly WindowControllerInput input;
@@ -39,6 +40,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
     internal ConsoleModeWindow(MainWindow library, LibraryViewModel model)
     {
         this.library = library; this.model = model; previous = model.LaunchWindowHandoff;
+        privateCollection = new(model.PrivatePasswords);
         Title = "GameHelper 主机模式"; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         ConfigureTheme(Resources);
         BuildPresentation();

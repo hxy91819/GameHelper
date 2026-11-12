@@ -9,7 +9,7 @@ namespace GameHelper.Desktop;
 
 internal sealed partial class ConsoleModeWindow
 {
-    private enum ConsoleOverlay { None, SystemMenu, Confirm, Keyboard, Rating, Settings }
+    private enum ConsoleOverlay { None, SystemMenu, Confirm, Keyboard, Password, Notice, Rating, Settings }
     private sealed record MenuRow(string Label, bool Enabled, Func<Task> Execute);
     private readonly Border actionOverlay = new() { Background = new SolidColorBrush(Color.FromArgb(235, 9, 10, 14)), Padding = new Thickness(24), Visibility = Visibility.Collapsed };
     private readonly Button stopButton = new() { Content = "结束游戏（需确认）", FontSize = 24, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0,15,0,0), Visibility = Visibility.Collapsed };
@@ -19,6 +19,7 @@ internal sealed partial class ConsoleModeWindow
     private bool actionBusy;
     private string interactionStatus = "";
     private string confirmationText = "";
+    private string noticeText = "";
     private Func<Task>? confirmationAction;
     private ConsoleKeyboard? keyboard;
     private bool editingThought;
@@ -118,6 +119,48 @@ internal sealed partial class ConsoleModeWindow
         keyboard = new(thought ? ratingEditor?.Thought ?? "" : query, thought ? 2000 : 100);
         overlayKind = ConsoleOverlay.Keyboard; interactionStatus = ""; Render();
     }
+    private void OpenPasswordEntry()
+    {
+        keyboard = new("", PrivateCollectionPasswordStore.MaximumLength, alphanumericOnly: true);
+        overlayKind = ConsoleOverlay.Password; interactionStatus = ""; Render();
+    }
+    private void HandlePasswordKeys(ControllerAction action)
+    {
+        if (keyboard is null) return;
+        if (action == ControllerAction.Back) CancelPasswordEntry();
+        else if (action == ControllerAction.SearchFinish) FinishPasswordEntry();
+        else if (action == ControllerAction.Auxiliary) keyboard.Delete();
+        else if (action == ControllerAction.Confirm)
+        {
+            var key = ConsoleKeyboard.Keys[keyboard.Index];
+            if (key == "完成") FinishPasswordEntry();
+            else if (key == "取消") CancelPasswordEntry();
+            else keyboard.Press();
+        }
+        else keyboard.Move(action == ControllerAction.Left ? -1 : action == ControllerAction.Right ? 1 : 0,
+            action == ControllerAction.Up ? -1 : action == ControllerAction.Down ? 1 : 0);
+    }
+    private void FinishPasswordEntry()
+    {
+        if (keyboard is null) return;
+        if (privateCollection.TryUnlock(keyboard.Text))
+        {
+            keyboard = null; overlayKind = ConsoleOverlay.None; interactionStatus = "";
+            OpenCollectionCore(4);
+            return;
+        }
+        // Do not keep the rejected value: retry from an empty masked field.
+        keyboard = new("", PrivateCollectionPasswordStore.MaximumLength, alphanumericOnly: true);
+        interactionStatus = "密码不正确，请重试。";
+    }
+    private void CancelPasswordEntry()
+    {
+        keyboard = null; overlayKind = ConsoleOverlay.None; interactionStatus = "已取消输入密码。";
+    }
+    private void ShowNotice(string text)
+    {
+        noticeText = text; overlayKind = ConsoleOverlay.Notice; interactionStatus = ""; Render();
+    }
     private void FinishKeyboard(bool save)
     {
         if (save && keyboard is not null)
@@ -163,7 +206,12 @@ internal sealed partial class ConsoleModeWindow
             { _ = RunInteractionAsync(() => OpenGameSettingsAsync(settingsGame.DataKey)); return true; }
             return false;
         }
-        if (overlayKind == ConsoleOverlay.Settings) HandleSettings(action);
+        if (overlayKind == ConsoleOverlay.Password) HandlePasswordKeys(action);
+        else if (overlayKind == ConsoleOverlay.Notice)
+        {
+            if (action is ControllerAction.Back or ControllerAction.Confirm or ControllerAction.Menu) overlayKind = ConsoleOverlay.None;
+        }
+        else if (overlayKind == ConsoleOverlay.Settings) HandleSettings(action);
         else if (overlayKind == ConsoleOverlay.Keyboard && keyboard is not null)
         {
             if (action == ControllerAction.Back) FinishKeyboard(false);
@@ -198,6 +246,22 @@ internal sealed partial class ConsoleModeWindow
             else if (action == ControllerAction.Confirm) _ = SaveRatingAsync();
         }
         Render(); return true;
+    }
+    private void AddKeyboardGrid(StackPanel panel, Action<string> pressed)
+    {
+        if (keyboard is null) return;
+        var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = ConsoleKeyboard.Columns }; panel.Children.Add(grid);
+        for (int i = 0; i < ConsoleKeyboard.Keys.Length; i++)
+        {
+            int index = i;
+            grid.Children.Add(ConsoleOverlayVisuals.Key(ConsoleKeyboard.Keys[i], i == keyboard.Index, !actionBusy, () =>
+            {
+                if (keyboard is null) return;
+                while (keyboard.Index != index) keyboard.Move(keyboard.Index < index ? 1 : -1, 0);
+                pressed(ConsoleKeyboard.Keys[index]);
+                Render();
+            }));
+        }
     }
     private void RenderActionOverlay()
     {
@@ -236,18 +300,31 @@ internal sealed partial class ConsoleModeWindow
             ConsoleOverlayVisuals.Header(panel, editingThought ? "记录本局想法" : "搜索游戏", "方向键选择字符，确认输入；完成后应用，返回取消。");
             var field = ConsoleModeVisuals.PanelFrame(ConsoleModeVisuals.Label(keyboard.Text.Length == 0 ? "（尚未输入）" : keyboard.Text.Length > 100 ? "…" + keyboard.Text[^100..] : keyboard.Text, 24), 16);
             field.Background = ConsoleModeVisuals.Surface; field.Margin = new Thickness(0, 0, 0, 16); panel.Children.Add(field);
-            var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = ConsoleKeyboard.Columns }; panel.Children.Add(grid);
-            for (int i=0;i<ConsoleKeyboard.Keys.Length;i++)
+            AddKeyboardGrid(panel, key =>
             {
-                int index = i;
-                grid.Children.Add(ConsoleOverlayVisuals.Key(ConsoleKeyboard.Keys[i],i==keyboard.Index,!actionBusy,() =>
-                {
-                    if (keyboard is null) return;
-                    var key = ConsoleKeyboard.Keys[index];
-                    if (key is "完成" or "取消") FinishKeyboard(key == "完成");
-                    else { while (keyboard.Index != index) keyboard.Move(keyboard.Index < index ? 1 : -1,0); keyboard.Press(); Render(); }
-                }));
-            }
+                if (key is "完成" or "取消") FinishKeyboard(key == "完成");
+                else keyboard!.Press();
+            });
+        }
+        else if (overlayKind == ConsoleOverlay.Password && keyboard is not null)
+        {
+            ConsoleOverlayVisuals.Header(panel, "私人收藏需要密码", "使用屏幕键盘输入密码；确认解锁，返回取消。离开私人收藏后重新锁定。");
+            var masked = keyboard.Text.Length == 0 ? "（尚未输入）" : new string('●', keyboard.Text.Length);
+            var field = ConsoleModeVisuals.PanelFrame(ConsoleModeVisuals.Label(masked, 24), 16);
+            field.Background = ConsoleModeVisuals.Surface; field.Margin = new Thickness(0, 0, 0, 16); panel.Children.Add(field);
+            AddKeyboardGrid(panel, key =>
+            {
+                if (key == "完成") FinishPasswordEntry();
+                else if (key == "取消") CancelPasswordEntry();
+                else keyboard!.Press();
+            });
+        }
+        else if (overlayKind == ConsoleOverlay.Notice)
+        {
+            ConsoleOverlayVisuals.Header(panel, "私人收藏", "密码在桌面游戏库的私人收藏中设置。");
+            panel.Children.Add(ConsoleOverlayVisuals.Notice(noticeText));
+            var actions = new StackPanel { Margin = new Thickness(0, 20, 0, 0) }; panel.Children.Add(actions);
+            actions.Children.Add(Button("返回", true, true, () => HandleActionOverlay(ControllerAction.Back), primary: true));
         }
         else if (ratingEditor is not null)
         {

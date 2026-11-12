@@ -6,7 +6,7 @@ namespace GameHelper.Desktop;
 /// <summary>Worker-loaded side stores; constructing WPF views consumes memory only.</summary>
 internal sealed record DesktopSideData(LibraryGenreStore Genres, LibraryScanStore Scan, LibraryJournalStore Journal,
     SteamPosterLibrary Posters, LibraryDraftStore? DraftStore, IReadOnlyList<LibraryDraft> Drafts,
-    ThemePreferenceStore ThemePreferences, bool IsLight, string? DraftError)
+    ThemePreferenceStore ThemePreferences, bool IsLight, string? DraftError, PrivateCollectionPasswordStore PrivatePasswords)
 {
     internal static Task<DesktopSideData> LoadAsync(string configPath, bool readOnly = false, IDesktopDocumentReader? reader = null) => Task.Run(() =>
     {
@@ -21,6 +21,7 @@ internal sealed record DesktopSideData(LibraryGenreStore Genres, LibraryScanStor
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         { error = "上次未保存的修改未能读取，已忽略。"; }
         var theme = new ThemePreferenceStore(configPath, reader);
-        return new DesktopSideData(genres, scan, journal, posters, drafts, restored, theme, theme.ReadLight(), error);
+        var passwords = new PrivateCollectionPasswordStore(configPath, readOnly);
+        return new DesktopSideData(genres, scan, journal, posters, drafts, restored, theme, theme.ReadLight(), error, passwords);
     });
 }

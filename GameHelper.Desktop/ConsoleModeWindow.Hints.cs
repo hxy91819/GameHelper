@@ -34,6 +34,8 @@ internal sealed partial class ConsoleModeWindow
     {
         ConsoleOverlay.Settings => [new("选择", Vertical), new("调整", Horizontal), new("切换 / 保存", Confirm), new("返回（放弃调整）", Back)],
         ConsoleOverlay.Keyboard => [new("选字符", Directions), new("输入", Confirm), new("退格", Auxiliary), new("完成", Search), new("取消", Back)],
+        ConsoleOverlay.Password => [new("选字符", Directions), new("输入", Confirm), new("退格", Auxiliary), new("解锁", Search), new("取消", Back)],
+        ConsoleOverlay.Notice => [new("返回", Back)],
         ConsoleOverlay.Rating => [new("选星", Horizontal), new("提交", Confirm), new("填写想法", Auxiliary), new("跳过", Back)],
         ConsoleOverlay.Confirm => [new("确认执行", Confirm), new("取消", Back)],
         _ => [new("选择", Vertical), new("确认", Confirm), new("关闭菜单", Back)]
