@@ -157,7 +157,7 @@ internal sealed class PrivateCollectionPasswordWindow : Window
         foreach (var (text, click, primary, danger) in buttons)
         {
             var button = new Button { Content = text, Margin = new Thickness(8, 0, 0, 0), MinWidth = 96, IsDefault = primary };
-            if (!primary) button.IsCancel = text == "取消";
+            if (!primary) button.IsCancel = text is "取消" or "关闭";
             if (danger) button.SetResourceReference(BackgroundProperty, "Danger");
             button.Click += click;
             row.Children.Add(button);
