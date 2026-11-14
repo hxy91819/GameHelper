@@ -287,3 +287,5 @@ Steam URI／快捷方式未返回 PID 时，主机模式会关联启动前未运
 ### 存档恢复与修改技能
 
 仓库提供代理技能 [game-save-editing](.agents/skills/game-save-editing/SKILL.md)，可用 `$game-save-editing` 请求定位、恢复或修改指定单机游戏存档。通用流程复用备份和校验，字段与加密参数按游戏版本分析；已收录 Peeping Dorm Manager 的案例。这是代理操作指南，尚未集成到 GameHelper 界面或 CLI。
+
+监控会用 Windows 进程创建身份核对 PID，避免 ETW 时间转换偏差导致游戏仍运行时提前结算、关闭 HDR；补偿退出日志记录具体判定原因，见 [ETW 恢复说明](docs/guides/etw-recovery.md)。

@@ -15,6 +15,8 @@ ETW 内核会话可能在 GameHelper 仍运行时被外部停止。事件处理�
 
 ## 进程身份与事件名
 
+进程身份核对使用前后两次 Windows 进程创建时间，而不把 ETW 事件时间当作创建时间。两种时间的转换存在微小偏差，不能仅凭创建时间晚于 ETW 时间就判定 PID 复用，否则存活的游戏会在健康检查时被提前结算并关闭 HDR。首次无法读取创建时间时，以本机观察时刻作为上界，后续成功读取后保存创建身份；查询未知仍保留会话。补偿日志包含具体原因（`process-exited`、`pid-reused` 或 `new-start-event`）、退出标记以及创建、事件、观察时间，便于区分真正退出与误判。
+
 内核 ProcessStart/ProcessStop 事件的 payload 只有一个 ANSI 截断的映像名（`ImageFileName`），没有全路径；经 TraceEvent 解码后非 ASCII 文件名（如中文 exe）会变成不可逆的乱码。ETW 监视器的候选名门在名字和事件路径都不可用时，会用 `IProcessPathResolver` 按 PID 解析存活进程的完整路径并以其文件名过门，同时用解析结果替换下游事件的 ExecutableName/ExecutablePath。进程在启动事件到达前就已退出时会保持旧行为（丢弃事件），与"未收到启动事件的进程不自动补造会话"一致。非 ASCII 命名与 ASCII 命名游戏的端到端回归见 `EtwNonAsciiNamePlaytimeEndToEndTests`。
 
 ## 生命周期与隔离

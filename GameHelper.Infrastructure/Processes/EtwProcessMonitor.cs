@@ -19,7 +19,9 @@ public sealed class EtwProcessMonitor : IProcessMonitor
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<EtwProcessMonitor>? _logger;
     private readonly IProcessPathResolver? _pathResolver;
-    private readonly Dictionary<int, EtwProcessEvent> _observedProcesses = new();
+    private sealed record ObservedProcess(ProcessEventInfo Info, DateTime TimestampUtc,
+        DateTime ObservedAtUtc, DateTime? CreationTimeUtc);
+    private readonly Dictionary<int, ObservedProcess> _observedProcesses = new();
     private ProcessObservationPolicy _policy = ProcessObservationPolicy.ObserveAll();
     private IEtwSession? _session;
     private string _sessionName = "";
@@ -293,11 +295,11 @@ public sealed class EtwProcessMonitor : IProcessMonitor
         if (_observedProcesses.TryGetValue(pid, out var previous))
         {
             if (data.TimestampUtc <= previous.TimestampUtc) return;
-            CompleteObservedProcess(pid, previous, reconciled: true);
+            CompleteObservedProcess(pid, previous, reconciled: true, reason: "new-start-event");
         }
         var acceptedInfo = AcceptStartInfo(data.Info, pid);
         if (acceptedInfo is null) return;
-        _observedProcesses[pid] = data with { Info = acceptedInfo.Value };
+        _observedProcesses[pid] = Observe(acceptedInfo.Value, data.TimestampUtc, pid);
         ProcessStarted?.Invoke(acceptedInfo.Value with { Preexisting = preexisting });
     }
 
@@ -309,12 +311,23 @@ public sealed class EtwProcessMonitor : IProcessMonitor
         CompleteObservedProcess(pid, previous, reconciled: false);
     }
 
-    private void CompleteObservedProcess(int pid, EtwProcessEvent previous, bool reconciled)
+    private ObservedProcess Observe(ProcessEventInfo info, DateTime timestampUtc, int pid)
+    {
+        // ETW timestamps use a different clock conversion from GetProcessTimes. They
+        // order events, but must not serve as the exact Windows creation identity.
+        var observedAt = _timeProvider.GetUtcNow().UtcDateTime;
+        return new(info, timestampUtc, observedAt, _runtime.InspectProcess(pid).StartTimeUtc);
+    }
+
+    private void CompleteObservedProcess(int pid, ObservedProcess previous, bool reconciled,
+        string? reason = null, ProcessProbe? probe = null)
     {
         _observedProcesses.Remove(pid);
         if (!CurrentPolicy.ObserveStopEvents || string.IsNullOrWhiteSpace(previous.Info.ExecutableName)) return;
         if (reconciled)
-            _logger?.LogWarning("Reconciling missing process stop for PID {ProcessId}; exact exit time unavailable, playtime ends at reconciliation time", pid);
+            _logger?.LogWarning("Reconciling missing process stop for PID {ProcessId}; Reason={Reason}, HasExited={HasExited}, RecordedCreationUtc={RecordedCreationUtc:O}, CurrentCreationUtc={CurrentCreationUtc:O}, EventUtc={EventUtc:O}, ObservedUtc={ObservedUtc:O}; exact exit time unavailable, playtime ends at reconciliation time",
+                pid, reason, probe?.HasExited, previous.CreationTimeUtc, probe?.StartTimeUtc,
+                previous.TimestampUtc, previous.ObservedAtUtc);
         try { ProcessStopped?.Invoke(previous.Info); }
         catch (Exception ex) { _logger?.LogWarning(ex, "Error delivering process stop for PID {ProcessId}", pid); }
     }
@@ -324,8 +337,14 @@ public sealed class EtwProcessMonitor : IProcessMonitor
         foreach (var (pid, previous) in _observedProcesses.ToArray())
         {
             var process = _runtime.InspectProcess(pid);
-            if (process.HasExited || process.StartTimeUtc > previous.TimestampUtc)
-                CompleteObservedProcess(pid, previous, reconciled: true);
+            var reused = process.StartTimeUtc is { } created && (previous.CreationTimeUtc is { } recorded
+                ? created != recorded
+                : created > previous.ObservedAtUtc);
+            if (process.HasExited || reused)
+                CompleteObservedProcess(pid, previous, reconciled: true,
+                    reason: process.HasExited ? "process-exited" : "pid-reused", probe: process);
+            else if (previous.CreationTimeUtc is null && process.StartTimeUtc is { } confirmed)
+                _observedProcesses[pid] = previous with { CreationTimeUtc = confirmed };
         }
     }
 
@@ -341,7 +360,7 @@ public sealed class EtwProcessMonitor : IProcessMonitor
                 return;
             }
 
-            _observedProcesses[pid] = new EtwProcessEvent(info, assumedTimestampUtc);
+            _observedProcesses[pid] = Observe(info, assumedTimestampUtc, pid);
             _logger?.LogInformation(
                 "Assuming running process {Name} (PID {ProcessId}) observed at {Timestamp}; stop events and health-check reconcile now apply.",
                 info.ExecutableName,

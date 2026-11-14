@@ -8,9 +8,86 @@ using Moq;
 
 namespace GameHelper.Tests;
 
+[Collection("ETW")]
 public sealed class EtwProcessMonitorRecoveryTests
 {
     private static readonly DateTime StartTime = new(2026, 9, 6, 12, 0, 0, DateTimeKind.Utc);
+
+    [WindowsOnlyFact]
+    public async Task HealthCheck_RealLiveProcess_PreservesSessionUntilActualExit()
+    {
+        using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        if (!new System.Security.Principal.WindowsPrincipal(identity).IsInRole(
+            System.Security.Principal.WindowsBuiltInRole.Administrator)) return;
+        var clock = new ManualClock();
+        using var monitor = new EtwProcessMonitor(new EtwRuntime(null), ["cmd.exe"], timeProvider: clock);
+        var starts = new ConcurrentDictionary<int, bool>();
+        var stops = new ConcurrentDictionary<int, bool>();
+        monitor.ProcessStarted += info => starts.TryAdd(info.ProcessId!.Value, true);
+        monitor.ProcessStopped += info => stops.TryAdd(info.ProcessId!.Value, true);
+        monitor.Start();
+        using var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"), "/d /c set /p gh_test=")
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true })!;
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            while (!starts.ContainsKey(child.Id)) await Task.Delay(20, timeout.Token);
+            clock.Tick();
+            clock.Tick();
+            Assert.False(child.HasExited);
+            Assert.False(stops.ContainsKey(child.Id));
+            child.Kill();
+            await child.WaitForExitAsync(timeout.Token);
+            while (!stops.ContainsKey(child.Id)) await Task.Delay(20, timeout.Token);
+        }
+        finally { if (!child.HasExited) child.Kill(); }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task HealthCheck_LiveProcessCreationAfterEtwTimestamp_KeepsHdrAndPlaytime(bool identityInitiallyUnknown, bool sessionLost)
+    {
+        var runtime = new FakeRuntime { HoldRecovery = false, ReportSessionsActive = !sessionLost };
+        var clock = new ManualClock();
+        clock.Advance(TimeSpan.FromSeconds(1));
+        using var monitor = new EtwProcessMonitor(runtime, timeProvider: clock);
+        var configuration = new Mock<IGameConfiguration>();
+        configuration.Setup(c => c.Read()).Returns(new AppConfig
+        {
+            Games = [new() { DataKey = "game", Executable = "game.exe", IsEnabled = true, HdrEnabled = true,
+                Launch = new() { Target = @"D:\Game\game.exe" } }]
+        });
+        var hdr = new TrackingHdr();
+        var playtime = new Mock<IPlayTimeService>();
+        var launcher = new Mock<IGameLauncher>();
+        launcher.Setup(l => l.StartTracked(It.IsAny<GameLaunchOptions>())).Returns(100);
+        var automation = new GameAutomationService(monitor, configuration.Object, hdr,
+            playtime.Object, NullLogger<GameAutomationService>.Instance, timeProvider: clock, gameLauncher: launcher.Object);
+        var control = new MonitorControlService(monitor, automation);
+        try
+        {
+            control.Start();
+            automation.Launch("game");
+            var created = StartTime.AddTicks(500); // Different OS clock conversions, same live process.
+            if (!identityInitiallyUnknown) runtime.Processes[100] = new(false, created);
+            runtime.Sessions.Single().StartProcess(100);
+            Assert.Equal(1, hdr.EnableCalls);
+            runtime.Processes[100] = new(false, created);
+            clock.Advance(TimeSpan.FromSeconds(30));
+            clock.Tick();
+            await monitor.RecoveryTask.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(0, hdr.DisableCalls);
+            playtime.Verify(p => p.StopTracking("game"), Times.Never);
+            runtime.Sessions.Last().StopProcess(100);
+            playtime.Verify(p => p.StopTracking("game"), Times.Once);
+            Assert.Equal(1, hdr.DisableCalls);
+        }
+        finally { control.Stop(); }
+    }
 
     [Theory]
     [InlineData(false)]
@@ -338,6 +415,7 @@ public sealed class EtwProcessMonitorRecoveryTests
         automation.Start();
         monitor.Start();
         var oldSession = runtime.Sessions.Single();
+        runtime.Processes[100] = new(false, StartTime);
         oldSession.StartProcess(100);
         oldSession.End();
         await runtime.DelayEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -405,6 +483,15 @@ public sealed class EtwProcessMonitorRecoveryTests
         Assert.Equal(2, stopped.Count);
     }
 
+    private sealed class TrackingHdr : IHdrController
+    {
+        public bool IsEnabled { get; private set; }
+        public int EnableCalls { get; private set; }
+        public int DisableCalls { get; private set; }
+        public void Enable() { IsEnabled = true; EnableCalls++; }
+        public void Disable() { IsEnabled = false; DisableCalls++; }
+    }
+
     private sealed class FakeRuntime : IEtwRuntime
     {
         public List<EtwProcessEvent> ExistingProcesses { get; } = new();
@@ -414,6 +501,8 @@ public sealed class EtwProcessMonitorRecoveryTests
         public TaskCompletionSource DelayEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Continue { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool HoldRecovery { get; set; } = true;
+        public bool ReportSessionsActive { get; set; }
+        private readonly ConcurrentQueue<string> _sessionNames = new();
         public bool FailReplacements { get; set; }
         public bool EndReplacements { get; set; }
         public void EnsureElevated() { }
@@ -422,9 +511,10 @@ public sealed class EtwProcessMonitorRecoveryTests
             var replacement = !Sessions.IsEmpty;
             var session = new FakeSession(replacement && FailReplacements, replacement && EndReplacements);
             Sessions.Enqueue(session);
+            _sessionNames.Enqueue(name);
             return session;
         }
-        public IReadOnlyCollection<string> GetActiveSessionNames() => Array.Empty<string>();
+        public IReadOnlyCollection<string> GetActiveSessionNames() => ReportSessionsActive ? _sessionNames.ToArray() : Array.Empty<string>();
         public void StopSession(string name) => throw new InvalidOperationException("No live sessions may be stopped by unit tests");
         public ProcessProbe InspectProcess(int processId) => Processes.GetValueOrDefault(processId, new(false, null));
         public Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken)
