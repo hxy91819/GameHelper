@@ -1,5 +1,24 @@
 ﻿# Windowless launch and readiness verification, shared by deployment and published tests.
 # Function-only script: importing it never publishes, deploys, or starts a process.
+function Stop-PublishedDesktopInstances([string] $Executable) {
+    $instances = @(Get-Process -Name GameHelper.Desktop -ErrorAction SilentlyContinue)
+    foreach ($instance in $instances) {
+        $instance.Refresh()
+        if ($instance.HasExited) { continue }
+        if ([string]::IsNullOrWhiteSpace($instance.Path)) { throw 'Cannot verify a desktop instance path; refusing to stop it.' }
+        if ($instance.Path -ne $Executable) { continue }
+        try {
+            Stop-Process -InputObject $instance -Force
+            if (-not $instance.WaitForExit(30000)) { throw 'Desktop instance did not exit; aborting directory swap.' }
+        }
+        catch {
+            # The broker normally exits on its own as soon as its runtime stops.
+            $instance.Refresh()
+            if (-not $instance.HasExited) { throw }
+        }
+    }
+}
+
 function Start-RestoredDesktop([string] $Executable) {
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $Executable

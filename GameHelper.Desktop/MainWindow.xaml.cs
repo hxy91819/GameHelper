@@ -15,10 +15,10 @@ public partial class MainWindow : Window
     private ConsoleModeWindow? _consoleMode;
     internal void OpenConsoleMode()
     {
-        if (_consoleMode is not null) { _consoleMode.WindowState = WindowState.Normal; _consoleMode.Activate(); return; }
+        if (_consoleMode is not null) { WindowForegroundActivation.Restore(_consoleMode); return; }
         _consoleMode = new ConsoleModeWindow(this, _model);
         _consoleMode.Closed += (_,_) => _consoleMode = null;
-        _consoleMode.Show();
+        WindowForegroundActivation.Restore(_consoleMode);
     }
     private void OnConsoleMode(object sender, RoutedEventArgs e) => OpenConsoleMode();
     private void OnEmptyAction(object sender, RoutedEventArgs e)

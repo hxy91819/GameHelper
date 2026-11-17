@@ -187,6 +187,7 @@ public static class ConsoleHostBootstrapper
         if (OperatingSystem.IsWindows() && SystemTrayLogic.ShouldStart(parsedArgs.Background,
             Environment.GetEnvironmentVariable("GAMEHELPER_DATA_DIR")))
         {
+            services.AddHostedService<ControllerWakeBackgroundService>();
             services.AddSingleton<ISystemTrayService>(sp => new WindowsSystemTrayService(
                 () =>
                 {

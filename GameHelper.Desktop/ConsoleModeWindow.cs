@@ -114,7 +114,12 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
     }
     private void Handle(ControllerAction action)
     {
-        if (action == ControllerAction.ToggleConsoleMode) { Close(); return; }
+        if (action == ControllerAction.ToggleConsoleMode)
+        {
+            if (!IsActive || WindowState == WindowState.Minimized) WindowForegroundActivation.Restore(this);
+            else Close();
+            return;
+        }
         if (HandleActionOverlay(action)) return;
         if (launchState.ShowOverlay) { if (action == ControllerAction.Back) { launchState.Back(); Render(); } return; }
         if (action == ControllerAction.Back) { launchState.Back(); if (confirm) confirm = false; else if (detail) detail = false; else Close(); Render(); return; }

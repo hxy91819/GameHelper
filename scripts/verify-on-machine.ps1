@@ -327,6 +327,7 @@ $newDirectoryInstalled = $false
 $stoppedOldInstance = $false
 $relaunched = $null
 $desktopInstances = @()
+$restoreDesktop = $false
 $relaunchedDesktop = $null
 $oldSupportsBackground = $false
 if (Test-Path -LiteralPath (Join-Path $publishDir 'deploy-manifest.json')) {
@@ -346,15 +347,14 @@ try {
         throw 'Cannot verify a desktop instance path; preserving the current deployment.'
     }
     $desktopInstances = @($allDesktopInstances | Where-Object { $_.Path -eq $desktopExe })
+    foreach ($desktopInstance in $desktopInstances) {
+        $command = (Get-CimInstance Win32_Process -Filter "ProcessId = $($desktopInstance.Id)" -ErrorAction Stop).CommandLine
+        if ([string]::IsNullOrWhiteSpace($command)) { throw 'Cannot classify a desktop instance; preserving the current deployment.' }
+        if ($command -notmatch '(?:^|\s)--controller-wake(?:\s|$)') { $restoreDesktop = $true }
+    }
     if (($runningInstances.Count -gt 0 -or $desktopInstances.Count -gt 0) -and -not $Restart) {
         Write-Host "Publish directory is in use by GameHelper PID(s) $($runningInstances.Id -join ', '); keeping the existing deployment."
         return
-    }
-
-    foreach ($desktopInstance in $desktopInstances) {
-        # UI drafts are persisted separately from configuration before direct-update restarts.
-        Stop-Process -InputObject $desktopInstance -Force
-        if (-not $desktopInstance.WaitForExit(30000)) { throw 'Desktop instance did not exit; aborting deploy.' }
     }
 
     foreach ($inst in $runningInstances) {
@@ -363,6 +363,9 @@ try {
         $stoppedOldInstance = $true
         if (-not $inst.WaitForExit(30000)) { throw "GameHelper PID $($inst.Id) did not exit within 30s; aborting deploy." }
     }
+    # Stop the supervisor before its brokers, then re-enumerate to include a broker
+    # launched during the initial inventory. UI restoration excludes windowless brokers.
+    Stop-PublishedDesktopInstances $desktopExe
     if ($Restart) { Stop-OrphanedEtwSessions }
 
     if (Test-Path -LiteralPath $publishDir) {
@@ -388,7 +391,7 @@ try {
         if (-not $libraryResult.Success) { throw 'Desktop IPC health probe failed.' }
         Write-Host 'Desktop library IPC health check passed.'
         Write-Host "New GameHelper instance is running (PID $($relaunched.Id))."
-        if ($desktopInstances.Count -gt 0) {
+        if ($restoreDesktop) {
             $relaunchedDesktop = Start-RestoredDesktop $desktopExe
             Start-Sleep -Seconds 3
             $relaunchedDesktop.Refresh()
@@ -442,6 +445,7 @@ catch {
                 Stop-Process -InputObject $relaunched -Force
                 if (-not $relaunched.WaitForExit(30000)) { throw "Failed new instance did not exit; rollback directory remains at $backupDir" }
             }
+            Stop-PublishedDesktopInstances $desktopExe
             # Preserve the failed new build for diagnosis and restore the original
             # directory by a whole-directory move, without mixing individual files.
             Move-CheckedDirectory $publishDir $tempPublish $repoRoot $tempRoot
@@ -460,7 +464,7 @@ catch {
                 Write-Host "Previous GameHelper instance restored (PID $($restored.Id))."
             }
         }
-        if ($desktopInstances.Count -gt 0 -and (Test-Path -LiteralPath $desktopExe)) {
+        if ($restoreDesktop -and (Test-Path -LiteralPath $desktopExe)) {
             Start-RestoredDesktop $desktopExe | Out-Null
         }
     }

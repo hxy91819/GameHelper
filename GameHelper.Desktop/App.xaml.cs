@@ -16,6 +16,9 @@ public partial class App : Application
     private bool _ownsInstance;
     private EventWaitHandle? _consoleActivate;
     private RegisteredWaitHandle? _consoleWait;
+    private Input.TrayControllerWake? _controllerWake;
+    private System.Windows.Threading.DispatcherTimer? _wakeTimer;
+    private Process? _wakeRuntime;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -31,6 +34,11 @@ public partial class App : Application
             var config = Option(e.Args, "--config") ?? Path.Combine(
                 Environment.GetEnvironmentVariable("GAMEHELPER_DATA_DIR") ?? Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "GameHelper", "config.yml");
+            if (Option(e.Args, "--controller-wake") is { } runtimeId)
+            {
+                StartControllerWake(config, int.Parse(runtimeId, System.Globalization.CultureInfo.InvariantCulture));
+                return;
+            }
             if (background)
             {
                 var response = await RuntimeConnection.EnsureAsync(config);
@@ -98,6 +106,38 @@ public partial class App : Application
         }
     }
 
+    private void StartControllerWake(string config, int runtimeId)
+    {
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        _wakeRuntime = Process.GetProcessById(runtimeId);
+        var name = @"Local\" + GameLibraryPipe.NameFor(config) + ".Desktop";
+        _controllerWake = new(() => new Input.SdlControllerSource(), () =>
+        {
+            var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
+            start.ArgumentList.Add("--config"); start.ArgumentList.Add(config);
+            start.ArgumentList.Add("--console-mode");
+            using var process = Process.Start(start);
+        });
+        _wakeTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
+        _wakeTimer.Tick += (_, _) =>
+        {
+            try
+            {
+                if (_wakeRuntime.HasExited) { Shutdown(); return; }
+                // The normal UI owns the global chord as soon as it claims its mutex.
+                var open = Mutex.TryOpenExisting(name, out var library);
+                library?.Dispose();
+                _controllerWake.Poll(open);
+            }
+            catch (Exception ex)
+            {
+                File.WriteAllText(Path.Combine(Path.GetTempPath(), "GameHelper.ControllerWake-error.txt"), ex.ToString());
+                Shutdown(1); // Runtime supervision retries; monitoring remains available.
+            }
+        };
+        _wakeTimer.Start();
+    }
+
     private bool ClaimInstance(string config, bool activate, bool console = false)
     {
         var name = @"Local\" + GameLibraryPipe.NameFor(config) + ".Desktop";
@@ -128,6 +168,9 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _wakeTimer?.Stop();
+        try { _controllerWake?.Dispose(); } catch { /* Continue releasing application resources. */ }
+        _wakeRuntime?.Dispose();
         _consoleWait?.Unregister(null); _consoleActivate?.Dispose();
         _activationWait?.Unregister(null);
         _activate?.Dispose();
