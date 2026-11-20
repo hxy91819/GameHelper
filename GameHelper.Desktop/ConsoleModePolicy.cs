@@ -8,7 +8,6 @@ internal static class ConsoleModePolicy
         .Where(e => tab switch { 1 => e.LastPlayed >= clock.GetUtcNow().AddDays(-30), 2 => !e.Completed,
             3 => e.Manual == true || (e.Manual is null && e.Support == "full"), _ => true })
         .OrderByDescending(e => e.LastPlayed).ThenBy(e => e.Key, StringComparer.Ordinal);
-    internal static bool Confirm(string support, bool? manual) => manual == false ||
-        (manual is null && support is "partial" or "unlisted");
+    internal static bool RequiresLaunchConfirmation(bool? manualSupport) => manualSupport == false;
     internal static bool Restore(bool launchedHere, bool observedRunning, bool running) => launchedHere && observedRunning && !running;
 }

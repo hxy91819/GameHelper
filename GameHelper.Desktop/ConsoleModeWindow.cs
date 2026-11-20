@@ -33,7 +33,8 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
     private readonly WindowControllerInput input;
     private readonly DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(1) };
     private int tab;
-    private bool detail, confirm;
+    private bool detail;
+    private string? launchConfirmationKey;
     private string query = "";
     private readonly ConsoleRuntimeRefresh runtimeRefresh;
     private LibraryGameItem? Selected => shelf.SelectedItem as LibraryGameItem;
@@ -44,7 +45,39 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
         Title = "GameHelper 主机模式"; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         ConfigureTheme(Resources);
         BuildPresentation();
-        KeyDown += (_,e) => { var a = e.Key switch { Key.Left => ControllerAction.Left, Key.Right => ControllerAction.Right, Key.Enter => ControllerAction.Confirm, Key.Escape => ControllerAction.Back, Key.PageUp => ControllerAction.PreviousPage, Key.PageDown => ControllerAction.NextPage, Key.F2 => ControllerAction.SearchFinish, Key.F3 => ControllerAction.Auxiliary, _ => ControllerAction.None }; if (a != ControllerAction.None) { e.Handled = true; Handle(a); } };
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Up && !detail && overlayKind == ConsoleOverlay.None)
+            {
+                e.Handled = true;
+                Handle(ControllerAction.Up);
+                return;
+            }
+            if (e.Key != Key.Enter) return;
+            if (!e.IsRepeat && overlayKind != ConsoleOverlay.LaunchConfirm && !launchState.ShowOverlay) return;
+            if (!e.IsRepeat && overlayKind == ConsoleOverlay.LaunchConfirm &&
+                actionOverlay.IsKeyboardFocusWithin && Keyboard.FocusedElement is Button) return;
+            e.Handled = true;
+            if (!e.IsRepeat) Handle(ControllerAction.Confirm);
+        };
+        KeyDown += (_, e) =>
+        {
+            var action = e.Key switch
+            {
+                Key.Left => ControllerAction.Left,
+                Key.Right => ControllerAction.Right,
+                Key.Enter => ControllerAction.Confirm,
+                Key.Escape => ControllerAction.Back,
+                Key.PageUp => ControllerAction.PreviousPage,
+                Key.PageDown => ControllerAction.NextPage,
+                Key.F2 => ControllerAction.SearchFinish,
+                Key.F3 => ControllerAction.Auxiliary,
+                _ => ControllerAction.None
+            };
+            if (action == ControllerAction.None) return;
+            e.Handled = true;
+            Handle(action);
+        };
         input = new(this, actions => { UpdateHelp(); foreach (var a in actions) Handle(a); }, message => status.Text = message);
         Loaded += (_,_) => { PlaceOnLibraryMonitor(); library.Hide(); model.LaunchWindowHandoff = this; Reload(); };
         runtimeRefresh = new(async () =>
@@ -82,7 +115,7 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
         {
             // A refreshed installation state may remove the open game. Return to the shelf rather
             // than displaying another game's details with the old confirmation or rating.
-            detail = false; confirm = false; rating = "正在读取评分…";
+            detail = false; rating = "正在读取评分…";
             if (overlayKind is ConsoleOverlay.SystemMenu or ConsoleOverlay.Confirm)
             {
                 overlayKind = ConsoleOverlay.None; menuRows.Clear(); confirmationAction = null;
@@ -95,19 +128,22 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
     private void Render()
     {
         if (!CanRevealLaunch) launchState.Back(); // Keep process tracking, dismiss presentation from another collection.
+        if (overlayKind == ConsoleOverlay.LaunchConfirm && PendingLaunchConfirmation is null)
+            DismissLaunchConfirmation();
         launchOverlay.Visibility = launchState.ShowOverlay ? Visibility.Visible : Visibility.Collapsed;
         shelf.Visibility = detail ? Visibility.Collapsed : Visibility.Visible;
         details.Visibility = detail ? Visibility.Visible : Visibility.Collapsed;
         if (Selected is { } posterGame) { detailPoster.Artwork = posterGame.CoverArtwork; detailPoster.Label = posterGame.Initial; }
-        detailLaunchButton.Content = Selected?.IsRunning == true ? "回到游戏" : "启动游戏 / 确认";
+        detailLaunchButton.Content = Selected?.IsRunning == true ? "回到游戏" : "启动游戏";
         stopButton.Visibility = detail && Selected?.IsRunning == true ? Visibility.Visible : Visibility.Collapsed;
         if (Selected is { } g)
         {
             detailTitle.Text = g.Name;
             detailSummary.Text = $"{g.Playtime}  ·  {JournalStatus.Describe(model.ConsoleJournal(g.DataKey).Status)}\n{g.LastPlayedLabel}  ·  最近本局评分：{rating}";
-            detailController.Text = $"{g.Controller.Label}\n{g.Controller.Description}";
+            detailController.Text = g.ConsoleControllerLabel == g.Controller.Description
+                ? g.ConsoleControllerLabel : $"{g.ConsoleControllerLabel}\n{g.Controller.Description}";
             detailSettings.Text = $"{g.Summary}  ·  DS4Windows {(g.UseDs4Windows ? "启用" : "关闭")}";
-            info.Text = confirm ? "这款游戏仅部分支持或不支持手柄。请备好键鼠，再次确认即可启动。" : g.IsRunning ? "游戏正在运行。回到游戏继续冒险，或从系统菜单结束游戏。" : "准备好就出发。启动时会应用已保存的游戏自动化设置。";
+            info.Text = g.IsRunning ? "游戏正在运行。可以返回游戏，或从系统菜单结束游戏。" : "启动时会应用已保存的游戏自动化设置。";
         }
         status.Text = (CanRevealLaunch ? launchState.Message : null) ?? (interactionStatus.Length > 0 ? interactionStatus : !string.IsNullOrEmpty(model.ActionError) ? model.ActionError : settingsStatus.Length > 0 ? settingsStatus : model.Status);
         UpdatePresentation(); RenderActionOverlay(); UpdateHelp();
@@ -122,26 +158,78 @@ internal sealed partial class ConsoleModeWindow : Window, ILaunchWindowHandoff
         }
         if (HandleActionOverlay(action)) return;
         if (launchState.ShowOverlay) { if (action == ControllerAction.Back) { launchState.Back(); Render(); } return; }
-        if (action == ControllerAction.Back) { launchState.Back(); if (confirm) confirm = false; else if (detail) detail = false; else Close(); Render(); return; }
+        if (action == ControllerAction.Back)
+        {
+            launchState.Back();
+            if (detail)
+            {
+                detail = false;
+                Render();
+                shelf.Focus();
+            }
+            else Close();
+            return;
+        }
         if (action == ControllerAction.Confirm)
         {
             if (Selected is not { } game) return;
-            if (!detail) { detail = true; rating = "正在读取评分…"; Render(); _ = LoadRatingAsync(game.DataKey); return; }
             if (game.IsRunning) { _ = FocusSelectedAsync(); return; }
             if (launchState.Tracking) { Render(); return; }
-            if (!confirm && ConsoleModePolicy.Confirm(game.Controller.Status,game.Controller.Manual)) { confirm = true; Render(); return; }
-            model.Selected = game;
-            if (!model.LaunchCommand.CanExecute(null)) { Render(); return; }
-            if (!launchState.Begin(game.DataKey, game.Name)) return;
-            model.ConsoleLaunchRequestId = launchState.RequestId; confirm = false; Render(); model.LaunchFromPoster(); return;
+            _ = CheckAndStartGameAsync(game);
+            return;
         }
         if (detail) return;
+        if (action == ControllerAction.Up)
+        {
+            if (Selected is not { } game) return;
+            detail = true;
+            rating = "正在读取评分…";
+            Render();
+            detailLaunchButton.Focus();
+            _ = LoadRatingAsync(game.DataKey);
+            return;
+        }
         if (action is ControllerAction.PreviousShelfPage or ControllerAction.NextShelfPage)
         { PageShelf(shelf, action == ControllerAction.NextShelfPage); UpdatePresentation(); return; }
         if (action is ControllerAction.PreviousPage or ControllerAction.NextPage)
         { OpenCollection(tab == 4 ? 0 : (tab + (action == ControllerAction.NextPage ? 1 : 3)) % 4); return; }
         var offset = action == ControllerAction.Left ? -1 : action == ControllerAction.Right ? 1 : 0;
         if (offset != 0 && shelf.Items.Count > 0) { shelf.SelectedIndex = Math.Clamp(shelf.SelectedIndex + offset,0,shelf.Items.Count-1); shelf.ScrollIntoView(shelf.SelectedItem); UpdatePresentation(); }
+    }
+
+    private LibraryGameItem? PendingLaunchConfirmation =>
+        Selected is { IsRunning: false } game && game.DataKey == launchConfirmationKey && !launchState.Tracking
+            ? game : null;
+
+    private Task CheckAndStartGameAsync(LibraryGameItem game) => RunInteractionAsync(async () =>
+    {
+        // Read the saved override before launching, even if Steam metadata is still loading.
+        var manual = await model.ReadConsoleControllerManualAsync(game);
+        if (closed || Selected != game || game.IsRunning || overlayKind != ConsoleOverlay.None) return;
+        if (ConsoleModePolicy.RequiresLaunchConfirmation(manual))
+        {
+            launchConfirmationKey = game.DataKey;
+            overlayKind = ConsoleOverlay.LaunchConfirm;
+        }
+        else StartGame(game);
+    });
+
+    private void DismissLaunchConfirmation()
+    {
+        launchConfirmationKey = null;
+        overlayKind = ConsoleOverlay.None;
+    }
+
+    private void StartGame(LibraryGameItem game)
+    {
+        model.Selected = game;
+        if (model.LaunchCommand.CanExecute(null) && launchState.Begin(game.DataKey, game.Name))
+        {
+            model.ConsoleLaunchRequestId = launchState.RequestId;
+            Render();
+            model.LaunchFromPoster();
+        }
+        else Render();
     }
     internal static void PageShelf(ListBox shelf, bool next)
     {

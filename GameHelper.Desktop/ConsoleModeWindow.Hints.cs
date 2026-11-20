@@ -19,9 +19,10 @@ internal sealed partial class ConsoleModeWindow
         var hints = overlayKind != ConsoleOverlay.None ? OverlayHints() : launchState.ShowOverlay
             ? [new ControllerHint("关闭提示（保留等待）", Back), new("系统菜单", Menu)]
             : detail
-                ? [new ControllerHint(Selected?.IsRunning == true ? "回到游戏" : "启动 / 确认", Confirm), new("游戏设置", Auxiliary),
+                ? [new ControllerHint(Selected?.IsRunning == true ? "回到游戏" : "启动", Confirm), new("游戏设置", Auxiliary),
                     new("返回", Back), new(Selected?.IsRunning == true ? "系统菜单 / 结束游戏" : "系统菜单", Menu)]
-                : new ControllerHint[] { new("浏览", Horizontal), new("翻页", LeftTrigger, RightTrigger), new("详情", Confirm),
+                : new ControllerHint[] { new("浏览", Horizontal), new("翻页", LeftTrigger, RightTrigger),
+                    new(Selected?.IsRunning == true ? "回到游戏" : "启动", Confirm), new("详情", Up),
                     new("游戏设置", Auxiliary), new("退出主机模式", Back), new("搜索", Search), new("页签", LeftShoulder, RightShoulder), new("系统菜单", Menu) };
         help.Set(kind, hints);
         globalHelp.Set(kind, new ControllerHint("全局切换主机 / 桌面", ModeModifier, Menu) { Chord = true });
@@ -38,6 +39,7 @@ internal sealed partial class ConsoleModeWindow
         ConsoleOverlay.Notice => [new("返回", Back)],
         ConsoleOverlay.Rating => [new("选星", Horizontal), new("提交", Confirm), new("填写想法", Auxiliary), new("跳过", Back)],
         ConsoleOverlay.Confirm => [new("确认执行", Confirm), new("取消", Back)],
+        ConsoleOverlay.LaunchConfirm => [new("仍然启动", Confirm), new("返回", Back)],
         _ => [new("选择", Vertical), new("确认", Confirm), new("关闭菜单", Back)]
     };
 }

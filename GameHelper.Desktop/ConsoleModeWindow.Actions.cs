@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using GameHelper.Core.Models;
 using GameHelper.Desktop.Input;
@@ -9,7 +10,7 @@ namespace GameHelper.Desktop;
 
 internal sealed partial class ConsoleModeWindow
 {
-    private enum ConsoleOverlay { None, SystemMenu, Confirm, Keyboard, Password, Notice, Rating, Settings }
+    private enum ConsoleOverlay { None, SystemMenu, Confirm, LaunchConfirm, Keyboard, Password, Notice, Rating, Settings }
     private sealed record MenuRow(string Label, bool Enabled, Func<Task> Execute);
     private readonly Border actionOverlay = new() { Background = new SolidColorBrush(Color.FromArgb(235, 9, 10, 14)), Padding = new Thickness(24), Visibility = Visibility.Collapsed };
     private readonly Button stopButton = new() { Content = "结束游戏（需确认）", FontSize = 24, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0,15,0,0), Visibility = Visibility.Collapsed };
@@ -21,6 +22,7 @@ internal sealed partial class ConsoleModeWindow
     private string confirmationText = "";
     private string noticeText = "";
     private Func<Task>? confirmationAction;
+    private (string Key, string Name)? renderedLaunchConfirmation;
     private ConsoleKeyboard? keyboard;
     private bool editingThought;
     private SessionRatingEditorViewModel? ratingEditor;
@@ -179,6 +181,7 @@ internal sealed partial class ConsoleModeWindow
         try
         {
             var response = await ConsoleRequestAsync(new() { Operation = GameLibraryOperation.ConsoleRating, SessionId = ratingSession });
+            if (closed || overlayKind != ConsoleOverlay.None || actionBusy || launchState.Tracking) return;
             if (tab != 4 && response.RatedSession is { } hiddenSession && model.ConsoleGames.Any(game => game.DataKey == hiddenSession.DataKey && game.SavedAdult))
             { ratingDeadline = null; return; }
             if (response.RatedSession is { } session && ConsoleInteractionPolicy.Invite(ratingSession,session.SessionId,true,session.Rating is not null))
@@ -237,6 +240,18 @@ internal sealed partial class ConsoleModeWindow
             if (action == ControllerAction.Back) { confirmationAction = null; overlayKind = ConsoleOverlay.None; }
             else if (action == ControllerAction.Confirm && confirmationAction is { } execute) _ = RunInteractionAsync(execute);
         }
+        else if (overlayKind == ConsoleOverlay.LaunchConfirm)
+        {
+            if (action == ControllerAction.Back) DismissLaunchConfirmation();
+            else if (action == ControllerAction.Confirm)
+            {
+                var game = PendingLaunchConfirmation;
+                DismissLaunchConfirmation();
+                if (game is not null) { StartGame(game); return true; }
+            }
+            Render();
+            return true;
+        }
         else if (overlayKind == ConsoleOverlay.Rating && ratingEditor is not null)
         {
             if (action == ControllerAction.Left) ratingEditor.Stars = Math.Max(1,ratingEditor.Stars-1);
@@ -265,8 +280,17 @@ internal sealed partial class ConsoleModeWindow
     }
     private void RenderActionOverlay()
     {
+        (string Key, string Name)? launchConfirmation = overlayKind == ConsoleOverlay.LaunchConfirm && PendingLaunchConfirmation is { } game
+            ? (game.DataKey, game.Name) : null;
+        if (launchConfirmation is not null && launchConfirmation == renderedLaunchConfirmation) return;
+        var restoreFocus = renderedLaunchConfirmation is not null && launchConfirmation is null && actionOverlay.IsKeyboardFocusWithin;
+        renderedLaunchConfirmation = launchConfirmation;
         actionOverlay.Visibility = overlayKind == ConsoleOverlay.None ? Visibility.Collapsed : Visibility.Visible;
-        if (overlayKind == ConsoleOverlay.None) return;
+        if (overlayKind == ConsoleOverlay.None)
+        {
+            if (restoreFocus) RestoreSelectionFocus();
+            return;
+        }
         var panel = new StackPanel();
         overlayHelp = new ControllerHintBar { Foreground = ConsoleModeVisuals.Secondary };
         overlayHelp.Set(input.Kind, OverlayHints());
@@ -287,13 +311,27 @@ internal sealed partial class ConsoleModeWindow
                 panel.Children.Add(Button(row.Label,row.Enabled,i==menuIndex,() => _ = RunInteractionAsync(row.Execute),description));
             }
         }
-        else if (overlayKind == ConsoleOverlay.Confirm)
+        else if (overlayKind is ConsoleOverlay.Confirm or ConsoleOverlay.LaunchConfirm)
         {
-            ConsoleOverlayVisuals.Header(panel, "请确认操作", "确认后将执行以下操作。返回可取消。");
-            panel.Children.Add(ConsoleOverlayVisuals.Notice(confirmationText, warning: true));
+            bool confirmLaunch = overlayKind == ConsoleOverlay.LaunchConfirm;
+            if (confirmLaunch)
+                ConsoleOverlayVisuals.Header(panel, "手柄兼容性提示", $"「{launchConfirmation?.Name}」已手动标为不支持手柄。请备好键鼠。");
+            else
+            {
+                ConsoleOverlayVisuals.Header(panel, "请确认操作", "确认后将执行以下操作。返回可取消。");
+                panel.Children.Add(ConsoleOverlayVisuals.Notice(confirmationText, warning: true));
+            }
             var actions = new StackPanel { Margin = new Thickness(0, 20, 0, 0) }; panel.Children.Add(actions);
-            actions.Children.Add(Button("确认执行",true,true,() => HandleActionOverlay(ControllerAction.Confirm),primary:true));
-            actions.Children.Add(Button("取消，返回主机模式",true,false,() => HandleActionOverlay(ControllerAction.Back)));
+            var confirmButton = Button(confirmLaunch ? "仍然启动" : "确认执行",true,true,() => HandleActionOverlay(ControllerAction.Confirm),primary:true);
+            var backButton = Button(confirmLaunch ? "返回" : "取消，返回主机模式",true,false,() => HandleActionOverlay(ControllerAction.Back));
+            actions.Children.Add(confirmButton);
+            actions.Children.Add(backButton);
+            if (confirmLaunch)
+            {
+                KeyboardNavigation.SetAcceptsReturn(confirmButton, true);
+                KeyboardNavigation.SetAcceptsReturn(backButton, true);
+                confirmButton.Focus();
+            }
         }
         else if (overlayKind == ConsoleOverlay.Keyboard && keyboard is not null)
         {
@@ -352,5 +390,11 @@ internal sealed partial class ConsoleModeWindow
             actions.Children.Add(Button("清除评分",true,false,() => _ = SaveRatingAsync(clear: true)));
             actions.Children.Add(Button("跳过本次评分",true,false,() => HandleActionOverlay(ControllerAction.Back)));
         }
+    }
+
+    private void RestoreSelectionFocus()
+    {
+        if (detail) detailLaunchButton.Focus();
+        else shelf.Focus();
     }
 }

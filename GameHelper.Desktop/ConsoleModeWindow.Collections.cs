@@ -20,7 +20,7 @@ internal sealed partial class ConsoleModeWindow
     private void OpenCollectionCore(int index)
     {
         if ((tab == 4) != (index == 4)) { query = ""; launchState.Back(); }
-        tab = index; detail = false; confirm = false;
+        tab = index; detail = false; launchConfirmationKey = null;
         overlayKind = ConsoleOverlay.None; menuRows.Clear(); confirmationAction = null;
         interactionStatus = ""; settingsStatus = "";
         if (index != 4) privateCollection.Lock();

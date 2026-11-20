@@ -14,9 +14,11 @@ public class ConsoleModePolicyTests
         Assert.Equal(new[]{"old","manual"},ConsoleModePolicy.Select(games,3,clock).Select(e=>e.Key));
     }
     [Theory]
-    [InlineData("partial",null,true)] [InlineData("unlisted",null,true)] [InlineData("unknown",null,false)]
-    [InlineData("full",null,false)] [InlineData("full",false,true)] [InlineData("partial",true,false)]
-    public void LaunchWarningRespectsManualOverride(string support,bool? manual,bool expected) => Assert.Equal(expected,ConsoleModePolicy.Confirm(support,manual));
+    [InlineData(null, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void LaunchConfirmationOnlyForManuallyUnsupportedGames(bool? manual, bool expected) =>
+        Assert.Equal(expected, ConsoleModePolicy.RequiresLaunchConfirmation(manual));
     [Theory]
     [InlineData(true,true,false,true)] [InlineData(false,true,false,false)] [InlineData(true,false,false,false)] [InlineData(true,true,true,false)]
     public void RestoreOnlyAfterOurGameWasObservedRunning(bool own,bool seen,bool running,bool expected) => Assert.Equal(expected,ConsoleModePolicy.Restore(own,seen,running));

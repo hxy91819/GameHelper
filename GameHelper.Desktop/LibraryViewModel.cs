@@ -27,6 +27,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
     private readonly GameHelper.Infrastructure.Artwork.SteamGenreClient _genreClient;
     private static readonly System.Net.Http.HttpClient GenreHttp = new(new System.Net.Http.SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(12) };
     private readonly bool _allowGenreNetwork;
+    private readonly GameHelper.Infrastructure.Storage.Sqlite.SqliteConnectionFactory _controllerDatabase = new();
     private readonly GameHelper.Infrastructure.Storage.Sqlite.SqliteControllerSupportStore _controllerStore;
     private readonly GameHelper.Infrastructure.Artwork.SteamControllerSupportClient _controllerClient;
     private readonly string? _controllerConfig;
@@ -69,7 +70,7 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         _controllerConfig = configPath ?? metadataConfigPath;
         PrivatePasswords = sideData?.PrivatePasswords ?? new(configPath ?? metadataConfigPath);
         PrivateCollection = new(PrivatePasswords);
-        _controllerStore = new(new(), timeProvider ?? TimeProvider.System);
+        _controllerStore = new(_controllerDatabase, timeProvider ?? TimeProvider.System);
         _controllerClient = new(GenreHttp, _controllerStore, timeProvider ?? TimeProvider.System);
         _genreStore = sideData?.Genres ?? new LibraryGenreStore(configPath ?? metadataConfigPath);
         _scanStore = sideData?.Scan ?? new LibraryScanStore(configPath);
@@ -300,6 +301,19 @@ public sealed class LibraryViewModel : ObservableState, IDisposable
         catch (Exception ex) when (ex is IOException or InvalidOperationException or Microsoft.Data.Sqlite.SqliteException or UnauthorizedAccessException)
         { Status = "手柄支持信息暂不可用：" + ex.Message; }
     }
+    internal async Task<bool?> ReadConsoleControllerManualAsync(LibraryGameItem game)
+    {
+        var config = _controllerConfig;
+        if (config is null) return game.Controller.Manual;
+        var key = game.DataKey;
+        try { return await Task.Run(() => _controllerStore.Manual(config, key), _lifetime.Token); }
+        catch (Microsoft.Data.Sqlite.SqliteException) when (!File.Exists(_controllerDatabase.DatabasePath))
+        {
+            // The library can still launch games when it has fallen back to legacy storage.
+            return game.Controller.Manual;
+        }
+    }
+
     internal async Task SetControllerManualAsync(bool? value)
     {
         if (Selected is not { } game || _controllerConfig is null) return;

@@ -76,7 +76,10 @@ public sealed class ConsoleModeVisualTests
         Assert.Equal(2d / 3d, poster.ActualWidth / poster.ActualHeight, 3);
         Assert.True(first.ActualHeight <= viewportHeight - 8, $"Card {first.ActualHeight} clipped by {viewportHeight}px viewport");
         Assert.Equal(244, first.ActualWidth, 1);
-        Assert.Contains(labels, label => label.Text == "不支持手柄" && ((SolidColorBrush)label.Foreground).Color == Colors.Salmon);
+        Assert.Contains(labels, label => label.Text == "Steam 未标注手柄支持" && ((SolidColorBrush)label.Foreground).Color != Colors.Salmon);
+        unselectedGame.SetController(new ControllerSupport("unlisted", Manual: false));
+        surface.UpdateLayout();
+        Assert.Contains(labels, label => label.Text == "不支持手柄（手动）" && ((SolidColorBrush)label.Foreground).Color == Colors.Salmon);
         // The console's local palette must not mutate the desktop's active palette.
         var desktopPalette = resources.MergedDictionaries[0];
         Assert.Equal(desktopTheme == "Light" ? Color.FromRgb(32, 32, 32) : Color.FromRgb(239, 237, 244),

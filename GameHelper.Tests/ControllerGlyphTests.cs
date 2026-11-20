@@ -50,7 +50,7 @@ public sealed class ControllerGlyphTests
         catalog.Set(kind, Enum.GetValues<ControllerButton>().Select(button => new ControllerHint(ControllerGlyphs.Name(kind, button), button)).ToArray());
         panel.Children.Add(catalog);
         var home = new ControllerHintBar();
-        home.Set(kind, new("浏览", Horizontal), new("翻页", LeftTrigger, RightTrigger), new("详情", Confirm), new("游戏设置", Auxiliary),
+        home.Set(kind, new("浏览", Horizontal), new("翻页", LeftTrigger, RightTrigger), new("启动", Confirm), new("详情", Up), new("游戏设置", Auxiliary),
             new("退出主机模式", Back), new("搜索", Search), new("页签", LeftShoulder, RightShoulder), new("系统菜单", ControllerButton.Menu));
         panel.Children.Add(home);
         var chord = new ControllerHintBar { FontSize = 13, Foreground = ConsoleModeVisuals.Secondary, Margin = new Thickness(0, 10, 0, 15) };

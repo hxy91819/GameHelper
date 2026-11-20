@@ -9,13 +9,19 @@ public sealed class LibraryGameItem : ObservableState
 {
     private ControllerSupport _controller = new();
     public ControllerSupport Controller => _controller;
+    public string ConsoleControllerLabel => Controller is { Status: "unlisted", Manual: null }
+        ? "Steam 未标注手柄支持" : Controller.Label;
     internal int ControllerVersion;
     internal (string Executable, string Target, uint? AppId)? ControllerIdentity;
     internal bool ControllerQueued;
     internal Task ControllerLoading = Task.CompletedTask;
     internal DateTimeOffset ControllerRefreshAfter;
     internal void SetController(ControllerSupport value)
-    { _controller = value; Changed(nameof(Controller)); }
+    {
+        _controller = value;
+        Changed(nameof(Controller));
+        Changed(nameof(ConsoleControllerLabel));
+    }
     internal const string DefaultDs4WindowsPath = @"D:\Program Files\DS4Windows\DS4Windows\DS4Windows.exe";
     private bool _useDs4Windows;
     private string _ds4WindowsPath;

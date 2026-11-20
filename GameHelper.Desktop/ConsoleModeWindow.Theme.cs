@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using GameHelper.Desktop.Input;
@@ -31,6 +32,7 @@ internal sealed partial class ConsoleModeWindow
     private readonly Grid contentBody = new();
     private readonly Grid detailGrid = new();
     private readonly StackPanel detailBody = new();
+    private readonly Button openDetailsButton = new() { Content = "详情", FontSize = 16, Margin = new Thickness(16, 0, 0, 0) };
 
     private void BuildPresentation()
     {
@@ -58,8 +60,14 @@ internal sealed partial class ConsoleModeWindow
         catalogState.HorizontalAlignment = HorizontalAlignment.Right; catalogState.VerticalAlignment = VerticalAlignment.Center; brandRow.Children.Add(catalogState);
         header.Children.Add(brandRow);
         var titles = new Grid();
+        titles.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        titles.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         heading.FontSize = 34; heading.FontWeight = FontWeights.SemiBold; heading.TextTrimming = TextTrimming.CharacterEllipsis;
-        titles.Children.Add(heading); header.Children.Add(titles);
+        titles.Children.Add(heading);
+        Grid.SetColumn(openDetailsButton, 1);
+        openDetailsButton.Click += (_, _) => Handle(ControllerAction.Up);
+        titles.Children.Add(openDetailsButton);
+        header.Children.Add(titles);
         selectionSummary.Margin = new Thickness(0, 6, 0, 16); selectionSummary.TextWrapping = TextWrapping.NoWrap; selectionSummary.TextTrimming = TextTrimming.CharacterEllipsis;
         header.Children.Add(selectionSummary);
         var tabs = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 18) }; header.Children.Add(tabs);
@@ -76,7 +84,12 @@ internal sealed partial class ConsoleModeWindow
         contentBody.Children.Add(shelf); contentBody.Children.Add(details);
         emptyState.HorizontalAlignment = HorizontalAlignment.Center; emptyState.VerticalAlignment = VerticalAlignment.Center; emptyState.TextAlignment = TextAlignment.Center; contentBody.Children.Add(emptyState);
         ConfigureShelf(shelf); shelf.SelectionChanged += (_, _) => UpdatePresentation();
-        shelf.MouseDoubleClick += (_, _) => Handle(ControllerAction.Confirm);
+        shelf.MouseDoubleClick += (_, e) =>
+        {
+            if (e.ChangedButton == MouseButton.Left && e.OriginalSource is DependencyObject source &&
+                ItemsControl.ContainerFromElement(shelf, source) is ListBoxItem { IsSelected: true })
+                Handle(ControllerAction.Confirm);
+        };
         details.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         details.RowDefinitions.Add(new() { Height = GridLength.Auto });
         var detailScroll = new ScrollViewer { Content = detailGrid, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
@@ -110,6 +123,7 @@ internal sealed partial class ConsoleModeWindow
         footerBody.Children.Add(globalHelp);
         Grid.SetRow(footer, 2); presentation.Children.Add(footer);
         scene.Children.Add(launchOverlay); scene.Children.Add(actionOverlay);
+        KeyboardNavigation.SetTabNavigation(actionOverlay, KeyboardNavigationMode.Cycle);
         launchOverlay.Background = ConsoleModeVisuals.Brush("#F5101116");
         SizeChanged += (_, _) => UpdatePresentationGeometry();
         contentBody.SizeChanged += (_, _) => UpdatePresentationGeometry();
@@ -136,7 +150,8 @@ internal sealed partial class ConsoleModeWindow
     {
         catalogState.Text = $"●  {(model.Connected ? "已连接" : "正在连接")}  ·  {shelf.Items.Count} 款游戏";
         heading.Text = detail ? "游戏详情" : Selected?.Name ?? "今晚，继续冒险。";
-        selectionSummary.Text = Selected is { } game ? $"{game.TotalHours}  ·  {game.Controller.Label}  ·  {game.LastPlayedLabel}" : query.Length > 0 ? $"没有找到“{query}” · 试试其他关键词" : "让每一段冒险，都值得珍藏。";
+        selectionSummary.Text = Selected is { } game ? $"{game.TotalHours}  ·  {game.ConsoleControllerLabel}  ·  {game.LastPlayedLabel}" : query.Length > 0 ? $"没有找到“{query}” · 试试其他关键词" : "让每一段冒险，都值得珍藏。";
+        openDetailsButton.Visibility = !detail && Selected is not null ? Visibility.Visible : Visibility.Collapsed;
         var artwork = Selected?.BannerArtwork ?? Selected?.DetailArtwork;
         if (!ReferenceEquals(backdrop.Source, artwork)) backdrop.Source = artwork;
         heading.ToolTip = Selected?.Name;
@@ -205,13 +220,13 @@ internal sealed partial class ConsoleModeWindow
         var panel = new FrameworkElementFactory(typeof(StackPanel)); panel.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal); shelf.ItemsPanel = new ItemsPanelTemplate(panel);
         var card = new FrameworkElementFactory(typeof(StackPanel)); card.SetValue(FrameworkElement.WidthProperty, 220d); card.SetValue(FrameworkElement.MarginProperty, new Thickness(10));
         var image = new FrameworkElementFactory(typeof(GamePosterTile)); image.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center); image.SetBinding(FrameworkElement.WidthProperty, new Binding("Tag") { RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(ListBox), 1), Converter = new PosterWidthConverter(), FallbackValue = 206.6666666667d }); image.SetBinding(FrameworkElement.HeightProperty, new Binding("Tag") { RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(ListBox), 1), FallbackValue = 310d }); image.SetBinding(GamePosterTile.ArtworkProperty, new Binding("CoverArtwork")); image.SetBinding(GamePosterTile.LabelProperty, new Binding("Initial")); card.AppendChild(image);
-        foreach (var prop in new[] { "Name", "TotalHours", "Controller.Label" }) { var text = new FrameworkElementFactory(typeof(TextBlock)); text.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap); text.SetValue(TextBlock.FontSizeProperty, prop == "Name" ? 18d : 15d); text.SetValue(FrameworkElement.MarginProperty, new Thickness(0, prop == "Name" ? 10 : 4, 0, 0)); text.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis); text.SetValue(FrameworkElement.HeightProperty, prop == "Name" ? 25d : 21d); text.SetValue(TextBlock.TextWrappingProperty, TextWrapping.NoWrap); text.SetBinding(TextBlock.TextProperty, new Binding(prop));
+        foreach (var prop in new[] { "Name", "TotalHours", nameof(LibraryGameItem.ConsoleControllerLabel) }) { var text = new FrameworkElementFactory(typeof(TextBlock)); text.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap); text.SetValue(TextBlock.FontSizeProperty, prop == "Name" ? 18d : 15d); text.SetValue(FrameworkElement.MarginProperty, new Thickness(0, prop == "Name" ? 10 : 4, 0, 0)); text.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis); text.SetValue(FrameworkElement.HeightProperty, prop == "Name" ? 25d : 21d); text.SetValue(TextBlock.TextWrappingProperty, TextWrapping.NoWrap); text.SetBinding(TextBlock.TextProperty, new Binding(prop));
             if (prop == "Name") text.SetBinding(FrameworkElement.ToolTipProperty, new Binding("Name"));
             var style = new Style(typeof(TextBlock));
             style.Setters.Add(new Setter(TextBlock.ForegroundProperty, prop == "Name" ? ConsoleModeVisuals.Text : ConsoleModeVisuals.Secondary));
-            if (prop == "Controller.Label")
+            if (prop == nameof(LibraryGameItem.ConsoleControllerLabel))
             {
-                var red = new DataTrigger { Binding = new Binding("Controller.Unsupported"), Value = true };
+                var red = new DataTrigger { Binding = new Binding("Controller.Manual"), Value = false };
                 red.Setters.Add(new Setter(TextBlock.ForegroundProperty, Brushes.Salmon)); style.Triggers.Add(red);
             }
             text.SetValue(FrameworkElement.StyleProperty, style);

@@ -10,7 +10,7 @@ namespace GameHelper.Desktop;
 internal enum ControllerButton
 {
     Confirm, Back, Auxiliary, Search, Menu, ModeModifier,
-    Directions, Horizontal, Vertical, LeftShoulder, RightShoulder, LeftTrigger, RightTrigger
+    Directions, Horizontal, Vertical, LeftShoulder, RightShoulder, LeftTrigger, RightTrigger, Up
 }
 
 /// <summary>Local vector button artwork; face symbols never depend on installed fonts.</summary>
@@ -46,6 +46,7 @@ internal static class ControllerGlyphs
         ControllerButton.RightTrigger => kind == ControllerKind.PlayStation ? "R2" : "RT",
         ControllerButton.Horizontal => "方向键左右 / 左摇杆左右",
         ControllerButton.Vertical => "方向键上下 / 左摇杆上下",
+        ControllerButton.Up => "方向键上 / 左摇杆向上",
         _ => "方向键 / 左摇杆"
     };
 
@@ -85,6 +86,8 @@ internal static class ControllerGlyphs
                 else if (ps) Shape("M10,11 L7,8 M16,10 V6 M22,11 L25,8 M12,16 H20 V23 H12 Z");
                 else Shape("M8,10 H19 V19 H8 Z M13,14 H24 V23 H13");
             }
+            else if (button == ControllerButton.Up)
+                Shape("M16,26 V6 M8,14 L16,6 L24,14");
             else
             {
                 Shape("M12,3 H20 V12 H29 V20 H20 V29 H12 V20 H3 V12 H12 Z");
