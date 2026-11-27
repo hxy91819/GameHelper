@@ -11,6 +11,31 @@ namespace GameHelper.Tests;
 public sealed class GameActionExecutionTests
 {
     [Fact]
+    public void LaterPreActionFailure_RollsBackOwnedCompanions()
+    {
+        using var app = new Fixture();
+        app.Game.Actions = [Action("managed") with { StopOnGameExit = true }, Action("fail")];
+        app.OnAction = action => { if (action.Path == "fail") throw new IOException("failed"); };
+        Assert.Throws<InvalidOperationException>(() => app.Service.Launch("game"));
+        Assert.Contains("end:game", app.Calls);
+        Assert.DoesNotContain("game", app.Calls);
+    }
+
+    [Fact]
+    public void OwnedActions_AreScopedAndEndOnlyAfterLastGameProcess()
+    {
+        using var app = new Fixture();
+        app.Game.Actions = [Action("managed") with { SingleInstance = true, StopOnGameExit = true }];
+        app.Service.Launch("game");
+        Assert.Contains("owned:game:managed", app.Calls);
+        app.Start(100); app.Start(101);
+        app.Stop(100);
+        Assert.DoesNotContain("end:game", app.Calls);
+        app.Stop(101);
+        Assert.True(SpinWait.SpinUntil(() => app.Calls.Contains("end:game"), TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
     public void LibraryLaunch_BeforeActionsRunInListOrderBeforeGame()
     {
         using var app = new Fixture();
@@ -278,6 +303,9 @@ public sealed class GameActionExecutionTests
             config.Setup(value => value.Read()).Returns(new AppConfig { Games = [Game, Other] });
             var launcher = new Mock<IGameLauncher>();
             launcher.Setup(value => value.ExecuteAction(It.IsAny<GameAction>())).Callback<GameAction>(action => { Calls.Enqueue(action.Path); OnAction?.Invoke(action); });
+            launcher.Setup(value => value.ExecuteAction(It.IsAny<string>(), It.IsAny<GameAction>()))
+                .Callback<string, GameAction>((key, action) => Calls.Enqueue($"owned:{key}:{action.Path}"));
+            launcher.Setup(value => value.EndGameActions(It.IsAny<string>())).Callback<string>(key => { if (Game.Actions?.Any(a => a.StopOnGameExit == true) == true) Calls.Enqueue($"end:{key}"); });
             launcher.Setup(value => value.Start(It.IsAny<GameLaunchOptions>())).Callback(() => Calls.Enqueue("game"));
             var store = new Mock<IInFlightSessionStore>();
             store.Setup(value => value.Load()).Returns(snapshot);

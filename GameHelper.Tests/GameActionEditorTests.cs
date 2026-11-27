@@ -6,6 +6,21 @@ namespace GameHelper.Tests;
 public sealed class GameActionEditorTests
 {
     [Fact]
+    public void ManagedOptions_SurviveDraftAndDisableForWaitOrAfterExit()
+    {
+        var editor = new GameActionEditor(null, () => { });
+        var item = editor.Add(); item.Path = @"C:\Tools\run.exe";
+        item.SingleInstance = true; item.StopOnGameExit = true;
+        var restored = new GameActionEditor(editor.Snapshot(), () => { });
+        Assert.True(Assert.Single(restored.Save()!).StopOnGameExit);
+        item.Wait = true;
+        Assert.False(item.CanManage);
+        Assert.Null(Assert.Single(editor.Save()!).StopOnGameExit);
+        item.Wait = false; item.When = "afterExit";
+        Assert.Null(Assert.Single(editor.Save()!).SingleInstance);
+    }
+
+    [Fact]
     public void Editor_AddEditReorderDeleteAndSave_PreservesExecutionOrder()
     {
         var edits = 0;

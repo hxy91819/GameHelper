@@ -61,6 +61,12 @@ games:
     #     path: C:\Tools\prepare.exe
     #     arguments: --game project-plague
     #     wait: true # 可选，默认 false；最多等待退出 30 秒
+    #   - when: beforeLaunch
+    #     type: run
+    #     path: C:\Windows\System32\cmd.exe
+    #     arguments: /d /c ""C:\Tools\helper.bat""
+    #     singleInstance: true # 仅复用本游戏自己启动的相同路径+参数
+    #     stopOnGameExit: true # 不等待退出；游戏结束时清理整棵进程树
     #   - when: afterExit
     #     type: close
     #     path: C:\Tools\overlay.exe # 仅当前登录会话、完整路径一致的进程

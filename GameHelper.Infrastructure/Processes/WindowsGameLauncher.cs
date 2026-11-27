@@ -36,9 +36,23 @@ public sealed class WindowsGameLauncher : IGameLauncher
         return _startEntry(options);
     }
 
+    private readonly OwnedActionProcesses _ownedActions = new();
+
+    public void ExecuteAction(string dataKey, GameAction action)
+    {
+        action.Validate();
+        if (action.SingleInstance == true || action.StopOnGameExit == true)
+            _ownedActions.Run(dataKey, action);
+        else ExecuteAction(action);
+    }
+
+    public void EndGameActions(string dataKey) => _ownedActions.EndGame(dataKey);
+
     public void ExecuteAction(GameAction action)
     {
         action.Validate();
+        if (action.SingleInstance == true || action.StopOnGameExit == true)
+            throw new InvalidOperationException("受管理动作需要游戏标识。");
         if (action.Type == "close") { Ds4WindowsProcess.StopRunning(action.Path); return; }
         if (!File.Exists(action.Path)) throw new ArgumentException($"动作程序不存在：{action.Path}");
         var start = Ds4WindowsProcess.CreateStartInfo(action.Path);

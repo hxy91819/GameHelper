@@ -12,6 +12,10 @@ public interface IGameLauncher
     int? StartTracked(GameLaunchOptions options) { Start(options); return null; }
     /// <summary>Runs or closes an executable action; throws if it fails or exceeds its wait deadline.</summary>
     void ExecuteAction(GameAction action);
+    /// <summary>Runs an action scoped to a game; adapters may manage owned process trees.</summary>
+    void ExecuteAction(string dataKey, GameAction action) => ExecuteAction(action);
+    /// <summary>Ends owned companions opted into game-exit cleanup. Called outside the state lock.</summary>
+    void EndGameActions(string dataKey) { }
     /// <summary>Starts or reuses a companion without validating or starting the game's launch entry.</summary>
     void EnsureCompanionRunning(string executablePath);
     /// <summary>Stops running DS4Windows instances for a game with controller support disabled.</summary>

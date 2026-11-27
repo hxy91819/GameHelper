@@ -48,6 +48,19 @@ public sealed class GameActionConfigurationTests : IDisposable
         Assert.Equal(actions, new GameCatalogService(provider).List().Single().Actions);
     }
 
+    [Fact]
+    public void ManagedOptions_RoundTripAndRejectIncompatibleTriggers()
+    {
+        var action = new GameAction { When = "beforeLaunch", Type = "run", Path = @"C:\Tools\run.exe", SingleInstance = true, StopOnGameExit = true };
+        var provider = new YamlConfigProvider(ConfigPath);
+        provider.Change(config => config.Games = [new() { DataKey = "game", Executable = "game.exe", Actions = [action] }]);
+        Assert.Equal(action, Assert.Single(provider.Read().Games.Single().Actions!));
+        Assert.True(YamlConfigValidator.Validate(ConfigPath).IsValid);
+        Assert.Throws<ArgumentException>(() => (action with { Wait = true }).Validate());
+        Assert.Throws<ArgumentException>(() => (action with { When = "afterExit" }).Validate());
+        Assert.Throws<ArgumentException>(() => (action with { Type = "close" }).Validate());
+    }
+
     [Theory]
     [InlineData("beforeLaunch", "run", "relative.exe")]
     [InlineData("beforeLaunch", "run", "C:relative.exe")]

@@ -12,6 +12,13 @@ public sealed record GameAction
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? Wait { get; init; }
 
+    /// <summary>Reuses only an identical action owned by this game, never arbitrary user processes.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SingleInstance { get; init; }
+    /// <summary>Terminates this action's owned process tree when the last game process exits.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? StopOnGameExit { get; init; }
+
     /// <summary>Checks stored Windows executable shape without probing installation.</summary>
     public void Validate()
     {
@@ -22,6 +29,8 @@ public sealed record GameAction
               (Path.StartsWith(@"\\") && Path.Trim('\\').Split('\\').Length >= 3)) ||
             !Path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("path must be an absolute Windows .exe path.");
+        if ((SingleInstance == true || StopOnGameExit == true) && (Type != "run" || When != "beforeLaunch" || Wait == true))
+            throw new ArgumentException("进程管理选项仅支持不等待退出的启动前运行动作。");
         if (Type == "close" && Wait is not null) throw new ArgumentException("wait is only supported for run actions.");
     }
 }

@@ -424,6 +424,11 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
             try { _launchOwnership.UpdateHdrState(); }
             finally { _inFlightRecovery.PersistInFlightSnapshot(); }
 
+            if (isLastForDataKey)
+            {
+                var endedKey = entry.DataKey;
+                _afterExitActions.EnqueueCleanup(() => EndOwnedActionsIfIdle(endedKey, generation), generation);
+            }
             _afterExitActions.Enqueue(exitActions, generation);
             if (_sessionTracker.ActiveCount == 0 && hadAnyActive)
             {
@@ -444,6 +449,19 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
 
         // Preset switching performs DDC/CI bus I/O; keep it outside the state lock.
         _monitorMode.Update(forced: true);
+    }
+
+    private void EndOwnedActionsIfIdle(string dataKey, long generation)
+    {
+        // Serialize with library launches; never perform process/file I/O on the monitor callback.
+        lock (_companionLock)
+        {
+            lock (_stateLock)
+                if (!_started || generation != _generation
+                    || _sessionTracker.GetActiveDataKeysSnapshot().Contains(dataKey, StringComparer.OrdinalIgnoreCase)
+                    || (_launchOwnership.GetGameStates().TryGetValue(dataKey, out var state) && state == "启动中")) return;
+            _gameLauncher?.EndGameActions(dataKey);
+        }
     }
 
     private AppConfig LoadAndBuildIndexes()
@@ -488,13 +506,30 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
         {
             lock (_stateLock)
                 if (!_started || generation != _generation) throw new InvalidOperationException("启动已取消。");
-            _launchOwnership.Launch(dataKey,
-                game => ExecuteActions((game.Actions ?? []).Where(action => action.When == "beforeLaunch").ToArray(), generation),
-                () => _started && generation == _generation, requestId);
+            try
+            {
+                _launchOwnership.Launch(dataKey,
+                    game => ExecuteActions(game.DataKey, (game.Actions ?? []).Where(action => action.When == "beforeLaunch").ToArray(), generation),
+                    () => _started && generation == _generation, requestId);
+            }
+            catch
+            {
+                bool canClean;
+                lock (_stateLock)
+                    canClean = _started && generation == _generation
+                        && !_sessionTracker.GetActiveDataKeysSnapshot().Contains(dataKey, StringComparer.OrdinalIgnoreCase)
+                        && (!_launchOwnership.GetGameStates().TryGetValue(dataKey, out var state) || state != "启动中");
+                if (canClean)
+                {
+                    try { _gameLauncher?.EndGameActions(dataKey); }
+                    catch (Exception ex) { _logger.LogWarning(ex, "Failed to roll back owned actions for {DataKey}", dataKey); }
+                }
+                throw;
+            }
         }
     }
 
-    private void ExecuteActions(IReadOnlyList<GameAction> actions, long generation)
+    private void ExecuteActions(string dataKey, IReadOnlyList<GameAction> actions, long generation)
     {
         foreach (var action in actions)
         {
@@ -510,7 +545,9 @@ public sealed class GameAutomationService : IGameAutomationService, IGameLaunchC
                 try
                 {
                     if (_gameLauncher is null) throw new InvalidOperationException("动作执行器不可用。");
-                    _gameLauncher.ExecuteAction(action);
+                    if (action.SingleInstance == true || action.StopOnGameExit == true)
+                        _gameLauncher.ExecuteAction(dataKey, action);
+                    else _gameLauncher.ExecuteAction(action);
                 }
                 catch (Exception ex)
                 {

@@ -38,6 +38,13 @@ games:
     enabled: true
     hdr: false
     # speed: 2.0
+    # actions:
+    #   - when: beforeLaunch
+    #     type: run
+    #     path: C:\Tools\helper.exe
+    #     wait: false
+    #     singleInstance: true
+    #     stopOnGameExit: true
     # speedAttach: immediate
     # launch:
     #   target: C:\Windows\System32\notepad.exe

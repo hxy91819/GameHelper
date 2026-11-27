@@ -113,6 +113,8 @@
            <Button Content="选择动作程序…" Click="OnChooseAction" />
            <TextBox Text="{Binding Arguments, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsRun}" AutomationProperties.Name="动作参数" ToolTip="可选启动参数" />
            <CheckBox Content="等待退出（最多 30 秒）" IsChecked="{Binding Wait}" IsEnabled="{Binding IsRun}" />
+           <CheckBox Content="避免重复启动此动作" IsChecked="{Binding SingleInstance}" IsEnabled="{Binding CanManage}" />
+           <CheckBox Content="随游戏退出结束本次启动的程序及子进程" IsChecked="{Binding StopOnGameExit}" IsEnabled="{Binding CanManage}" />
            <StackPanel Orientation="Horizontal"><Button Content="上移" Click="OnMoveActionUp" /><Button Content="下移" Click="OnMoveActionDown" Margin="8,0" /><Button Content="删除" Click="OnRemoveAction" /></StackPanel>
           </StackPanel>
          </Border></DataTemplate></ItemsControl.ItemTemplate>

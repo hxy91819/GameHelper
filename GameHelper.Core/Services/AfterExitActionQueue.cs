@@ -50,7 +50,16 @@ internal sealed class AfterExitActionQueue
         lock (_stateLock)
         {
             if (_current is not { } run || run.Generation != generation || !_isCurrent(generation)) return;
-            foreach (var action in actions) run.Queue.Writer.TryWrite(action);
+            foreach (var action in actions) run.Queue.Writer.TryWrite(new(() => _execute(action), action.Path));
+        }
+    }
+
+    internal void EnqueueCleanup(Action cleanup, long generation)
+    {
+        lock (_stateLock)
+        {
+            if (_current is not { } run || run.Generation != generation || !_isCurrent(generation)) return;
+            run.Queue.Writer.TryWrite(new(cleanup, "owned action cleanup"));
         }
     }
 
@@ -101,7 +110,7 @@ internal sealed class AfterExitActionQueue
                     // running-state check. Never hold the admission lock across process I/O.
                     _executingThreadId = Environment.CurrentManagedThreadId;
                 }
-                try { _execute(action); }
+                try { action.Execute(); }
                 catch (Exception ex) { _logger.LogWarning(ex, "After-exit action failed: {Path}", action.Path); }
                 finally
                 {
@@ -130,10 +139,12 @@ internal sealed class AfterExitActionQueue
 
     internal readonly record struct DrainRequest(Task Completion, bool CalledFromAction);
 
+    private sealed record Work(Action Execute, string Path);
+
     private sealed class Run(long generation)
     {
         internal long Generation { get; } = generation;
-        internal Channel<GameAction> Queue { get; } = Channel.CreateUnbounded<GameAction>(new()
+        internal Channel<Work> Queue { get; } = Channel.CreateUnbounded<Work>(new()
         {
             SingleReader = true, AllowSynchronousContinuations = false
         });
